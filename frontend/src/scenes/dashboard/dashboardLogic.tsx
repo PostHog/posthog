@@ -1447,27 +1447,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setRefreshStatus(insight.short_id, true, true)
 
                         try {
-                            // Make a synchronous POST /query call
-                            const filtersOverride = action === 'preview' ? values.temporaryFilters : values.filters
-                            const variablesOverride =
-                                action === 'preview' ? values.temporaryVariables : values.insightVariables
-
-                            await api.query(
-                                insight.query!,
-                                methodOptions,
-                                queryId,
-                                'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
-                                filtersOverride,
-                                variablesOverride
-                            )
-
-                            // Fetch the insight with the calculated result from cache
                             const syncInsight = await getSingleInsight(
                                 values.currentTeamId,
                                 insight,
                                 dashboardId,
                                 queryId,
-                                'force_cache',
+                                'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
                                 methodOptions,
                                 // dashboard id already passed above
                                 action === 'preview' ? values.temporaryFilters : undefined,

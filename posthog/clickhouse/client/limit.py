@@ -172,6 +172,7 @@ class RateLimit:
 
 __API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
+__APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 
 
 def get_api_personal_rate_limiter():
@@ -205,9 +206,26 @@ def get_app_org_rate_limiter():
     global __APP_CONCURRENT_QUERY_PER_ORG
     if __APP_CONCURRENT_QUERY_PER_ORG is None:
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
-            max_concurrency=10,
+            max_concurrency=20,
             limit_name="app_per_org",
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
+            get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
+            ttl=600,
+        )
+    return __APP_CONCURRENT_QUERY_PER_ORG
+
+
+def get_app_dashboard_queries_rate_limiter():
+    """
+    Limits the number of concurrent queries (running outside celery) per organization.
+    """
+    global __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
+    if __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG is None:
+        __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
+            max_concurrency=4,
+            applicable=lambda *args, **kwargs: not TEST and kwargs.get("dashboard_id"),
+            limit_name="app_dashboard_queries_per_org",
+            get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
             ttl=600,
         )
