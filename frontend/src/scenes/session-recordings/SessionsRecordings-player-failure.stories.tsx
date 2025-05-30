@@ -170,6 +170,10 @@ export function NotFound(): JSX.Element {
     return <App />
 }
 
+NotFound.parameters = {
+    testOptions: { waitForSelector: '[data-attr="not-found-recording"]' },
+}
+
 export function PastTTL(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replaySingle('past-ttl'))
