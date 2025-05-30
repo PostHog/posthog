@@ -406,6 +406,7 @@ export function HogFunctionInputWithSchema({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource } = useValues(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(false)
+    const [allowLiquid, setAllowLiquid] = useState(schema.type === 'email' && schema.templating === false)
 
     const value = configuration.inputs?.[schema.key]
 
@@ -427,6 +428,11 @@ export function HogFunctionInputWithSchema({
         }
 
         setConfigurationValue('inputs_schema', inputsSchema)
+    }
+
+    const handleLiquidToggle = (enabled: boolean): void => {
+        setAllowLiquid(enabled)
+        onSchemaChange({ templating: !enabled })
     }
 
     useEffect(() => {
@@ -492,6 +498,22 @@ export function HogFunctionInputWithSchema({
                                             Supports templating
                                         </LemonButton>
                                     )}
+
+                                    {schema.type === 'email' && (
+                                        <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                                            <LemonSwitch
+                                                size="small"
+                                                checked={allowLiquid}
+                                                onChange={handleLiquidToggle}
+                                                label="Allow Liquid"
+                                                bordered
+                                            />
+                                            <Tooltip title="Enable Liquid templating syntax instead of Hog templating for email content">
+                                                <IconInfo className="text-muted-alt" />
+                                            </Tooltip>
+                                        </div>
+                                    )}
+
                                     {showSource && (
                                         <LemonButton
                                             size="small"
