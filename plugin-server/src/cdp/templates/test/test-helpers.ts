@@ -195,10 +195,11 @@ export class TemplateTester {
             compiledMappingInputs.inputs_schema
                 .filter((input) => typeof input.default !== 'undefined')
                 .map(async (input) => {
+                    const value = mapping_inputs?.[input.key] ?? input.default
                     return {
                         key: input.key,
-                        value: input.default,
-                        bytecode: await this.compileObject(input.default),
+                        value,
+                        bytecode: await this.compileObject(value),
                     }
                 })
         )
