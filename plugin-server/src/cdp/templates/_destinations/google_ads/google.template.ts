@@ -141,14 +141,12 @@ if (res.status >= 400) {
             required: true,
         },
     ],
-    filters: { bytecode: ['_H', 1, 29] },
     mapping_templates: [
         {
             name: 'Signed Up',
             include_by_default: true,
             filters: {
                 events: [{ id: 'Signed Up', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Signed Up', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [...build_inputs()],
         },
