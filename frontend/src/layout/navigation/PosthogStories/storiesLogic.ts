@@ -41,7 +41,7 @@ export const storiesLogic = kea<storiesLogicType>([
     })),
 
     reducers({
-        stories: [storiesMap, {}],
+        stories: [storiesMap],
         openStoriesModalValue: [
             false,
             {

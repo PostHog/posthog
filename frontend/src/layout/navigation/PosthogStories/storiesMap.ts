@@ -7,16 +7,16 @@ export interface story {
     type: 'image' | 'video'
     durationMs?: number
     link?: string
-    order: number
 }
 
 export interface storyGroup {
     id: string
     title: string
     stories: story[]
-    order: number
 }
 
+// NOTE: The order of the stories is important. The first story in each group is the one that is shown when the group is clicked
+// from top to bottom.
 export const storiesMap: storyGroup[] = [
     {
         id: 'changelog',
@@ -30,7 +30,6 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_wide_684b8b7844_82b2ffd07c.mp4',
                 type: 'video',
                 durationMs: 29000,
-                order: 1,
             },
             {
                 id: 'changelog_linear_share_1',
@@ -40,10 +39,8 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_wide_0d3520bba5_64049c56b6.mp4',
                 type: 'video',
                 durationMs: 44000,
-                order: 2,
             },
         ],
-        order: 1,
     },
     {
         id: 'toolbar',
@@ -56,7 +53,6 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_wide_5df781bfb4_e455df0d27.mp4',
                 type: 'video',
                 durationMs: 41000,
-                order: 1,
             },
             {
                 id: 'toolbar_actions_1',
@@ -66,7 +62,6 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_actions_wide_fbe2f78e7e_e60dd23156.mp4',
                 type: 'video',
                 durationMs: 45000,
-                order: 2,
             },
             {
                 id: 'toolbar_inspect_1',
@@ -74,7 +69,6 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flag_12cb052a7e.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_inspect_a284324d14_24631f27fd.png',
                 type: 'image',
-                order: 3,
             },
             {
                 id: 'toolbar_heatmap_1',
@@ -82,7 +76,6 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flag_12cb052a7e.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_heatmap_460f46f86b_04862b4e0a.png',
                 type: 'image',
-                order: 4,
             },
             {
                 id: 'toolbar_feature_flags_1',
@@ -91,7 +84,6 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_feature_flags_31802301a3_41dacb9996.png',
                 type: 'image',
-                order: 5,
             },
             {
                 id: 'toolbar_events_1',
@@ -100,7 +92,6 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_debug_events_90dcef3c7b_b7564ce9af.png',
                 type: 'image',
-                order: 6,
             },
             {
                 id: 'toolbar_web_vitals_1',
@@ -109,7 +100,6 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_web_vitals_0150d8d8ca_6b9a790fb1.png',
                 type: 'image',
-                order: 7,
             },
             {
                 id: 'toolbar_experiments_1',
@@ -118,7 +108,6 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_experiments_6745bae143_b82232edde.png',
                 type: 'image',
-                order: 5,
             },
             {
                 id: 'toolbar_web_vitals_2',
@@ -127,9 +116,7 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_cool_features_357aa7fc36_dc294f7fca.png',
                 type: 'image',
-                order: 8,
             },
         ],
-        order: 2,
     },
 ]

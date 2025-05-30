@@ -1,6 +1,10 @@
 .PosthogStoriesContainer {
     overflow-x: auto;
     scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 .video-icon {
@@ -9,5 +13,9 @@
 
     &:hover {
         opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
     }
 }
