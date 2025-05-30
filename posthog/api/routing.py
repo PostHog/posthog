@@ -243,7 +243,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
         elif team_from_token := self._get_team_from_request():
             team_id = team_from_token.id
-        elif self.param_derived_from_user_current_team == "team_id":
+        elif self.param_derived_from_user_current_team == "team_id" or self._skip_team_id_override_kludge:
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -257,11 +257,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
             team = team_from_token
-        elif self._is_project_view:
+        elif self._is_project_view and not self._skip_team_id_override_kludge:
             team = Team.objects.get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
-        elif self.param_derived_from_user_current_team == "team_id":
+        elif self.param_derived_from_user_current_team == "team_id" or self._skip_team_id_override_kludge:
             user = cast(User, self.request.user)
             assert user.team is not None
             team = user.team
