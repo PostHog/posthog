@@ -59,11 +59,18 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
     actions({
-        setFilters: (filters: Partial<BillingSpendFilters>) => ({ filters }),
-        setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setFilters: (filters: Partial<BillingSpendFilters>, shouldDebounce: boolean = true) => ({
+            filters,
+            shouldDebounce,
+        }),
+        setDateRange: (dateFrom: string | null, dateTo: string | null, shouldDebounce: boolean = true) => ({
+            dateFrom,
+            dateTo,
+            shouldDebounce,
+        }),
         toggleSeries: (id: number) => ({ id }),
         toggleAllSeries: true,
-        setExcludeEmptySeries: (exclude: boolean) => ({ exclude }),
+        setExcludeEmptySeries: (exclude: boolean, shouldDebounce: boolean = true) => ({ exclude, shouldDebounce }),
         toggleBreakdown: (dimension: 'type' | 'team') => ({ dimension }),
         resetFilters: true,
     }),
@@ -333,18 +340,18 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             }
 
             if (Object.keys(filtersFromUrl).length > 0) {
-                actions.setFilters(filtersFromUrl)
+                actions.setFilters(filtersFromUrl, false)
             }
 
             if (
                 (params.date_from && params.date_from !== values.dateFrom) ||
                 (params.date_to && params.date_to !== values.dateTo)
             ) {
-                actions.setDateRange(params.date_from || null, params.date_to || null)
+                actions.setDateRange(params.date_from || null, params.date_to || null, false)
             }
 
             if (params.exclude_empty !== undefined && params.exclude_empty !== values.excludeEmptySeries) {
-                actions.setExcludeEmptySeries(Boolean(params.exclude_empty))
+                actions.setExcludeEmptySeries(Boolean(params.exclude_empty), false)
             }
         }
 
@@ -354,12 +361,16 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setFilters: async (_payload, breakpoint) => {
-            await breakpoint(300)
+        setFilters: async ({ shouldDebounce }, breakpoint) => {
+            if (shouldDebounce) {
+                await breakpoint(200)
+            }
             actions.loadBillingSpend()
         },
-        setDateRange: async (_payload, breakpoint) => {
-            await breakpoint(300)
+        setDateRange: async ({ shouldDebounce }, breakpoint) => {
+            if (shouldDebounce) {
+                await breakpoint(200)
+            }
             actions.loadBillingSpend()
         },
         resetFilters: async () => {
@@ -381,7 +392,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             }
         },
         toggleBreakdown: async (_payload, breakpoint) => {
-            await breakpoint(300)
+            await breakpoint(200)
             actions.loadBillingSpend()
         },
     })),

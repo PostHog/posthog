@@ -61,11 +61,18 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
     actions({
-        setFilters: (filters: Partial<BillingUsageFilters>) => ({ filters }),
-        setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setFilters: (filters: Partial<BillingUsageFilters>, shouldDebounce: boolean = true) => ({
+            filters,
+            shouldDebounce,
+        }),
+        setDateRange: (dateFrom: string | null, dateTo: string | null, shouldDebounce: boolean = true) => ({
+            dateFrom,
+            dateTo,
+            shouldDebounce,
+        }),
         toggleSeries: (id: number) => ({ id }),
         toggleAllSeries: true,
-        setExcludeEmptySeries: (exclude: boolean) => ({ exclude }),
+        setExcludeEmptySeries: (exclude: boolean, shouldDebounce: boolean = true) => ({ exclude, shouldDebounce }),
         toggleTeamBreakdown: true,
         resetFilters: true,
     }),
@@ -339,18 +346,18 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             }
 
             if (Object.keys(filtersFromUrl).length > 0) {
-                actions.setFilters(filtersFromUrl)
+                actions.setFilters(filtersFromUrl, false)
             }
 
             if (
                 (params.date_from && params.date_from !== values.dateFrom) ||
                 (params.date_to && params.date_to !== values.dateTo)
             ) {
-                actions.setDateRange(params.date_from || null, params.date_to || null)
+                actions.setDateRange(params.date_from || null, params.date_to || null, false)
             }
 
             if (params.exclude_empty !== undefined && params.exclude_empty !== values.excludeEmptySeries) {
-                actions.setExcludeEmptySeries(Boolean(params.exclude_empty))
+                actions.setExcludeEmptySeries(Boolean(params.exclude_empty), false)
             }
         }
 
@@ -360,12 +367,16 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setFilters: async (_payload, breakpoint) => {
-            await breakpoint(300)
+        setFilters: async ({ shouldDebounce }, breakpoint) => {
+            if (shouldDebounce) {
+                await breakpoint(200)
+            }
             actions.loadBillingUsage()
         },
-        setDateRange: async (_payload, breakpoint) => {
-            await breakpoint(300)
+        setDateRange: async ({ shouldDebounce }, breakpoint) => {
+            if (shouldDebounce) {
+                await breakpoint(200)
+            }
             actions.loadBillingUsage()
         },
         resetFilters: async () => {
@@ -387,7 +398,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             }
         },
         toggleTeamBreakdown: async (_payload, breakpoint) => {
-            await breakpoint(300)
+            await breakpoint(200)
             actions.loadBillingUsage()
         },
     })),
