@@ -171,7 +171,7 @@ export function NotFound(): JSX.Element {
 }
 
 NotFound.parameters = {
-    testOptions: { waitForSelector: '[data-attr="not-found-recording"]' },
+    testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },
 }
 
 export function PastTTL(): JSX.Element {
@@ -182,5 +182,8 @@ export function PastTTL(): JSX.Element {
 }
 
 PastTTL.parameters = {
-    testOptions: { waitForSelector: '[data-attr="session-recording-player-past-ttl"]' },
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr="session-recording-player-past-ttl"]',
+    },
 }
