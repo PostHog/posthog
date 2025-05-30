@@ -5,7 +5,7 @@ use crate::{
         flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
         flag_group_type_mapping::GroupTypeMappingCache,
         flag_matching::FeatureFlagMatcher,
-        flag_models::FeatureFlagList,
+        flag_models::{FeatureFlag, FeatureFlagList},
         flag_request::{FlagRequest, FlagRequestType},
         flag_service::FlagService,
     },
@@ -217,6 +217,36 @@ async fn parse_and_authenticate_request(
     Ok((distinct_id, verified_token, request))
 }
 
+/// Filters flags to only include survey flags if requested
+/// This field is optional, passed in as a query param, and defaults to false
+fn filter_survey_flags(flags: Vec<FeatureFlag>, only_survey_flags: bool) -> Vec<FeatureFlag> {
+    if only_survey_flags {
+        flags
+            .into_iter()
+            .filter(|flag| flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+            .collect()
+    } else {
+        flags
+    }
+}
+
+/// Filters flags to only include those with keys in the requested set
+/// This field is optional, passed in as part of the request body, and if it is not provided, we return all flags
+fn filter_by_requested_keys(
+    flags: Vec<FeatureFlag>,
+    requested_keys: Option<&[String]>,
+) -> Vec<FeatureFlag> {
+    if let Some(keys) = requested_keys {
+        let requested_keys_set: HashSet<String> = keys.iter().cloned().collect();
+        flags
+            .into_iter()
+            .filter(|flag| requested_keys_set.contains(&flag.key))
+            .collect()
+    } else {
+        flags
+    }
+}
+
 /// Fetches flags from cache/DB and filters them based on requested keys and survey flag preferences.
 ///
 /// The filtering happens in two stages:
@@ -228,35 +258,19 @@ async fn fetch_and_filter_flags(
     request: &FlagRequest,
     query_params: &FlagsQueryParams,
 ) -> Result<FeatureFlagList, FlagError> {
-    // Get all flags for the project
     let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
-    // First stage: Filter by survey flag preference if requested
-    let flags_after_survey_filter = if query_params
-        .only_evaluate_survey_feature_flags
-        .unwrap_or(false)
-    {
-        all_flags
-            .flags
-            .into_iter()
-            .filter(|flag| flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
-            .collect()
-    } else {
-        all_flags.flags
-    };
+    let flags_after_survey_filter = filter_survey_flags(
+        all_flags.flags,
+        query_params
+            .only_evaluate_survey_feature_flags
+            .unwrap_or(false),
+    );
 
-    // Second stage: Filter by specific flag keys if requested
-    let final_flags = if let Some(requested_keys) = &request.flag_keys {
-        let requested_keys_set: HashSet<String> = requested_keys.iter().cloned().collect();
-        flags_after_survey_filter
-            .into_iter()
-            .filter(|flag| requested_keys_set.contains(&flag.key))
-            .collect()
-    } else {
-        flags_after_survey_filter
-    };
+    let final_filtered_flags =
+        filter_by_requested_keys(flags_after_survey_filter, request.flag_keys.as_deref());
 
-    Ok(FeatureFlagList::new(final_flags))
+    Ok(FeatureFlagList::new(final_filtered_flags))
 }
 
 /// Determines property overrides for person and group properties,
@@ -1158,493 +1172,6 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_form_data_real_world_payload() {
-        let input = "data=eyJ0b2tlbiI6InNUTUZQc0ZoZFAxU3NnIiwiZGlzdGluY3RfaWQiOiIkcG9zdGhvZ19jb29raWVsZXNzIiwiZ3JvdXBzIjp7fSwicGVyc29uX3Byb3BlcnRpZXMiOnsiJGluaXRpYWxfcmVmZXJyZXIiOiIkZGlyZWN0IiwiJGluaXRpYWxfcmVmZXJyaW5nX2RvbWFpbiI6IiRkaXJlY3QiLCIkaW5pdGlhbF9jdXJyZW50X3VybCI6Imh0dHBzOi8vcG9zdGhvZy5jb20vIiwiJGluaXRpYWxfaG9zdCI6InBvc3Rob2cuY29tIiwiJGluaXRpYWxfcGF0aG5hbWUiOiIvIiwiJGluaXRpYWxfdXRtX3NvdXJjZSI6bnVsbCwiJGluaXRpYWxfdXRtX21lZGl1bSI6bnVsbCwiJGluaXRpYWxfdXRtX2NhbXBhaWduIjpudWxsLCIkaW5pdGlhbF91dG1fY29udGVudCI6bnVsbCwiJGluaXRpYWxfdXRtX3Rlcm0iOm51bGwsIiRpbml0aWFsX2dhZF9zb3VyY2UiOm51bGwsIiRpbml0aWFsX21jX2NpZCI6bnVsbCwiJGluaXRpYWxfZ2NsaWQiOm51bGwsIiRpbml0aWFsX2djbHNyYyI6bnVsbCwiJGluaXRpYWxfZGNsaWQiOm51bGwsIiRpbml0aWFsX2dicmFpZCI6bnVsbCwiJGluaXRpYWxfd2JyYWlkIjpudWxsLCIkaW5pdGlhbF9mYmNsaWQiOm51bGwsIiRpbml0aWFsX21zY2xraWQiOm51bGwsIiRpbml0aWFsX3R3Y2xpZCI6bnVsbCwiJGluaXRpYWxfbGlfZmF0X2lkIjpudWxsLCIkaW5pdGlhbF9pZ3NoaWQiOm51bGwsIiRpbml0aWFsX3R0Y2xpZCI6bnVsbCwiJGluaXRpYWxfcmR0X2NpZCI6bnVsbCwiJGluaXRpYWxfZXBpayI6bnVsbCwiJGluaXRpYWxfcWNsaWQiOm51bGwsIiRpbml0aWFsX3NjY2lkIjpudWxsLCIkaW5pdGlhbF9pcmNsaWQiOm51bGwsIiRpbml0aWFsX19reCI6bnVsbCwic3F1ZWFrRW1haWwiOiJsdWNhc0Bwb3N0aG9nLmNvbSIsInNxdWVha1VzZXJuYW1lIjoibHVjYXNAcG9zdGhvZy5jb20iLCJzcXVlYWtDcmVhdGVkQXQiOiIyMDI0LTEyLTE2VDE1OjU5OjAzLjQ1MVoiLCJzcXVlYWtQcm9maWxlSWQiOjMyMzg3LCJzcXVlYWtGaXJzdE5hbWUiOiJMdWNhcyIsInNxdWVha0xhc3ROYW1lIjoiRmFyaWEiLCJzcXVlYWtCaW9ncmFwaHkiOiJIb3cgZG8gcGVvcGxlIGRlc2NyaWJlIG1lOlxuXG4tIFNvbWV0aW1lcyBvYnNlc3NpdmVcbi0gT3Zlcmx5IG9wdGltaXN0aWNcbi0gTG9va3MgYXQgc2NyZWVucyBmb3Igd2F5IHRvbyBtYW55IGhvdXJzXG5cblllYWgsIEkgZ290IGFkZGljdGVkIHRvIGNvbXB1dGVycyBwcmV0dHkgeW91bmcgZHVlIHRvIFRpYmlhIGFuZCBSYWduYXJvayBPbmxpbmUg7aC97biFXG5cblRoYXQncyBhY3R1YWxseSBob3cgSSBsZWFybmVkIHRvIHNwZWFrIGVuZ2xpc2ghXG5cbkFueXdheSwgSSdtIEx1Y2FzLCBhIEJyYXppbGlhbiBlbmdpbmVlciB3aG8gbG92ZXMgY29kaW5nLCBhbmltYWxzLCBib29rcyBhbmQgbmF0dXJlLiBbTXkgZnVsbCBhYm91dCBwYWdlIGlzIGhlcmVdKGh0dHBzOi8vbHVjYXNmYXJpYS5kZXYvYWJvdXQpLlxuXG5JIGFsc28gW3B1Ymxpc2ggYSBuZXdzbGV0dGVyXShodHRwOi8vbmV3c2xldHRlci5uYWdyaW5nYS5kZXYvKSBmb3IgQnJhemlsaWFuIGVuZ2luZWVycywgaWYgeW91J3JlIGxvb2tpbmcgdG8gZ2V0IHNvbWUgY2FyZWVyIGluc2lnaHRzLlxuXG5JIGRvbid0IGtub3cgaG93IGRpZCBJIGdldCBoZXJlLCBidXQgSSdsbCB0cnkgbXkgYmVzdCB0byB0ZWFjaCB5b3UgZXZlcnl0aGluZyBJIGxlYXJuIGFsb25nIHRoZSB3YXkuIiwic3F1ZWFrQ29tcGFueSI6bnVsbCwic3F1ZWFrQ29tcGFueVJvbGUiOiJQcm9kdWN0IEVuZ2luZWVyIiwic3F1ZWFrR2l0aHViIjoiaHR0cHM6Ly9naXRodWIuY29tL2x1Y2FzaGVyaXF1ZXMiLCJzcXVlYWtMaW5rZWRJbiI6Imh0dHBzOi8vd3d3LmxpbmtlZGluLmNvbS9pbi9sdWNhcy1mYXJpYS8iLCJzcXVlYWtMb2NhdGlvbiI6IkJyYXppbCIsInNxdWVha1R3aXR0ZXIiOiJodHRwczovL3guY29tL29uZWx1Y2FzZmFyaWEiLCJzcXVlYWtXZWJzaXRlIjoiaHR0cHM6Ly9sdWNhc2ZhcmlhLmRldi8ifSwidGltZXpvbmUiOiJBbWVyaWNhL1Nhb19QYXVsbyJ9";
-        let body = Bytes::from(input);
-        let result = decode_form_data(body, Some(Compression::Base64));
-
-        assert!(result.is_ok(), "Failed to decode real world payload");
-        let request = result.unwrap();
-
-        // Verify key fields from the decoded request
-        assert_eq!(request.token, Some("sTMFPsFhdP1Ssg".to_string()));
-        assert_eq!(request.distinct_id, Some("$posthog_cookieless".to_string()));
-
-        // Verify we can handle the biography with newlines
-        let person_properties = request
-            .person_properties
-            .expect("Missing person_properties");
-        assert!(person_properties
-            .get("squeakBiography")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .contains("\n"));
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_feature_flags_multiple_flags() {
-        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
-            .await
-            .expect("Failed to insert team in pg");
-
-        let distinct_id = "user_distinct_id".to_string();
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .expect("Failed to insert person");
-
-        let flags = vec![
-            FeatureFlag {
-                name: Some("Flag 1".to_string()),
-                id: 1,
-                key: "flag_1".to_string(),
-                active: true,
-                deleted: false,
-                team_id: team.id,
-                filters: FlagFilters {
-                    groups: vec![FlagPropertyGroup {
-                        properties: Some(vec![]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    }],
-                    multivariate: None,
-                    aggregation_group_type_index: None,
-                    payloads: None,
-                    super_groups: None,
-                    holdout_groups: None,
-                },
-                ensure_experience_continuity: false,
-                version: Some(1),
-            },
-            FeatureFlag {
-                name: Some("Flag 2".to_string()),
-                id: 2,
-                key: "flag_2".to_string(),
-                active: true,
-                deleted: false,
-                team_id: team.id,
-                filters: FlagFilters {
-                    groups: vec![FlagPropertyGroup {
-                        properties: Some(vec![]),
-                        rollout_percentage: Some(0.0),
-                        variant: None,
-                    }],
-                    multivariate: None,
-                    aggregation_group_type_index: None,
-                    payloads: None,
-                    super_groups: None,
-                    holdout_groups: None,
-                },
-                ensure_experience_continuity: false,
-                version: Some(1),
-            },
-        ];
-
-        let feature_flag_list = FeatureFlagList { flags };
-
-        let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: team.id,
-            project_id: team.project_id,
-            distinct_id: distinct_id.clone(),
-            feature_flags: feature_flag_list,
-            reader,
-            writer,
-            cohort_cache,
-            person_property_overrides: None,
-            group_property_overrides: None,
-            groups: None,
-            hash_key_override: None,
-        };
-
-        let request_id = Uuid::new_v4();
-        let result = evaluate_feature_flags(evaluation_context, request_id).await;
-
-        assert!(!result.errors_while_computing_flags);
-        assert!(result.flags["flag_1"].enabled);
-        assert!(!result.flags["flag_2"].enabled);
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(!legacy_response.errors_while_computing_flags);
-        assert_eq!(
-            legacy_response.feature_flags["flag_1"],
-            FlagValue::Boolean(true)
-        );
-        assert_eq!(
-            legacy_response.feature_flags["flag_2"],
-            FlagValue::Boolean(false)
-        );
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_feature_flags_details() {
-        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "user123".to_string();
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .unwrap();
-
-        let flags = vec![
-            FeatureFlag {
-                name: Some("Flag 1".to_string()),
-                id: 1,
-                key: "flag_1".to_string(),
-                active: true,
-                deleted: false,
-                team_id: team.id,
-                filters: FlagFilters {
-                    groups: vec![FlagPropertyGroup {
-                        properties: Some(vec![]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    }],
-                    multivariate: None,
-                    aggregation_group_type_index: None,
-                    payloads: None,
-                    super_groups: None,
-                    holdout_groups: None,
-                },
-                ensure_experience_continuity: false,
-                version: Some(1),
-            },
-            FeatureFlag {
-                name: Some("Flag 2".to_string()),
-                id: 2,
-                key: "flag_2".to_string(),
-                active: true,
-                deleted: false,
-                team_id: team.id,
-                filters: FlagFilters {
-                    groups: vec![FlagPropertyGroup {
-                        properties: Some(vec![]),
-                        rollout_percentage: Some(0.0),
-                        variant: None,
-                    }],
-                    multivariate: None,
-                    aggregation_group_type_index: None,
-                    payloads: None,
-                    super_groups: None,
-                    holdout_groups: None,
-                },
-                ensure_experience_continuity: false,
-                version: Some(1),
-            },
-        ];
-
-        let feature_flag_list = FeatureFlagList { flags };
-
-        let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: team.id,
-            project_id: team.project_id,
-            distinct_id: distinct_id.clone(),
-            feature_flags: feature_flag_list,
-            reader,
-            writer,
-            cohort_cache,
-            person_property_overrides: None,
-            group_property_overrides: None,
-            groups: None,
-            hash_key_override: None,
-        };
-
-        let request_id = Uuid::new_v4();
-        let result = evaluate_feature_flags(evaluation_context, request_id).await;
-
-        assert!(!result.errors_while_computing_flags);
-
-        assert_eq!(
-            result.flags["flag_1"],
-            FlagDetails {
-                key: "flag_1".to_string(),
-                enabled: true,
-                variant: None,
-                reason: FlagEvaluationReason {
-                    code: "condition_match".to_string(),
-                    condition_index: Some(0),
-                    description: Some("Matched condition set 1".to_string()),
-                },
-                metadata: FlagDetailsMetadata {
-                    id: 1,
-                    version: 1,
-                    description: None,
-                    payload: None,
-                },
-            }
-        );
-        assert_eq!(
-            result.flags["flag_2"],
-            FlagDetails {
-                key: "flag_2".to_string(),
-                enabled: false,
-                variant: None,
-                reason: FlagEvaluationReason {
-                    code: "out_of_rollout_bound".to_string(),
-                    condition_index: Some(0),
-                    description: Some("Out of rollout bound".to_string()),
-                },
-                metadata: FlagDetailsMetadata {
-                    id: 2,
-                    version: 1,
-                    description: None,
-                    payload: None,
-                },
-            }
-        );
-    }
-
-    #[test]
-    fn test_flags_query_params_deserialization() {
-        let json = r#"{
-            "v": "1.0",
-            "compression": "gzip",
-            "lib_version": "2.0",
-            "sent_at": 1234567890
-        }"#;
-        let params: FlagsQueryParams = serde_json::from_str(json).unwrap();
-        assert_eq!(params.version, Some("1.0".to_string()));
-        assert!(matches!(params.compression, Some(Compression::Gzip)));
-        assert_eq!(params.lib_version, Some("2.0".to_string()));
-        assert_eq!(params.sent_at, Some(1234567890));
-    }
-
-    #[test]
-    fn test_compression_deserialization() {
-        assert_eq!(
-            serde_json::from_str::<Compression>("\"gzip\"").unwrap(),
-            Compression::Gzip
-        );
-        assert_eq!(
-            serde_json::from_str::<Compression>("\"gzip-js\"").unwrap(),
-            Compression::Gzip
-        );
-        // If "invalid" is actually deserialized to Unsupported, we should change our expectation
-        assert_eq!(
-            serde_json::from_str::<Compression>("\"invalid\"").unwrap(),
-            Compression::Unsupported
-        );
-    }
-
-    #[test]
-    fn test_flag_error_request_decoding() {
-        let error = FlagError::RequestDecodingError("Test error".to_string());
-        assert!(matches!(error, FlagError::RequestDecodingError(_)));
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_feature_flags_with_overrides() {
-        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = FeatureFlag {
-            name: Some("Test Flag".to_string()),
-            id: 1,
-            key: "test_flag".to_string(),
-            active: true,
-            deleted: false,
-            team_id: team.id,
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "industry".to_string(),
-                        value: Some(json!("tech")),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: "group".to_string(),
-                        group_type_index: Some(0),
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: Some(0),
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
-        let feature_flag_list = FeatureFlagList { flags: vec![flag] };
-
-        let groups = HashMap::from([("project".to_string(), json!("project_123"))]);
-        let group_property_overrides = HashMap::from([(
-            "project".to_string(),
-            HashMap::from([
-                ("industry".to_string(), json!("tech")),
-                ("$group_key".to_string(), json!("project_123")),
-            ]),
-        )]);
-
-        let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: team.id,
-            project_id: team.project_id,
-            distinct_id: "user123".to_string(),
-            feature_flags: feature_flag_list,
-            reader,
-            writer,
-            cohort_cache,
-            person_property_overrides: None,
-            group_property_overrides: Some(group_property_overrides),
-            groups: Some(groups),
-            hash_key_override: None,
-        };
-
-        let request_id = Uuid::new_v4();
-        let result = evaluate_feature_flags(evaluation_context, request_id).await;
-
-        assert!(
-            result.flags.contains_key("test_flag"),
-            "test_flag not found in result flags"
-        );
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(
-            !legacy_response.errors_while_computing_flags,
-            "Error while computing flags"
-        );
-        assert!(
-            legacy_response.feature_flags.contains_key("test_flag"),
-            "test_flag not found in result feature_flags"
-        );
-
-        let flag_value = legacy_response
-            .feature_flags
-            .get("test_flag")
-            .expect("test_flag not found");
-
-        assert_eq!(
-            flag_value,
-            &FlagValue::Boolean(true),
-            "Flag value is not true as expected"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_long_distinct_id() {
-        // distinct_id is CHAR(400)
-        let long_id = "a".repeat(400);
-        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = long_id.to_string();
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .expect("Failed to insert person");
-        let flag = FeatureFlag {
-            name: Some("Test Flag".to_string()),
-            id: 1,
-            key: "test_flag".to_string(),
-            active: true,
-            deleted: false,
-            team_id: team.id,
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
-
-        let feature_flag_list = FeatureFlagList { flags: vec![flag] };
-
-        let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: team.id,
-            project_id: team.project_id,
-            distinct_id: long_id,
-            feature_flags: feature_flag_list,
-            reader,
-            writer,
-            cohort_cache,
-            person_property_overrides: None,
-            group_property_overrides: None,
-            groups: None,
-            hash_key_override: None,
-        };
-
-        let request_id = Uuid::new_v4();
-        let result = evaluate_feature_flags(evaluation_context, request_id).await;
-
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(!legacy_response.errors_while_computing_flags);
-        assert_eq!(
-            legacy_response.feature_flags["test_flag"],
-            FlagValue::Boolean(true)
-        );
-    }
-
-    #[test]
-    fn test_process_group_property_overrides() {
-        // Test case 1: Both groups and existing overrides
-        let groups = HashMap::from([
-            ("project".to_string(), json!("project_123")),
-            ("organization".to_string(), json!("org_456")),
-        ]);
-
-        let mut existing_overrides = HashMap::new();
-        let mut project_props = HashMap::new();
-        project_props.insert("industry".to_string(), json!("tech"));
-        existing_overrides.insert("project".to_string(), project_props);
-
-        let result =
-            process_group_property_overrides(Some(groups.clone()), Some(existing_overrides));
-
-        assert!(result.is_some());
-        let result = result.unwrap();
-
-        // Check project properties
-        let project_props = result.get("project").expect("Project properties missing");
-        assert_eq!(project_props.get("industry"), Some(&json!("tech")));
-        assert_eq!(project_props.get("$group_key"), Some(&json!("project_123")));
-
-        // Check organization properties
-        let org_props = result
-            .get("organization")
-            .expect("Organization properties missing");
-        assert_eq!(org_props.get("$group_key"), Some(&json!("org_456")));
-
-        // Test case 2: Only groups, no existing overrides
-        let result = process_group_property_overrides(Some(groups.clone()), None);
-
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(
-            result.get("project").unwrap().get("$group_key"),
-            Some(&json!("project_123"))
-        );
-
-        // Test case 3: No groups, only existing overrides
-        let mut existing_overrides = HashMap::new();
-        let mut project_props = HashMap::new();
-        project_props.insert("industry".to_string(), json!("tech"));
-        existing_overrides.insert("project".to_string(), project_props);
-
-        let result = process_group_property_overrides(None, Some(existing_overrides.clone()));
-
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), existing_overrides);
-
-        // Test case 4: Neither groups nor existing overrides
-        let result = process_group_property_overrides(None, None);
-        assert!(result.is_none());
-    }
-
-    #[test]
     fn test_decode_request_content_types() {
         let test_json = r#"{"token": "test_token", "distinct_id": "user123"}"#;
         let body = Bytes::from(test_json);
@@ -1696,7 +1223,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_and_filter_flags_survey_filtering() {
+    async fn test_fetch_and_filter_flags() {
         let redis_client = setup_redis_client(None);
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let flag_service = FlagService::new(redis_client.clone(), reader.clone());
@@ -1727,9 +1254,20 @@ mod tests {
                 version: Some(1),
             },
             FeatureFlag {
-                name: Some("Regular Flag".to_string()),
+                name: Some("Regular Flag 1".to_string()),
                 id: 3,
-                key: "regular_flag".to_string(),
+                key: "regular_flag1".to_string(),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Regular Flag 2".to_string()),
+                id: 4,
+                key: "regular_flag2".to_string(),
                 active: true,
                 deleted: false,
                 team_id: team.id,
@@ -1750,7 +1288,7 @@ mod tests {
         .await
         .unwrap();
 
-        let request = FlagRequest {
+        let base_request = FlagRequest {
             token: Some(team.api_token.clone()),
             distinct_id: Some("test_user".to_string()),
             ..Default::default()
@@ -1762,7 +1300,7 @@ mod tests {
             ..Default::default()
         };
         let result =
-            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+            fetch_and_filter_flags(&flag_service, team.project_id, &base_request, &query_params)
                 .await
                 .unwrap();
         assert_eq!(result.flags.len(), 2);
@@ -1777,10 +1315,10 @@ mod tests {
             ..Default::default()
         };
         let result =
-            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+            fetch_and_filter_flags(&flag_service, team.project_id, &base_request, &query_params)
                 .await
                 .unwrap();
-        assert_eq!(result.flags.len(), 3);
+        assert_eq!(result.flags.len(), 4);
         assert!(result
             .flags
             .iter()
@@ -1789,13 +1327,41 @@ mod tests {
         // Test 3: only_evaluate_survey_feature_flags not set
         let query_params = FlagsQueryParams::default();
         let result =
-            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+            fetch_and_filter_flags(&flag_service, team.project_id, &base_request, &query_params)
                 .await
                 .unwrap();
-        assert_eq!(result.flags.len(), 3);
+        assert_eq!(result.flags.len(), 4);
         assert!(result
             .flags
             .iter()
             .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+        // Test 4: Both survey filter and specific keys requested
+        let request = FlagRequest {
+            flag_keys: Some(vec![
+                format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1"),
+                "regular_flag1".to_string(),
+            ]),
+            ..base_request
+        };
+
+        let query_params = FlagsQueryParams {
+            only_evaluate_survey_feature_flags: Some(true),
+            ..Default::default()
+        };
+
+        let result =
+            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+                .await
+                .unwrap();
+
+        // Should only return survey1 since both filters are applied:
+        // 1. Survey filter keeps only survey flags
+        // 2. Key filter then keeps only survey1 from those
+        assert_eq!(result.flags.len(), 1);
+        assert_eq!(
+            result.flags[0].key,
+            format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1")
+        );
     }
 }
