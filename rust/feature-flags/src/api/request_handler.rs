@@ -118,22 +118,11 @@ async fn should_bill_flag_request(
     filtered_flags: &FeatureFlagList,
 ) -> Result<(), FlagError> {
     // Don't charge if all the flags are survey targeting flags (both prefix and creation context)
-    if !filtered_flags
-        .flags
-        .iter()
-        .all(|f| {
-            f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
-                && f.creation_context.as_ref() == Some(&"surveys".to_string())
-        })
-    {
-        if let Err(e) = increment_request_count(
-            redis,
-            team_id,
-            1,
-            FlagRequestType::Decide,
-        )
-        .await
-        {
+    if !filtered_flags.flags.iter().all(|f| {
+        f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+            && f.creation_context.as_ref() == Some(&"surveys".to_string())
+    }) {
+        if let Err(e) = increment_request_count(redis, team_id, 1, FlagRequestType::Decide).await {
             inc(
                 "flag_request_redis_error",
                 &[("error".to_string(), e.to_string())],
@@ -207,12 +196,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     .await;
 
     // bill the flag request
-    if let Err(e) = should_bill_flag_request(
-        context.state.redis.clone(),
-        team_id,
-        &filtered_flags,
-    )
-    .await
+    if let Err(e) =
+        should_bill_flag_request(context.state.redis.clone(), team_id, &filtered_flags).await
     {
         // Error is already logged in should_bill_flag_request, so we continue
         tracing::debug!("Failed to bill flag request: {}", e);
@@ -666,8 +651,9 @@ mod tests {
         flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_person_for_team_in_pg,
-            setup_pg_reader_client, setup_pg_writer_client, setup_redis_client, create_test_flag
+            create_test_flag, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            setup_redis_client,
         },
     };
 
@@ -829,15 +815,27 @@ mod tests {
         let all_complete_survey_flags = FeatureFlagList {
             flags: vec![survey_flag.clone()],
         };
-        let result = should_bill_flag_request(redis_client.clone(), 1, &all_complete_survey_flags).await;
-        assert!(result.is_ok(), "Should not error when deciding not to bill complete survey flags");
+        let result =
+            should_bill_flag_request(redis_client.clone(), 1, &all_complete_survey_flags).await;
+        assert!(
+            result.is_ok(),
+            "Should not error when deciding not to bill complete survey flags"
+        );
 
         // Test case 2: mixed flags with incomplete survey flags (should bill)
         let mixed_flags = FeatureFlagList {
-            flags: vec![survey_flag, survey_prefix_only_flag, survey_context_only_flag, regular_flag],
+            flags: vec![
+                survey_flag,
+                survey_prefix_only_flag,
+                survey_context_only_flag,
+                regular_flag,
+            ],
         };
         let result = should_bill_flag_request(redis_client.clone(), 1, &mixed_flags).await;
-        assert!(result.is_ok(), "Should not error when deciding to bill mixed flags");
+        assert!(
+            result.is_ok(),
+            "Should not error when deciding to bill mixed flags"
+        );
 
         // Test case 3: only flags with prefix but no creation_context (should bill)
         let prefix_only_flag = create_test_flag(
@@ -854,7 +852,10 @@ mod tests {
             flags: vec![prefix_only_flag],
         };
         let result = should_bill_flag_request(redis_client, 1, &prefix_only_flags).await;
-        assert!(result.is_ok(), "Should not error when deciding to bill prefix-only flags");
+        assert!(
+            result.is_ok(),
+            "Should not error when deciding to bill prefix-only flags"
+        );
     }
 
     #[tokio::test]
