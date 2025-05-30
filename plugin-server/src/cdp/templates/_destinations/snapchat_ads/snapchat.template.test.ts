@@ -16,7 +16,8 @@ describe('snapchat template', () => {
     })
 
     it('works with single product event', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Product Viewed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -65,9 +66,6 @@ describe('snapchat template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -93,7 +91,8 @@ describe('snapchat template', () => {
     })
 
     it('works with multi product event', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -163,9 +162,6 @@ describe('snapchat template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -190,41 +186,9 @@ describe('snapchat template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
-    it.each([
-        ['Order Completed', 'PURCHASE'],
-        ['Checkout Started', 'START_CHECKOUT'],
-        ['Payment Info Entered', 'ADD_BILLING'],
-        ['Product Added', 'ADD_CART'],
-        ['Promotion Clicked', 'AD_CLICK'],
-        ['Promotion Viewed', 'AD_VIEW'],
-        ['Product Viewed', 'VIEW_CONTENT'],
-        ['Product Added to Wishlist', 'ADD_TO_WISHLIST'],
-        ['Product List Viewed', 'VIEW_CONTENT'],
-        ['Products Searched', 'SEARCH'],
-        ['$pageview', 'PAGE_VIEW'],
-    ])('correctly maps event names: %s', async (event, expectedEvent) => {
-        const responses = await tester.invoke(
-            {
-                oauth: {
-                    access_token: 'access-token',
-                },
-                pixelId: 'pixel-id',
-            },
-            {
-                event: {
-                    event,
-                },
-            }
-        )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
-        expect(response.invocation.queueParameters?.body).toContain(`event_name":"${expectedEvent}"`)
-    })
-
     it('works with empty product properties', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -251,9 +215,6 @@ describe('snapchat template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -280,7 +241,8 @@ describe('snapchat template', () => {
     })
 
     it('handles error responses', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -307,9 +269,6 @@ describe('snapchat template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -338,7 +297,8 @@ describe('snapchat template', () => {
     })
 
     it('test event mode working', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -367,9 +327,6 @@ describe('snapchat template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -395,7 +352,8 @@ describe('snapchat template', () => {
     })
 
     it('sensitive values are hashed', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -434,9 +392,6 @@ describe('snapchat template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -462,7 +417,8 @@ describe('snapchat template', () => {
     })
 
     it('handles missing pixel id', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -489,15 +445,13 @@ describe('snapchat template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)
     })
 
     it('handles missing access token', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 pixelId: 'pixel-id',
             },
@@ -521,9 +475,6 @@ describe('snapchat template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)
