@@ -139,6 +139,8 @@ dependencies = [
     "elevenlabs>=1.58.1",
     "django-oauth-toolkit>=3.0.1",
     "langchain-perplexity>=0.1.1",
+    "azure-ai-projects>=1.0.0b11",
+    "azure-ai-inference>=1.0.0b9",
 ]
 
 [dependency-groups]

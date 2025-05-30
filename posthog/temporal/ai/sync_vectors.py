@@ -16,13 +16,13 @@ from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from ee.hogai.utils.embeddings import aembed_documents, get_async_cohere_client
+from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_client
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
-from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -152,25 +152,24 @@ async def batch_embed_actions(
         "Preparing to embed actions",
         actions_count=len(actions),
     )
-    cohere_client = get_async_cohere_client()
+    async with get_async_azure_client() as azure_client:
+        filtered_batches = [
+            [action for action in actions[i : i + batch_size] if action["summary"]]
+            for i in range(0, len(actions), batch_size)
+        ]
+        embedding_requests = [
+            aembed_documents(azure_client, [cast(str, action["summary"]) for action in action_batch])
+            for action_batch in filtered_batches
+        ]
+        responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
 
-    filtered_batches = [
-        [action for action in actions[i : i + batch_size] if action["summary"]]
-        for i in range(0, len(actions), batch_size)
-    ]
-    embedding_requests = [
-        aembed_documents(cohere_client, [cast(str, action["summary"]) for action in action_batch])
-        for action_batch in filtered_batches
-    ]
-    responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
-
-    successful_batches = []
-    for action_batch, maybe_vector in zip(filtered_batches, responses):
-        if isinstance(maybe_vector, BaseException):
-            logger.exception("Error embedding actions", error=maybe_vector)
-            continue
-        for action, embedding in zip(action_batch, maybe_vector):
-            successful_batches.append((action, embedding))
+        successful_batches = []
+        for action_batch, maybe_vector in zip(filtered_batches, responses):
+            if isinstance(maybe_vector, BaseException):
+                logger.exception("Error embedding actions", error=maybe_vector)
+                continue
+            for action, embedding in zip(action_batch, maybe_vector):
+                successful_batches.append((action, embedding))
 
     return successful_batches
 
