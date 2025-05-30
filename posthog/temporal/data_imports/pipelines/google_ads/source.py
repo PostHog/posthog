@@ -11,7 +11,6 @@ from google.ads.googleads.v19.enums import types as ga_enums
 from google.ads.googleads.v19.resources import types as ga_resources
 from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
-from google.protobuf.descriptor import FieldDescriptor
 from google.protobuf.json_format import MessageToJson
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -41,6 +40,8 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
 
 @config.config
 class GoogleAdsOAuthSourceConfig:
+    """Google Ads source config using OAuth2 flow for authentication."""
+
     resource_name: str
     customer_id: str
     developer_token: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_DEVELOPER_TOKEN"))
@@ -90,6 +91,12 @@ class GoogleAdsColumn(Column):
         self.is_date = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE
 
     def to_arrow_field(self):
+        """Return the Arrow type associated with this column.
+
+        Special handling for:
+          * ENUM: We cast them to `str`.
+          * MESSAGE: Serialized as JSON strings.
+        """
         arrow_type: pa.DataType
 
         match self.data_type:
@@ -130,29 +137,29 @@ class GoogleAdsColumn(Column):
         return pa.field(self.name, arrow_type)
 
 
-def resolve_protobuf_message_type_url(type_url: str) -> type:
+def _resolve_protobuf_message_type_url(type_url: str) -> type:
     """Traverse a protobuf message type URL to find it's Python type."""
     match type_url.split("."):
         case (
             ["google", "ads", "googleads", "v19", "common", *rest]
             | ["com", "google", "ads", "googleads", "v19", "common", *rest]
         ):
-            return traverse_attributes(ga_common, *rest)
+            return _traverse_attributes(ga_common, *rest)
         case (
             ["google", "ads", "googleads", "v19", "enums", *rest]
             | ["com", "google", "ads", "googleads", "v19", "enums", *rest]
         ):
-            return traverse_attributes(ga_enums, *rest)
+            return _traverse_attributes(ga_enums, *rest)
         case (
             ["google", "ads", "googleads", "v19", "resources", *rest]
             | ["com", "google", "ads", "googleads", "v19", "resources", *rest]
         ):
-            return traverse_attributes(ga_resources, *rest)
+            return _traverse_attributes(ga_resources, *rest)
         case _:
             raise ValueError(f"Type url could not be found: '{type_url}'")
 
 
-def traverse_attributes(thing: typing.Any, *path: str):
+def _traverse_attributes(thing: typing.Any, *path: str):
     """Attempt to traverse attributes of thing."""
     current = thing
 
@@ -160,23 +167,6 @@ def traverse_attributes(thing: typing.Any, *path: str):
         current = getattr(current, component)
 
     return current
-
-
-def flatten_protobuf_field_descriptor(
-    name: str, fd: FieldDescriptor, parents: list[str] | None = None
-) -> collections.abc.Iterable[tuple[str, FieldDescriptor]]:
-    if parents is not None:
-        path = parents.copy()
-        path.append(name)
-    else:
-        path = [name]
-
-    if fd.type != FieldDescriptor.TYPE_MESSAGE:
-        yield (".".join(path), fd)
-        return
-
-    for inner_name, inner_fd in fd.message_type.fields_by_name.items():
-        yield from flatten_protobuf_field_descriptor(fd=inner_fd, name=inner_name, parents=path)
 
 
 def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
@@ -217,6 +207,11 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
 
 
 def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
+    """A data warehouse Google Ads source.
+
+    We utilize the Google Ads gRPC API to query for the configured resource and
+    yield batches of rows as `pyarrow.Table`.
+    """
     name = NamingConvention().normalize_identifier(config.resource_name)
     table = get_schemas(config)[config.resource_name]
 
@@ -278,11 +273,12 @@ def stream_response_as_dicts(
 
         for path in field_paths:
             key = path.split(".", 1)[1]
-            value = traverse_attributes(row, *path.split("."))
+            value = _traverse_attributes(row, *path.split("."))
             column = table[key]
 
+            # TODO: Special type handling moved somewhere else.
             if column.is_enum:
-                enum_cls = resolve_protobuf_message_type_url(column.type_url)
+                enum_cls = _resolve_protobuf_message_type_url(column.type_url)
                 if column.is_repeatable:
                     value = list(map(get_enum_name, map(enum_cls, value)))
                 else:
