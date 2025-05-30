@@ -103,7 +103,7 @@ async fn handle_legacy(
         );
     }
 
-    warn!("entering handle_legacy");
+    debug!("entering handle_legacy");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -112,8 +112,11 @@ async fn handle_legacy(
     } else if !body.is_empty() {
         body
     } else {
+        let err = CaptureError::EmptyPayload;
+        report_dropped_events("req_missing_payload", 1);
+        report_internal_error_metrics(err.to_metric_tag(), "req_missing_payload");
         error!("missing payload on {:?} request", method);
-        return Err(CaptureError::EmptyPayload);
+        return Err(err);
     };
 
     // first round of processing: is this byte payload entirely base64 encoded?
@@ -153,6 +156,8 @@ async fn handle_legacy(
                     form_data = form_data_snippet,
                     "expected form data in {} request payload", *method
                 );
+                report_dropped_events("event_expected_form_payload", 1);
+                report_internal_error_metrics(e.to_metric_tag(), "event_expected_form_payload");
                 return Err(CaptureError::RequestDecodingError(String::from(
                     "expected form data in request payload",
                 )));
@@ -173,7 +178,7 @@ async fn handle_legacy(
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
-    warn!("payload processed: passing to RawRequest::from_bytes");
+    debug!("payload processed: passing to RawRequest::from_bytes");
 
     // if the "data" attribute is populated in the form, process it.
     // otherwise, pass the (possibly decoded) byte payload
@@ -197,12 +202,16 @@ async fn handle_legacy(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
-            // at the moment, main way this can fail on RequestParsingError is
+            error!("event hydration from request failed: {}", e);
+            // at the moment, the only way this can fail on RequestParsingError is
             // when an unnamed event (no "event" attrib) is submitted to an
             // endpoint other than /engage
-            error!("event hydration from request failed: {}", e);
-            report_dropped_events("event_missing_name", 1);
-            report_internal_error_metrics(e.to_metric_tag(), "event_hydration");
+            let mut reason = String::from("req_event_hydration");
+            if let CaptureError::RequestParsingError(_) = e {
+                reason = String::from("unnamed_non_engage_event");
+            }
+            report_dropped_events(&reason, 1);
+            report_internal_error_metrics(e.to_metric_tag(), &reason);
             return Err(e);
         }
     };
@@ -210,7 +219,9 @@ async fn handle_legacy(
 
     if events.is_empty() {
         warn!("rejected empty batch");
-        return Err(CaptureError::EmptyBatch);
+        let err = CaptureError::EmptyBatch;
+        report_internal_error_metrics(e.to_metric_tag(), "empty_event_batch");
+        return Err(err);
     }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
@@ -232,7 +243,7 @@ async fn handle_legacy(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
-        is_mirror_deploy: true, // TODO(eli): temporary, can remove after migration
+        is_mirror_deploy: false,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
@@ -247,7 +258,7 @@ async fn handle_legacy(
         return Err(CaptureError::BillingLimit);
     }
 
-    warn!(context=?context,
+    debug!(context=?context,
         event_count=?events.len(),
         "handle_legacy: successfully hydrated events");
     Ok((context, events))
@@ -352,12 +363,16 @@ async fn handle_common(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
-            // at the moment, main way this can fail on RequestParsingError is
+            error!("event hydration from request failed: {}", e);
+            // at the moment, the only way this can fail on RequestParsingError is
             // when an unnamed event (no "event" attrib) is submitted to an
             // endpoint other than /engage
-            error!("event hydration from request failed: {}", e);
-            report_dropped_events("event_missing_name", 1);
-            report_internal_error_metrics(e.to_metric_tag(), "event_hydration");
+            let mut reason = String::from("req_event_hydration");
+            if let CaptureError::RequestParsingError(_) = e {
+                reason = String::from("unnamed_non_engage_event");
+            }
+            report_dropped_events(&reason, 1);
+            report_internal_error_metrics(e.to_metric_tag(), &reason);
             return Err(e);
         }
     };
