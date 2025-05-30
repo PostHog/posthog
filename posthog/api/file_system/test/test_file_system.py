@@ -1,6 +1,7 @@
 import pytest
 from freezegun import freeze_time
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 from posthog.test.base import APIBaseTest
 from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
 from posthog.models.file_system.file_system import FileSystem
@@ -645,21 +646,29 @@ class TestFileSystemAPI(APIBaseTest):
         # Clear existing FileSystem entries to start fresh.
         FileSystem.objects.all().delete()
         test_path = "A/B/C"
-        # Import the function to be tested.
-        from posthog.api.file_system.file_system import assure_parent_folders
 
-        assure_parent_folders(test_path, self.team, self.user)
+        from posthog.api.file_system.file_system import FileSystemViewSet
+
+        viewset = FileSystemViewSet()
+        factory = APIRequestFactory()
+        viewset.request = factory.get("/")  # needed by mixins
+        viewset.team = self.team  # used inside the helper
+        viewset.organization = self.team.organization
+        viewset.parent_query_kwargs = {"team_id": self.team.id}
+        viewset.user_access_control = None  # skip ACL for the test
+
+        viewset._assure_parent_folders(test_path, created_by=self.user)
 
         # For the path "A/B/C", we expect the parent folders "A" and "A/B" to be created.
         folder_a = FileSystem.objects.filter(team=self.team, path="A", type="folder").first()
         folder_ab = FileSystem.objects.filter(team=self.team, path="A/B", type="folder").first()
         assert folder_a is not None
-        self.assertEqual(folder_a.depth, 1)
+        assert folder_a.depth == 1
         assert folder_ab is not None
-        self.assertEqual(folder_ab.depth, 2)
+        assert folder_ab.depth == 2
         # The full path "A/B/C" should NOT be created by assure_parent_folders.
         folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
-        self.assertIsNone(folder_abc)
+        assert folder_abc is None
 
     def test_list_depth_folders_first_case_insensitive(self):
         """
