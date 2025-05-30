@@ -1,14 +1,19 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
+import difference from 'lodash.difference'
+import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Params } from 'scenes/sceneTypes'
 
 import { BillingType, DateMappingOption, OrganizationType } from '~/types'
 
-import { canAccessBilling } from './billing-utils'
+import { canAccessBilling, syncBillingSearchParams, updateBillingSearchParams } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
 
@@ -60,6 +65,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         toggleAllSeries: true,
         setExcludeEmptySeries: (exclude: boolean) => ({ exclude }),
         toggleBreakdown: (dimension: 'type' | 'team') => ({ dimension }),
+        resetFilters: true,
     }),
     loaders(({ values }) => ({
         billingSpendResponse: [
@@ -102,6 +108,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         : [...current, dimension]
                     return { ...state, breakdowns: next }
                 },
+                resetFilters: () => ({ ...DEFAULT_BILLING_SPEND_FILTERS }),
             },
         ],
         dateFrom: [
@@ -109,12 +116,14 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             {
                 setDateRange: (_, { dateFrom }) =>
                     dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+                resetFilters: () => dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
             },
         ],
         dateTo: [
             dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
             {
                 setDateRange: (_, { dateTo }) => dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+                resetFilters: () => dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
             },
         ],
         userHiddenSeries: [
@@ -124,7 +133,13 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     state.includes(id) ? state.filter((i) => i !== id) : [...state, id],
             },
         ],
-        excludeEmptySeries: [false, { setExcludeEmptySeries: (_, { exclude }: { exclude: boolean }) => exclude }],
+        excludeEmptySeries: [
+            false,
+            {
+                setExcludeEmptySeries: (_, { exclude }: { exclude: boolean }) => exclude,
+                resetFilters: () => false,
+            },
+        ],
     }),
     selectors({
         series: [
@@ -228,28 +243,116 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (s) => [s.currentOrganization, s.billingSpendResponse],
             (currentOrganization: OrganizationType | null, billingSpendResponse: BillingSpendResponse | null) => {
                 const liveTeams = currentOrganization?.teams || []
-                const liveTeamIds = new Set(liveTeams.map((team) => team.id))
-
-                const liveOptions = liveTeams
-                    .map((team) => ({
-                        key: String(team.id),
-                        label: team.name,
-                    }))
-                    .sort((a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label))
+                const liveTeamIds = liveTeams.map((team) => team.id)
+                const liveOptions = sortBy(
+                    liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
+                    'label'
+                )
 
                 const teamIdOptions = billingSpendResponse?.team_id_options || []
-                const deletedTeamIds = teamIdOptions.filter((id: number) => !liveTeamIds.has(id))
-                const deletedOptions = deletedTeamIds
-                    .sort((a: number, b: number) => a - b)
-                    .map((teamId: number) => ({
-                        key: String(teamId),
-                        label: `ID: ${teamId} (deleted)`,
-                    }))
+
+                const deletedTeamIds = difference(teamIdOptions, liveTeamIds)
+                const deletedOptions = sortBy(deletedTeamIds).map((teamId: number) => ({
+                    key: String(teamId),
+                    label: `ID: ${teamId} (deleted)`,
+                }))
 
                 return [...liveOptions, ...deletedOptions]
             },
         ],
     }),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            return syncBillingSearchParams(router, (params: Params) => {
+                updateBillingSearchParams(
+                    params,
+                    'usage_types',
+                    values.filters.usage_types,
+                    DEFAULT_BILLING_SPEND_FILTERS.usage_types
+                )
+                updateBillingSearchParams(
+                    params,
+                    'team_ids',
+                    values.filters.team_ids,
+                    DEFAULT_BILLING_SPEND_FILTERS.team_ids
+                )
+                updateBillingSearchParams(
+                    params,
+                    'breakdowns',
+                    values.filters.breakdowns,
+                    DEFAULT_BILLING_SPEND_FILTERS.breakdowns
+                )
+                updateBillingSearchParams(
+                    params,
+                    'interval',
+                    values.filters.interval,
+                    DEFAULT_BILLING_SPEND_FILTERS.interval
+                )
+                updateBillingSearchParams(
+                    params,
+                    'date_from',
+                    values.dateFrom,
+                    dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
+                )
+                updateBillingSearchParams(
+                    params,
+                    'date_to',
+                    values.dateTo,
+                    dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+                )
+                updateBillingSearchParams(params, 'exclude_empty', values.excludeEmptySeries, false)
+                return params
+            })
+        }
+
+        return {
+            setFilters: () => buildURL(),
+            setDateRange: () => buildURL(),
+            setExcludeEmptySeries: () => buildURL(),
+            toggleBreakdown: () => buildURL(),
+            resetFilters: () => buildURL(),
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            const filtersFromUrl: Partial<BillingSpendFilters> = {}
+
+            if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
+                filtersFromUrl.usage_types = params.usage_types
+            }
+            if (params.team_ids && !equal(params.team_ids, values.filters.team_ids)) {
+                filtersFromUrl.team_ids = params.team_ids
+            }
+            if (params.breakdowns && !equal(params.breakdowns, values.filters.breakdowns)) {
+                filtersFromUrl.breakdowns = params.breakdowns
+            }
+            if (params.interval && params.interval !== values.filters.interval) {
+                filtersFromUrl.interval = params.interval
+            }
+
+            if (Object.keys(filtersFromUrl).length > 0) {
+                actions.setFilters(filtersFromUrl)
+            }
+
+            if (
+                (params.date_from && params.date_from !== values.dateFrom) ||
+                (params.date_to && params.date_to !== values.dateTo)
+            ) {
+                actions.setDateRange(params.date_from || null, params.date_to || null)
+            }
+
+            if (params.exclude_empty !== undefined && params.exclude_empty !== values.excludeEmptySeries) {
+                actions.setExcludeEmptySeries(Boolean(params.exclude_empty))
+            }
+        }
+
+        return {
+            '*': urlToAction,
+        }
+    }),
+
     listeners(({ actions, values }) => ({
         setFilters: async (_payload, breakpoint) => {
             await breakpoint(300)
@@ -257,6 +360,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
         setDateRange: async (_payload, breakpoint) => {
             await breakpoint(300)
+            actions.loadBillingSpend()
+        },
+        resetFilters: async () => {
             actions.loadBillingSpend()
         },
         toggleAllSeries: () => {

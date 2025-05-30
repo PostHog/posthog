@@ -1,7 +1,7 @@
 import './BillingUsage.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -40,8 +40,15 @@ export function BillingUsage(): JSX.Element {
         showEmptyState,
         teamOptions,
     } = useValues(logic)
-    const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleTeamBreakdown } =
-        useActions(logic)
+    const {
+        setFilters,
+        setDateRange,
+        toggleSeries,
+        toggleAllSeries,
+        setExcludeEmptySeries,
+        toggleTeamBreakdown,
+        resetFilters,
+    } = useActions(logic)
 
     if (restrictionReason) {
         return <BillingNoAccess title="Usage" reason={restrictionReason} />
@@ -145,6 +152,16 @@ export function BillingUsage(): JSX.Element {
                                 checked={excludeEmptySeries}
                                 onChange={setExcludeEmptySeries}
                             />
+                        </div>
+                    </div>
+
+                    {/* Clear Filters */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>&nbsp;</LemonLabel>
+                        <div className="flex items-center">
+                            <LemonButton type="secondary" size="medium" onClick={resetFilters}>
+                                Clear filters
+                            </LemonButton>
                         </div>
                     </div>
                 </div>
