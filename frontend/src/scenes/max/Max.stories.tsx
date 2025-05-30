@@ -163,7 +163,8 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(ctx.text(chatResponseChunk), ctx.status(429)),
+                // Retry-After header is present so we should be showing its value in the UI
+                res(ctx.text(chatResponseChunk), ctx.set({ 'Retry-After': '3899' }), ctx.status(429)),
         },
     })
 
@@ -173,6 +174,26 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax('Is Bielefeld real?')
+    }, [])
+
+    return <Template />
+}
+
+export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                // Testing rate limit error when the Retry-After header is MISSING
+                res(ctx.text(chatResponseChunk), ctx.status(429)),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+
+    useEffect(() => {
+        setConversationId(CONVERSATION_ID)
+        askMax('Is Finland real?')
     }, [])
 
     return <Template />
