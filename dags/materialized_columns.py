@@ -1,7 +1,7 @@
 import datetime
 import itertools
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Set
 from typing import ClassVar, TypeVar, cast
 
 import dagster
@@ -35,6 +35,14 @@ def join_mappings(mappings: Mapping[K1, Mapping[K2, V]]) -> Mapping[K2, Mapping[
 
 
 PartitionId = str
+
+
+class ForceMaterializationRunner(AlterTableMutationRunner):
+    """A mutation runner that always creates new mutations, bypassing the check for existing ones."""
+
+    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
+        """Always return empty to force new mutations to be created."""
+        return {}
 
 
 class PartitionRange(dagster.Config):
@@ -76,52 +84,60 @@ class MaterializationConfig(dagster.Config):
     columns: list[str]
     indexes: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
+    force: bool = False  # Force re-materialization of all columns even if they already exist
 
     def get_mutations_to_run(self, client: Client) -> Mapping[PartitionId, AlterTableMutationRunner]:
-        # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
-        # have the target column materialized by finding parts where the key column exists but the target column does
-        # not.
-        [[key_column]] = client.execute(
-            """
-            SELECT name
-            FROM system.columns
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND is_in_primary_key
-            ORDER BY position
-            LIMIT 1
-            """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
-        )
-
         columns_remaining_by_partition = defaultdict(set)
-        for column in self.columns:
-            results = client.execute(
+
+        if self.force:
+            # When force is True, add all columns for all partitions in the range
+            for partition in self.partitions.iter_ids():
+                for column in self.columns:
+                    columns_remaining_by_partition[partition].add(column)
+        else:
+            # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
+            # have the target column materialized by finding parts where the key column exists but the target column does
+            # not.
+            [[key_column]] = client.execute(
                 """
-                SELECT partition
-                FROM system.parts_columns
+                SELECT name
+                FROM system.columns
                 WHERE
                     database = %(database)s
                     AND table = %(table)s
-                    AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
-                    AND active
-                    AND column IN (%(key_column)s, %(column)s)
-                    AND partition IN %(partitions)s
-                GROUP BY partition
-                HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
-                ORDER BY partition DESC
+                    AND is_in_primary_key
+                ORDER BY position
+                LIMIT 1
                 """,
-                {
-                    "database": settings.CLICKHOUSE_DATABASE,
-                    "table": self.table,
-                    "key_column": key_column,
-                    "column": column,
-                    "partitions": [*self.partitions.iter_ids()],
-                },
+                {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
             )
-            for [partition] in results:
-                columns_remaining_by_partition[partition].add(column)
+
+            for column in self.columns:
+                results = client.execute(
+                    """
+                    SELECT partition
+                    FROM system.parts_columns
+                    WHERE
+                        database = %(database)s
+                        AND table = %(table)s
+                        AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
+                        AND active
+                        AND column IN (%(key_column)s, %(column)s)
+                        AND partition IN %(partitions)s
+                    GROUP BY partition
+                    HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
+                    ORDER BY partition DESC
+                    """,
+                    {
+                        "database": settings.CLICKHOUSE_DATABASE,
+                        "table": self.table,
+                        "key_column": key_column,
+                        "column": column,
+                        "partitions": [*self.partitions.iter_ids()],
+                    },
+                )
+                for [partition] in results:
+                    columns_remaining_by_partition[partition].add(column)
 
         mutations = {}
 
@@ -137,9 +153,8 @@ class MaterializationConfig(dagster.Config):
                 commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
 
             if commands:
-                mutations[partition] = AlterTableMutationRunner(
-                    self.table, commands, parameters={"partition": partition}
-                )
+                Runner = ForceMaterializationRunner if self.force else AlterTableMutationRunner
+                mutations[partition] = Runner(self.table, commands, parameters={"partition": partition})
 
         return mutations
 
