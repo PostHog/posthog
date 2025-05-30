@@ -1,14 +1,6 @@
-"""
-Statistical data types for frequentist A/B testing.
-
-This module defines various statistic classes that represent different types
-of statistical summaries used in A/B testing, including means, proportions,
-ratios, regression-adjusted statistics, and quantiles.
-"""
-
 from dataclasses import dataclass
-from typing import Union
 import numpy as np
+from enum import Enum
 
 
 class StatisticError(Exception):
@@ -21,6 +13,19 @@ class InvalidStatisticError(StatisticError):
     """Raised when statistic inputs are invalid."""
 
     pass
+
+
+class DifferenceType(Enum):
+    """Types of difference calculations."""
+
+    RELATIVE = "relative"
+    ABSOLUTE = "absolute"
+
+
+class TestType(Enum):
+    """Available test types."""
+
+    TWO_SIDED = "two_sided"
 
 
 @dataclass
@@ -102,4 +107,4 @@ class ProportionStatistic:
 
 
 # Type alias for any statistic type
-AnyStatistic = Union[SampleMeanStatistic, ProportionStatistic]
+AnyStatistic = SampleMeanStatistic | ProportionStatistic

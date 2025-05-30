@@ -1,10 +1,3 @@
-"""
-Enhanced error handling and validation for frequentist testing.
-
-This module provides comprehensive error checking, edge case detection,
-and numerical stability protections for statistical calculations.
-"""
-
 import numpy as np
 
 from .statistics import (

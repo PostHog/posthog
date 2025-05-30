@@ -1,16 +1,7 @@
-"""
-Main FrequentistMethod class for A/B testing.
-
-This module provides the primary API for running frequentist statistical
-tests on A/B experiment data, supporting various test types and statistical
-configurations.
-"""
-
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .statistics import AnyStatistic, StatisticError
-from .enums import DifferenceType, TestType
+from .statistics import AnyStatistic, StatisticError, DifferenceType, TestType
 from .tests import (
     TestResult,
     TwoSidedTTest,
