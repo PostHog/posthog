@@ -82,7 +82,13 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
         ...currentTeam?.survey_config?.appearance,
     })
 
-    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
+    const [templatedSurvey, setTemplatedSurvey] = useState({
+        ...NEW_SURVEY,
+        appearance: {
+            ...NEW_SURVEY.appearance,
+            ...currentTeam?.survey_config?.appearance,
+        },
+    })
 
     if (templatedSurvey.appearance === defaultSurveyAppearance) {
         templatedSurvey.appearance = editableSurveyConfig
