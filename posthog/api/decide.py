@@ -11,7 +11,6 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.feature_flag import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
@@ -28,6 +27,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
+from posthog.models.feature_flag.feature_flag import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.models.feature_flag import get_all_feature_flags_with_details
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
@@ -225,6 +225,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         api_version_string = request.GET.get("v")
         # NOTE: This does not support semantic versioning e.g. 2.1.0
         api_version = int(api_version_string) if api_version_string else 1
+        only_evaluate_survey_feature_flags = process_bool(request.GET.get("only_evaluate_survey_feature_flags", False))
     except ValueError:
         # default value added because of bug in posthog-js 1.19.0
         # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
@@ -236,6 +237,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
             tags={"endpoint": "decide", "api_version_string": api_version_string},
         )
         api_version = 2
+        only_evaluate_survey_feature_flags = False
     except UnspecifiedCompressionFallbackParsingError as error:
         # Notably don't capture this exception as it's not caused by buggy behavior,
         # it's just a fallback for when we can't parse the request due to a missing header
@@ -304,7 +306,9 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         maybe_log_decide_data(request_body=data)
 
         # --- 5. Handle feature flags ---
-        flags_response = get_feature_flags_response_or_body(request, data, team, token, api_version)
+        flags_response = get_feature_flags_response_or_body(
+            request, data, team, token, api_version, only_evaluate_survey_feature_flags
+        )
         if isinstance(flags_response, HttpResponse):
             return flags_response
 
@@ -353,7 +357,12 @@ def get_decide(request: HttpRequest) -> HttpResponse:
 
 
 def get_feature_flags_response_or_body(
-    request: HttpRequest, data: dict, team: Team, token: str, api_version: int
+    request: HttpRequest,
+    data: dict,
+    team: Team,
+    token: str,
+    api_version: int,
+    only_evaluate_survey_feature_flags: bool = False,
 ) -> dict | HttpResponse:
     """
     Determine feature flag response body based on various conditions.
@@ -410,6 +419,7 @@ def get_feature_flags_response_or_body(
         property_value_overrides=all_property_overrides,
         group_property_value_overrides=(data.get("group_properties") or {}),
         flag_keys=data.get("flag_keys_to_evaluate"),
+        only_evaluate_survey_feature_flags=only_evaluate_survey_feature_flags,
     )
 
     # Record metrics and handle billing

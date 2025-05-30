@@ -26,6 +26,8 @@ from posthog.models.property.property import Property, PropertyGroup
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:

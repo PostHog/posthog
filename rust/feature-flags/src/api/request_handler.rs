@@ -75,7 +75,11 @@ pub struct FlagsQueryParams {
     /// Optional timestamp indicating when the request was sent
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
+
+    /// Optional flag to only evaluate survey feature flags
+    pub only_evaluate_survey_feature_flags: Option<bool>,
 }
+
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
@@ -147,7 +151,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         handle_cookieless_distinct_id(&context, &request, &team, original_distinct_id.clone())
             .await?;
 
-    let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
+    let filtered_flags =
+        fetch_and_filter_flags(&flag_service, project_id, &request, &context.meta).await?;
 
     let (person_prop_overrides, group_prop_overrides, groups, hash_key_override) =
         prepare_property_overrides(&context, &request)?;
@@ -212,24 +217,46 @@ async fn parse_and_authenticate_request(
     Ok((distinct_id, verified_token, request))
 }
 
-/// Fetches flags from cache/DB and filters them based on requested keys, if any.
+/// Fetches flags from cache/DB and filters them based on requested keys and survey flag preferences.
+///
+/// The filtering happens in two stages:
+/// 1. If only_evaluate_survey_feature_flags is true, filter to only survey flags
+/// 2. If specific flag_keys are requested, filter to only those flags
 async fn fetch_and_filter_flags(
     flag_service: &FlagService,
     project_id: i64,
     request: &FlagRequest,
+    query_params: &FlagsQueryParams,
 ) -> Result<FeatureFlagList, FlagError> {
+    // Get all flags for the project
     let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
-    if let Some(flag_keys) = &request.flag_keys {
-        let keys: HashSet<String> = flag_keys.iter().cloned().collect();
-        let filtered = all_flags
+
+    // First stage: Filter by survey flag preference if requested
+    let flags_after_survey_filter = if query_params
+        .only_evaluate_survey_feature_flags
+        .unwrap_or(false)
+    {
+        all_flags
             .flags
             .into_iter()
-            .filter(|f| keys.contains(&f.key))
-            .collect();
-        Ok(FeatureFlagList::new(filtered))
+            .filter(|flag| flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+            .collect()
     } else {
-        Ok(all_flags)
-    }
+        all_flags.flags
+    };
+
+    // Second stage: Filter by specific flag keys if requested
+    let final_flags = if let Some(requested_keys) = &request.flag_keys {
+        let requested_keys_set: HashSet<String> = requested_keys.iter().cloned().collect();
+        flags_after_survey_filter
+            .into_iter()
+            .filter(|flag| requested_keys_set.contains(&flag.key))
+            .collect()
+    } else {
+        flags_after_survey_filter
+    };
+
+    Ok(FeatureFlagList::new(final_flags))
 }
 
 /// Determines property overrides for person and group properties,
@@ -601,8 +628,8 @@ mod tests {
         flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
+            insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_person_for_team_in_pg,
+            setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
         },
     };
 
@@ -1666,5 +1693,109 @@ mod tests {
         headers.insert(CONTENT_TYPE, "application/xml".parse().unwrap());
         let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_and_filter_flags_survey_filtering() {
+        let redis_client = setup_redis_client(None);
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let flag_service = FlagService::new(redis_client.clone(), reader.clone());
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // Create a mix of survey and non-survey flags
+        let flags = vec![
+            FeatureFlag {
+                name: Some("Survey Flag 1".to_string()),
+                id: 1,
+                key: format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1"),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Survey Flag 2".to_string()),
+                id: 2,
+                key: format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey2"),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Regular Flag".to_string()),
+                id: 3,
+                key: "regular_flag".to_string(),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+        ];
+
+        // Insert flags into redis
+        let flags_json = serde_json::to_string(&flags).unwrap();
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            team.project_id,
+            Some(flags_json),
+        )
+        .await
+        .unwrap();
+
+        let request = FlagRequest {
+            token: Some(team.api_token.clone()),
+            distinct_id: Some("test_user".to_string()),
+            ..Default::default()
+        };
+
+        // Test 1: only_evaluate_survey_feature_flags = true
+        let query_params = FlagsQueryParams {
+            only_evaluate_survey_feature_flags: Some(true),
+            ..Default::default()
+        };
+        let result =
+            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+                .await
+                .unwrap();
+        assert_eq!(result.flags.len(), 2);
+        assert!(result
+            .flags
+            .iter()
+            .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+        // Test 2: only_evaluate_survey_feature_flags = false
+        let query_params = FlagsQueryParams {
+            only_evaluate_survey_feature_flags: Some(false),
+            ..Default::default()
+        };
+        let result =
+            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+                .await
+                .unwrap();
+        assert_eq!(result.flags.len(), 3);
+        assert!(result
+            .flags
+            .iter()
+            .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+        // Test 3: only_evaluate_survey_feature_flags not set
+        let query_params = FlagsQueryParams::default();
+        let result =
+            fetch_and_filter_flags(&flag_service, team.project_id, &request, &query_params)
+                .await
+                .unwrap();
+        assert_eq!(result.flags.len(), 3);
+        assert!(result
+            .flags
+            .iter()
+            .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
     }
 }

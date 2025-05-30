@@ -59,6 +59,7 @@ from posthog.models.feature_flag import (
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
+    SURVEY_TARGETING_FLAG_PREFIX,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
@@ -82,7 +83,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 )
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 MAX_PROPERTY_VALUES = 1000
 
