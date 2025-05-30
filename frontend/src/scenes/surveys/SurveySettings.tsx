@@ -90,10 +90,10 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
 
     const updateSurveySettings = (): void => {
         const sanitizedAppearance = sanitizeSurveyAppearance(editableSurveyConfig)
-        const errors = validateSurveyAppearance(sanitizedAppearance, true, templatedSurvey.type)
+        const errors = sanitizedAppearance && validateSurveyAppearance(sanitizedAppearance, true, templatedSurvey.type)
 
         // Check if there are any validation errors
-        const hasErrors = Object.values(errors).some((error) => error !== undefined)
+        const hasErrors = errors && Object.values(errors).some((error) => error !== undefined)
         setValidationErrors(errors)
 
         if (hasErrors || !sanitizedAppearance) {
