@@ -85,6 +85,8 @@ export const APIScopes: APIScope[] = [
         },
     },
     { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
+    { key: 'warehouse_view' },
+    { key: 'warehouse_table' },
 ]
 
 export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [

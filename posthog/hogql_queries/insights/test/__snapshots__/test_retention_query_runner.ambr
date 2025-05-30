@@ -27,7 +27,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -70,7 +71,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -101,7 +103,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -132,7 +135,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -175,7 +179,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -206,7 +211,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -244,7 +250,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -291,7 +298,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -329,7 +337,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -377,7 +386,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -415,7 +425,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -453,7 +464,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -491,7 +503,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -529,6 +542,7 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
