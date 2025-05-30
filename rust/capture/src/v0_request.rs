@@ -495,7 +495,7 @@ mod tests {
             parse_and_extract_events(
                 r#"{"token": "token", "distinct_id": "distinct_id", "properties":{"foo": 42, "bar": true}}"#
             ),
-            Err(CaptureError::RequestParsingError(_))
+            Err(CaptureError::RequestHydrationError(_))
         ));
     }
 
