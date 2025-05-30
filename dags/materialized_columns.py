@@ -1,7 +1,7 @@
 import datetime
 import itertools
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Set
 from typing import ClassVar, TypeVar, cast
 
 import dagster
@@ -35,6 +35,14 @@ def join_mappings(mappings: Mapping[K1, Mapping[K2, V]]) -> Mapping[K2, Mapping[
 
 
 PartitionId = str
+
+
+class ForceMaterializationRunner(AlterTableMutationRunner):
+    """A mutation runner that always creates new mutations, bypassing the check for existing ones."""
+
+    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
+        """Always return empty to force new mutations to be created."""
+        return {}
 
 
 class PartitionRange(dagster.Config):
@@ -145,9 +153,8 @@ class MaterializationConfig(dagster.Config):
                 commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
 
             if commands:
-                mutations[partition] = AlterTableMutationRunner(
-                    self.table, commands, parameters={"partition": partition}
-                )
+                Runner = ForceMaterializationRunner if self.force else AlterTableMutationRunner
+                mutations[partition] = Runner(self.table, commands, parameters={"partition": partition})
 
         return mutations
 

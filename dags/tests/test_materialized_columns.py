@@ -15,6 +15,7 @@ from dags.materialized_columns import (
     materialize_column,
     run_materialize_mutations,
     join_mappings,
+    ForceMaterializationRunner,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.test.base import materialized
@@ -54,6 +55,16 @@ def test_materialization_config_force_default():
         partitions=PartitionRange(lower="202401", upper="202403"),
     )
     assert config.force is False
+
+
+def test_force_materialization_runner():
+    # Test that ForceMaterializationRunner always returns empty mutations
+    runner = ForceMaterializationRunner(
+        table="test_table", commands={"MATERIALIZE COLUMN test_col IN PARTITION 202401"}
+    )
+    # Mock client - we don't actually need it since we're overriding find_existing_mutations
+    assert runner.find_existing_mutations(None) == {}
+    assert runner.find_existing_mutations(None, commands={"any", "commands"}) == {}
 
 
 @contextlib.contextmanager
@@ -180,3 +191,5 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                 for mutation in shard_mutations.values():
                     # mutations should only be for the column
                     assert all("MATERIALIZE COLUMN" in command for command in mutation.commands)
+                    # Verify that force=True uses ForceMaterializationRunner
+                    assert isinstance(mutation, ForceMaterializationRunner)
