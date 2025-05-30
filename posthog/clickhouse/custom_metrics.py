@@ -1,4 +1,8 @@
+from collections.abc import Mapping
+from concurrent.futures import Future
+from dataclasses import dataclass
 from posthog import settings
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 
@@ -76,8 +80,8 @@ def CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW():
 CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
 CREATE TABLE IF NOT EXISTS custom_metrics_counter_events (
     name String,
-    labels Map(String, String),
     timestamp DateTime64(3, 'UTC') DEFAULT now(),
+    labels Map(String, String),
     increment Float64
 ) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (name, timestamp)
@@ -96,3 +100,22 @@ FROM custom_metrics_counter_events
 GROUP BY name, type, labels
 ORDER BY name, type, labels
 """
+
+
+@dataclass
+class MetricsClient:
+    cluster: ClickhouseCluster
+
+    def increment(self, name: str, labels: Mapping[str, str] | None = None, value: float = 1.0) -> Future[None]:
+        if labels is None:
+            labels = {}
+
+        if not value > 0:
+            raise ValueError("value must be non-negative")
+
+        return self.cluster.any_host(
+            Query(
+                "INSERT INTO custom_metrics_counter_events (name, labels, increment) VALUES",
+                [(name, labels, value)],
+            )
+        )
