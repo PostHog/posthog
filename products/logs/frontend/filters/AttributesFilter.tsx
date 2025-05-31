@@ -17,9 +17,7 @@ export const AttributesFilter = (): JSX.Element => {
             rootKey={rootKey}
             group={filterGroup}
             taxonomicGroupTypes={[TaxonomicFilterGroupType.Logs]}
-            onChange={(filterGroup) => {
-                setFilterGroup(filterGroup)
-            }}
+            onChange={(filterGroup) => setFilterGroup(filterGroup)}
         >
             <NestedFilterGroup />
         </UniversalFilters>
@@ -27,6 +25,7 @@ export const AttributesFilter = (): JSX.Element => {
 }
 
 const NestedFilterGroup = (): JSX.Element => {
+    const { openFilterOnInsert } = useValues(logsLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
@@ -36,12 +35,12 @@ const NestedFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <>
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <NestedFilterGroup />
                             <UniversalFilters.AddFilterButton
                                 className="bg-surface-primary"
                                 size="small"
                                 type="secondary"
                             />
+                            <NestedFilterGroup />
                         </UniversalFilters.Group>
                     </>
                 ) : (
@@ -49,7 +48,7 @@ const NestedFilterGroup = (): JSX.Element => {
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        initiallyOpen={true}
+                        initiallyOpen={openFilterOnInsert}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
                         className="h-[33px]"

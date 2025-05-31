@@ -28,7 +28,12 @@ export const logsLogic = kea<logsLogicType>([
         setResource: (resource: LogsQuery['resource']) => ({ resource }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
+            filterGroup,
+            openFilterOnInsert,
+        }),
+        toggleAttributeBreakdown: (key: string) => ({ key }),
+        setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
     }),
 
     reducers({
@@ -112,6 +117,18 @@ export const logsLogic = kea<logsLogicType>([
                 fetchSparklineFailure: () => true,
             },
         ],
+        openFilterOnInsert: [
+            false as boolean,
+            {
+                setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
+            },
+        ],
+        expandedAttributeBreaksdowns: [
+            [] as string[],
+            {
+                setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -125,7 +142,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: 100,
+                            limit: 999,
                             offset: values.logs.length,
                             orderBy: values.orderBy,
                             dateRange: values.dateRange,
@@ -193,6 +210,12 @@ export const logsLogic = kea<logsLogicType>([
                     values.sparklineAbortController.abort('new query started')
                 }
                 actions.setSparklineAbortController(sparklineAbortController)
+            },
+            toggleAttributeBreakdown: ({ key }) => {
+                const breakdowns = [...values.expandedAttributeBreaksdowns]
+                const index = breakdowns.indexOf(key)
+                index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
+                actions.setExpandedAttributeBreaksdowns(breakdowns)
             },
             setDateRange: maybeRefreshLogs,
             setOrderBy: maybeRefreshLogs,
