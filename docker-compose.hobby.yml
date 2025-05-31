@@ -148,6 +148,7 @@ services:
         ports:
             - '80:80'
             - '443:443'
+            - '8666:8666'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
             - caddy-data:/data
@@ -287,8 +288,6 @@ services:
             service: livestream
         environment:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
-        ports:
-            - '8666:8080'
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
