@@ -35,18 +35,22 @@ class InsightRagContextNode(AssistantNode):
         # Kick off retrieval of the event taxonomy.
         self._prewarm_queries()
 
+        actions_in_context = []
+        if ui_context := self._get_ui_context(config):
+            actions_in_context = list(ui_context.actions.values() if ui_context.actions else [])
+
         try:
             client = get_cohere_client()
             vector = embed_search_query(client, plan)
         except (BaseCohereApiError, ValueError) as e:
             posthoganalytics.capture_exception(e, distinct_id, {"tag": "max"})
-            if not state.actions_in_context:
+            if len(actions_in_context) == 0:
                 return None
             else:
                 vector = None
         return PartialAssistantState(
             rag_context=self._retrieve_actions(
-                vector, actions_in_context=state.actions_in_context, trace_id=trace_id, distinct_id=distinct_id
+                vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
             )
         )
 

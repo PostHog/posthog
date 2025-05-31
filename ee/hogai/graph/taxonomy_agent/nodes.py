@@ -83,6 +83,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             )
         )
 
+        events_in_context = []
+        if ui_context := self._get_ui_context(config):
+            events_in_context = list(ui_context.events.values() if ui_context.events else [])
+
         agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
 
         try:
@@ -96,7 +100,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
-                        "events": self._events_prompt(state.events_in_context or []),
+                        "events": self._events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
