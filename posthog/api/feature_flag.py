@@ -670,6 +670,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "ensure_experience_continuity",
             "has_encrypted_payloads",
             "version",
+            "creation_context",
         ]
 
 
