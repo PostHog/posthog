@@ -316,7 +316,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
                     if (e instanceof ApiError && e.status === 429) {
-                        relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
+                        relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
                     } else {
                         posthog.captureException(e)
                         console.error(e)
