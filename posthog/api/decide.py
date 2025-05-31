@@ -412,7 +412,7 @@ def get_feature_flags_response_or_body(
     }
 
     # Compute feature flags
-    _, _, feature_flag_payloads, errors, flags_details, feature_flags = get_all_feature_flags_with_details(
+    flag_values, _, feature_flag_payloads, errors, flags_details, feature_flags = get_all_feature_flags_with_details(
         team,
         distinct_id,
         data.get("groups") or {},
@@ -427,24 +427,24 @@ def get_feature_flags_response_or_body(
     _record_feature_flag_metrics(team, feature_flags, errors, data)
 
     # Format response based on API version
-    return _format_feature_flags_response(feature_flags, feature_flag_payloads, flags_details, errors, api_version)
+    return _format_feature_flags_response(flag_values, feature_flag_payloads, flags_details, errors, api_version)
 
 
 def _format_feature_flags_response(
-    feature_flags: dict[str, Any],
+    flag_values: dict[str, Any],
     feature_flag_payloads: dict[str, Any],
     flags_details: Optional[dict[str, Any]],
     errors: bool,
     api_version: int,
 ) -> dict[str, Any]:
     """Format feature flags response according to API version."""
-    active_flags = {key: value for key, value in feature_flags.items() if value}
+    active_flags = {key: value for key, value in flag_values.items() if value}
 
     if api_version == 2:
         return {"featureFlags": active_flags}
     elif api_version == 3:
         return {
-            "featureFlags": feature_flags,
+            "featureFlags": flag_values,
             "errorsWhileComputingFlags": errors,
             "featureFlagPayloads": feature_flag_payloads,
         }
@@ -529,8 +529,8 @@ def _record_feature_flag_metrics(
         # Check if any flag should be billed (not all are survey flags with both prefix and creation context)
         should_bill = not all(
             flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
-            and creation_context_by_key.get(flag_key) == CreationContext.SURVEY
-            for flag_key in feature_flags.keys()
+            and creation_context_by_key.get(flag_key) == CreationContext.SURVEYS
+            for flag_key in creation_context_by_key.keys()
         )
 
     if should_bill:
