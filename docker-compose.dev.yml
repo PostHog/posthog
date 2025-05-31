@@ -77,12 +77,12 @@ services:
             - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
-            - zookeeper
+            - clickhouse-keeper
 
-    zookeeper:
+    clickhouse-keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: clickhouse-keeper
         ports:
             - '2181:2181'
 
@@ -93,7 +93,7 @@ services:
         ports:
             - '9092:9092'
         depends_on:
-            - zookeeper
+            - clickhouse-keeper
 
     kafka_ui:
         extends:
@@ -195,3 +195,6 @@ services:
                 condition: service_started
             db:
                 condition: service_healthy
+
+volumes:
+    clickhouse-keeper-data:
