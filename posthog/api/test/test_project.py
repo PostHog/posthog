@@ -1,6 +1,10 @@
+from unittest.mock import patch
+
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.project import Project
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from rest_framework import status
 
@@ -33,3 +37,42 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             {team_in_other_org.project.id},
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
+
+    @patch('posthog.tasks.delete_project.delete_project_async.delay')
+    def test_delete_project_queues_async_task(self, mock_delete_task):
+        """Test that deleting a project queues an async task instead of deleting synchronously."""
+        # Set user as admin to have delete permissions
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        
+        # Create a second team for the project
+        second_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Second Team"
+        )
+        
+        # Store IDs before deletion
+        project_id = self.project.id
+        project_name = self.project.name
+        organization_id = self.organization.id
+        
+        # Delete the project
+        response = self.client.delete(f"/api/projects/{self.project.id}/")
+        
+        # Should return 204 No Content immediately
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        
+        # Verify the async task was queued with correct parameters
+        mock_delete_task.assert_called_once_with(
+            project_id=project_id,
+            organization_id=organization_id,
+            project_name=project_name,
+            user_id=self.user.id,
+            was_impersonated=False,
+        )
+        
+        # Verify project still exists (since task is mocked)
+        self.assertTrue(Project.objects.filter(id=project_id).exists())
+        self.assertTrue(Team.objects.filter(id=self.team.id).exists())
+        self.assertTrue(Team.objects.filter(id=second_team.id).exists())

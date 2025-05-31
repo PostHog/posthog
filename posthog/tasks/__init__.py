@@ -3,6 +3,7 @@
 from . import (
     async_migrations,
     calculate_cohort,
+    delete_project,
     demo_create_data,
     demo_reset_master_team,
     email,
@@ -26,6 +27,7 @@ from . import (
 __all__ = [
     "async_migrations",
     "calculate_cohort",
+    "delete_project",
     "demo_create_data",
     "demo_reset_master_team",
     "email",
