@@ -299,19 +299,27 @@ fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<
     let value = value?;
 
     if let Some(date_str) = value.as_str() {
+        // First try parsing as a float timestamp
+        if let Ok(num) = date_str.parse::<f64>() {
+            return parse_float_timestamp(num);
+        }
+        // Then try relative date parsing
         return parse_date_string(date_str);
     }
 
     if let Some(num) = value.as_number() {
-        // Convert to f64 first to handle both integer and float timestamps
-        let ms = num.as_f64()?;
-        let seconds = (ms / 1000.0).floor() as i64;
-        let nanos = ((ms % 1000.0) * 1_000_000.0) as u32;
-
-        return DateTime::from_timestamp(seconds, nanos);
+        // Unix timestamps are the number of seconds since epoch (January 1, 1970, at 00:00:00 UTC)
+        let seconds_f = num.as_f64()?;
+        return parse_float_timestamp(seconds_f);
     }
 
     None
+}
+
+fn parse_float_timestamp(value: f64) -> Option<DateTime<Utc>> {
+    let whole_seconds = value.floor() as i64;
+    let nanos = ((value % 1.0) * 1_000_000_000.0).round() as u32;
+    DateTime::from_timestamp(whole_seconds, nanos)
 }
 
 /// Copy of https://github.com/PostHog/posthog/blob/master/posthog/queries/test/test_base.py#L35
@@ -321,6 +329,7 @@ fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<
 mod test_match_properties {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
     #[test]
     fn test_match_properties_exact_with_partial_props() {
@@ -1498,6 +1507,20 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
+        assert!(match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!(1710979200))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!("1710979200"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
         // Test with invalid date format
         assert!(!match_property(
             &property_exact,
@@ -1509,10 +1532,33 @@ mod test_match_properties {
         // Test with timestamp
         assert!(match_property(
             &property_exact,
-            &HashMap::from([("date".to_string(), json!(1710979200000.0))]), // 2024-03-21 00:00:00 UTC
+            &HashMap::from([("date".to_string(), json!(1710979200.0))]), // 2024-03-21 00:00:00 UTC
             true
         )
         .expect("expected match to exist"));
+    }
+
+    #[test_case(json!(1836277747) => true; "numeric timestamp after target date")] // 2028-03-10 05:09:07
+    #[test_case(json!("1836277747") => true; "string timestamp after target date")] // 2028-03-10 05:09:07
+    #[test_case(json!(1747793088) => false; "numeric timestamp before target date")] // 2025-05-21 02:04:48
+    #[test_case(json!("1747793088") => false; "string timestamp before target date")] // 2025-05-21 02:04:48
+    fn test_match_properties_date_after_with_timestamp(input_value: Value) -> bool {
+        let target_date = "2027-03-21T00:00:00Z";
+        let property = PropertyFilter {
+            key: "date".to_string(),
+            value: Some(json!(target_date)),
+            operator: Some(OperatorType::IsDateAfter),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        match_property(
+            &property,
+            &HashMap::from([("date".to_string(), input_value)]),
+            true,
+        )
+        .expect("expected match to exist")
     }
 
     #[test]
@@ -1552,7 +1598,7 @@ mod test_match_properties {
             &property_relative,
             &HashMap::from([(
                 "joined_at".to_string(),
-                json!(four_days_ago.timestamp_millis() as f64)
+                json!(four_days_ago.timestamp() as f64)
             )]),
             true
         )
@@ -1576,5 +1622,32 @@ mod test_match_properties {
 
         // Test with missing property
         assert!(match_property(&property_relative, &HashMap::from([]), true).is_err());
+    }
+
+    #[test]
+    fn test_parse_timestamp_in_seconds_as_date() {
+        let expected_date = DateTime::parse_from_rfc3339("2028-03-10T05:09:07Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_number = 1836277747;
+        let timestamp_string = timestamp_number.to_string();
+        let date = determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)));
+        assert_eq!(date, Some(expected_date));
+        let date = determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)));
+        assert_eq!(date, Some(expected_date));
+    }
+
+    #[test]
+    fn test_parse_timestamp_with_fractional_milliseconds_as_date() {
+        let expected_date = DateTime::parse_from_rfc3339("2028-03-10T05:09:07.867530107Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_number = 1836277747.86753;
+        let date = determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)));
+        assert_eq!(date, Some(expected_date));
+
+        let timestamp_string = "1836277747.86753";
+        let date = determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)));
+        assert_eq!(date, Some(expected_date));
     }
 }
