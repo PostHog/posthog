@@ -32,6 +32,8 @@ export const logsLogic = kea<logsLogicType>([
             filterGroup,
             openFilterOnInsert,
         }),
+        toggleAttributeBreakdown: (key: string) => ({ key }),
+        setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
     }),
 
     reducers({
@@ -121,6 +123,12 @@ export const logsLogic = kea<logsLogicType>([
                 setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
             },
         ],
+        expandedAttributeBreaksdowns: [
+            [] as string[],
+            {
+                setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -202,6 +210,12 @@ export const logsLogic = kea<logsLogicType>([
                     values.sparklineAbortController.abort('new query started')
                 }
                 actions.setSparklineAbortController(sparklineAbortController)
+            },
+            toggleAttributeBreakdown: ({ key }) => {
+                const breakdowns = [...values.expandedAttributeBreaksdowns]
+                const index = breakdowns.indexOf(key)
+                index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
+                actions.setExpandedAttributeBreaksdowns(breakdowns)
             },
             setDateRange: maybeRefreshLogs,
             setOrderBy: maybeRefreshLogs,
