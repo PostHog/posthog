@@ -29,7 +29,8 @@ export async function startDownload(
     query: DataTableNode,
     onlySelectedColumns: boolean,
     exportCall: (exportData: TriggerExportProps) => void,
-    format: ExporterFormat = ExporterFormat.CSV
+    format: ExporterFormat = ExporterFormat.CSV,
+    fileNameForExport?: string
 ): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
@@ -60,6 +61,9 @@ export async function startDownload(
             )
         }
         exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
+    }
+    if (fileNameForExport != null) {
+        exportContext['filename'] = fileNameForExport
     }
     exportCall({
         export_format: format,
@@ -192,9 +196,10 @@ function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query
 interface DataTableExportProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
+    fileNameForExport?: string
 }
 
-export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
+export function DataTableExport({ query, fileNameForExport }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport, createStaticCohort } = useActions(exportsLogic)
 
@@ -217,13 +222,13 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         {
                             label: 'CSV',
                             onClick: () => {
-                                void startDownload(query, true, startExport)
+                                void startDownload(query, true, startExport, ExporterFormat.CSV, fileNameForExport)
                             },
                         },
                         {
                             label: 'XLSX',
                             onClick: () => {
-                                void startDownload(query, true, startExport, ExporterFormat.XLSX)
+                                void startDownload(query, true, startExport, ExporterFormat.XLSX, fileNameForExport)
                             },
                         },
                     ],
@@ -233,11 +238,13 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     items: [
                         {
                             label: 'CSV',
-                            onClick: () => void startDownload(query, false, startExport),
+                            onClick: () =>
+                                void startDownload(query, false, startExport, ExporterFormat.CSV, fileNameForExport),
                         },
                         {
                             label: 'XLSX',
-                            onClick: () => void startDownload(query, false, startExport, ExporterFormat.XLSX),
+                            onClick: () =>
+                                void startDownload(query, false, startExport, ExporterFormat.XLSX, fileNameForExport),
                         },
                     ],
                 },
