@@ -12,16 +12,51 @@ class InsightContextForMax(BaseModel):
     insight_type: Optional[str] = None  # Type of insight, e.g., NodeKind.TrendsQuery
 
 
-class DashboardDisplayContext(BaseModel):
-    """Context for a dashboard being viewed"""
+class DashboardContextForMax(BaseModel):
+    """Context for a dashboard being viewed, including its insights"""
+
+    id: Union[str, int]
+    name: Optional[str] = None
+    description: Optional[str] = None
+    insights: list[InsightContextForMax] = []
+
+
+class EventContextForMax(BaseModel):
+    """Context for an event definition"""
 
     id: Union[str, int]
     name: Optional[str] = None
     description: Optional[str] = None
 
 
-class MultiInsightContainer(RootModel[dict[str, InsightContextForMax]]):
-    """Container for multiple active insights, typically on a dashboard"""
+class ActionContextForMax(BaseModel):
+    """Context for an action definition"""
+
+    id: Union[str, int]
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class MultiDashboardContextContainer(RootModel[dict[str, DashboardContextForMax]]):
+    """Container for multiple dashboard contexts"""
+
+    pass
+
+
+class MultiInsightContextContainer(RootModel[dict[str, InsightContextForMax]]):
+    """Container for multiple insight contexts"""
+
+    pass
+
+
+class MultiEventContextContainer(RootModel[dict[str, EventContextForMax]]):
+    """Container for multiple event contexts"""
+
+    pass
+
+
+class MultiActionContextContainer(RootModel[dict[str, ActionContextForMax]]):
+    """Container for multiple action contexts"""
 
     pass
 
@@ -42,6 +77,8 @@ class GlobalInfo(BaseModel):
 class MaxContextShape(BaseModel):
     """The main shape for the UI context sent to the backend"""
 
-    active_dashboard: Optional[DashboardDisplayContext] = None
-    active_insights: Optional[dict[str, InsightContextForMax]] = None
+    dashboards: Optional[dict[str, DashboardContextForMax]] = None
+    insights: Optional[dict[str, InsightContextForMax]] = None
+    events: Optional[dict[str, EventContextForMax]] = None
+    actions: Optional[dict[str, ActionContextForMax]] = None
     global_info: Optional[GlobalInfo] = None

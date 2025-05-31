@@ -48,6 +48,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.ui_context_types import ActionContextForMax, EventContextForMax
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Action, Team, User
@@ -107,6 +108,8 @@ class Assistant:
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
+    _events_in_context: list[EventContextForMax]
+    _actions_in_context: list[ActionContextForMax]
 
     def __init__(
         self,
@@ -126,7 +129,6 @@ class Assistant:
         self._contextual_tools = contextual_tools or {}
         self._user = user
         self._conversation = conversation
-        self._ui_context = ui_context
         if not new_message and not tool_call_partial_state:
             raise ValueError("Either new_message or tool_call_partial_state must be provided")
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
@@ -157,6 +159,15 @@ class Assistant:
         )
         self._trace_id = trace_id
         self._custom_update_ids = set()
+
+        self._ui_context = ui_context
+        self._events_in_context = []
+        self._actions_in_context = []
+        if ui_context:
+            for event in ui_context.get("events", {}).values():
+                self._events_in_context.append(event)
+            for action in ui_context.get("actions", {}).values():
+                self._actions_in_context.append(action)
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -241,9 +252,28 @@ class Assistant:
     @property
     def _initial_state(self) -> AssistantState:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
+            # Add ui_context to the message if available
+            if self._ui_context and self._latest_message:
+                # remove global_info as it is not added by the user
+                filtered_ui_context = {k: v for k, v in self._ui_context.items() if k not in ["global_info"]}
+                message_with_ui_context = self._latest_message.model_copy(update={"ui_context": filtered_ui_context})
+                return AssistantState(
+                    messages=[message_with_ui_context],
+                    start_id=message_with_ui_context.id,
+                    events_in_context=self._events_in_context,
+                    actions_in_context=self._actions_in_context,
+                )
+            else:
+                return AssistantState(
+                    messages=[self._latest_message],
+                    start_id=self._latest_message.id,
+                    events_in_context=self._events_in_context,
+                    actions_in_context=self._actions_in_context,
+                )
         else:
-            return AssistantState(messages=[])
+            return AssistantState(
+                messages=[], events_in_context=self._events_in_context, actions_in_context=self._actions_in_context
+            )
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None

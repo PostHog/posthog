@@ -33,7 +33,10 @@ class MessageSerializer(serializers.Serializer):
 
     def validate(self, data):
         try:
-            message = HumanMessage(content=data["content"])
+            message_data = {"content": data["content"]}
+            if "ui_context" in data:
+                message_data["ui_context"] = data["ui_context"]
+            message = HumanMessage(**message_data)
             data["message"] = message
         except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid message content.")

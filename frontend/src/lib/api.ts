@@ -142,7 +142,7 @@ import {
     UserType,
 } from '~/types'
 
-import { MaxContextShape } from './ai/maxTypes'
+import { MaxContextShape } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,

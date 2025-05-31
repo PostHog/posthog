@@ -3,6 +3,7 @@ import { actionToUrl, router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
@@ -59,11 +60,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight'],
+            ['setInsight', 'setMaxContext'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
+        logic: [insightDataTimingLogic(props), insightUsageLogic(props), maxContextLogic],
     })),
 
     actions({
@@ -190,7 +191,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
             // we don't want to override the query for example when updating the insight's name
             if (!overrideQuery) {
@@ -213,10 +214,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
         setQuery: ({ query }) => {
             // Update MaxAI context when query changes
-            const mountedInsightLogic = insightLogic.findMounted(props)
-            if (mountedInsightLogic) {
-                mountedInsightLogic.actions.setMaxContext()
-            }
+            actions.setMaxContext()
 
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {

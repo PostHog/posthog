@@ -2,7 +2,6 @@ import './QuestionInput.scss'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
-import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconTools } from 'lib/lemon-ui/icons'
@@ -11,6 +10,7 @@ import { CSSTransition } from 'react-transition-group'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { ContextDisplay } from './ContextDisplay'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, SuggestionGroup } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -59,6 +59,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                     isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
                 )}
             >
+                <ContextDisplay />
                 <div className="relative w-full">
                     <LemonTextArea
                         ref={textAreaRef}
@@ -150,50 +151,36 @@ function SuggestionsList(): JSX.Element {
             unmountOnExit
             nodeRef={focusElementRef}
         >
-            <ToggleGroup
+            <div
                 ref={focusElementRef}
-                type="single"
                 className="QuestionInput__SuggestionsList absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
-                onValueChange={(index) => {
-                    const suggestion = activeSuggestionGroup?.suggestions[Number(index)]
-                    if (!suggestion) {
-                        return
-                    }
-
-                    if (checkSuggestionRequiresUserInput(suggestion.content)) {
-                        // Content requires to write something to continue
-                        setQuestion(stripSuggestionPlaceholders(suggestion.content))
-                        focusInput()
-                    } else {
-                        // Otherwise, just launch the generation
-                        askMax(suggestion.content)
-                    }
-
-                    // Close suggestions after asking
-                    setActiveGroup(null)
-                }}
             >
                 {memoizedSuggestion?.suggestions.map((suggestion, index) => (
-                    <ToggleGroupItem
+                    <LemonButton
                         key={suggestion.content}
-                        value={index.toString()}
-                        tabIndex={0}
-                        aria-label={`Select suggestion: ${suggestion.content}`}
-                        asChild
+                        className="QuestionInput__QuestionSuggestion text-left"
+                        style={{ '--index': index } as React.CSSProperties}
+                        size="small"
+                        type="tertiary"
+                        fullWidth
+                        onClick={() => {
+                            if (checkSuggestionRequiresUserInput(suggestion.content)) {
+                                // Content requires to write something to continue
+                                setQuestion(stripSuggestionPlaceholders(suggestion.content))
+                                focusInput()
+                            } else {
+                                // Otherwise, just launch the generation
+                                askMax(suggestion.content)
+                            }
+
+                            // Close suggestions after asking
+                            setActiveGroup(null)
+                        }}
                     >
-                        <LemonButton
-                            className="QuestionInput__QuestionSuggestion text-left"
-                            role="button"
-                            style={{ '--index': index } as React.CSSProperties}
-                            size="small"
-                            type="tertiary"
-                            fullWidth
-                        >
-                            <span className="font-normal">{formatSuggestion(suggestion.content)}</span>
-                        </LemonButton>
-                    </ToggleGroupItem>
+                        <span className="font-normal">{formatSuggestion(suggestion.content)}</span>
+                    </LemonButton>
                 ))}
-            </ToggleGroup>
+            </div>
         </CSSTransition>
     )
 }

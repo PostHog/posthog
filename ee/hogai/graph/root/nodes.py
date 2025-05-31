@@ -59,7 +59,161 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 
-class RootNode(AssistantNode):
+class RootNodeUIContextMixin(AssistantNode):
+    def _run_and_format_insight(self, insight, query_runner: QueryRunner) -> str:
+        """Helper method to run and format a single insight."""
+        # Map query kinds to their respective full UI query classes
+        query_class_map: dict[str, type[BaseModel]] = {
+            "TrendsQuery": TrendsQuery,
+            "FunnelsQuery": FunnelsQuery,
+            "RetentionQuery": RetentionQuery,
+            "HogQLQuery": HogQLQuery,
+        }
+
+        try:
+            # Convert the query dict to the appropriate query object
+            query_dict = insight.query
+            query_kind = query_dict.get("kind")
+
+            if not query_kind or query_kind not in query_class_map:
+                return ""  # Skip unsupported query types
+
+            query_class = query_class_map[query_kind]
+            query_obj = query_class.model_validate(query_dict)
+
+            # Run the query and format results
+            formatted_results = query_runner.run_and_format_query(query_obj)
+
+            result = f"## {insight.name or f'Insight {insight.id}'}"
+            if insight.description:
+                result += f": {insight.description}"
+            result += f"\nQuery: {insight.query}"
+            result += f"\n\nResults:\n{formatted_results}"
+            return result
+
+        except Exception:
+            # Skip insights that fail to run
+            return ""
+
+    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> dict[str, str]:
+        """Format UI context information for the prompt template."""
+        if not ui_context:
+            return {
+                "ui_context_dashboard": "",
+                "ui_context_insights": "",
+                "ui_context_events": "",
+                "ui_context_actions": "",
+                "ui_context_navigation": "",
+            }
+
+        query_runner = QueryRunner(self._team, self._utc_now_datetime)
+
+        # Format dashboard context
+        dashboard_context = ""
+        if ui_context.dashboards:
+            dashboard_contexts = []
+
+            for _, dashboard in ui_context.dashboards.items():
+                dashboard_text = f"Dashboard: {dashboard.name or f'Dashboard {dashboard.id}'}"
+                if dashboard.description:
+                    dashboard_text += f"\nDescription: {dashboard.description}"
+
+                if dashboard.insights:
+                    dashboard_text += f"\nInsights in dashboard:"
+                    for insight in dashboard.insights:
+                        insight_text = f"\n- {insight.name or f'Insight {insight.id}'}"
+                        if insight.description:
+                            insight_text += f": {insight.description}"
+
+                        # Run the insight and include results
+                        insight_results = self._run_and_format_insight(insight, query_runner)
+                        if insight_results:
+                            # Extract just the results part for inline display
+                            lines = insight_results.split("\n")
+                            results_start = next((i for i, line in enumerate(lines) if line.startswith("Results:")), -1)
+                            if results_start >= 0 and results_start + 1 < len(lines):
+                                insight_text += f"\nQuery: {insight.query}"
+                                insight_text += f"\nResults:\n{chr(10).join(lines[results_start + 1:])}"
+
+                        dashboard_text += insight_text
+
+                dashboard_contexts.append(dashboard_text)
+
+            if dashboard_contexts:
+                dashboard_context = f"<dashboards_context>Dashboards the user is looking at:\n{chr(10).join(dashboard_contexts)}\n</dashboards_context>"
+
+        # Format standalone insights context
+        insights_context = ""
+        if ui_context.insights:
+            insights_results = []
+            for _, insight in ui_context.insights.items():
+                result = self._run_and_format_insight(insight, query_runner)
+                if result:
+                    insights_results.append(result)
+
+            if insights_results:
+                joined_results = "\n\n".join(insights_results)
+                insights_context = f"<standalone_insights_context>Insights the user is looking at:\n{joined_results}\n</standalone_insights_context>"
+
+        # Format events context
+        events_context = ""
+        if ui_context.events:
+            event_names = []
+            for _, event in ui_context.events.items():
+                event_names.append(event.name or f"Event {event.id}")
+
+            if event_names:
+                quoted_event_names = [f'"{name}"' for name in event_names]
+                events_context = f"<events_context>Event names the user is referring to:\n{', '.join(quoted_event_names)}\n</events_context>"
+
+        # Format actions context
+        actions_context = ""
+        if ui_context.actions:
+            action_names = []
+            for _, action in ui_context.actions.items():
+                action_names.append(action.name or f"Action {action.id}")
+
+            if action_names:
+                quoted_action_names = [f'"{name}"' for name in action_names]
+                actions_context = f"<actions_context>Action names the user is referring to:\n{', '.join(quoted_action_names)}\n</actions_context>"
+
+        # Format navigation context
+        navigation_context = ""
+        if ui_context.global_info and ui_context.global_info.navigation:
+            nav = ui_context.global_info.navigation
+            navigation_context = f"<navigation_context>\nCurrent page: {nav.path}"
+            if nav.page_title:
+                navigation_context += f"\nPage title: {nav.page_title}"
+            navigation_context += "\n</navigation_context>"
+
+        return {
+            "ui_context_dashboard": dashboard_context,
+            "ui_context_insights": insights_context,
+            "ui_context_events": events_context,
+            "ui_context_actions": actions_context,
+            "ui_context_navigation": navigation_context,
+        }
+
+    def _run_insights_from_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
+        """Run insights from UI context and return formatted results."""
+        if not ui_context or not ui_context.insights:
+            return ""
+
+        insights_results = []
+        query_runner = QueryRunner(self._team, self._utc_now_datetime)
+
+        for _, insight in ui_context.insights.items():
+            result = self._run_and_format_insight(insight, query_runner)
+            if result:
+                insights_results.append(result)
+
+        if insights_results:
+            joined_results = "\n\n".join(insights_results)
+            return f"<insights>\n{joined_results}\n</insights>"
+        return ""
+
+
+class RootNode(RootNodeUIContextMixin):
     MAX_TOOL_CALLS = 4
     """
     Determines the maximum number of tool calls allowed in a single generation.
@@ -259,96 +413,6 @@ class RootNode(AssistantNode):
                 return messages[idx:]
         return messages
 
-    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> dict[str, str]:
-        """Format UI context information for the prompt template."""
-        if not ui_context:
-            return {
-                "ui_context_dashboard": "",
-                "ui_context_insights": "",
-                "ui_context_navigation": "",
-            }
-
-        # Format dashboard context
-        dashboard_context = ""
-        if ui_context.active_dashboard:
-            dashboard = ui_context.active_dashboard
-            dashboard_context = (
-                f"<dashboard_context>\nCurrently viewing dashboard: {dashboard.name or f'Dashboard {dashboard.id}'}"
-            )
-            if dashboard.description:
-                dashboard_context += f"\nDescription: {dashboard.description}"
-
-        # Format insights context
-        insights_context = self._run_insights_from_ui_context(ui_context)
-
-        # Combine dashboard and insights context if both are present
-        if dashboard_context and insights_context:
-            dashboard_context += insights_context
-            dashboard_context += "\n</dashboard_context>"
-            insights_context = ""
-
-        # Format navigation context
-        navigation_context = ""
-        if ui_context.global_info and ui_context.global_info.navigation:
-            nav = ui_context.global_info.navigation
-            navigation_context = f"<navigation_context>\nCurrent page: {nav.path}"
-            if nav.page_title:
-                navigation_context += f"\nPage title: {nav.page_title}"
-            navigation_context += "\n</navigation_context>"
-
-        return {
-            "ui_context_dashboard": dashboard_context,
-            "ui_context_insights": insights_context,
-            "ui_context_navigation": navigation_context,
-        }
-
-    def _run_insights_from_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
-        """Run insights from UI context and return formatted results."""
-        if not ui_context or not ui_context.active_insights:
-            return ""
-
-        insights_results = []
-        query_runner = QueryRunner(self._team, self._utc_now_datetime)
-
-        # Map query kinds to their respective full UI query classes
-        query_class_map = {
-            "TrendsQuery": TrendsQuery,
-            "FunnelsQuery": FunnelsQuery,
-            "RetentionQuery": RetentionQuery,
-            "HogQLQuery": HogQLQuery,
-        }
-
-        for _, insight in ui_context.active_insights.items():
-            try:
-                # Convert the query dict to the appropriate query object
-                query_dict = insight.query
-                query_kind = query_dict.get("kind")
-
-                if not query_kind or query_kind not in query_class_map:
-                    continue  # Skip unsupported query types
-
-                query_class = query_class_map[query_kind]
-                query_obj = query_class.model_validate(query_dict)
-
-                # Run the query and format results
-                formatted_results = query_runner.run_and_format_query(query_obj)
-
-                _insight_result = f"## {insight.name or f'Insight {insight.id}'}"
-                if insight.description:
-                    _insight_result += f": {insight.description}"
-                _insight_result += f"\nQuery: {insight.query}"
-                _insight_result += f"\n\nResults:\n{formatted_results}"
-                insights_results.append(_insight_result)
-
-            except Exception:
-                # Skip insights that fail to run
-                continue
-
-        if insights_results:
-            joined_results = "\n\n".join(insights_results)
-            return f"<active_insights>\n{joined_results}\n</active_insights>"
-        return ""
-
 
 class RootNodeTools(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -401,7 +465,7 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=result.content,
+                        content=str(result.content) if result.content else "",
                         ui_payload={tool_call.name: result.artifact},
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,

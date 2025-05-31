@@ -656,21 +656,21 @@ class QueryRunner:
         # Handle full UI queries by casting to assistant query types
         elif isinstance(query, TrendsQuery):
             # Cast to AssistantTrendsQuery for formatting
-            assistant_query = cast(AssistantTrendsQuery, query)
-            return TrendsResultsFormatter(assistant_query, response["results"]).format()
+            assistant_trends_query = cast(AssistantTrendsQuery, query)
+            return TrendsResultsFormatter(assistant_trends_query, response["results"]).format()
         elif isinstance(query, FunnelsQuery):
             # Cast to AssistantFunnelsQuery for formatting
-            assistant_query = cast(AssistantFunnelsQuery, query)
+            assistant_funnels_query = cast(AssistantFunnelsQuery, query)
             return FunnelResultsFormatter(
-                assistant_query, response["results"], self._team, self._utc_now_datetime
+                assistant_funnels_query, response["results"], self._team, self._utc_now_datetime
             ).format()
         elif isinstance(query, RetentionQuery):
             # Cast to AssistantRetentionQuery for formatting
-            assistant_query = cast(AssistantRetentionQuery, query)
-            return RetentionResultsFormatter(assistant_query, response["results"]).format()
+            assistant_retention_query = cast(AssistantRetentionQuery, query)
+            return RetentionResultsFormatter(assistant_retention_query, response["results"]).format()
         elif isinstance(query, HogQLQuery):
             # Cast to AssistantHogQLQuery for formatting
-            assistant_query = cast(AssistantHogQLQuery, query)
-            return SQLResultsFormatter(assistant_query, response["results"], response["columns"]).format()
+            assistant_hogql_query = cast(AssistantHogQLQuery, query)
+            return SQLResultsFormatter(assistant_hogql_query, response["results"], response["columns"]).format()
 
         raise NotImplementedError(f"Unsupported query type: {type(query)}")

@@ -14,12 +14,12 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { maxContextLogic } from 'lib/ai/maxContextLogic'
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
 import {
     AssistantEventType,

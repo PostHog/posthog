@@ -30,12 +30,12 @@ import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { maxContextLogic } from '~/lib/ai/maxContextLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -1280,7 +1280,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.autoRefreshInterval = null
             }
             // Clear dashboard context when unmounting
-            maxContextLogic.actions.clearDashboardContext()
+            maxContextLogic.actions.clearActiveDashboard()
         },
     })),
     sharedListeners(({ values, props }) => ({
@@ -1698,13 +1698,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Set dashboard context for Max AI
-            if (values.dashboard.name || values.dashboard.description) {
-                maxContextLogic.actions.setDashboardContext({
-                    id: values.dashboard.id,
-                    name: values.dashboard.name,
-                    description: values.dashboard.description,
-                })
-            }
+            maxContextLogic.actions.setActiveDashboard(values.dashboard)
 
             const { action, dashboardQueryId } = values.dashboardLoadTimerData
             actions.refreshAllDashboardItems({ action, dashboardQueryId })
