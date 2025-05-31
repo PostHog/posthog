@@ -17,7 +17,7 @@ pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> Stri
 }
 
 pub async fn increment_request_count(
-    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer_client: Arc<dyn RedisClient + Send + Sync>,
     team_id: i32,
     count: i32,
     request_type: FlagRequestType,
@@ -28,7 +28,7 @@ pub async fn increment_request_count(
         .as_secs()
         / CACHE_BUCKET_SIZE;
     let key_name = get_team_request_key(team_id, request_type);
-    redis_client
+    redis_writer_client
         .hincrby(key_name, time_bucket.to_string(), Some(count))
         .await?;
     Ok(())
