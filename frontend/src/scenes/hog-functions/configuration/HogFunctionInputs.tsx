@@ -416,6 +416,7 @@ export function HogFunctionInputWithSchema({
             inputsSchema = inputsSchema.filter((s) => s.key !== schema.key)
         } else {
             const modifiedSchema = { ...schema, ...newSchema }
+            // console.log('🔧 Modified schema:', modifiedSchema)
             inputsSchema = inputsSchema.map((s) => (s.key === schema.key ? modifiedSchema : s))
         }
 
@@ -426,13 +427,16 @@ export function HogFunctionInputWithSchema({
         if (newSchema?.type && newSchema.type !== schema.type) {
             setConfigurationValue(`inputs.${schema.key}`, null)
         }
-
+        // console.log('🔧 updated inputs_schema:', inputsSchema)
         setConfigurationValue('inputs_schema', inputsSchema)
     }
 
     const handleLiquidToggle = (enabled: boolean): void => {
+        // console.log('🔧 Toggling liquid:', { enabled, schema: schema.key })
         setAllowLiquid(enabled)
-        onSchemaChange({ templating: !enabled })
+        const newSchema = { templating: !enabled }
+        // console.log('🔧 Setting schema change:', newSchema)
+        onSchemaChange(newSchema)
     }
 
     useEffect(() => {
@@ -440,6 +444,12 @@ export function HogFunctionInputWithSchema({
             setEditing(false)
         }
     }, [showSource])
+
+    useEffect(() => {
+        // console.log('🔧 Schema on component mount:', schema)
+        // console.log('🔧 Schema templating value:', schema.templating)
+        // console.log('🔧 Should allow liquid?:', schema.type === 'email' && schema.templating === false)
+    }, [schema])
 
     const supportsTemplating =
         ['string', 'json', 'dictionary', 'email'].includes(schema.type) && schema.templating !== false

@@ -36,15 +36,27 @@ const parseLiquidTemplate = (
     inputs?: Record<string, any>,
     allowLiquid: boolean = false
 ): string => {
+    // Early return if liquid processing is disabled
     if (!allowLiquid) {
+        // logger.info('🔍 Liquid parsing disabled', { template, allowLiquid });
         return template
     }
+
+    // logger.info('🔍 Liquid parsing enabled - starting parse', {
+    //     template,
+    //     allowLiquid,
+    //     contextKeys: Object.keys(context),
+    //     personProperties: context.person?.properties ? Object.keys(context.person.properties) : 'none'
+    // });
 
     try {
         const liquid = new Liquid({
             strictFilters: false,
             strictVariables: false,
             outputEscape: 'escape',
+            filters: {
+                default: (value: any, defaultValue: any) => value ?? defaultValue,
+            },
         })
 
         const liquidContext = {
@@ -56,9 +68,25 @@ const parseLiquidTemplate = (
             inputs: inputs || {},
         }
 
-        return liquid.parseAndRenderSync(template, liquidContext)
+        // logger.info('🔍 Liquid context built', {
+        //     liquidContext: JSON.stringify(liquidContext, null, 2)
+        // });
+
+        const result = liquid.parseAndRenderSync(template, liquidContext)
+
+        // logger.info('🔍 Liquid parsing result', {
+        //     template,
+        //     result,
+        //     changed: template !== result
+        // });
+
+        return result
     } catch (error) {
-        logger.warn('Liquid template parsing failed', { error: error.message, template })
+        logger.warn('🔍 Liquid template parsing failed', {
+            error: error.message,
+            template,
+            stack: error.stack,
+        })
         return template
     }
 }

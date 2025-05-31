@@ -599,7 +599,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 if (!values.hasAddon) {
                     // Remove the source field if the user doesn't have the addon
                     delete payload.hog
-                    delete payload.inputs_schema
+
+                    // Only preserve templating settings in inputs_schema, remove everything else
+                    if (payload.inputs_schema) {
+                        const modifiedSchema = payload.inputs_schema as any[] // Store reference before overwriting
+                        const originalSchema =
+                            values.hogFunction?.template?.inputs_schema || values.template?.inputs_schema || []
+
+                        payload.inputs_schema = originalSchema.map((originalInput) => {
+                            const modifiedInput = modifiedSchema?.find((s) => s.key === originalInput.key)
+                            return {
+                                ...originalInput,
+                                // Preserve only the templating setting if it was modified
+                                ...(modifiedInput?.templating !== undefined
+                                    ? { templating: modifiedInput.templating }
+                                    : {}),
+                            }
+                        })
+                    }
                 }
 
                 if (!props.id || props.id === 'new') {
@@ -608,6 +625,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         payload._create_in_folder = folder
                     }
                 }
+                // console.log('🔧 Final payload being sent:', payload)
+                // console.log('🔧 inputs_schema in payload:', payload.inputs_schema)
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
         },
