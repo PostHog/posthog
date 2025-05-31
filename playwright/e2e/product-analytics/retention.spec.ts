@@ -13,10 +13,13 @@ test.describe('Retention', () => {
         // NOTE: First wait for results to load, try and make the test more
         // stable. This is to try and avoid an issue where after selecting a
         // filter property, the results section would be blank
+        await page.locator('body').evaluate((el) => el.scrollTo(0, el.scrollHeight))
         await expect(page.locator('[data-attr=retention-table]')).toBeVisible()
 
         // Apply filter
+
         await page.click('[data-attr$=add-filter-group]')
+        await page.locator('body').evaluate((el) => el.scrollTo(0, el.scrollHeight))
         await page.click('[data-attr=property-select-toggle-0]')
         await page.click('[data-attr=taxonomic-filter-searchfield]')
         await page.fill('[data-attr=taxonomic-filter-searchfield]', 'is_demo')
