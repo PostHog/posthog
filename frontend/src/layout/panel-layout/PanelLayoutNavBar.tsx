@@ -161,18 +161,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     : 'Open project tree',
         },
         {
-            identifier: 'Recent',
-            id: 'Recent',
-            icon: <IconClock className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Recent')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Recent' ? 'Close recent' : 'Open recent',
-        },
-        {
             identifier: 'Products',
             id: 'Products',
             icon: <IconCdCase />,
