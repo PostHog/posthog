@@ -37,6 +37,7 @@ const ResultsTab = (): JSX.Element => {
         metricResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
+
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
@@ -58,28 +59,38 @@ const ResultsTab = (): JSX.Element => {
                     <Overview />
                 </div>
             )}
+            {/**
+             * Primary Metrics Panel (Add Metric and Delta Chart)
+             */}
             <MetricsView isSecondary={false} />
-            {/* Show detailed results if there's only a single primary metric */}
+            {/**
+             * Show a detailed results if:
+             * - there's a single primary metric
+             * - if the metric has insight results
+             * - if we have the minimum number of exposures
+             * - if it's the first primary metric (?)
+             */}
             {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                     </div>
                     {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                    {metricResults?.[0] &&
-                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                            <>
-                                <div className="flex justify-end">
-                                    <ExploreButton result={metricResults[0]} size="xsmall" />
-                                </div>
-                                <div className="pb-4">
-                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
-                                </div>
-                            </>
-                        )}
+                    {metricResults?.[0] && (
+                        <>
+                            <div className="flex justify-end">
+                                <ExploreButton result={metricResults[0]} size="xsmall" />
+                            </div>
+                            <div className="pb-4">
+                                <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
+            {/**
+             * Secondary Metrics Panel
+             */}
             <MetricsView isSecondary={true} />
         </>
     )
