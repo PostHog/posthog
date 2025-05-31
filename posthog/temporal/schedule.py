@@ -26,7 +26,7 @@ async def create_sync_vectors_schedule(client: Client):
     sync_vectors_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "ai-sync-vectors",
-            asdict(SyncVectorsInputs(embedding_version=1)),
+            asdict(SyncVectorsInputs(embedding_version=2)),
             id="ai-sync-vectors-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
