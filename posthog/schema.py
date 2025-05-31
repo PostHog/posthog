@@ -3867,7 +3867,7 @@ class ActorsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class AssistantBasePropertyFilter(
@@ -4395,7 +4395,7 @@ class CachedActorsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class CachedCalendarHeatmapQueryResponse(BaseModel):
@@ -5422,7 +5422,7 @@ class Response1(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class Response2(BaseModel):
@@ -6234,7 +6234,7 @@ class QueryResponseAlternative2(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative3(BaseModel):
@@ -6619,7 +6619,7 @@ class QueryResponseAlternative29(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative30(BaseModel):
