@@ -141,6 +141,7 @@ import {
     UserType,
 } from '~/types'
 
+import { MaxContextShape } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,
@@ -3408,6 +3409,7 @@ const api = {
             data: {
                 content: string
                 contextual_tools?: Record<string, any>
+                ui_context?: MaxContextShape
                 conversation?: string | null
                 trace_id: string
             },

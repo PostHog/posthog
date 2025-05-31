@@ -13,6 +13,7 @@ from posthog.models import Team
 from posthog.schema import AssistantMessage, AssistantToolCall
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
+from ..utils.ui_context_types import MaxContextShape
 
 
 class AssistantNode(ABC):
@@ -25,8 +26,8 @@ class AssistantNode(ABC):
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
-        thread_id = config["configurable"]["thread_id"]
-        if self._is_conversation_cancelled(thread_id):
+        thread_id = config.get("configurable", {}).get("thread_id")
+        if thread_id and self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
         return self.run(state, config)
 
@@ -102,19 +103,36 @@ class AssistantNode(ABC):
         Extracts contextual tools from the runnable config.
         """
         try:
-            contextual_tools = config["configurable"]["contextual_tools"]
+            contextual_tools = config.get("configurable", {}).get("contextual_tools")
+            if contextual_tools is None:
+                return {}
         except KeyError:
             return {}
         if not isinstance(contextual_tools, dict):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
 
+    def _get_ui_context(self, config: RunnableConfig) -> MaxContextShape | None:
+        """
+        Extracts the UI context from the runnable config.
+        """
+        try:
+            ui_context_data = config.get("configurable", {}).get("ui_context")
+            if ui_context_data is None:
+                return None
+            return MaxContextShape.model_validate(ui_context_data)
+        except KeyError:
+            return None
+        except Exception:
+            # If validation fails, return None rather than crashing
+            return None
+
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """
         Extracts the user distinct ID from the runnable config.
         """
         try:
-            distinct_id = config["configurable"]["distinct_id"]
+            distinct_id = config.get("configurable", {}).get("distinct_id")
         except KeyError:
             return None
         return distinct_id
@@ -124,6 +142,6 @@ class AssistantNode(ABC):
         Extracts the trace ID from the runnable config.
         """
         try:
-            return config["configurable"]["trace_id"]
+            return config.get("configurable", {}).get("trace_id")
         except KeyError:
             return None

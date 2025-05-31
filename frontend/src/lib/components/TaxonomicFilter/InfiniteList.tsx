@@ -166,6 +166,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             TaxonomicFilterGroupType.Metadata,
             TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.MaxAIContext,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )

@@ -8,6 +8,7 @@ from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
+from ee.hogai.utils.ui_context_types import ActionContextForMax, EventContextForMax
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
@@ -125,6 +126,15 @@ class _SharedAssistantState(BaseModel):
     rag_context: Optional[str] = Field(default=None)
     """
     The context for taxonomy agent.
+    """
+
+    events_in_context: Optional[list[EventContextForMax]] = Field(default=None)
+    """
+    The events added to the context by the user.
+    """
+    actions_in_context: Optional[list[ActionContextForMax]] = Field(default=None)
+    """
+    The actions added to the context by the user.
     """
 
 

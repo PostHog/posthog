@@ -1,5 +1,5 @@
 import { hide } from '@floating-ui/react'
-import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
+import { IconBadge, IconDashboard, IconEye, IconGraph, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
@@ -22,6 +22,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { DashboardContextForMax, InsightContextForMax, MaxContextOption } from 'scenes/max/maxTypes'
 
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -353,6 +354,59 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         value={<span className="text-xs font-mono">{_definition.id}</span>}
                     />
                 </DefinitionPopover.Section>
+            </>
+        )
+    }
+    if (group.type === TaxonomicFilterGroupType.MaxAIContext) {
+        const _definition = definition as MaxContextOption
+        return (
+            <>
+                {sharedComponents}
+                {_definition.items?.dashboards && _definition.items.dashboards.length > 0 && (
+                    <>
+                        <DefinitionPopover.Section>
+                            <DefinitionPopover.Card
+                                title="Dashboard"
+                                value={
+                                    <div className="flex flex-wrap gap-1">
+                                        {_definition.items.dashboards.map((dashboard: DashboardContextForMax) => (
+                                            <LemonTag
+                                                key={dashboard.id}
+                                                size="small"
+                                                icon={<IconDashboard />}
+                                                className="text-xs"
+                                            >
+                                                {dashboard.name || `Dashboard ${dashboard.id}`}
+                                            </LemonTag>
+                                        ))}
+                                    </div>
+                                }
+                            />
+                        </DefinitionPopover.Section>
+                        <LemonDivider className="DefinitionPopover my-4" />
+                    </>
+                )}
+                {_definition.items?.insights && _definition.items.insights.length > 0 && (
+                    <DefinitionPopover.Section>
+                        <DefinitionPopover.Card
+                            title="Insights"
+                            value={
+                                <div className="flex flex-wrap gap-1">
+                                    {_definition.items.insights.map((insight: InsightContextForMax) => (
+                                        <LemonTag
+                                            key={insight.id}
+                                            size="small"
+                                            icon={<IconGraph />}
+                                            className="text-xs"
+                                        >
+                                            {insight.name || `Insight ${insight.id}`}
+                                        </LemonTag>
+                                    ))}
+                                </div>
+                            }
+                        />
+                    </DefinitionPopover.Section>
+                )}
             </>
         )
     }

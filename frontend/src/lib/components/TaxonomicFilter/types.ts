@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { MaxContextOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
@@ -46,6 +47,7 @@ export interface TaxonomicFilterProps {
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    maxContextOptions?: MaxContextOption[]
     /**
      * Controls the layout of taxonomic groups.
      * When undefined (default), vertical/columnar layout is automatically used when there are more than VERTICAL_LAYOUT_THRESHOLD (4) groups.
@@ -142,6 +144,8 @@ export enum TaxonomicFilterGroupType {
     // Misc
     Replay = 'replay',
     Resources = 'resources',
+    // Max AI Context
+    MaxAIContext = 'max_ai_context',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

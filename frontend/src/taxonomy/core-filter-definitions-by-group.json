@@ -3809,5 +3809,11 @@
             "examples": ["2.2"],
             "label": "Web vitals LCP"
         }
+    },
+    "max_ai_context": {
+        "Current page": {
+            "description": "Give Max context about the current dashboard or insight you are working on",
+            "label": "Current page"
+        }
     }
 }
