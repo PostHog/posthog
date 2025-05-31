@@ -28,6 +28,10 @@ export type ActivityFilters = {
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
+    image?: {
+        url: string
+        alt: string
+    }
 }
 
 export interface ChangesResponse {
@@ -224,6 +228,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         changelogNotification = {
                             markdown: flagPayload['markdown'],
                             notificationDate: dayjs(flagPayload['notificationDate']),
+                            image: flagPayload['image']
                         } as ChangelogFlagPayload
                     }
 
@@ -238,7 +243,20 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                             email: 'joe@posthog.com',
                             name: 'Joe',
                             isSystem: true,
-                            description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
+                            description: (
+                                <>
+                                    {changelogNotification.image && (
+                                        <div className="mb-2">
+                                            <img 
+                                                src={changelogNotification.image.url} 
+                                                alt={changelogNotification.image.alt} 
+                                                className="max-w-full rounded"
+                                            />
+                                        </div>
+                                    )}
+                                    <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>
+                                </>
+                            ),
                             created_at: changelogNotification.notificationDate,
                             unread: changeLogIsUnread,
                         }
