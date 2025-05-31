@@ -28,7 +28,10 @@ export const logsLogic = kea<logsLogicType>([
         setResource: (resource: LogsQuery['resource']) => ({ resource }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
+            filterGroup,
+            openFilterOnInsert,
+        }),
     }),
 
     reducers({
@@ -110,6 +113,12 @@ export const logsLogic = kea<logsLogicType>([
                 fetchSparkline: () => true,
                 fetchSparklineSuccess: () => false,
                 fetchSparklineFailure: () => true,
+            },
+        ],
+        openFilterOnInsert: [
+            false as boolean,
+            {
+                setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
             },
         ],
     }),

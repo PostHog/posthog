@@ -1,5 +1,6 @@
 import './sparkline-loading.scss'
 
+import { IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
@@ -12,6 +13,7 @@ import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
@@ -116,14 +118,42 @@ export function LogsScene(): JSX.Element {
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
+    const { filterGroup } = useValues(logsLogic)
+    const { setFilterGroup } = useActions(logsLogic)
+
     const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
+
+    const addFilter = (key: string, value: string): void => {
+        const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
+
+        newGroup.values.push({
+            key,
+            value: [value],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Log,
+        })
+
+        setFilterGroup({ ...filterGroup, values: [newGroup] }, false)
+    }
 
     return (
         <LemonTable
             embedded
             showHeader={false}
             columns={[
+                {
+                    width: 0,
+                    render: (_, record) => (
+                        <LemonButton
+                            tooltip="Add as filter"
+                            size="xsmall"
+                            onClick={() => addFilter(record.key, record.value)}
+                        >
+                            <IconPlusSquare />
+                        </LemonButton>
+                    ),
+                },
                 {
                     title: 'Key',
                     key: 'key',
