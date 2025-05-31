@@ -6,6 +6,7 @@ import {
     LogEntryPropertyFilter,
     PropertyFilterType,
     RecordingPropertyFilter,
+    ReplayURLFilter,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
     UniversalFilterValue,
@@ -36,6 +37,9 @@ export function isRecordingPropertyFilter(filter: UniversalFilterValue): filter 
 }
 export function isLogEntryPropertyFilter(filter: UniversalFilterValue): filter is LogEntryPropertyFilter {
     return filter.type === 'log_entry'
+}
+export function isReplayURLFilter(filter: UniversalFilterValue): filter is ReplayURLFilter {
+    return filter.type === PropertyFilterType.ReplayURL
 }
 export function isEditableFilter(filter: UniversalFilterValue): boolean {
     return isEntityFilter(filter) ? false : !isCohortPropertyFilter(filter)
