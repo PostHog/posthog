@@ -63,7 +63,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         state: AssistantState,
         prompt: ChatPromptTemplate,
         toolkit: TaxonomyAgentToolkit,
-        config: Optional[RunnableConfig] = None,
+        config: RunnableConfig,
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         conversation = (
