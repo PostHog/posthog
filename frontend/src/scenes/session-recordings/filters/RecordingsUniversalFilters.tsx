@@ -70,6 +70,7 @@ export const RecordingsUniversalFilters = ({
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
+    allowReplayGroupsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -77,6 +78,7 @@ export const RecordingsUniversalFilters = ({
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
+    allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [savedFilterName, setSavedFilterName] = useState('')
 
@@ -100,11 +102,14 @@ export const RecordingsUniversalFilters = ({
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
-        ...groupsTaxonomicTypes,
     ]
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (allowReplayGroupsFilters) {
+        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
