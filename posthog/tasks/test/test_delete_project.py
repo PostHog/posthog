@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.test import TestCase
 
@@ -8,9 +8,9 @@ from posthog.tasks.delete_project import delete_project_async
 
 
 class TestDeleteProjectTask(TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
-        self.user = User.objects.create_user(email="test@example.com", password="testpass")
+        self.user = User.objects.create_user(email="test@example.com", password="testpass", first_name="Test")
         OrganizationMembership.objects.create(
             user=self.user, organization=self.organization, level=OrganizationMembership.Level.ADMIN
         )
@@ -36,8 +36,12 @@ class TestDeleteProjectTask(TestCase):
     @patch("posthog.tasks.delete_project.log_activity")
     @patch("posthog.tasks.delete_project.report_user_action")
     def test_delete_project_async_success(
-        self, mock_report_user_action, mock_log_activity, mock_delete_batch_exports, mock_delete_bulky_postgres_data
-    ):
+        self,
+        mock_report_user_action: MagicMock,
+        mock_log_activity: MagicMock,
+        mock_delete_batch_exports: MagicMock,
+        mock_delete_bulky_postgres_data: MagicMock,
+    ) -> None:
         # Call the task
         delete_project_async(
             project_id=self.project.id,
@@ -66,7 +70,7 @@ class TestDeleteProjectTask(TestCase):
         self.assertEqual(mock_report_user_action.call_count, 3)  # 2 teams + 1 project
 
     @patch("posthog.tasks.delete_project.logger")
-    def test_delete_project_async_already_deleted(self, mock_logger):
+    def test_delete_project_async_already_deleted(self, mock_logger: MagicMock) -> None:
         # Delete the project first
         project_id = self.project.id
         self.project.delete()
@@ -84,7 +88,7 @@ class TestDeleteProjectTask(TestCase):
         mock_logger.warning.assert_called_once_with("Project already deleted", project_id=project_id)
 
     @patch("posthog.tasks.delete_project.logger")
-    def test_delete_project_async_user_not_found(self, mock_logger):
+    def test_delete_project_async_user_not_found(self, mock_logger: MagicMock) -> None:
         # Call the task with non-existent user
         delete_project_async(
             project_id=self.project.id,
@@ -94,8 +98,8 @@ class TestDeleteProjectTask(TestCase):
             was_impersonated=False,
         )
 
-        # Verify error was logged
-        mock_logger.error.assert_called_once_with(
+        # Verify warning was logged
+        mock_logger.warning.assert_called_once_with(
             "User not found for project deletion", user_id=99999, project_id=self.project.id
         )
 
