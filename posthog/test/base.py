@@ -34,6 +34,15 @@ from posthog.clickhouse.adhoc_events_deletion import (
 )
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.custom_metrics import (
+    CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
+    CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+    CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW,
+    CUSTOM_METRICS_REPLICATION_QUEUE_VIEW,
+    CUSTOM_METRICS_TEST_VIEW,
+    CUSTOM_METRICS_VIEW,
+    TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+)
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -1114,6 +1123,7 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
             TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+            TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1128,6 +1138,7 @@ def reset_clickhouse_database() -> None:
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
+            CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1140,6 +1151,10 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
+            CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
+            CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
+            CUSTOM_METRICS_TEST_VIEW(),
+            CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1151,6 +1166,7 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            CUSTOM_METRICS_VIEW(include_counters=True),
         ]
     )
 
