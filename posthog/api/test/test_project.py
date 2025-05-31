@@ -38,7 +38,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    @patch('posthog.tasks.delete_project.delete_project_async.delay')
+    @patch("posthog.tasks.delete_project.delete_project_async.delay")
     def test_delete_project_queues_async_task(self, mock_delete_task):
         """Test that deleting a project queues an async task instead of deleting synchronously."""
         # Set user as admin to have delete permissions
@@ -46,11 +46,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.save()
 
         # Create a second team for the project
-        second_team = Team.objects.create(
-            organization=self.organization,
-            project=self.project,
-            name="Second Team"
-        )
+        second_team = Team.objects.create(organization=self.organization, project=self.project, name="Second Team")
 
         # Store IDs before deletion
         project_id = self.project.id
