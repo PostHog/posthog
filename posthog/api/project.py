@@ -28,7 +28,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -38,8 +37,7 @@ from posthog.models.product_intent.product_intent import (
 )
 from posthog.models.project import Project
 from posthog.scopes import APIScopeObjectOrNotSupported
-from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
+from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     APIScopePermission,
@@ -510,60 +508,20 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        from posthog.tasks.delete_project import delete_project_async
+
         project_id = project.pk
         organization_id = project.organization_id
         project_name = project.name
-
         user = cast(User, self.request.user)
 
-        teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
-        delete_bulky_postgres_data(team_ids=[team.id for team in teams])
-        delete_batch_exports(team_ids=[team.id for team in teams])
-
-        with mute_selected_signals():
-            super().perform_destroy(project)
-
-        # Once the project is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team.id,
-                    key=str(team.id),
-                    created_by=user,
-                )
-                for team in teams
-            ],
-            ignore_conflicts=True,
-        )
-
-        for team in teams:
-            log_activity(
-                organization_id=cast(UUIDT, organization_id),
-                team_id=team.pk,
-                user=user,
-                was_impersonated=is_impersonated_session(self.request),
-                scope="Team",
-                item_id=team.pk,
-                activity="deleted",
-                detail=Detail(name=str(team.name)),
-            )
-            report_user_action(user, f"team deleted", team=team)
-        log_activity(
-            organization_id=cast(UUIDT, organization_id),
-            team_id=project_id,
-            user=user,
+        # Queue the deletion task for async processing
+        delete_project_async.delay(
+            project_id=project_id,
+            organization_id=organization_id,
+            project_name=project_name,
+            user_id=user.id,
             was_impersonated=is_impersonated_session(self.request),
-            scope="Project",
-            item_id=project_id,
-            activity="deleted",
-            detail=Detail(name=str(project_name)),
-        )
-        report_user_action(
-            user,
-            f"project deleted",
-            {"project_name": project_name},
-            team=teams[0],
         )
 
     @action(
