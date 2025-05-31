@@ -43,7 +43,7 @@ class TestSessionRecordingsListByGroupProperties(ClickhouseTestMixin, APIBaseTes
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
     @snapshot_clickhouse_queries
-    def test_filter_with_group_prpoerties(self) -> None:
+    def test_filter_with_group_properties(self) -> None:
         # there is one person
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
 
