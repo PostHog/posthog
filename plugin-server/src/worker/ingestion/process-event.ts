@@ -198,7 +198,16 @@ export class EventsProcessor {
     }
 
     createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
-        const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
+        const {
+            eventUuid: uuid,
+            event,
+            teamId,
+            projectId,
+            distinctId,
+            properties,
+            timestamp,
+            capturedAt,
+        } = preIngestionEvent
 
         let elementsChain = ''
         try {
@@ -247,6 +256,7 @@ export class EventsProcessor {
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+            captured_at: capturedAt ? castTimestampOrNow(capturedAt, TimestampFormat.ClickHouse) : undefined,
             person_id: person.uuid,
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),

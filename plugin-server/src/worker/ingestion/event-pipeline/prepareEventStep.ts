@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
-import { PreIngestionEvent } from '~/src/types'
+import { ISOTimestamp, PreIngestionEvent } from '~/src/types'
 
 import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { logger } from '../../../utils/logger'
@@ -42,6 +43,12 @@ export async function prepareEventStep(
         uuid!, // it will throw if it's undefined,
         processPerson
     )
+    if (event.now) {
+        const capturedAtDateTime = DateTime.fromISO(event.now).toUTC()
+        preIngestionEvent.capturedAt = capturedAtDateTime.isValid
+            ? (capturedAtDateTime.toISO() as ISOTimestamp)
+            : undefined
+    }
     await Promise.all(tsParsingIngestionWarnings)
 
     return preIngestionEvent
