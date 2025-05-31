@@ -44,25 +44,25 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Set user as admin to have delete permissions
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        
+
         # Create a second team for the project
         second_team = Team.objects.create(
             organization=self.organization,
             project=self.project,
             name="Second Team"
         )
-        
+
         # Store IDs before deletion
         project_id = self.project.id
         project_name = self.project.name
         organization_id = self.organization.id
-        
+
         # Delete the project
         response = self.client.delete(f"/api/projects/{self.project.id}/")
-        
+
         # Should return 204 No Content immediately
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        
+
         # Verify the async task was queued with correct parameters
         mock_delete_task.assert_called_once_with(
             project_id=project_id,
@@ -71,7 +71,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             user_id=self.user.id,
             was_impersonated=False,
         )
-        
+
         # Verify project still exists (since task is mocked)
         self.assertTrue(Project.objects.filter(id=project_id).exists())
         self.assertTrue(Team.objects.filter(id=self.team.id).exists())
