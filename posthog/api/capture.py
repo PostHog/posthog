@@ -201,7 +201,7 @@ def build_kafka_event_data(
         "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
+        "sent_at": sent_at.isoformat() if sent_at else None,
         "token": token,
     }
 
