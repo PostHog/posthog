@@ -229,8 +229,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     let cohort = { ...cohortParams }
                     const existingCohort = values.cohort
-                    const cohortFormData = createCohortFormData(cohort)
-
+                    const cleanedCohort = fixEventFilterTypesForAutocapture(cohort)
+                    const cohortFormData = createCohortFormData(cleanedCohort)
                     try {
                         if (cohort.id !== 'new') {
                             cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
@@ -373,3 +373,29 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }
     }),
 ])
+
+function fixEventFilterTypesForAutocapture(cohort: CohortType): CohortType {
+    function patchCriteria(criteria: any): any {
+        if (criteria?.event_filters && criteria.key === '$autocapture') {
+            return {
+                ...criteria,
+                event_filters: criteria.event_filters.map((f: any) =>
+                    f.type === 'element' ? { ...f, type: 'event' } : f
+                ),
+            }
+        }
+        return criteria
+    }
+    return {
+        ...cohort,
+        filters: {
+            ...cohort.filters,
+            properties: {
+                ...cohort.filters?.properties,
+                values: (cohort.filters?.properties?.values || []).map((group: any) =>
+                    group?.values ? { ...group, values: group.values.map(patchCriteria) } : group
+                ),
+            },
+        },
+    }
+}
