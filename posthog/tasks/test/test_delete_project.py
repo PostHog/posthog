@@ -12,9 +12,7 @@ class TestDeleteProjectTask(TestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.user = User.objects.create_user(email="test@example.com", password="testpass")
         OrganizationMembership.objects.create(
-            user=self.user,
-            organization=self.organization,
-            level=OrganizationMembership.Level.ADMIN
+            user=self.user, organization=self.organization, level=OrganizationMembership.Level.ADMIN
         )
 
         # Create a project with teams
@@ -33,16 +31,12 @@ class TestDeleteProjectTask(TestCase):
             project=self.project,
         )
 
-    @patch('posthog.tasks.delete_project.delete_bulky_postgres_data')
-    @patch('posthog.tasks.delete_project.delete_batch_exports')
-    @patch('posthog.tasks.delete_project.log_activity')
-    @patch('posthog.tasks.delete_project.report_user_action')
+    @patch("posthog.tasks.delete_project.delete_bulky_postgres_data")
+    @patch("posthog.tasks.delete_project.delete_batch_exports")
+    @patch("posthog.tasks.delete_project.log_activity")
+    @patch("posthog.tasks.delete_project.report_user_action")
     def test_delete_project_async_success(
-        self,
-        mock_report_user_action,
-        mock_log_activity,
-        mock_delete_batch_exports,
-        mock_delete_bulky_postgres_data
+        self, mock_report_user_action, mock_log_activity, mock_delete_batch_exports, mock_delete_bulky_postgres_data
     ):
         # Call the task
         delete_project_async(
@@ -64,17 +58,14 @@ class TestDeleteProjectTask(TestCase):
         mock_delete_batch_exports.assert_called_once()
 
         # Verify AsyncDeletion entries were created
-        async_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Team,
-            created_by=self.user
-        )
+        async_deletions = AsyncDeletion.objects.filter(deletion_type=DeletionType.Team, created_by=self.user)
         self.assertEqual(async_deletions.count(), 2)
 
         # Verify activity logging
         self.assertEqual(mock_log_activity.call_count, 3)  # 2 teams + 1 project
         self.assertEqual(mock_report_user_action.call_count, 3)  # 2 teams + 1 project
 
-    @patch('posthog.tasks.delete_project.logger')
+    @patch("posthog.tasks.delete_project.logger")
     def test_delete_project_async_already_deleted(self, mock_logger):
         # Delete the project first
         project_id = self.project.id
@@ -90,12 +81,9 @@ class TestDeleteProjectTask(TestCase):
         )
 
         # Verify warning was logged
-        mock_logger.warning.assert_called_once_with(
-            "Project already deleted",
-            project_id=project_id
-        )
+        mock_logger.warning.assert_called_once_with("Project already deleted", project_id=project_id)
 
-    @patch('posthog.tasks.delete_project.logger')
+    @patch("posthog.tasks.delete_project.logger")
     def test_delete_project_async_user_not_found(self, mock_logger):
         # Call the task with non-existent user
         delete_project_async(
@@ -108,9 +96,7 @@ class TestDeleteProjectTask(TestCase):
 
         # Verify error was logged
         mock_logger.error.assert_called_once_with(
-            "User not found for project deletion",
-            user_id=99999,
-            project_id=self.project.id
+            "User not found for project deletion", user_id=99999, project_id=self.project.id
         )
 
         # Verify project was still deleted
