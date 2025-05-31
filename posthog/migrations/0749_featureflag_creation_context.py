@@ -16,5 +16,6 @@ class Migration(migrations.Migration):
         ),
         migrations.RunSQL(
             sql="UPDATE posthog_featureflag SET creation_context = 'surveys' WHERE key LIKE 'survey-targeting-%';",
+            reverse_sql="UPDATE posthog_featureflag SET creation_context = NULL WHERE key LIKE 'survey-targeting-%';",
         ),
     ]
