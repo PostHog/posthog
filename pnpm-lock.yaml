@@ -920,6 +920,9 @@ importers:
       react-grid-layout:
         specifier: ^1.3.0
         version: 1.3.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      react-insta-stories:
+        specifier: ^2.8.0
+        version: 2.8.0(react@18.2.0)
       react-instantsearch:
         specifier: ^7.6.0
         version: 7.6.0(algoliasearch@4.22.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -1895,6 +1898,9 @@ importers:
       '@types/react':
         specifier: '*'
         version: 17.0.52
+      ansi-colors:
+        specifier: '*'
+        version: 4.1.3
       classnames:
         specifier: '*'
         version: 2.5.1
@@ -14528,6 +14534,11 @@ packages:
     peerDependencies:
       react: '>= 16.3.0'
       react-dom: '>= 16.3.0'
+
+  react-insta-stories@2.8.0:
+    resolution: {integrity: sha512-GkzJGEomtWLf27zsZQ31Tgd+uWLLarVZr/XY8PVEZp89711gsAc3lW+rTzoHU+tlLbhhrSeQTttPA68ViXI+ag==}
+    peerDependencies:
+      react: '>=16.8.2'
 
   react-instantsearch-core@7.6.0:
     resolution: {integrity: sha512-FBTwAJAmNSha6pSFOP1fTPjIbvyv5btS49SsdWPvQ981yiMD+zWtvCXZlVTxrBGVH6mYGbmBT0lCHTOm4kpdOg==}
@@ -33231,6 +33242,10 @@ snapshots:
       react-dom: 18.2.0(react@18.2.0)
       react-draggable: 4.4.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react-resizable: 3.0.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+
+  react-insta-stories@2.8.0(react@18.2.0):
+    dependencies:
+      react: 18.2.0
 
   react-instantsearch-core@7.6.0(algoliasearch@4.22.1)(react@18.2.0):
     dependencies:

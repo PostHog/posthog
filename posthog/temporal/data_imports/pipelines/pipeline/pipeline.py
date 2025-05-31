@@ -218,8 +218,11 @@ class PipelineNonDLT:
         if should_partition_table(delta_table, self._schema, self._resource):
             partition_count = self._schema.partition_count or self._resource.partition_count
             partition_size = self._schema.partition_size or self._resource.partition_size
-            partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
-            partition_format = self._schema.partition_format
+            partition_keys = (
+                self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
+            )
+            partition_format = self._schema.partition_format or self._resource.partition_format
+            partition_mode = self._schema.partition_mode or self._resource.partition_mode
             if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
                 pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
@@ -227,7 +230,7 @@ class PipelineNonDLT:
                     partition_count=partition_count,
                     partition_size=partition_size,
                     partition_keys=partition_keys,
-                    partition_mode=self._schema.partition_mode,
+                    partition_mode=partition_mode,
                     partition_format=partition_format,
                     logger=self._logger,
                 )
