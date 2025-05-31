@@ -31,7 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX, CreationContext
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
@@ -718,7 +718,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "name": f"Targeting flag for survey {name}",
                         "filters": filters,
                         "active": active,
-                        "creation_context": "surveys",
+                        "creation_context": CreationContext.SURVEYS,
                     },
                     context=self.context,
                 )

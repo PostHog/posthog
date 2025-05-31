@@ -32,7 +32,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX, CreationContext, CREATION_CONTEXT_CHOICES
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.dashboard_templates import (
@@ -137,7 +137,6 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
@@ -378,9 +377,7 @@ class FeatureFlagSerializer(
         validated_data["team_id"] = self.context["team_id"]
         validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        creation_context = validated_data.pop(
-            "creation_context", "feature_flags"
-        )  # default to "feature_flags" if an alternative value is not provided
+        validated_data.setdefault("creation_context", CreationContext.FEATURE_FLAGS)
 
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
@@ -420,7 +417,7 @@ class FeatureFlagSerializer(
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
-        analytics_metadata["creation_context"] = creation_context
+        analytics_metadata["creation_context"] = validated_data["creation_context"]
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
@@ -673,6 +670,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "ensure_experience_continuity",
             "has_encrypted_payloads",
             "version",
+            "creation_context",
         ]
 
 

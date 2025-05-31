@@ -17,7 +17,7 @@ from posthog.api.utils import (
     get_token,
     on_permitted_recording_domain,
 )
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, CreationContext
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
     RequestParsingError,
@@ -29,6 +29,7 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags_with_details
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
 from posthog.models.filters.mixins.utils import process_bool
@@ -412,7 +413,7 @@ def get_feature_flags_response_or_body(
     }
 
     # Compute feature flags
-    feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
+    flag_values, _, feature_flag_payloads, errors, flags_details, feature_flags = get_all_feature_flags_with_details(
         team,
         distinct_id,
         data.get("groups") or {},
@@ -427,24 +428,24 @@ def get_feature_flags_response_or_body(
     _record_feature_flag_metrics(team, feature_flags, errors, data)
 
     # Format response based on API version
-    return _format_feature_flags_response(feature_flags, feature_flag_payloads, flags_details, errors, api_version)
+    return _format_feature_flags_response(flag_values, feature_flag_payloads, flags_details, errors, api_version)
 
 
 def _format_feature_flags_response(
-    feature_flags: dict[str, Any],
+    flag_values: dict[str, Any],
     feature_flag_payloads: dict[str, Any],
     flags_details: Optional[dict[str, Any]],
     errors: bool,
     api_version: int,
 ) -> dict[str, Any]:
     """Format feature flags response according to API version."""
-    active_flags = {key: value for key, value in feature_flags.items() if value}
+    active_flags = {key: value for key, value in flag_values.items() if value}
 
     if api_version == 2:
         return {"featureFlags": active_flags}
     elif api_version == 3:
         return {
-            "featureFlags": feature_flags,
+            "featureFlags": flag_values,
             "errorsWhileComputingFlags": errors,
             "featureFlagPayloads": feature_flag_payloads,
         }
@@ -503,7 +504,7 @@ def _get_reason_description(match: FeatureFlagMatch) -> str | None:
 
 def _record_feature_flag_metrics(
     team: Team,
-    feature_flags: dict[str, Any],
+    feature_flags: list[FeatureFlag],
     errors: bool,
     data: dict[str, Any],
 ) -> None:
@@ -519,7 +520,21 @@ def _record_feature_flag_metrics(
     ).inc()
 
     # Handle billing analytics
-    if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+    # Don't charge if all the flags are survey targeting flags (both prefix and creation context)
+    should_bill = True
+
+    if feature_flags:
+        # Create a lookup for creation_context by flag key
+        creation_context_by_key = {flag.key: flag.creation_context for flag in feature_flags}
+
+        # Check if any flag should be billed (not all are survey flags with both prefix and creation context)
+        should_bill = not all(
+            flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
+            and creation_context_by_key.get(flag_key) == CreationContext.SURVEYS
+            for flag_key in creation_context_by_key.keys()
+        )
+
+    if should_bill:
         if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
             count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
             increment_request_count(team.id, count)

@@ -24,6 +24,7 @@ use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use common_metrics::inc;
+use common_redis::Client as RedisClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use percent_encoding::percent_decode;
@@ -109,6 +110,29 @@ pub type RequestPropertyOverrides = (
     Option<String>,                 // hash_key_override
 );
 
+/// Determines whether to bill a flag request based on the flags evaluated.
+/// Survey targeting flags (with both prefix and creation context "surveys") are not billed.
+async fn should_bill_flag_request(
+    redis: Arc<dyn RedisClient + Send + Sync>,
+    team_id: i32,
+    filtered_flags: &FeatureFlagList,
+) -> Result<(), FlagError> {
+    // Don't charge if all the flags are survey targeting flags (both prefix and creation context)
+    if !filtered_flags.flags.iter().all(|f| {
+        f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+            && f.creation_context.as_ref() == Some(&"surveys".to_string())
+    }) {
+        if let Err(e) = increment_request_count(redis, team_id, 1, FlagRequestType::Decide).await {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Primary entry point for feature flag requests.
 /// 1) Parses and authenticates the request,
 /// 2) Fetches the team and feature flags,
@@ -172,26 +196,11 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     .await;
 
     // bill the flag request
-    if filtered_flags
-        .flags
-        .iter()
-        .all(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
-    // NB don't charge if all the flags are survey targeting flags
+    if let Err(e) =
+        should_bill_flag_request(context.state.redis.clone(), team_id, &filtered_flags).await
     {
-        if let Err(e) = increment_request_count(
-            context.state.redis.clone(),
-            team_id,
-            1,
-            FlagRequestType::Decide,
-        )
-        .await
-        {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+        // Error is already logged in should_bill_flag_request, so we continue
+        tracing::debug!("Failed to bill flag request: {}", e);
     }
 
     Ok(response)
@@ -642,8 +651,9 @@ mod tests {
         flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_person_for_team_in_pg,
-            setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
+            create_test_flag, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            setup_redis_client,
         },
     };
 
@@ -745,6 +755,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_survey_flag_billing_logic() {
+        use crate::flags::flag_analytics::SURVEY_TARGETING_FLAG_PREFIX;
+        use crate::utils::test_utils::setup_redis_client;
+
+        let redis_client = setup_redis_client(None);
+
+        // Test flag with BOTH survey prefix AND surveys creation_context - should not be billed
+        let mut survey_flag = create_test_flag(
+            Some(1),
+            Some(1),
+            Some("Survey Flag".to_string()),
+            Some(format!("{}test", SURVEY_TARGETING_FLAG_PREFIX)),
+            None,
+            None,
+            None,
+            None,
+        );
+        survey_flag.creation_context = Some("surveys".to_string());
+
+        // Test flag with only survey prefix (no creation_context) - should be billed
+        let survey_prefix_only_flag = create_test_flag(
+            Some(2),
+            Some(1),
+            Some("Survey Prefix Only Flag".to_string()),
+            Some(format!("{}test2", SURVEY_TARGETING_FLAG_PREFIX)),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // Test flag with only surveys creation_context (no prefix) - should be billed
+        let mut survey_context_only_flag = create_test_flag(
+            Some(3),
+            Some(1),
+            Some("Survey Context Only Flag".to_string()),
+            Some("regular_flag".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+        survey_context_only_flag.creation_context = Some("surveys".to_string());
+
+        // Test regular flag - should be billed
+        let regular_flag = create_test_flag(
+            Some(4),
+            Some(1),
+            Some("Regular Flag".to_string()),
+            Some("regular_flag".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: all complete survey flags (should not bill)
+        let all_complete_survey_flags = FeatureFlagList {
+            flags: vec![survey_flag.clone()],
+        };
+        let result =
+            should_bill_flag_request(redis_client.clone(), 1, &all_complete_survey_flags).await;
+        assert!(
+            result.is_ok(),
+            "Should not error when deciding not to bill complete survey flags"
+        );
+
+        // Test case 2: mixed flags with incomplete survey flags (should bill)
+        let mixed_flags = FeatureFlagList {
+            flags: vec![
+                survey_flag,
+                survey_prefix_only_flag,
+                survey_context_only_flag,
+                regular_flag,
+            ],
+        };
+        let result = should_bill_flag_request(redis_client.clone(), 1, &mixed_flags).await;
+        assert!(
+            result.is_ok(),
+            "Should not error when deciding to bill mixed flags"
+        );
+
+        // Test case 3: only flags with prefix but no creation_context (should bill)
+        let prefix_only_flag = create_test_flag(
+            Some(5),
+            Some(1),
+            Some("Prefix Only Flag".to_string()),
+            Some(format!("{}prefix_only", SURVEY_TARGETING_FLAG_PREFIX)),
+            None,
+            None,
+            None,
+            None,
+        );
+        let prefix_only_flags = FeatureFlagList {
+            flags: vec![prefix_only_flag],
+        };
+        let result = should_bill_flag_request(redis_client, 1, &prefix_only_flags).await;
+        assert!(
+            result.is_ok(),
+            "Should not error when deciding to bill prefix-only flags"
+        );
+    }
+
+    #[tokio::test]
     async fn test_evaluate_feature_flags() {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
@@ -780,6 +894,7 @@ mod tests {
             },
             ensure_experience_continuity: false,
             version: Some(1),
+            creation_context: None,
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -862,6 +977,7 @@ mod tests {
             },
             ensure_experience_continuity: false,
             version: Some(1),
+            creation_context: None,
         }];
 
         let feature_flag_list = FeatureFlagList { flags };
@@ -1241,6 +1357,7 @@ mod tests {
                 filters: FlagFilters::default(),
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             },
             FeatureFlag {
                 name: Some("Survey Flag 2".to_string()),
@@ -1252,6 +1369,7 @@ mod tests {
                 filters: FlagFilters::default(),
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             },
             FeatureFlag {
                 name: Some("Regular Flag 1".to_string()),
@@ -1263,6 +1381,7 @@ mod tests {
                 filters: FlagFilters::default(),
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             },
             FeatureFlag {
                 name: Some("Regular Flag 2".to_string()),
@@ -1274,6 +1393,7 @@ mod tests {
                 filters: FlagFilters::default(),
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             },
         ];
 

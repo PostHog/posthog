@@ -3,6 +3,7 @@ from typing import Any
 from django.db.models import ForeignKey
 from datetime import date
 from posthog.models import Survey, FeatureFlag
+from posthog.constants import CreationContext
 
 
 def _update_survey_iteration(survey: Survey) -> None:
@@ -60,6 +61,7 @@ def _get_targeting_flag(survey: Survey) -> ForeignKey | ForeignKey | Any:
             active=True,
             key=str(survey.id),
             filters=user_submitted_dismissed_filter,
+            creation_context=CreationContext.SURVEYS,
         )
         new_flag.save()
         return new_flag

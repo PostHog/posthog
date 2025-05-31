@@ -4,6 +4,7 @@ from datetime import timedelta, datetime
 from django.utils.timezone import now
 from posthog.test.base import ClickhouseTestMixin
 from posthog.tasks.update_survey_iteration import update_survey_iteration
+from posthog.constants import CreationContext
 
 
 class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
@@ -131,3 +132,18 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                 },
                 internal_flag.filters,
             )
+
+    def test_creation_context_is_set_to_surveys(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        self.recurring_survey.internal_targeting_flag = None
+        self.recurring_survey.save()
+
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+
+        # The internal targeting flag should have been created
+        internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
+        self.assertIsNotNone(internal_flag)
+        self.assertEqual(internal_flag.creation_context, CreationContext.SURVEYS)

@@ -318,3 +318,20 @@ TEST_TASK_QUEUE = "test-task-queue"
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+
+class CreationContext(StrEnum):
+    FEATURE_FLAGS = "feature_flags"
+    EXPERIMENTS = "experiments"
+    SURVEYS = "surveys"
+    EARLY_ACCESS_FEATURES = "early_access_features"
+    WEB_EXPERIMENTS = "web_experiments"
+
+
+CREATION_CONTEXT_CHOICES = (
+    CreationContext.FEATURE_FLAGS,
+    CreationContext.EXPERIMENTS,
+    CreationContext.SURVEYS,
+    CreationContext.EARLY_ACCESS_FEATURES,
+    CreationContext.WEB_EXPERIMENTS,
+)

@@ -3682,12 +3682,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
+        from posthog.constants import CreationContext
+
         FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
             name="Beta feature",
             key="survey-targeting-random",
             created_by=self.user,
+            creation_context=CreationContext.SURVEYS,
         )
         # use a non-csrf client to make requests
         req_client = Client()

@@ -281,6 +281,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 },
                 FeatureFlag {
                     id: 2,
@@ -299,6 +300,7 @@ mod tests {
                     active: false,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 },
                 FeatureFlag {
                     id: 3,
@@ -328,6 +330,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 },
             ],
         };

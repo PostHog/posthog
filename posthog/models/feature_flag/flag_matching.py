@@ -293,13 +293,19 @@ class FeatureFlagMatcher:
     def get_matches_with_details(
         self,
     ) -> tuple[
-        dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+        dict[str, Union[str, bool]],
+        dict[str, dict],
+        dict[str, object],
+        bool,
+        Optional[dict[str, FeatureFlagDetails]],
+        list[FeatureFlag],
     ]:
         flags_details = {}
         flag_values = {}
         flag_evaluation_reasons = {}
         faced_error_computing_flags = False
         flag_payloads = {}
+        evaluated_flags = []
         for feature_flag in self.feature_flags:
             if self.skip_database_flags:
                 # both group based and experience continuity based flags need a database connection
@@ -328,6 +334,8 @@ class FeatureFlagMatcher:
                     "reason": flag_match.reason,
                     "condition_index": flag_match.condition_index,
                 }
+
+                evaluated_flags.append(feature_flag)
             except Exception as err:
                 faced_error_computing_flags = True
                 handle_feature_flag_exception(err, "[Feature Flags] Error computing flags")
@@ -338,6 +346,7 @@ class FeatureFlagMatcher:
             flag_payloads,
             faced_error_computing_flags,
             flags_details,
+            evaluated_flags,
         )
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
@@ -851,7 +860,12 @@ def _get_all_feature_flags(
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     skip_database_flags: bool = False,
 ) -> tuple[
-    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+    dict[str, Union[str, bool]],
+    dict[str, dict],
+    dict[str, object],
+    bool,
+    Optional[dict[str, FeatureFlagDetails]],
+    list[FeatureFlag],
 ]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
@@ -875,7 +889,7 @@ def _get_all_feature_flags(
             skip_database_flags,
         ).get_matches_with_details()
 
-    return {}, {}, {}, False, None
+    return {}, {}, {}, False, None, []
 
 
 # Return feature flags
@@ -888,7 +902,7 @@ def get_all_feature_flags(
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     flag_keys: Optional[list[str]] = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
-    all_flags, reasons, payloads, errors, _ = get_all_feature_flags_with_details(
+    all_flags, reasons, payloads, errors, _, _ = get_all_feature_flags_with_details(
         team,
         distinct_id,
         groups,
@@ -910,7 +924,12 @@ def get_all_feature_flags_with_details(
     flag_keys: Optional[list[str]] = None,
     only_evaluate_survey_feature_flags: bool = False,  # If True, only evaluate flags starting with SURVEY_TARGETING_FLAG_PREFIX
 ) -> tuple[
-    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+    dict[str, Union[str, bool]],
+    dict[str, dict],
+    dict[str, object],
+    bool,
+    Optional[dict[str, FeatureFlagDetails]],
+    list[FeatureFlag],
 ]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}

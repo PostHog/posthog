@@ -2991,7 +2991,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(13),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _, _ = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
                 [
@@ -3069,7 +3069,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(12),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _, _ = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
                 [
@@ -5817,7 +5817,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # try matching all together, invalids don't interfere with regular flags
-        featureFlags, _, payloads, errors, _ = FeatureFlagMatcher(
+        featureFlags, _, payloads, errors, _, _ = FeatureFlagMatcher(
             self.team.id,
             self.project.id,
             [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
