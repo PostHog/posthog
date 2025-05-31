@@ -25,14 +25,13 @@ from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
-    SURVEY_TARGETING_FLAG_PREFIX,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
@@ -44,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User

@@ -158,3 +158,6 @@ class Table(TableBase, typing.Generic[ColumnType]):
     def to_arrow_schema(self) -> pa.Schema:
         """Generate a `pyarrow.Schema` that matches this `Table`'s columns."""
         return pa.schema(column.to_arrow_field() for column in self.columns)
+
+
+TableSchemas = dict[str, Table[ColumnType]]

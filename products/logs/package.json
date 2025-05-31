@@ -20,6 +20,7 @@
         "react": "*",
         "stylelint": "*",
         "typescript": "*",
-        "use-debounce": "*"
+        "use-debounce": "*",
+        "ansi-colors": "*"
     }
 }

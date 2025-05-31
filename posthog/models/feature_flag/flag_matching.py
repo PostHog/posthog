@@ -14,6 +14,7 @@ from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from django.db import connections
 from sentry_sdk.api import start_span
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.metrics import LABEL_TEAM_ID
 
 from posthog.exceptions_capture import capture_exception
@@ -907,6 +908,7 @@ def get_all_feature_flags_with_details(
     property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     flag_keys: Optional[list[str]] = None,
+    only_evaluate_survey_feature_flags: bool = False,  # If True, only evaluate flags starting with SURVEY_TARGETING_FLAG_PREFIX
 ) -> tuple[
     dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
 ]:
@@ -919,29 +921,34 @@ def get_all_feature_flags_with_details(
     property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
         distinct_id, groups, property_value_overrides, group_property_value_overrides
     )
-    all_feature_flags = get_feature_flags_for_team_in_cache(team.project_id)
+    feature_flags_to_be_evaluated = get_feature_flags_for_team_in_cache(team.project_id)
     cache_hit = True
 
-    if all_feature_flags is None:
+    if feature_flags_to_be_evaluated is None:
         cache_hit = False
-        all_feature_flags = set_feature_flags_for_team_in_cache(team.project_id)
+        feature_flags_to_be_evaluated = set_feature_flags_for_team_in_cache(team.project_id)
 
     # Filter flags by keys if provided
-    if flag_keys is not None:
+    if flag_keys is not None and not only_evaluate_survey_feature_flags:
         flag_keys_set = set(flag_keys)
-        all_feature_flags = [ff for ff in all_feature_flags if ff.key in flag_keys_set]
+        feature_flags_to_be_evaluated = [ff for ff in feature_flags_to_be_evaluated if ff.key in flag_keys_set]
+    # NB: this behavior is posthog-js specific, and is controlled by the advanced_only_evaluate_survey_feature_flags config parameter
+    elif only_evaluate_survey_feature_flags:
+        feature_flags_to_be_evaluated = [
+            ff for ff in feature_flags_to_be_evaluated if ff.key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
+        ]
 
     FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team.id), cache_hit=cache_hit).inc()
 
     flags_have_experience_continuity_enabled = any(
-        feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
+        feature_flag.ensure_experience_continuity for feature_flag in feature_flags_to_be_evaluated
     )
 
     with start_span(op="without_experience_continuity"):
         is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
-                all_feature_flags,
+                feature_flags_to_be_evaluated,
                 team.id,
                 team.project_id,
                 distinct_id,
@@ -1049,7 +1056,7 @@ def get_all_feature_flags_with_details(
             # Treat this same as if there are no experience continuity flags.
             # This automatically sets 'errorsWhileComputingFlags' to True.
             return _get_all_feature_flags(
-                all_feature_flags,
+                feature_flags_to_be_evaluated,
                 team.id,
                 team.project_id,
                 distinct_id,
@@ -1060,7 +1067,7 @@ def get_all_feature_flags_with_details(
             )
 
     return _get_all_feature_flags(
-        all_feature_flags,
+        feature_flags_to_be_evaluated,
         team.id,
         team.project_id,
         distinct_id,

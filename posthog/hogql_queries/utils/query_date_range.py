@@ -245,7 +245,7 @@ class QueryDateRange:
             args=[ast.Constant(value=self.interval_count)],
         )
 
-    def number_interval_periods(self) -> ast.Expr:
+    def number_interval_periods_hogql(self) -> ast.Expr:
         if self.interval_count == 1:
             return ast.Call(
                 name=f"toInterval{self.interval_name.capitalize()}",
@@ -326,7 +326,7 @@ class QueryDateRange:
             "interval": self.interval_period_string_as_hogql_constant(),
             "interval_count": self.interval_count_as_hogql_constant(),
             "one_interval_period": self.one_interval_period(),
-            "number_interval_period": self.number_interval_periods(),
+            "number_interval_period": self.number_interval_periods_hogql(),
             "date_from": self.date_from_as_hogql(),
             "date_to": self.date_to_as_hogql(),
             "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),

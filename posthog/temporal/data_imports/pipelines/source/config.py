@@ -487,3 +487,34 @@ def str_to_optional_int(s: str | int | None) -> int | None:
         return None
     else:
         return int(s)
+
+
+_DefaultType = typing.TypeVar("_DefaultType")
+
+
+def default_from_settings(
+    key: str, converter: typing.Callable[[str], _DefaultType] = _noop_convert
+) -> typing.Callable[[], _DefaultType]:
+    """Return a default factory that obtains the value from app settings."""
+
+    def default_factory() -> _DefaultType:
+        from django.conf import settings
+
+        return converter(getattr(settings, key))
+
+    return default_factory
+
+
+def default_from_env(
+    key: str, converter: typing.Callable[[str], _DefaultType] = _noop_convert
+) -> typing.Callable[[], _DefaultType]:
+    """Return a default factory that obtains the value from an env variable."""
+
+    def default_factory() -> _DefaultType:
+        import os
+
+        value = os.environ[key]
+
+        return converter(value)
+
+    return default_factory

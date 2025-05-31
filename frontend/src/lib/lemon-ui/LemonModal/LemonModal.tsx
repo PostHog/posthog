@@ -51,6 +51,7 @@ export interface LemonModalProps {
      * they can push a specific value to control their position in the stacking order
      */
     zIndex?: '1161' | '1162' | '1166' | '1167' | '1168' | '1169'
+    className?: string
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -90,6 +91,7 @@ export function LemonModal({
     hideCloseButton = false,
     'data-attr': dataAttr,
     zIndex,
+    className,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -186,7 +188,7 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
+            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen', className)}
             overlayClassName={clsx(
                 'LemonModal__overlay',
                 zIndex && `LemonModal__overlay--z-${zIndex}`,

@@ -7,6 +7,8 @@ export const USAGE_TYPES = [
     { label: 'Rows Synced', value: 'rows_synced_in_period' },
     { label: 'Persons', value: 'enhanced_persons_event_count_in_period' },
     { label: 'Survey Responses', value: 'survey_responses_count_in_period' },
+    { label: 'Data Pipelines', value: 'data_pipelines' },
+    { label: 'Group Analytics', value: 'group_analytics' },
 ] as const
 
 export type UsageTypeOption = (typeof USAGE_TYPES)[number]

@@ -1,6 +1,7 @@
 import './sparkline-loading.scss'
 
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -77,7 +78,6 @@ export function LogsScene(): JSX.Element {
                         dataSource={logs}
                         loading={logsLoading}
                         size="small"
-                        // disableTableWhileLoading={true}
                         columns={[
                             {
                                 title: 'Timestamp',
@@ -97,7 +97,11 @@ export function LogsScene(): JSX.Element {
                                 title: 'Message',
                                 key: 'body',
                                 dataIndex: 'body',
-                                render: (body) => <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>,
+                                render: (body) => (
+                                    <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>
+                                        {colors.unstyle(body)}
+                                    </div>
+                                ),
                             },
                         ]}
                         expandable={{
@@ -156,10 +160,10 @@ const Filters = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-y-1.5">
-            <div className="flex justify-between gap-y-2">
-                <div className="flex gap-x-1">
-                    <AttributesFilter />
+            <div className="flex justify-between gap-y-2 flex-wrap-reverse">
+                <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
+                    <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <DateRangeFilter />

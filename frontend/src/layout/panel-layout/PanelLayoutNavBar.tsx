@@ -263,7 +263,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         <ButtonPrimitive
                                             size="base"
                                             iconOnly
-                                            data-attr="search-button"
+                                            data-attr="tree-navbar-new-button"
                                             tooltip="Add new"
                                             onClick={(e) => {
                                                 e.preventDefault()
@@ -282,7 +282,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     size="base"
                                     iconOnly
                                     onClick={toggleSearchBar}
-                                    data-attr="search-button"
+                                    data-attr="tree-navbar-search-button"
                                     tooltip={
                                         <div className="flex flex-col gap-0.5">
                                             <span>
@@ -511,6 +511,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             closeThreshold={100}
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
+                            data-attr="tree-navbar-resizer"
                         />
                     )}
                 </nav>

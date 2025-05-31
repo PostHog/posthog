@@ -36,9 +36,9 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                     <ul className="list-disc list-inside pl-2">
                         <li>Usage data updates daily (UTC) - so today's numbers show up tomorrow</li>
                         <li>
-                            Some product add-ons (like group analytics and data pipelines) and deleted projects aren't
-                            in here <span className="italic">yet</span>
+                            Deleted projects aren't in here <span className="italic">yet</span>
                         </li>
+                        <li>Historical spend is calculated using the current subscription plan</li>
                     </ul>
                 </div>
             </div>

@@ -26,7 +26,7 @@ export function SessionReplayMenu({ MenuItem, MenuSeparator }: CustomMenuProps):
                             to={urls.replayPlaylist(playlist.short_id)}
                         >
                             <IconPinFilled className="size-3 text-tertiary" />
-                            {playlist.name || playlist.derived_name || 'Unnamed'}
+                            <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
                         </Link>
                     </MenuItem>
                 ))

@@ -47,7 +47,7 @@ export const SeverityLevelsFilter = (): JSX.Element => {
                     active: severityLevels.includes(key as LogMessage['severity_text']),
                 }))}
             >
-                <LemonButton icon={<IconFilter />} size="small" type="secondary">
+                <LemonButton icon={<IconFilter />} size="small" type="secondary" className="whitespace-nowrap">
                     {displayLevels}
                 </LemonButton>
             </LemonMenu>

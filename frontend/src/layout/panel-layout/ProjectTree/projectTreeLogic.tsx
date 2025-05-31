@@ -338,7 +338,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         expandedSearchFolders: [
-            ['/', 'project://Unfiled'] as string[],
+            ['/', 'project://', 'project://Unfiled'] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
                 loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {

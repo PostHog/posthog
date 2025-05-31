@@ -61,6 +61,7 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                 <ButtonPrimitive
                     iconOnly
                     className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
+                    data-attr="tree-filters-dropdown-menu-trigger-button"
                 >
                     <IconFilter className="size-3 text-tertiary" />
                 </ButtonPrimitive>
@@ -77,7 +78,7 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                             )
                         }}
                     >
-                        <ButtonPrimitive menuItem>
+                        <ButtonPrimitive menuItem data-attr="tree-filters-dropdown-menu-only-my-stuff-button">
                             {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
                             Only my stuff
                         </ButtonPrimitive>
@@ -103,7 +104,10 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                                     )
                                 }}
                             >
-                                <ButtonPrimitive menuItem>
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr={`tree-filters-dropdown-menu-${productType.value}-button`}
+                                >
                                     {searchTerm.includes(`type:${productType.value}`) ? <IconCheck /> : <IconBlank />}
                                     {productType.label}
                                 </ButtonPrimitive>

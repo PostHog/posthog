@@ -437,6 +437,20 @@ def get_csp_event(request):
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
+    debug_enabled = request.GET.get("debug", "").lower() == "true"
+    if debug_enabled:
+        logger.exception(
+            "CSP debug request",
+            error=ValueError("CSP debug request"),
+            method=request.method,
+            url=request.build_absolute_uri(),
+            content_type=request.content_type,
+            headers=dict(request.headers),
+            query_params=dict(request.GET),
+            body_size=len(request.body) if request.body else 0,
+            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
+        )
+
     csp_report, error_response = process_csp_report(request)
 
     if error_response:

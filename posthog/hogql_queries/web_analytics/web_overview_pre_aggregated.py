@@ -36,7 +36,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
                 NULL AS revenue,
                 NULL AS previous_revenue
-        FROM web_bounces_daily
+        FROM web_bounces_daily FINAL
         """,
             placeholders={
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
@@ -65,7 +65,6 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         return query
 
     def _uniq_merge_if(self, state_field: str, period_filter: ast.Expr) -> ast.Call:
-        """Utility method to create uniqMergeIf expressions"""
         return ast.Call(
             name="uniqMergeIf",
             args=[
@@ -75,7 +74,6 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         )
 
     def _sum_merge_if(self, state_field: str, period_filter: ast.Expr) -> ast.Call:
-        """Utility method to create sumMergeIf expressions"""
         return ast.Call(
             name="sumMergeIf",
             args=[
@@ -85,10 +83,6 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         )
 
     def _safe_avg_sessions(self, metric_state: str, period_filter: ast.Expr) -> ast.Call:
-        """
-        Utility method to safely calculate averages per session, avoiding division by zero.
-        Returns: if(sessions > 0, metric / sessions, 0)
-        """
         sessions_count = self._uniq_merge_if("sessions_uniq_state", period_filter)
         metric_sum = self._sum_merge_if(metric_state, period_filter)
 

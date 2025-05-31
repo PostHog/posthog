@@ -32,7 +32,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.constants import FlagRequestType
+from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.dashboard_templates import (
@@ -82,7 +82,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 )
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 MAX_PROPERTY_VALUES = 1000
 
@@ -441,7 +440,13 @@ class FeatureFlagSerializer(
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
+        old_key = instance.key
         self._update_filters(validated_data)
+
+        # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
+        if validated_key and validated_key != old_key:
+            filters = validated_data.get("filters", instance.filters) or {}
+            validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
         if validated_data.get("has_encrypted_payloads", False):
             if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
@@ -600,6 +605,28 @@ class FeatureFlagSerializer(
 
         representation["filters"] = filters
         return representation
+
+    def _update_super_groups_for_key_change(self, validated_key: str, old_key: str, filters: dict) -> dict:
+        if not (validated_key and validated_key != old_key and "super_groups" in filters):
+            return filters
+
+        updated_filters = filters.copy()
+        updated_filters["super_groups"] = [
+            {
+                **group,
+                "properties": [
+                    {
+                        **prop,
+                        "key": f"$feature_enrollment/{validated_key}"
+                        if prop.get("key", "").startswith("$feature_enrollment/")
+                        else prop["key"],
+                    }
+                    for prop in group.get("properties", [])
+                ],
+            }
+            for group in filters["super_groups"]
+        ]
+        return updated_filters
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):

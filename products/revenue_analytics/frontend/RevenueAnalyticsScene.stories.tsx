@@ -12,9 +12,9 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
+import revenueAnalyticsInsightsQueryMock from './__mocks__/RevenueAnalyticsInsightsQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
-import trendsQueryMock from './__mocks__/TrendsQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const meta: Meta = {
@@ -55,8 +55,8 @@ const meta: Meta = {
                         return [200, revenueAnalyticsTopCustomersMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'TrendsQuery') {
-                        return [200, trendsQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsInsightsQuery') {
+                        return [200, revenueAnalyticsInsightsQueryMock]
                     }
                 },
             },

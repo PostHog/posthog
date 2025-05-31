@@ -31,23 +31,31 @@ const NestedFilterGroup = (): JSX.Element => {
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
     return (
-        <div className="border">
+        <div className="flex gap-1 items-center flex-wrap">
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <NestedFilterGroup />
-                    </UniversalFilters.Group>
+                    <>
+                        <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                            <NestedFilterGroup />
+                            <UniversalFilters.AddFilterButton
+                                className="bg-surface-primary"
+                                size="small"
+                                type="secondary"
+                            />
+                        </UniversalFilters.Group>
+                    </>
                 ) : (
                     <UniversalFilters.Value
                         key={index}
                         index={index}
                         filter={filterOrGroup}
+                        initiallyOpen={true}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        className="h-[33px]"
                     />
                 )
             })}
-            <UniversalFilters.AddFilterButton />
         </div>
     )
 }

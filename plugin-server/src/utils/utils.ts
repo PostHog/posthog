@@ -11,7 +11,6 @@ import {
     ISOTimestamp,
     Plugin,
     PluginConfigId,
-    PluginsServerConfig,
     TimestampFormat,
 } from '../types'
 import { logger } from './logger'
@@ -468,16 +467,6 @@ export function pluginConfigIdFromStack(
         if (secretId === parseInt(id)) {
             return secretId
         }
-    }
-}
-
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        logger.error('🔴', message)
-        throw error
-    } else {
-        logger.info('🟡', message)
     }
 }
 

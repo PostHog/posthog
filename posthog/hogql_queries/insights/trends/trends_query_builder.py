@@ -126,7 +126,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(
@@ -139,10 +139,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                "plus_interval": self.query_date_range.number_interval_periods(),
-            },
+            placeholders=self.query_date_range.to_placeholders(),
         )
 
     def _get_events_subquery(

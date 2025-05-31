@@ -792,10 +792,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_ttl_days(self):
+        # hooby is 21 days
         assert ttl_days(self.team) == 21
 
         with self.is_cloud(True):
-            # Far enough in the future from `days_since_blob_ingestion` but not paid
+            # free users are 30 days
             with freeze_time("2023-09-01T12:00:01Z"):
                 assert ttl_days(self.team) == 30
 
@@ -803,13 +804,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 {"key": AvailableFeature.RECORDINGS_FILE_EXPORT, "name": AvailableFeature.RECORDINGS_FILE_EXPORT}
             ]
 
-            # Far enough in the future from `days_since_blob_ingestion` but paid
+            # paid is 90 days
             with freeze_time("2023-12-01T12:00:01Z"):
                 assert ttl_days(self.team) == 90
-
-            # Not far enough in the future from `days_since_blob_ingestion`
-            with freeze_time("2023-09-05T12:00:01Z"):
-                assert ttl_days(self.team) == 35
 
     @snapshot_clickhouse_queries
     def test_listing_ignores_future_replays(self):

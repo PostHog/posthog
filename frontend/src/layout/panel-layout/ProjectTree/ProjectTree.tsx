@@ -179,6 +179,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 onItemChecked(item.id, !checkedItems[item.id], false)
                             }}
+                            data-attr="tree-item-menu-select-button"
                         >
                             <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                         </MenuItem>
@@ -195,6 +196,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 window.open(item.record?.href, '_blank')
                             }}
+                            data-attr="tree-item-menu-open-link-button"
                         >
                             <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
                         </MenuItem>
@@ -204,6 +206,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 void navigator.clipboard.writeText(document.location.origin + item.record?.href)
                             }}
+                            data-attr="tree-item-menu-copy-link-button"
                         >
                             <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
                         </MenuItem>
@@ -219,6 +222,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 moveCheckedItems(item?.record?.path)
                             }}
+                            data-attr="tree-item-menu-move-checked-items-button"
                         >
                             <ButtonPrimitive menuItem>
                                 Move {checkedItemsCount} selected item{checkedItemsCount === '1' ? '' : 's'} here
@@ -230,6 +234,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 linkCheckedItems(item?.record?.path)
                             }}
+                            data-attr="tree-item-menu-create-shortcut-button"
                         >
                             <ButtonPrimitive menuItem>
                                 Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
@@ -244,7 +249,7 @@ export function ProjectTree({
                 item.id?.startsWith('project-folder-empty/') ? (
                     <>
                         <MenuSub key="new">
-                            <MenuSubTrigger asChild>
+                            <MenuSubTrigger asChild data-attr="tree-item-menu-open-new-menu-button">
                                 <ButtonPrimitive menuItem>
                                     New...
                                     <IconChevronRight className="ml-auto size-3" />
@@ -267,6 +272,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 item.record && deleteShortcut(item.record?.id)
                             }}
+                            data-attr="tree-item-menu-remove-from-shortcuts-button"
                         >
                             <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
                         </MenuItem>
@@ -277,6 +283,7 @@ export function ProjectTree({
                                 e.stopPropagation()
                                 item.record && addShortcutItem(item.record as FileSystemEntry)
                             }}
+                            data-attr="tree-item-menu-add-to-shortcuts-button"
                         >
                             <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
                         </MenuItem>
@@ -309,6 +316,7 @@ export function ProjectTree({
                             e.stopPropagation()
                             setEditingItemId(item.id)
                         }}
+                        data-attr="tree-item-menu-rename-button"
                     >
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                     </MenuItem>
@@ -321,6 +329,7 @@ export function ProjectTree({
                             e.stopPropagation()
                             assureVisibility({ type: item.record?.type, ref: item.record?.ref })
                         }}
+                        data-attr="tree-item-menu-show-original-button"
                     >
                         <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
                     </MenuItem>
@@ -333,6 +342,7 @@ export function ProjectTree({
                             e.stopPropagation()
                             deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
+                        data-attr="tree-item-menu-delete-shortcut-button"
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
@@ -343,6 +353,7 @@ export function ProjectTree({
                             e.stopPropagation()
                             deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
+                        data-attr="tree-item-menu-delete-folder-button"
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
                     </MenuItem>
@@ -544,7 +555,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
+                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
@@ -635,6 +646,7 @@ export function ProjectTree({
                 )
             }}
             renderItem={(item) => {
+                const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
                 return (
                     <span className="truncate">
                         <span
@@ -642,7 +654,12 @@ export function ProjectTree({
                                 'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
                             })}
                         >
-                            {item.displayName}
+                            {item.displayName}{' '}
+                            {isNew ? (
+                                <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                    New
+                                </LemonTag>
+                            ) : null}
                         </span>
 
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
@@ -696,7 +713,12 @@ export function ProjectTree({
                 root === 'project://' ? (
                     <>
                         {sortMethod !== 'recent' ? (
-                            <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
+                            <ButtonPrimitive
+                                onClick={() => createFolder('')}
+                                tooltip="New root folder"
+                                iconOnly
+                                data-attr="tree-panel-new-root-folder-button"
+                            >
                                 <IconFolderPlus className="text-tertiary" />
                             </ButtonPrimitive>
                         ) : null}
@@ -706,6 +728,7 @@ export function ProjectTree({
                                 onClick={() => setSelectMode('multi')}
                                 tooltip="Enable multi-select"
                                 iconOnly
+                                data-attr="tree-panel-enable-multi-select-button"
                             >
                                 <IconCheckbox className="text-tertiary size-4" />
                             </ButtonPrimitive>
@@ -718,6 +741,7 @@ export function ProjectTree({
                                             setSelectMode('default')
                                         }}
                                         tooltip="Clear selected and disable multi-select"
+                                        data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
                                     >
                                         <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                                     </ButtonPrimitive>
@@ -726,6 +750,7 @@ export function ProjectTree({
                                         onClick={() => setSelectMode('default')}
                                         tooltip="Disable multi-select"
                                         iconOnly
+                                        data-attr="tree-panel-disable-multi-select-button"
                                     >
                                         <IconX className="text-tertiary size-4" />
                                     </ButtonPrimitive>
@@ -740,6 +765,7 @@ export function ProjectTree({
                 tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                 onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
                 className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                data-attr="tree-panel-switch-view-button"
             >
                 <IconChevronRight
                     className={cn('size-4', {

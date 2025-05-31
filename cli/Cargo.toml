@@ -1,6 +1,6 @@
 [package]
 name = "posthog-cli"
-version = "0.0.7"
+version = "0.0.8"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -43,6 +43,7 @@ uuid = { version = "1.16.0", features = ["v7"] }
 thiserror = "2.0.12"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 posthog-rs = { version = "0.3.5", default-features = false }
+sha2 = "0.10.9"
 
 [dev-dependencies]
 test-log = "0.2.17"

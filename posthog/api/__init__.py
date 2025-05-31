@@ -574,6 +574,13 @@ projects_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/releases",
+    error_tracking.ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/symbol_sets",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",

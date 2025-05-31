@@ -3812,6 +3812,8 @@ dependencies = [
  "common-types",
  "envconfig",
  "health",
+ "metrics",
+ "moka",
  "once_cell",
  "rand 0.8.5",
  "reqwest 0.12.3",

@@ -304,6 +304,8 @@ class FlagRequestType(StrEnum):
     REMOTE_CONFIG = "remote-config"
 
 
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
 DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"

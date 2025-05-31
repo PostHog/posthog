@@ -4,7 +4,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -422,8 +422,31 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        """Override to filter out deleted experiments for both list and detail views."""
+        """Override to filter out deleted experiments and apply filters."""
         queryset = queryset.exclude(deleted=True)
+
+        # Filtering
+
+        # archived
+        # Only apply for list view, not detail view
+        if self.action == "list":
+            archived = self.request.query_params.get("archived")
+            if archived is not None:
+                archived_bool = archived.lower() == "true"
+                queryset = queryset.filter(archived=archived_bool)
+            else:
+                queryset = queryset.filter(archived=False)
+
+        # search by name
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search))
+
+        # Ordering
+        order = self.request.query_params.get("order")
+        if order:
+            queryset = queryset.order_by(order)
+
         return queryset
 
     # ******************************************
