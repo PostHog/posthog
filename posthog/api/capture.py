@@ -194,16 +194,21 @@ def build_kafka_event_data(
     token: str,
 ) -> dict:
     logger.debug("build_kafka_event_data", token=token)
-    return {
+    res = {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
         "ip": safe_clickhouse_string(ip) if ip else ip,
         "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
         "token": token,
     }
+
+    # Equivalent to rust captures "skip_serialising_if = Option::is_none"
+    if sent_at:
+        res["sent_at"] = sent_at.isoformat()
+
+    return res
 
 
 def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = False) -> str:
