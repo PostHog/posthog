@@ -418,7 +418,7 @@ class TestCapture(BaseTest):
 
                     # The second time we see the key we will have reached the capacity limit of the bucket (1).
                     # Without looking at the configuration we immediately return that we should randomly partition.
-                    # Notice time is frozen so the bucket hasn't been replentished.
+                    # Notice time is frozen so the bucket hasn't been replenished.
                     assert capture.is_randomly_partitioned(partition_key) is True
 
             with freeze_time(start + timedelta(seconds=1)):

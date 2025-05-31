@@ -155,11 +155,11 @@ class TestErrorTracking(APIBaseTest):
 
         assert ErrorTrackingIssue.objects.count() == 2
 
-        repsonse = self.client.post(
+        response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge", data={"ids": [issue_two.id]}
         )
 
-        assert repsonse.status_code == 200
+        assert response.status_code == 200
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_one.id).count() == 2
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one", version=0).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()

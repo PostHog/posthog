@@ -292,7 +292,7 @@ def generate_snapshot_messages(
             )
 
         # TODO: Intermingle full and incremental snapshots. At the moment we'll
-        # just be procesing full snapshots then incremental snapshots which
+        # just be processing full snapshots then incremental snapshots which
         # isn't representative of real world usage.
 
         for full_snapshot_index, full_snapshot_size in enumerate(full_snapshot_size_samples[:full_snapshot_count]):

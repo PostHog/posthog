@@ -115,7 +115,7 @@ def retrieve_entity_from(
     id to a string, such that we can get equality.
 
     This doesn't preclude ths issue that an event name could be a string that is
-    also a valid number however, but this should be an unlikely occurance.
+    also a valid number however, but this should be an unlikely occurrence.
     """
 
     if entity_type == "actions":

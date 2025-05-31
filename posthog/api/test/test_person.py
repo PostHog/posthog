@@ -866,7 +866,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            Person.objects.create(  # creating without _create_person to guarantee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},
@@ -906,7 +906,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         assert response["distinct_ids"] == ["123456789"]
 
     def test_retrieve_person_by_uuid(self):
-        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+        person = Person.objects.create(  # creating without _create_person to guarantee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -1227,7 +1227,7 @@ class TestPersonFromClickhouse(TestPerson):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            Person.objects.create(  # creating without _create_person to guarantee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},

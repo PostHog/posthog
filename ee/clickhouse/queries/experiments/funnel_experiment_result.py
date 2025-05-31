@@ -44,7 +44,7 @@ class ClickhouseFunnelExperimentResult:
     Calculating (2) uses sampling from a Beta distribution. If `control` value for the feature flag has 10 successes and 12 conversion failures,
     we assume the conversion rate follows a Beta(10, 12) distribution. Same for `test` variant.
 
-    Then, we calculcate how many times a sample from `test` variant is higher than a sample from the `control` variant. This becomes the
+    Then, we calculate how many times a sample from `test` variant is higher than a sample from the `control` variant. This becomes the
     probability.
     """
 

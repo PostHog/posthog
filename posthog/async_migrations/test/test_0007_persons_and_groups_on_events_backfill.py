@@ -572,7 +572,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         # Test that we fail the postcheck with the right message when 3 out of 101 events is incomplete (~2%)
         with self.assertRaisesRegex(
             Exception,
-            "Backfill did not work succesfully. ~2% of events did not get the correct data for persons.",
+            "Backfill did not work successfully. ~2% of events did not get the correct data for persons.",
         ):
             MIGRATION_DEFINITION._check_person_data()  # type: ignore
 
