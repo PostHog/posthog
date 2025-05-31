@@ -6,6 +6,7 @@ import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { BatchWritingGroupStoreForDistinctIdBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../helpers/sql'
@@ -65,12 +66,14 @@ describe('events dead letter queue', () => {
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
         const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'test', 'distinct_id')
+        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
             event,
             null,
             [],
-            personsStoreForDistinctId
+            personsStoreForDistinctId,
+            groupStoreForDistinctId
         ).runEventPipeline(event, team)
         expect(ingestResponse1).toEqual({
             lastStep: 'prepareEventStep',
