@@ -17,8 +17,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import { QuestionBranchingInput } from './components/question-branching/QuestionBranchingInput'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
