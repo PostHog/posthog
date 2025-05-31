@@ -54,6 +54,10 @@ export function languageCodeToFlag(languageCode: string): string {
     return LANGUAGE_CODE_TO_EMOJI_FLAG[languageCode] ?? countryCodeToFlag(languageCode.toLocaleUpperCase())
 }
 
+/**
+ * This mapping is based on ISO 3166-1 Alpha-2.
+ * See: https://www.iso.org/files/live/sites/isoorg/files/archive/pdf/en/iso_3166-2_newsletter_ii-3_2011-12-13.pdf
+ */
 export const COUNTRY_CODE_TO_LONG_NAME: Record<string, string> = {
     AE: 'United Arab Emirates',
     AF: 'Afghanistan',
@@ -207,7 +211,7 @@ export const COUNTRY_CODE_TO_LONG_NAME: Record<string, string> = {
     TM: 'Turkmenistan',
     TN: 'Tunisia',
     TO: 'Tonga',
-    TR: 'Turkey',
+    TR: 'Türkiye', // Exception: Internationally "Türkiye" (UN, US). Referenced 2011 ISO doc listed "Turkey"
     TT: 'Trinidad and Tobago',
     TW: 'Taiwan',
     TZ: 'Tanzania',
