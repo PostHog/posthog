@@ -19,7 +19,7 @@ const cdpHttpRequests = new Counter({
     labelNames: ['status'],
 })
 
-const RETRIABLE_STATUS_CODES = [
+export const RETRIABLE_STATUS_CODES = [
     408, // Request Timeout
     429, // Too Many Requests (rate limiting)
     500, // Internal Server Error
