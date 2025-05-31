@@ -3,7 +3,7 @@ from typing import Any
 from django.db.models import ForeignKey
 from datetime import date
 from posthog.models import Survey, FeatureFlag
-from posthog.models.feature_flag.constants import CreationContext
+from posthog.constants import CreationContext
 
 
 def _update_survey_iteration(survey: Survey) -> None:

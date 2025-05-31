@@ -32,7 +32,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX, CreationContext
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.dashboard_templates import (
@@ -74,7 +74,6 @@ from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
-from posthog.models.feature_flag.constants import CreationContext
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"

@@ -31,7 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX, CreationContext
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
@@ -54,7 +54,6 @@ from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
 )
-from posthog.models.feature_flag.constants import CreationContext
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"

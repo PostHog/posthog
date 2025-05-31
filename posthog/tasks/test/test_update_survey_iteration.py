@@ -1,10 +1,10 @@
 from posthog.models import Survey, Organization, Team, User, FeatureFlag
-from posthog.models.feature_flag.constants import CreationContext
 from django.test import TestCase
 from datetime import timedelta, datetime
 from django.utils.timezone import now
 from posthog.test.base import ClickhouseTestMixin
 from posthog.tasks.update_survey_iteration import update_survey_iteration
+from posthog.constants import CreationContext
 
 
 class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
