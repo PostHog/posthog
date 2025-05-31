@@ -36,6 +36,9 @@ export function SDKInstallAstroInstructions(): JSX.Element {
             <CreatePostHogAstroFileSnippet />
             <p>In this file, add your PostHog web snippet:</p>
             <AstroSetupSnippet />
+            <p>
+                You will want to include this in all pages within the <code>head</code> tag, ideally through a common Astro layout under <code>src/layouts</code>.
+            </p>
         </>
     )
 }
