@@ -32,7 +32,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX, CreationContext
+from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX, CreationContext, CREATION_CONTEXT_CHOICES
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.dashboard_templates import (
@@ -137,7 +137,6 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = CreationContext.CHOICES
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,

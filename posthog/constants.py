@@ -327,10 +327,11 @@ class CreationContext(StrEnum):
     EARLY_ACCESS_FEATURES = "early_access_features"
     WEB_EXPERIMENTS = "web_experiments"
 
-    CHOICES = (
-        FEATURE_FLAGS,
-        EXPERIMENTS,
-        SURVEYS,
-        EARLY_ACCESS_FEATURES,
-        WEB_EXPERIMENTS,
-    )
+
+CREATION_CONTEXT_CHOICES = (
+    CreationContext.FEATURE_FLAGS,
+    CreationContext.EXPERIMENTS,
+    CreationContext.SURVEYS,
+    CreationContext.EARLY_ACCESS_FEATURES,
+    CreationContext.WEB_EXPERIMENTS,
+)
