@@ -112,13 +112,11 @@ export function SurveyOverview(): JSX.Element {
             </dl>
             <div className="flex flex-col items-center">
                 {survey.type !== SurveyType.API ? (
-                    <div className="mt-6 px-4">
-                        <SurveyFormAppearance
-                            previewPageIndex={selectedPageIndex || 0}
-                            survey={survey}
-                            handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
-                        />
-                    </div>
+                    <SurveyFormAppearance
+                        previewPageIndex={selectedPageIndex || 0}
+                        survey={survey}
+                        handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
+                    />
                 ) : (
                     <div className="mt-2 space-y-2">
                         <div className="p-4 border rounded">

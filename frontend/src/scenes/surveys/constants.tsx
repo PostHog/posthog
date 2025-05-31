@@ -3,6 +3,7 @@ import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
+    SurveyAppearance,
     SurveyMatchType,
     SurveyPosition,
     SurveyQuestionDescriptionContentType,
@@ -60,7 +61,7 @@ export const defaultSurveyAppearance = {
     borderRadius: '10px',
     shuffleQuestions: false,
     surveyPopupDelaySeconds: undefined,
-} as const
+} as const satisfies SurveyAppearance
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
@@ -295,7 +296,6 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             },
         ],
         description: 'Works best after a checkout or support flow.',
-        appearance: { ratingButtonColor: '#939393' },
     },
     {
         type: SurveyType.Popover,
