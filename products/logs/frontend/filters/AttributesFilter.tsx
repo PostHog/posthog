@@ -35,12 +35,12 @@ const NestedFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <>
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <NestedFilterGroup />
                             <UniversalFilters.AddFilterButton
                                 className="bg-surface-primary"
                                 size="small"
                                 type="secondary"
                             />
+                            <NestedFilterGroup />
                         </UniversalFilters.Group>
                     </>
                 ) : (
