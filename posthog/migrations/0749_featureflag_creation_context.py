@@ -3,11 +3,6 @@
 from django.db import migrations, models
 
 
-def populate_survey_creation_context(apps, schema_editor):
-    FeatureFlag = apps.get_model("posthog", "FeatureFlag")
-    FeatureFlag.objects.filter(key__startswith="survey-targeting-").update(creation_context="surveys")
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0748_update_featureflag_super_groups"),
@@ -19,5 +14,7 @@ class Migration(migrations.Migration):
             name="creation_context",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.RunPython(populate_survey_creation_context),
+        migrations.RunSQL(
+            sql="UPDATE posthog_featureflag SET creation_context = 'surveys' WHERE key LIKE 'survey-targeting-%';",
+        ),
     ]
