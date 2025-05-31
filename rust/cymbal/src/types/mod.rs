@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::fingerprinting::{
     Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
 };
+use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -92,6 +93,8 @@ pub struct OutputErrProps {
     // Metadata
     #[serde(rename = "$exception_handled")]
     pub handled: bool,
+    #[serde(rename = "$exception_releases")]
+    pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
     #[serde(rename = "$exception_types")]
     pub types: Vec<String>,
@@ -197,7 +200,8 @@ impl FingerprintedErrProps {
             .flat_map(Stacktrace::get_frames);
 
         let sources = unique_by(frames.clone(), |f| f.source.clone());
-        let functions = unique_by(frames, |f| f.resolved_name.clone());
+        let functions = unique_by(frames.clone(), |f| f.resolved_name.clone());
+        let releases = ReleaseRecord::collect_to_map(frames.filter_map(|f| f.release.as_ref()));
 
         let types = unique_by(self.exception_list.iter(), |e| {
             Some(e.exception_type.clone())
@@ -226,6 +230,7 @@ impl FingerprintedErrProps {
             sources,
             functions,
             handled,
+            releases,
         }
     }
 }

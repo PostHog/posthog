@@ -10,7 +10,7 @@ use crate::{
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
-use super::{records::ErrorTrackingStackFrame, Frame, RawFrame};
+use super::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame};
 
 pub struct Resolver {
     cache: Cache<String, ErrorTrackingStackFrame>,
@@ -41,9 +41,12 @@ impl Resolver {
         }
         metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
-        if let Some(result) =
+        if let Some(mut result) =
             ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
         {
+            // We don't serialise release information on the frame, so we have to reload it if we fetched
+            // the saved result from the DB
+            result.contents = add_release_info(pool, result.contents, frame, team_id).await?;
             self.cache.insert(frame.frame_id(), result.clone());
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
@@ -52,6 +55,7 @@ impl Resolver {
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
+        let resolved = add_release_info(pool, resolved, frame, team_id).await?;
 
         let set = if let Some(set_ref) = frame.symbol_set_ref() {
             SymbolSetRecord::load(pool, team_id, &set_ref).await?
@@ -73,6 +77,18 @@ impl Resolver {
         self.cache.insert(frame.frame_id(), record);
         Ok(resolved)
     }
+}
+
+async fn add_release_info(
+    pool: &PgPool,
+    mut resolved: Frame,
+    raw: &RawFrame,
+    team_id: i32,
+) -> Result<Frame, UnhandledError> {
+    if let Some(set_ref) = raw.symbol_set_ref() {
+        resolved.release = ReleaseRecord::for_symbol_set(pool, set_ref, team_id).await?;
+    }
+    Ok(resolved)
 }
 
 #[cfg(test)]
