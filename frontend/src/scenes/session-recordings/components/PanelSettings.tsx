@@ -1,6 +1,5 @@
 import './PanelSettings.scss'
 
-import clsx from 'clsx'
 import {
     LemonButton,
     LemonButtonWithoutSideActionProps,
@@ -8,6 +7,7 @@ import {
 } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { PropsWithChildren } from 'react'
 
 /**
@@ -41,14 +41,10 @@ export function SettingsBar({
 }>): JSX.Element {
     return (
         <div
-            className={clsx(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
-                className,
-                {
-                    'border-b': ['bottom', 'all'].includes(border),
-                    'border-t': ['top', 'all'].includes(border),
-                }
-            )}
+            className={cn('flex flex-row font-light text-xs bg-primary items-center w-full', className, {
+                'border-b': ['bottom', 'all'].includes(border),
+                'border-t': ['top', 'all'].includes(border),
+            })}
         >
             {children}
         </div>
@@ -75,7 +71,7 @@ export function SettingsMenu({
             {...props}
         >
             <LemonButton
-                className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
+                className={cn(rounded ? 'rounded' : 'rounded-[0px]')}
                 status={highlightWhenActive && active ? 'danger' : 'default'}
                 size="xsmall"
                 icon={icon}
@@ -107,7 +103,7 @@ export function SettingsButton(props: SettingsButtonProps): JSX.Element {
 export function SettingsToggle({ title, icon, label, active, rounded, ...props }: SettingsToggleProps): JSX.Element {
     const button = (
         <LemonButton
-            className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
+            className={cn(rounded ? 'rounded' : 'rounded-[0px]')}
             icon={icon}
             size="xsmall"
             status={active ? 'danger' : 'default'}
@@ -119,7 +115,7 @@ export function SettingsToggle({ title, icon, label, active, rounded, ...props }
 
     // otherwise the tooltip shows instead of the disabled reason
     return (
-        <div className={clsx(rounded ? 'SettingsBar--button--rounded' : 'SettingsBar--button--square')}>
+        <div className={cn(rounded ? 'SettingsBar--button--rounded' : 'SettingsBar--button--square')}>
             {props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>}
         </div>
     )
