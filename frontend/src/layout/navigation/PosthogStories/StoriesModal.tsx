@@ -11,7 +11,7 @@ import { Story } from 'react-insta-stories/dist/interfaces'
 import { storiesLogic } from './storiesLogic'
 import type { story } from './storiesMap'
 
-const IMAGE_STORY_INTERVAL = 3000
+const IMAGE_STORY_INTERVAL = 3500
 const CRAZY_VIDEO_DURATION = 1000000 // this is a hack to make the video play for as long as a video would pla
 const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 854 // Maximum width in pixels

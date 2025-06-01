@@ -132,4 +132,158 @@ export const storiesMap: storyGroup[] = [
             },
         ],
     },
+    {
+        id: 'hedgehogs',
+        title: 'Hedgehogs',
+        stories: [
+            {
+                id: 'hedgehog-mode',
+                title: 'Hedehogs',
+                description: 'Try hedgehog mode!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_heart_806a11db9b.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_wide_5df781bfb4_e455df0d27.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'max-ai',
+        title: 'Max AI',
+        stories: [
+            {
+                id: 'max-ai-overview',
+                title: 'Max AI',
+                description: 'Say hi to Max!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'product-analytics',
+        title: 'Product analytics',
+        stories: [
+            {
+                id: 'product-analytics-overview',
+                title: 'Product analytics',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/product_analytics_icon_eb743fa24b.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_2_6da6e7d3d0.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'web-analytics',
+        title: 'Web analytics',
+        stories: [
+            {
+                id: 'web-analytics-overview',
+                title: 'Web analytics',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/web_analytics_700d89898c.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_3_d7e99120b4.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'session-replay',
+        title: 'Session replay',
+        stories: [
+            {
+                id: 'session-replay-overview',
+                title: 'Session replay',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/session_replay_5cd544fd6e.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'feature-flags',
+        title: 'Feature flags',
+        stories: [
+            {
+                id: 'feature-flags-overview',
+                title: 'Feature flags',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_65f86819c0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_2_6da6e7d3d0.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'experiments',
+        title: 'Experiments',
+        stories: [
+            {
+                id: 'Give Andy, Javier, and Edwin feedback!',
+                title: 'Experiments',
+                description: 'Give us feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_473107c5b2.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_3_d7e99120b4.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'surveys',
+        title: 'Surveys',
+        stories: [
+            {
+                id: 'surveys-overview',
+                title: 'Surveys',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_ba81894d25.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'data-pipelines',
+        title: 'Data pipelines',
+        stories: [
+            {
+                id: 'data-pipelines-overview',
+                title: 'Data pipelines',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/data_pipelines_cfed9a24c9.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_2_6da6e7d3d0.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'data-warehouse',
+        title: 'Data warehouse',
+        stories: [
+            {
+                id: 'data-warehouse-overview',
+                title: 'Data warehouse',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/data_warehouse_edc03a4e0b.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_3_d7e99120b4.mp4',
+                type: 'video',
+            },
+        ],
+    },
+    {
+        id: 'llm-observability',
+        title: 'LLM observability',
+        stories: [
+            {
+                id: 'LLM-observability-overview',
+                title: 'LLM observability',
+                description: 'Give Andy, Javier, and Edwin feedback!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/llm_observability_d5b8320de9.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
+                type: 'video',
+            },
+        ],
+    },
 ]
