@@ -10,6 +10,7 @@ class Annotation(models.Model):
         DASHBOARD = "dashboard", "dashboard"
         PROJECT = "project", "project"
         ORGANIZATION = "organization", "organization"
+        RECORDING = "recording", "recording"
 
     class CreationType(models.TextChoices):
         USER = "USR", "user"
@@ -27,6 +28,8 @@ class Annotation(models.Model):
     creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
+    # this is a UUID so 255 is more than enough/?
+    recording = models.CharField(default=None, max_length=255, null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)
