@@ -1342,7 +1342,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_lifecycle_virtual_person_property_filter(self):
+    def test_lifecycle_virtual_person_property_hogql_filter(self):
         with freeze_time("2020-01-12T12:00:00Z"):
             _create_person(
                 team_id=self.team.pk,
@@ -1368,6 +1368,55 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             event="$pageview",
                             properties=[
                                 HogQLPropertyFilter(key="person.$virt_initial_channel_type = 'Organic Search'")
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_virtual_person_property_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="$virt_initial_channel_type",
+                                    value="Organic Search",
+                                    operator=PropertyOperator.EXACT,
+                                )
                             ],
                         )
                     ],
