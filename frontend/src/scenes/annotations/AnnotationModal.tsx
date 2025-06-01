@@ -100,6 +100,9 @@ export function AnnotationModal({
         scopeOptions.push({
             value: AnnotationScope.Recording,
             label: annotationScopeToName[AnnotationScope.Recording],
+            disabledReason: annotationModal.recordingId
+                ? undefined
+                : 'To select this scope, open this annotation on the target recording',
         })
     }
 

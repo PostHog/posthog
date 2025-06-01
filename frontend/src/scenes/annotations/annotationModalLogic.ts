@@ -1,7 +1,9 @@
+import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -84,8 +86,10 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             dashboardId,
         }),
         closeModal: true,
+        setScope: (scope: AnnotationType['scope'] | null) => ({ scope }),
     }),
     reducers(() => ({
+        scope: [null as AnnotationType['scope'] | null, { setScope: (_, { scope }) => scope }],
         isModalOpen: [
             false,
             {
@@ -151,6 +155,30 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
                 return annotations.length === 0 && !annotationsLoading
+            },
+        ],
+        allowRecordingScope: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE]
+            },
+        ],
+        scopeOptions: [
+            (s) => [s.allowRecordingScope],
+            (allowRecordingScope): LemonSelectOptions<AnnotationType['scope'] | null> => {
+                const scopes = Object.values(AnnotationScope).filter((scope) => {
+                    return allowRecordingScope ? true : scope !== AnnotationScope.Recording
+                })
+                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = scopes.map((scope) => ({
+                    value: scope,
+                    label: annotationScopeToName[scope],
+                }))
+                // add any with value null as the first option
+                scopeOptions.unshift({
+                    value: null,
+                    label: 'Any',
+                })
+                return scopeOptions
             },
         ],
     })),
