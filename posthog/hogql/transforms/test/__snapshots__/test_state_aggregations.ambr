@@ -41,6 +41,17 @@
   LIMIT 10
   '''
 # ---
+# name: TestStateTransforms.test_multiple_tuples_with_state_aggregations
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, tuple(sumMerge(tupleElement(metric_stats, 1)), avgMerge(tupleElement(metric_stats, 2))) AS metric_stats 
+  FROM (
+  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestStateTransforms.test_nested_aggregations_in_subquery
   '''
   
@@ -127,6 +138,76 @@
   SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_transformation_from_regular_to_state_then_merge_with_tuples
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, tuple(sumMerge(tupleElement(metric_stats, 1)), avgMerge(tupleElement(metric_stats, 2))) AS metric_stats 
+  FROM (
+  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_tuple_in_subquery_remains_unchanged
+  '''
+  
+  SELECT sumMerge(aggregated_total) AS aggregated_total 
+  FROM (
+  SELECT sumState(filtered_metrics.total_count) AS aggregated_total 
+  FROM (
+  SELECT tuple(uniq(events.distinct_id), count()) AS user_metrics, sum(1) AS total_count 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS filtered_metrics) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_tuple_with_conditional_aggregations
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(conditional_stats, 1)), countMerge(tupleElement(conditional_stats, 2)), sumMerge(tupleElement(conditional_stats, 3))) AS conditional_stats 
+  FROM (
+  SELECT tuple(uniqStateIf(events.distinct_id, 1), countStateIf(1), sumStateIf(1, 1)) AS conditional_stats 
+  FROM events 
+  WHERE equals(events.team_id, 420)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_tuple_with_constants_and_state_aggregations
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(mixed_tuple, 1)), tupleElement(mixed_tuple, 2), countMerge(tupleElement(mixed_tuple, 3)), tupleElement(mixed_tuple, 4), tupleElement(mixed_tuple, 5)) AS mixed_tuple 
+  FROM (
+  SELECT tuple(uniqState(events.distinct_id), NULL, countState(), %(hogql_val_0)s, 42) AS mixed_tuple 
+  FROM events 
+  WHERE equals(events.team_id, 420)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_tuple_with_mixed_aggregations_and_non_aggregations
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(mixed_stats, 1)), tupleElement(mixed_stats, 2), countMerge(tupleElement(mixed_stats, 3))) AS mixed_stats, sumMerge(total_sum) AS total_sum 
+  FROM (
+  SELECT tuple(uniqState(events.distinct_id), %(hogql_val_0)s, countState()) AS mixed_stats, sumState(1) AS total_sum 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_tuple_with_state_aggregations
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, host AS host 
+  FROM (
+  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s)) 
+  GROUP BY host) 
+  GROUP BY host 
   LIMIT 50000
   '''
 # ---

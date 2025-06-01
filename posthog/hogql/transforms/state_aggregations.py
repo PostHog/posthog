@@ -22,7 +22,7 @@ HOGQL_AGGREGATIONS_KEYS_SET = set(HOGQL_AGGREGATIONS.keys())
 
 # Mapping of regular aggregation functions to their State/Merge equivalents.
 # These should be present in posthog/hogql/functions/mapping.py
-SUPPORTED_FUNCTIONS = ["uniq", "uniqIf", "count", "countIf", "sum", "avg", "sumIf", "avgIf"]
+SUPPORTED_FUNCTIONS = ["uniq", "uniqIf", "count", "countIf", "sum", "sumIf", "avg", "avgIf"]
 assert set(SUPPORTED_FUNCTIONS).issubset(
     HOGQL_AGGREGATIONS_KEYS_SET
 ), "All supported aggregation functions must be in HOGQL_AGGREGATIONS"
@@ -166,6 +166,22 @@ def wrap_state_query_in_merge_query(
                 merge_func = STATE_TO_MERGE_MAPPING[item.expr.name]
                 merge_call = ast.Call(name=merge_func, args=[ast.Field(chain=[alias_name])])
                 outer_select.append(ast.Alias(alias=alias_name, expr=merge_call))
+            elif isinstance(item.expr, ast.Tuple):
+                outer_tuple_elements: list[ast.Expr] = []
+                for i, tuple_element_expr in enumerate(item.expr.exprs):
+                    # Access the i-th element (1-indexed) of the aliased tuple from the subquery
+                    tuple_accessor = ast.Call(
+                        name="tupleElement", args=[ast.Field(chain=[alias_name]), ast.Constant(value=i + 1)]
+                    )
+                    if isinstance(tuple_element_expr, ast.Call) and tuple_element_expr.name in STATE_TO_MERGE_MAPPING:
+                        # If the tuple element is a state aggregation, wrap it in a merge function
+                        merge_func_name = STATE_TO_MERGE_MAPPING[tuple_element_expr.name]
+                        merged_element = ast.Call(name=merge_func_name, args=[tuple_accessor])
+                        outer_tuple_elements.append(merged_element)
+                    else:
+                        # Otherwise, just access the tuple element
+                        outer_tuple_elements.append(tuple_accessor)
+                outer_select.append(ast.Alias(alias=alias_name, expr=ast.Tuple(exprs=outer_tuple_elements)))
             elif isinstance(item.expr, ast.Constant):
                 # For constants statements like "NULL as xpto", pass through the constant directly
                 # This ensures they don't need to be in GROUP BY

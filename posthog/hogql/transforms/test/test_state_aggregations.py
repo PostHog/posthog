@@ -317,6 +317,123 @@ class TestStateTransforms(BaseTest):
         wrapper_simplified = self._print_select(wrapper_query_ast)
         assert wrapper_simplified == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_tuple_with_state_aggregations(self):
+        query_str = """
+        SELECT
+            (uniqState(distinct_id), countState()) AS user_stats,
+            properties.$host as host
+        FROM events
+        WHERE timestamp >= '2023-01-01'
+        GROUP BY host
+        """
+
+        state_query = parse_select(query_str)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_tuple_with_conditional_aggregations(self):
+        query_str = """
+        SELECT
+            (
+                uniqStateIf(distinct_id, 1),
+                countStateIf(1),
+                sumStateIf(1, 1)
+            ) AS conditional_stats
+        FROM events
+        """
+
+        state_query = parse_select(query_str)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_tuple_with_mixed_aggregations_and_non_aggregations(self):
+        query_str = """
+        SELECT
+            (uniqState(distinct_id), 'constant_value', countState()) AS mixed_stats,
+            sumState(1) as total_sum
+        FROM events
+        WHERE timestamp >= '2023-01-01'
+        """
+
+        state_query = parse_select(query_str)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_multiple_tuples_with_state_aggregations(self):
+        query_str = """
+        SELECT
+            (uniqState(distinct_id), countState()) AS user_stats,
+            (sumState(1), avgState(1)) AS metric_stats
+        FROM events
+        WHERE timestamp >= '2023-01-01'
+        """
+
+        state_query = parse_select(query_str)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_transformation_from_regular_to_state_then_merge_with_tuples(self):
+        original_query_str = """
+        SELECT
+            (uniq(distinct_id), count()) AS user_stats,
+            (sum(1), avg(1)) AS metric_stats
+        FROM events
+        WHERE timestamp >= '2023-01-01'
+        """
+
+        original_query = parse_select(original_query_str)
+        state_query = transform_query_to_state_aggregations(original_query)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_tuple_with_constants_and_state_aggregations(self):
+        query_str = """
+        SELECT
+            (uniqState(distinct_id), NULL, countState(), 'constant_string', 42) AS mixed_tuple
+        FROM events
+        """
+
+        state_query = parse_select(query_str)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_tuple_in_subquery_remains_unchanged(self):
+        query_str = """
+        SELECT
+            sumState(filtered_metrics.total_count) AS aggregated_total
+        FROM (
+            SELECT
+                (uniq(distinct_id), count()) AS user_metrics,
+                sum(1) AS total_count
+            FROM events
+        ) AS filtered_metrics
+        """
+
+        state_query = parse_select(query_str)
+        wrapper_query = wrap_state_query_in_merge_query(state_query)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
     """
@@ -400,6 +517,59 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
             properties.$host as host,
             uniq(distinct_id) as unique_users,
             count() as total_events
+        FROM events
+        GROUP BY host
+        ORDER BY host ASC
+        """
+
+        original_query_ast = parse_select(original_query_str)
+
+        original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
+
+        self.assertEqual(original_result, transformed_result)
+
+    def test_tuple_aggregations_with_db(self):
+        original_query_str = """
+        SELECT
+            (uniq(distinct_id), count()) as user_stats,
+            properties.$host as host
+        FROM events
+        GROUP BY host
+        ORDER BY host ASC
+        """
+
+        original_query_ast = parse_select(original_query_str)
+
+        original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
+
+        self.assertEqual(original_result, transformed_result)
+
+    def test_complex_tuple_aggregations_with_db(self):
+        original_query_str = """
+        SELECT
+            (
+                uniq(distinct_id),
+                countIf(event = '$pageview'),
+                sum(toFloat(properties.session_duration))
+            ) as complex_stats,
+            properties.$host as host
+        FROM events
+        GROUP BY host
+        ORDER BY host ASC
+        """
+
+        original_query_ast = parse_select(original_query_str)
+
+        original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
+
+        self.assertEqual(original_result, transformed_result)
+
+    def test_multiple_tuples_aggregations_with_db(self):
+        original_query_str = """
+        SELECT
+            (uniq(distinct_id), count()) as user_metrics,
+            (sum(toFloat(properties.session_duration)), avg(toFloat(properties.session_duration))) as duration_metrics,
+            properties.$host as host
         FROM events
         GROUP BY host
         ORDER BY host ASC
