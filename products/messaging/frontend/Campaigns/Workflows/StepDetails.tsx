@@ -51,40 +51,6 @@ export function StepDetailsPanel({
                     <LemonField name="label" label="Name">
                         <LemonInput />
                     </LemonField>
-
-                    {node.type === 'trigger' && (
-                        <LemonField name="config.triggerType" label="Trigger Type">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Email', value: 'email' },
-                                    { label: 'SMS', value: 'sms' },
-                                    { label: 'Push', value: 'push' },
-                                ]}
-                            />
-                        </LemonField>
-                    )}
-                    {node.type === 'action' && (
-                        <LemonField name="config.actionType" label="Action Type">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Send Email', value: 'send_email' },
-                                    { label: 'Send SMS', value: 'send_sms' },
-                                    { label: 'Send Push', value: 'send_push' },
-                                ]}
-                            />
-                        </LemonField>
-                    )}
-                    {node.type === 'condition' && (
-                        <LemonField name="config.conditionType" label="Condition Type">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Has Opened', value: 'has_opened' },
-                                    { label: 'Has Clicked', value: 'has_clicked' },
-                                    { label: 'Has Responded', value: 'has_responded' },
-                                ]}
-                            />
-                        </LemonField>
-                    )}
                 </Form>
             </div>
         </Panel>

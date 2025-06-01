@@ -80,7 +80,7 @@ export type WorkflowNode = {
     type: WorkflowNodeType
     data: WorkflowNodeData
 }
-export type WorkflowNodeType = 'trigger' | 'message' | 'decision' | 'delay' | 'exit'
+export type WorkflowNodeType = 'trigger' | 'email' | 'condition' | 'delay' | 'delay_until' | 'exit'
 
 export interface WorkflowNodeData extends Record<string, unknown> {
     label: string
