@@ -190,6 +190,7 @@ export const StoriesModal = (): JSX.Element | null => {
                 subheading: story.description || '',
                 profileImage: story.thumbnailUrl,
             },
+            duration: story.durationMs,
             seeMore: story.link
                 ? () => {
                       sendStoryEndEvent('see_more')
