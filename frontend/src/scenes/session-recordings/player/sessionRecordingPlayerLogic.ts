@@ -263,8 +263,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         confirmNextRecording: true,
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
+        setIsAnnotating: (isAnnotating: boolean) => ({ isAnnotating }),
     }),
     reducers(() => ({
+        isAnnotating: [
+            false,
+            {
+                setIsAnnotating: (_, { isAnnotating }) => isAnnotating,
+            },
+        ],
         maskingWindow: [
             false,
             {
@@ -780,6 +787,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        setIsAnnotating: ({ isAnnotating }) => {
+            if (isAnnotating) {
+                actions.setPause()
+            } else {
+                actions.setPlay()
+            }
+        },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
             if (values.reportedReplayerErrors.has(fingerprint)) {
