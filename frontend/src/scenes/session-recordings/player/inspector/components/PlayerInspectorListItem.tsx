@@ -35,9 +35,11 @@ import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/p
 import { IconWindow } from '../../icons'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
+import { ItemAnnotation, ItemAnnotationDetail } from './ItemAnnotation'
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
+
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
@@ -72,6 +74,10 @@ const typeToIconAndDescription = {
     ['comment']: {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
+    },
+    ['annotation']: {
+        Icon: IconChat,
+        tooltip: 'An annotation was added to this timestamp',
     },
     ['inspector-summary']: {
         Icon: undefined,
@@ -145,6 +151,8 @@ function RowItemTitle({
                 <ItemSummary item={item} />
             ) : item.type === 'inactivity' ? (
                 <ItemInactivity item={item} />
+            ) : item.type === 'annotation' ? (
+                <ItemAnnotation item={item} />
             ) : null}
         </div>
     )
@@ -172,6 +180,8 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
+            ) : item.type === 'annotation' ? (
+                <ItemAnnotationDetail item={item} />
             ) : null}
         </div>
     )

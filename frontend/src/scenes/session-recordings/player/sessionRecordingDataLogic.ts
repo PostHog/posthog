@@ -8,7 +8,10 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
-import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import {
+    InspectorListItemAnnotation,
+    RecordingComment,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
@@ -16,6 +19,7 @@ import {
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { annotationsModel } from '~/models/annotationsModel'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
@@ -32,6 +36,7 @@ import {
     SessionRecordingUsageType,
     SnapshotSourceType,
 } from '~/types'
+import { AnnotationScope } from '~/types'
 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -60,7 +65,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
         actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam'], annotationsModel, ['annotations']],
     })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -587,6 +592,37 @@ LIMIT 1000000
         },
     })),
     selectors(({ cache }) => ({
+        sessionAnnotations: [
+            (s) => [s.annotations, s.start, s.end],
+            (annotations, start, end): InspectorListItemAnnotation[] => {
+                const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
+                const startValue = start?.valueOf() ?? 0
+                const endValue = end?.valueOf() ?? 0
+
+                const result: InspectorListItemAnnotation[] = []
+                for (const annotation of annotations) {
+                    if (!allowedScopes.includes(annotation.scope)) {
+                        continue
+                    }
+
+                    const annotationTime = dayjs(annotation.date_marker).valueOf()
+                    if (annotationTime < startValue || annotationTime > endValue) {
+                        continue
+                    }
+
+                    result.push({
+                        type: 'annotation',
+                        data: annotation,
+                        timestamp: dayjs(annotation.date_marker),
+                        timeInRecording: annotation.date_marker.valueOf() - startValue,
+                        search: annotation.content,
+                        highlightColor: 'primary',
+                    })
+                }
+
+                return result
+            },
+        ],
         webVitalsEvents: [
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>

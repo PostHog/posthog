@@ -4,6 +4,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { memo, MutableRefObject } from 'react'
 import {
+    InspectorListItemAnnotation,
     InspectorListItemComment,
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -24,13 +25,20 @@ function PlayerSeekbarTick({
     zIndex,
     onClick,
 }: {
-    item: InspectorListItemComment | InspectorListItemEvent
+    item: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
 }): JSX.Element | null {
-    const data = item.data
-    const isEventItem = 'event' in data
+    const isEventItem = (
+        x: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
+    ): x is InspectorListItemEvent => 'event' in x.data
+    const isCommentItem = (
+        x: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
+    ): x is InspectorListItemComment => 'comment' in x.data
+    const isAnnotationItem = (
+        x: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
+    ): x is InspectorListItemAnnotation => 'content' in x.data
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
@@ -40,7 +48,15 @@ function PlayerSeekbarTick({
     return (
         <div
             className={clsx('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
-            title={isEventItem ? data.event : data.comment}
+            title={
+                isEventItem(item)
+                    ? item.data.event
+                    : isCommentItem(item)
+                    ? item.data.comment
+                    : isAnnotationItem(item)
+                    ? item.data.content ?? undefined
+                    : undefined
+            }
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 left: `${position}%`,
@@ -49,10 +65,10 @@ function PlayerSeekbarTick({
             onClick={onClick}
         >
             <div className="PlayerSeekbarTick__info">
-                {isEventItem ? (
+                {isEventItem(item) ? (
                     <>
-                        {data.event === '$autocapture' ? (
-                            <>{autoCaptureEventToDescription(data)}</>
+                        {item.data.event === '$autocapture' ? (
+                            <>{autoCaptureEventToDescription(item.data)}</>
                         ) : (
                             <PropertyKeyInfo
                                 className="font-medium"
@@ -60,18 +76,21 @@ function PlayerSeekbarTick({
                                 disablePopover
                                 ellipsis={true}
                                 type={TaxonomicFilterGroupType.Events}
-                                value={data.event}
+                                value={item.data.event}
                             />
                         )}
-                        {data.event === '$pageview' && (data.properties.$pathname || data.properties.$current_url) ? (
+                        {item.data.event === '$pageview' &&
+                        (item.data.properties.$pathname || item.data.properties.$current_url) ? (
                             <span className="ml-2 opacity-75">
-                                {data.properties.$pathname || data.properties.$current_url}
+                                {item.data.properties.$pathname || item.data.properties.$current_url}
                             </span>
                         ) : null}
                     </>
-                ) : (
-                    data.comment
-                )}
+                ) : isCommentItem(item) ? (
+                    <span className="font-medium">{item.data.comment}</span>
+                ) : isAnnotationItem(item) ? (
+                    <span className="font-medium">{item.data.content}</span>
+                ) : null}
             </div>
             <div className="PlayerSeekbarTick__line" />
         </div>
@@ -85,7 +104,7 @@ export const PlayerSeekbarTicks = memo(
         seekToTime,
         hoverRef,
     }: {
-        seekbarItems: (InspectorListItemEvent | InspectorListItemComment)[]
+        seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemAnnotation)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
