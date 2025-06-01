@@ -2,6 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import CloningVisitor
 from typing import Union, cast
+from posthog.hogql.parser import parse_select
 
 QueryType = Union[ast.SelectQuery, ast.SelectSetQuery]
 
@@ -272,3 +273,51 @@ def wrap_state_query_in_merge_query(
         outer_query.offset = state_query.offset
 
     return cast(QueryType, outer_query)
+
+
+def combine_queries_with_state_and_merge(*query_strings: str) -> QueryType:
+    """
+    Utility function to combine multiple queries using the state + UNION ALL + merge pattern.
+
+    This simulates the common pattern where you have:
+    1. Pre-aggregated data (e.g., from materialized views or pre-aggregated tables)
+    2. Real-time data that needs to be combined
+
+    This is especially useful for PostHog's web analytics where we combine:
+    - Historical data from materialized views (stats_table_preaggregated)
+    - Real-time data from events table
+
+    Args:
+        *query_strings: Variable number of HogQL query strings to combine
+
+    Returns:
+        A wrapped query that combines all input queries with state/merge functions
+
+    Example:
+        >>> historical_query = "SELECT uniq(distinct_id) FROM events WHERE date < '2023-01-01'"
+        >>> realtime_query = "SELECT uniq(distinct_id) FROM events WHERE date >= '2023-01-01'"
+        >>> combined = combine_queries_with_state_and_merge(historical_query, realtime_query)
+    """
+
+    if len(query_strings) == 0:
+        raise ValueError("At least one query string is required")
+
+    if len(query_strings) == 1:
+        query_ast = parse_select(query_strings[0])
+        state_query_ast = transform_query_to_state_aggregations(query_ast)
+        return wrap_state_query_in_merge_query(state_query_ast)
+
+    state_queries = []
+    for query_str in query_strings:
+        query_ast = parse_select(query_str)
+        state_query_ast = transform_query_to_state_aggregations(query_ast)
+        state_queries.append(state_query_ast)
+
+    select_set_query_ast = ast.SelectSetQuery(
+        initial_select_query=state_queries[0],
+        subsequent_select_queries=[
+            ast.SelectSetNode(select_query=state_query, set_operator="UNION ALL") for state_query in state_queries[1:]
+        ],
+    )
+
+    return wrap_state_query_in_merge_query(select_set_query_ast)

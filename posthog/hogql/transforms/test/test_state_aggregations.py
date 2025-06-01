@@ -11,6 +11,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.transforms.state_aggregations import (
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
+    combine_queries_with_state_and_merge,
 )
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -590,7 +591,7 @@ class TestStateTransforms(BaseTest):
         GROUP BY date
         """
 
-        combined_query = self._combine_queries_with_state_and_merge(historical_query, realtime_query)
+        combined_query = combine_queries_with_state_and_merge(historical_query, realtime_query)
         printed = self._print_select(combined_query)
         assert printed == self.snapshot
 
@@ -610,14 +611,14 @@ class TestStateTransforms(BaseTest):
         WHERE timestamp >= '2023-01-08'
         """
 
-        combined_query = self._combine_queries_with_state_and_merge(last_week_query, current_week_query)
+        combined_query = combine_queries_with_state_and_merge(last_week_query, current_week_query)
         printed = self._print_select(combined_query)
         assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_three_data_sources_with_mixed_tuples(self):
         """Test combining three different data sources with mixed tuple patterns."""
-        materialized_view_query = """
+        preaggregated_query = """
         SELECT
             (uniq(distinct_id), count()) AS user_metrics,
             (sum(1), avg(1)) AS value_metrics,
@@ -647,9 +648,7 @@ class TestStateTransforms(BaseTest):
         GROUP BY host
         """
 
-        combined_query = self._combine_queries_with_state_and_merge(
-            materialized_view_query, yesterday_query, today_query
-        )
+        combined_query = combine_queries_with_state_and_merge(preaggregated_query, yesterday_query, today_query)
         printed = self._print_select(combined_query)
         assert printed == self.snapshot
 
@@ -670,7 +669,7 @@ class TestStateTransforms(BaseTest):
         WHERE properties.device_type = 'desktop'
         """
 
-        combined_query = self._combine_queries_with_state_and_merge(mobile_users_query, desktop_users_query)
+        combined_query = combine_queries_with_state_and_merge(mobile_users_query, desktop_users_query)
         printed = self._print_select(combined_query)
         assert printed == self.snapshot
 
@@ -701,9 +700,7 @@ class TestStateTransforms(BaseTest):
         WHERE timestamp >= '2023-01-15' AND timestamp < '2023-01-22'
         """
 
-        combined_query = self._combine_queries_with_state_and_merge(
-            first_week_cohort, second_week_cohort, third_week_cohort
-        )
+        combined_query = combine_queries_with_state_and_merge(first_week_cohort, second_week_cohort, third_week_cohort)
         printed = self._print_select(combined_query)
         assert printed == self.snapshot
 
@@ -738,50 +735,132 @@ class TestStateTransforms(BaseTest):
         GROUP BY source
         """
 
-        combined_query = self._combine_queries_with_state_and_merge(pattern_a_query, pattern_b_query)
+        combined_query = combine_queries_with_state_and_merge(pattern_a_query, pattern_b_query)
         printed = self._print_select(combined_query)
         assert printed == self.snapshot
 
-    def _combine_queries_with_state_and_merge(self, *query_strings: str) -> ast.SelectSetQuery | ast.SelectQuery:
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_combine_regular_and_state_aggregations_mixed(self):
+        # Query 1: Regular aggregations (will be transformed to state)
+        regular_query = """
+        SELECT
+            (uniq(distinct_id), count(), sumIf(1, event = '$pageview')) AS metrics,
+            'from_regular' as source_type
+        FROM events
+        WHERE timestamp >= '2023-01-01'
         """
-        Utility function to combine multiple queries using the state + UNION ALL + merge pattern.
 
-        This simulates the common pattern where you have:
-        1. Pre-aggregated data (e.g., from materialized views)
-        2. Real-time data that needs to be combined
-
-        Args:
-            *query_strings: Variable number of HogQL query strings to combine
-
-        Returns:
-            A wrapped query that combines all input queries with state/merge functions
+        # Query 2: Already using state aggregations
+        state_query = """
+        SELECT
+            (uniqState(distinct_id), countState(), sumStateIf(1, event = '$pageview')) AS metrics,
+            'from_state' as source_type
+        FROM events
+        WHERE timestamp < '2023-01-01'
         """
-        if len(query_strings) == 0:
-            raise ValueError("At least one query string is required")
 
-        if len(query_strings) == 1:
-            # Single query - just transform and wrap
-            query_ast = parse_select(query_strings[0])
-            state_query_ast = transform_query_to_state_aggregations(query_ast)
-            return wrap_state_query_in_merge_query(state_query_ast)
+        regular_query_ast = parse_select(regular_query)
+        state_query_ast = parse_select(state_query)
+        transformed_regular_ast = transform_query_to_state_aggregations(regular_query_ast)
 
-        # Multiple queries - transform each to state, combine with UNION ALL, then wrap
-        state_queries = []
-        for query_str in query_strings:
-            query_ast = parse_select(query_str)
-            state_query_ast = transform_query_to_state_aggregations(query_ast)
-            state_queries.append(state_query_ast)
+        union_query_ast = ast.SelectSetQuery(
+            initial_select_query=transformed_regular_ast,
+            subsequent_select_queries=[ast.SelectSetNode(select_query=state_query_ast, set_operator="UNION ALL")],
+        )
 
-        # Create SelectSetQuery with UNION ALL
-        select_set_query_ast = ast.SelectSetQuery(
-            initial_select_query=state_queries[0],
+        wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_combine_mixed_transformation_stages_with_tuples(self):
+        preaggregated_query = """
+        SELECT
+            (uniqState(distinct_id), countState()) AS user_metrics,
+            (sumState(1), avgState(1)) AS activity_metrics,
+            toDate(timestamp) as date
+        FROM events
+        WHERE toDate(timestamp) < '2023-01-01'
+        GROUP BY date
+        """
+
+        realtime_query = """
+        SELECT
+            (uniq(distinct_id), count()) AS user_metrics,
+            (sum(1), avg(1)) AS activity_metrics,
+            toDate(timestamp) as date
+        FROM events
+        WHERE timestamp >= '2023-01-01'
+        GROUP BY date
+        """
+
+        # Parse queries
+        materialized_ast = parse_select(preaggregated_query)
+        realtime_ast = parse_select(realtime_query)
+
+        # Transform only the real-time query to state aggregations
+        realtime_state_ast = transform_query_to_state_aggregations(realtime_ast)
+
+        # Combine with UNION ALL
+        union_query_ast = ast.SelectSetQuery(
+            initial_select_query=materialized_ast,
+            subsequent_select_queries=[ast.SelectSetNode(select_query=realtime_state_ast, set_operator="UNION ALL")],
+        )
+
+        # Wrap with merge functions
+        wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_three_way_mixed_aggregation_stages(self):
+        """Test combining three queries at different aggregation transformation stages."""
+        # Query 1: Already fully transformed state aggregations
+        pre_computed_query = """
+        SELECT
+            (uniqState(distinct_id), countStateIf(event = '$pageview')) AS pageview_metrics
+        FROM events
+        WHERE timestamp < '2023-01-01 12:00:00'
+        """
+
+        # Query 2: Regular aggregations (will be transformed)
+        recent_events_query = """
+        SELECT
+            (uniq(distinct_id), countIf(event = '$pageview')) AS pageview_metrics
+        FROM events
+        WHERE timestamp >= '2023-01-01 12:00:00' AND timestamp < '2023-01-01 13:00:00'
+        """
+
+        # Query 3: Mixed - some state, some regular (will be partially transformed)
+        mixed_query = """
+        SELECT
+            (uniqState(distinct_id), countIf(event = '$pageview')) AS pageview_metrics
+        FROM events
+        WHERE timestamp >= '2023-01-01 13:00:00'
+        """
+
+        pre_computed_ast = parse_select(pre_computed_query)
+        recent_events_ast = parse_select(recent_events_query)
+        mixed_ast = parse_select(mixed_query)
+
+        recent_events_state_ast = transform_query_to_state_aggregations(recent_events_ast)
+        mixed_state_ast = transform_query_to_state_aggregations(mixed_ast)
+
+        # Create three-formats UNION ALL
+        union_query_ast = ast.SelectSetQuery(
+            initial_select_query=pre_computed_ast,
             subsequent_select_queries=[
-                ast.SelectSetNode(select_query=state_query, set_operator="UNION ALL")
-                for state_query in state_queries[1:]
+                ast.SelectSetNode(select_query=recent_events_state_ast, set_operator="UNION ALL"),
+                ast.SelectSetNode(select_query=mixed_state_ast, set_operator="UNION ALL"),
             ],
         )
 
-        return wrap_state_query_in_merge_query(select_set_query_ast)
+        wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
+
+        printed = self._print_select(wrapper_query)
+        assert printed == self.snapshot
 
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
@@ -931,8 +1010,6 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(original_result, transformed_result)
 
     def test_union_all_tuples_integration_with_db(self):
-        """Integration test for UNION ALL with tuples - combining historical and recent data."""
-        # Test combining two time periods with tuple aggregations
         original_query_str = """
         SELECT
             (uniq(distinct_id), count()) AS user_stats,
@@ -945,6 +1022,7 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
             'recent' as data_source
         FROM events
         WHERE timestamp >= '2023-01-02'
+        ORDER BY data_source ASC
         """
 
         original_query_ast = parse_select(original_query_str)
@@ -954,7 +1032,6 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(original_result, transformed_result)
 
     def test_grouped_union_all_tuples_with_db(self):
-        """Test UNION ALL with tuples and GROUP BY clauses with database execution."""
         original_query_str = """
         SELECT
             (uniq(distinct_id), count()) AS user_stats,
@@ -977,3 +1054,63 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
 
         self.assertEqual(original_result, transformed_result)
+
+    def test_mixed_regular_and_state_aggregations_with_db(self):
+        regular_query_str = """
+        SELECT
+            (uniq(distinct_id), count()) AS user_metrics,
+            'regular_source' as source_type
+        FROM events
+        WHERE distinct_id = 'user_1'
+        """
+
+        state_query_str = """
+        SELECT
+            (uniqState(distinct_id), countState()) AS user_metrics,
+            'state_source' as source_type
+        FROM events
+        WHERE distinct_id = 'user_2'
+        """
+
+        regular_query_ast = parse_select(regular_query_str)
+        state_query_ast = parse_select(state_query_str)
+
+        regular_state_ast = transform_query_to_state_aggregations(regular_query_ast)
+
+        union_state_ast = ast.SelectSetQuery(
+            initial_select_query=regular_state_ast,
+            subsequent_select_queries=[ast.SelectSetNode(select_query=state_query_ast, set_operator="UNION ALL")],
+        )
+
+        final_query_ast = wrap_state_query_in_merge_query(union_state_ast)
+
+        # For comparison, create equivalent original query
+        original_union_str = """
+        SELECT
+            (uniq(distinct_id), count()) AS user_metrics,
+            'regular_source' as source_type
+        FROM events
+        WHERE distinct_id = 'user_1'
+        UNION ALL
+        SELECT
+            (uniq(distinct_id), count()) AS user_metrics,
+            'state_source' as source_type
+        FROM events
+        WHERE distinct_id = 'user_2'
+        """
+
+        original_union_ast = parse_select(original_union_str)
+
+        # Execute both and compare
+        context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        original_sql = print_ast(original_union_ast, context=context_original, dialect="clickhouse")
+        original_result = sync_execute(original_sql, context_original.values)
+
+        context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        transformed_sql = print_ast(final_query_ast, context=context_transformed, dialect="clickhouse")
+        transformed_result = sync_execute(transformed_sql, context_transformed.values)
+
+        # Results should be equivalent (order might differ, so we sort)
+        original_sorted = sorted(original_result)
+        transformed_sorted = sorted(transformed_result)
+        self.assertEqual(original_sorted, transformed_sorted)
