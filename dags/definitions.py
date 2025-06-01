@@ -73,8 +73,8 @@ defs = dagster.Definitions(
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
-        web_preaggregated_internal.recreate_web_pre_aggregated_data_job,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
+        web_preaggregated_internal.web_analytics_daily_data_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
