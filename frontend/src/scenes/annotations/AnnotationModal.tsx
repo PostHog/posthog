@@ -4,6 +4,8 @@ import {
     LemonModal,
     LemonModalProps,
     LemonSelect,
+    LemonSelectOption,
+    LemonSelectOptions,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
@@ -14,7 +16,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AnnotationScope } from '~/types'
+import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
 
@@ -41,7 +43,7 @@ export function AnnotationModal({
     } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
-    const scopeOptions = [
+    const scopeOptions: LemonSelectOptions<AnnotationType['scope'] | null> = [
         {
             value: AnnotationScope.Insight,
             label: annotationScopeToName[AnnotationScope.Insight],
@@ -97,13 +99,14 @@ export function AnnotationModal({
 
     const recordingScopeEnabled = useFeatureFlag('ANNOTATIONS_RECORDING_SCOPE')
     if (recordingScopeEnabled) {
-        scopeOptions.push({
+        const recordingScopeOption: LemonSelectOption<AnnotationType['scope'] | null> = {
             value: AnnotationScope.Recording,
             label: annotationScopeToName[AnnotationScope.Recording],
             disabledReason: annotationModal.recordingId
                 ? undefined
                 : 'To select this scope, open this annotation on the target recording',
-        })
+        }
+        scopeOptions.push(recordingScopeOption)
     }
 
     return (

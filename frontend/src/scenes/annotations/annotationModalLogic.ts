@@ -47,17 +47,11 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
     connect(() => ({
         actions: [
             annotationsModel,
-            [
-                'loadAnnotationsNext',
-                'loadAnnotationsSuccess',
-                'replaceAnnotation',
-                'appendAnnotations',
-                'deleteAnnotation',
-            ],
+            ['loadAnnotationsSuccess', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
         ],
         values: [
             annotationsModel,
-            ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
+            ['annotations', 'annotationsLoading'],
             teamLogic,
             ['timezone'],
             userLogic,
