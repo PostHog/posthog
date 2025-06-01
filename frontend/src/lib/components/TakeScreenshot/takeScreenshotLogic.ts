@@ -1,3 +1,5 @@
+import { lemonToast } from '@posthog/lemon-ui'
+import { toBlob } from 'html-to-image'
 import { actions, kea, listeners, path, reducers } from 'kea'
 
 import type { takeScreenshotLogicType } from './takeScreenshotLogicType'
@@ -37,6 +39,7 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
     actions({
         setIsOpen: (isOpen: boolean) => ({ isOpen }),
         setImageFile: (imageFile: File | null) => ({ imageFile }),
+        setHtml: (html: HTMLElement | null) => ({ html }),
         setMode: (mode: 'draw' | 'text' | 'moveText') => ({ mode }),
         setDrawings: (drawings: DrawingItem[]) => ({ drawings }),
         setTexts: (texts: TextItem[]) => ({ texts }),
@@ -51,12 +54,25 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
         setTextInputPosition: (textInputPosition: { x: number; y: number; visible: boolean }) => ({
             textInputPosition,
         }),
+        setIsLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     reducers({
         isOpen: [
             false,
             {
                 setIsOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isLoading: [
+            false,
+            {
+                setIsLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        html: [
+            null,
+            {
+                setHtml: (_, { html }) => html,
             },
         ],
         imageFile: [
@@ -138,5 +154,21 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             },
         ],
     }),
-    listeners(() => ({})),
+    listeners(({ actions }) => ({
+        setHtml: async ({ html }) => {
+            if (!html) {
+                return
+            }
+            actions.setIsLoading(true)
+            actions.setIsOpen(true)
+            const blob = await toBlob(html)
+            if (blob) {
+                const image = new File([blob], 'screenshot.png', { type: 'image/png' })
+                actions.setImageFile(image)
+            } else {
+                lemonToast.error('Cannot take screenshot. Please try again.')
+            }
+            actions.setIsLoading(false)
+        },
+    })),
 ])

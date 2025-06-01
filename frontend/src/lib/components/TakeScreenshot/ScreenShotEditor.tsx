@@ -2,9 +2,11 @@ import { IconPencil, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonColorPicker, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { getSeriesColorPalette } from 'lib/colors'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { downloadFile } from 'lib/utils'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
+import { FilmCameraHog } from '../hedgehogs'
 import {
     APPROX_TEXT_HEIGHT,
     type DrawingItem,
@@ -28,6 +30,8 @@ export function ScreenShotEditor(): JSX.Element {
         selectedTextIndex,
         dragStartOffset,
         textInputPosition,
+        isLoading,
+        html,
     } = useValues(takeScreenshotLogic)
     const {
         setIsOpen,
@@ -39,6 +43,8 @@ export function ScreenShotEditor(): JSX.Element {
         setSelectedTextIndex,
         setDragStartOffset,
         setTextInputPosition,
+        setHtml,
+        setImageFile,
     } = useActions(takeScreenshotLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -59,6 +65,8 @@ export function ScreenShotEditor(): JSX.Element {
         setSelectedTextIndex(null)
         setDragStartOffset(null)
         setMode('draw')
+        setHtml(null)
+        setImageFile(null)
     }, [setIsOpen])
 
     const redrawCanvas = useCallback(() => {
@@ -131,7 +139,7 @@ export function ScreenShotEditor(): JSX.Element {
                 const canvas = canvasRef.current
                 if (canvas) {
                     const maxDisplayWidth = window.innerWidth * 0.8
-                    const maxDisplayHeight = window.innerHeight * 0.7
+                    const maxDisplayHeight = window.innerHeight * 0.8
 
                     const { naturalWidth, naturalHeight } = img
 
@@ -141,7 +149,6 @@ export function ScreenShotEditor(): JSX.Element {
 
                     canvas.width = naturalWidth * scale
                     canvas.height = naturalHeight * scale
-
                     const ctx = canvas.getContext('2d')
                     if (ctx) {
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
@@ -162,8 +169,9 @@ export function ScreenShotEditor(): JSX.Element {
             setTexts([])
             setHistoryStack([])
             setSelectedTextIndex(null)
+            setHtml(null)
         }
-    }, [isOpen, imageFile, originalImage, handleClose])
+    }, [isOpen, imageFile, originalImage, handleClose, html])
 
     useEffect(() => {
         if (isOpen && originalImage) {
@@ -348,6 +356,22 @@ export function ScreenShotEditor(): JSX.Element {
         downloadFile(editedFile)
     }
 
+    if (isLoading) {
+        return (
+            <>
+                <LemonModal isOpen={isOpen} onClose={handleClose} width="auto" maxWidth="100%">
+                    <div className="flex flex-col items-center justify-center py-10">
+                        <FilmCameraHog className="h-32 w-32" />
+                        <div className="mt-2">
+                            <Spinner className="mr-4" />
+                            Taking a screenshot...
+                        </div>
+                    </div>
+                </LemonModal>
+            </>
+        )
+    }
+
     return (
         <>
             <LemonModal
@@ -355,7 +379,7 @@ export function ScreenShotEditor(): JSX.Element {
                 onClose={handleClose}
                 title="Edit Screenshot"
                 description="Draw or add text to your screenshot."
-                width="auto"
+                width="80%"
                 maxWidth="100%"
                 footer={
                     <div className="flex justify-between items-center w-full">

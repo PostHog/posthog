@@ -1,7 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
 import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
-import { toBlob } from 'html-to-image'
 import {
     actions,
     afterMount,
@@ -206,7 +205,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             takeScreenshotLogic,
-            ['setImageFile', 'setIsOpen'],
+            ['setHtml'],
         ],
     })),
     actions({
@@ -1314,31 +1313,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
+                lemonToast.error('Cannot take screenshot. Please try again.')
                 return
             }
 
-            await lemonToast.promise(
-                (async () => {
-                    const blob = await toBlob(iframe)
-                    if (blob) {
-                        const file = new File([blob], `${props.sessionRecordingId}-screenshot.jpeg`, {
-                            type: 'image/jpeg',
-                        })
-                        //downloadFile(file)
-                        actions.setImageFile(file)
-                        actions.setIsOpen(true)
-                        posthog.capture('session_recording_player_take_screenshot_success')
-                    } else {
-                        posthog.capture('session_recording_player_take_screenshot_error')
-                        throw new Error('Screenshot blob could not be created.')
-                    }
-                })(),
-                {
-                    success: 'Screenshot taken!',
-                    error: 'Failed to take screenshot. Please try again.',
-                    pending: 'Taking screenshot...',
-                }
-            )
+            actions.setHtml(iframe)
         },
         openHeatmap: () => {
             actions.setPause()
