@@ -24,10 +24,10 @@ export const getFormattedNodes = async (
 
     const elkOptions = {
         'elk.algorithm': 'layered',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '60',
-        'elk.spacing.nodeNode': '50',
-        'elk.spacing.edgeEdge': '5',
-        'elk.spacing.edgeNode': '5',
+        'elk.layered.spacing.nodeNodeBetweenLayers': '100',
+        'elk.spacing.nodeNode': '100',
+        'elk.spacing.edgeEdge': '100',
+        'elk.spacing.edgeNode': '100',
         'elk.direction': 'DOWN',
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
