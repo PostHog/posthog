@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from zoneinfo import ZoneInfo
 from django.utils.timezone import now
 from rest_framework import status
+from parameterized import parameterized
 
 from posthog.models import Annotation, Organization, Team, User
 from posthog.test.base import (
@@ -215,3 +216,113 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertTrue(Annotation.objects.filter(pk=instance.pk).exists())
+
+    @parameterized.expand(
+        [
+            (Annotation.Scope.PROJECT, True, True),
+            (Annotation.Scope.ORGANIZATION, True, True),
+            (Annotation.Scope.PROJECT, False, True),
+            (Annotation.Scope.ORGANIZATION, False, True),
+        ]
+    )
+    def test_filter_annotations_by_date_range_and_scope(self, scope, in_date_range, should_be_visible):
+        session_start = datetime(2023, 1, 1, 10, 0, 0, tzinfo=ZoneInfo("UTC"))
+        session_end = datetime(2023, 1, 1, 11, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        annotation_date = session_start + timedelta(minutes=30) if in_date_range else session_start - timedelta(hours=1)
+
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content=f"Test annotation - {scope} scope",
+            scope=scope,
+            date_marker=annotation_date,
+        )
+
+        # Query with date range filter (simulating session replay time range)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "date_from": session_start.isoformat(),
+                "date_to": session_end.isoformat(),
+                "scope": scope,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+
+        if in_date_range and should_be_visible:
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["content"], f"Test annotation - {scope} scope")
+            self.assertEqual(results[0]["scope"], scope)
+        else:
+            self.assertEqual(len(results), 0)
+
+    def test_filter_annotations_for_session_replay_scenario(self):
+        # Session replay scenario: 1-hour recording from 10:00 to 11:00
+        session_start = datetime(2023, 1, 1, 10, 0, 0, tzinfo=ZoneInfo("UTC"))
+        session_end = datetime(2023, 1, 1, 11, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        annotations_data = [
+            (session_start + timedelta(minutes=15), Annotation.Scope.PROJECT, "Project annotation at 15min"),
+            (session_start + timedelta(minutes=30), Annotation.Scope.ORGANIZATION, "Org annotation at 30min"),
+            (session_start + timedelta(minutes=45), Annotation.Scope.PROJECT, "Project annotation at 45min"),
+            # Outside session time range (should not appear)
+            (session_start - timedelta(minutes=30), Annotation.Scope.PROJECT, "Before session"),
+            (session_end + timedelta(minutes=30), Annotation.Scope.ORGANIZATION, "After session"),
+        ]
+
+        for date_marker, scope, content in annotations_data:
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_by=self.user,
+                content=content,
+                scope=scope,
+                date_marker=date_marker,
+            )
+
+        # Test: Get all annotations within session time range
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "date_from": session_start.isoformat(),
+                "date_to": session_end.isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+
+        # Should get 3 annotations (the ones within the time range)
+        self.assertEqual(len(results), 3)
+
+        # Verify they're ordered by date_marker (newest first based on existing ordering)
+        contents = [r["content"] for r in results]
+        self.assertIn("Project annotation at 15min", contents)
+        self.assertIn("Org annotation at 30min", contents)
+        self.assertIn("Project annotation at 45min", contents)
+        self.assertNotIn("Before session", contents)
+        self.assertNotIn("After session", contents)
+
+        # Test: Filter by specific scope within time range
+        response_project_only = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "date_from": session_start.isoformat(),
+                "date_to": session_end.isoformat(),
+                "scope": Annotation.Scope.PROJECT,
+            },
+        )
+
+        self.assertEqual(response_project_only.status_code, 200)
+        project_results = response_project_only.json()["results"]
+
+        # Should get 2 project-scoped annotations
+        self.assertEqual(len(project_results), 2)
+        project_contents = [r["content"] for r in project_results]
+        self.assertIn("Project annotation at 15min", project_contents)
+        self.assertIn("Project annotation at 45min", project_contents)
+        self.assertNotIn("Org annotation at 30min", project_contents)
