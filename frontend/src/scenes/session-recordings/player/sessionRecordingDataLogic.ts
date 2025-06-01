@@ -596,12 +596,16 @@ LIMIT 1000000
             (s) => [s.annotations, s.start, s.end],
             (annotations, start, end): InspectorListItemAnnotation[] => {
                 const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
-                const startValue = start?.valueOf() ?? 0
-                const endValue = end?.valueOf() ?? 0
+                const startValue = start?.valueOf()
+                const endValue = end?.valueOf()
 
                 const result: InspectorListItemAnnotation[] = []
                 for (const annotation of annotations) {
                     if (!allowedScopes.includes(annotation.scope)) {
+                        continue
+                    }
+
+                    if (!annotation.date_marker || !startValue || !endValue || !annotation.content) {
                         continue
                     }
 
