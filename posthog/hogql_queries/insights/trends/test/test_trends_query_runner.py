@@ -2,7 +2,7 @@ import itertools
 import re
 import zoneinfo
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional
 from unittest.mock import MagicMock, patch
@@ -5447,3 +5447,85 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
         self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)
+
+    def test_trends_daily_compare_to_previous_period(self):
+        """
+        Test a TrendsQuery with daily aggregation that has compare to previous period enabled.
+        It uses a -7d window, sets the team's timezone to US/Pacific, and generates events at 9PM and 11PM each day.
+        """
+        # Set the team's timezone to US/Pacific
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create a person
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test_user"],
+            properties={},
+        )
+
+        # Get the current time and generate events for the past 16 days
+        # We'll freeze time at 10PM Pacific time
+        freeze_time_at = datetime.now(zoneinfo.ZoneInfo("US/Pacific")).replace(
+            hour=22, minute=0, second=0, microsecond=0
+        )
+
+        # Generate one event at 9PM and another at 11PM each day for the past 16 days
+        for days_ago in range(0, 16):
+            event_date = freeze_time_at - timedelta(days=days_ago)
+
+            # Create event at 9PM
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="test_user",
+                timestamp=(event_date - timedelta(hours=1)).isoformat(),  # 9PM
+                properties={"key": "value"},
+            )
+
+            # Create event at 11PM
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="test_user",
+                timestamp=(event_date + timedelta(hours=1)).isoformat(),  # 11PM
+                properties={"key": "value"},
+            )
+
+        # Freeze time at 10PM Pacific time
+        with freeze_time(freeze_time_at.isoformat()):
+            # Run the query with a -7d window and compare to previous period enabled
+            query_runner = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval="day",
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display="ActionsLineGraph"),
+                    compare_filters=CompareFilter(compare=True),
+                ),
+                team=self.team,
+            )
+            response = query_runner.calculate()
+
+            # Verify the response
+            self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+
+            # Check that both results have compare=True
+            self.assertEqual(True, response.results[0]["compare"])
+            self.assertEqual(True, response.results[1]["compare"])
+
+            # Check compare labels
+            self.assertEqual("current", response.results[0]["compare_label"])
+            self.assertEqual("previous", response.results[1]["compare_label"])
+
+            # Check that each period has 8 days of data (includes one extra day)
+            self.assertEqual(8, len(response.results[0]["data"]))
+            self.assertEqual(8, len(response.results[1]["data"]))
+
+            # Each day should have 2 events (9PM and 11PM)
+            for value in response.results[0]["data"]:
+                self.assertEqual(2, value)
+
+            for value in response.results[1]["data"]:
+                self.assertEqual(2, value)
