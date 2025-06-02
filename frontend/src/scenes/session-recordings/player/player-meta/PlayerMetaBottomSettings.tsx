@@ -96,7 +96,7 @@ function Screenshot(): JSX.Element {
 
     return (
         <>
-            <ScreenShotEditor />
+            <ScreenShotEditor screenshotKey="replay" />
             <SettingsButton
                 title="Take a screenshot of the current frame"
                 label="Screenshot"

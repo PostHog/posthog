@@ -204,7 +204,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
-            takeScreenshotLogic,
+            takeScreenshotLogic({ screenshotKey: 'replay' }),
             ['setHtml'],
         ],
     })),

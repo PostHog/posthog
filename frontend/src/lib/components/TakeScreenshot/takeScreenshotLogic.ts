@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { toBlob } from 'html-to-image'
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 
 import type { takeScreenshotLogicType } from './takeScreenshotLogicType'
 
@@ -34,8 +34,14 @@ export interface HistoryItem {
     type: 'draw' | 'text'
 }
 
+export interface TakeScreenshotLogicProps {
+    screenshotKey?: string
+}
+
 export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
-    path(['lib', 'components', 'TakeScreenshot', 'takeScreenshotLogic']),
+    path((key) => ['lib', 'components', 'TakeScreenshot', 'takeScreenshotLogic', key]),
+    props({} as TakeScreenshotLogicProps),
+    key((props: TakeScreenshotLogicProps) => props.screenshotKey || 'default-key'),
     actions({
         setIsOpen: (isOpen: boolean) => ({ isOpen }),
         setImageFile: (imageFile: File | null) => ({ imageFile }),
@@ -55,6 +61,7 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             textInputPosition,
         }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
+        setBlob: (blob: Blob) => ({ blob }),
     }),
     reducers({
         isOpen: [
@@ -156,12 +163,26 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
     }),
     listeners(({ actions }) => ({
         setHtml: async ({ html }) => {
-            if (!html) {
+            if (html === null) {
                 return
             }
             actions.setIsLoading(true)
             actions.setIsOpen(true)
             const blob = await toBlob(html)
+            if (blob) {
+                const image = new File([blob], 'screenshot.png', { type: 'image/jpg' })
+                actions.setImageFile(image)
+            } else {
+                lemonToast.error('Cannot take screenshot. Please try again.')
+            }
+            actions.setIsLoading(false)
+        },
+        setBlob: async ({ blob }) => {
+            if (!blob) {
+                return
+            }
+            actions.setIsLoading(true)
+            actions.setIsOpen(true)
             if (blob) {
                 const image = new File([blob], 'screenshot.png', { type: 'image/png' })
                 actions.setImageFile(image)

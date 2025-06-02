@@ -18,7 +18,7 @@ import {
     type TextItem,
 } from './takeScreenshotLogic'
 
-export function ScreenShotEditor(): JSX.Element {
+export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): JSX.Element {
     const {
         isOpen,
         imageFile,
@@ -32,7 +32,7 @@ export function ScreenShotEditor(): JSX.Element {
         textInputPosition,
         isLoading,
         html,
-    } = useValues(takeScreenshotLogic)
+    } = useValues(takeScreenshotLogic({ screenshotKey: screenshotKey }))
     const {
         setIsOpen,
         setMode,
@@ -45,7 +45,7 @@ export function ScreenShotEditor(): JSX.Element {
         setTextInputPosition,
         setHtml,
         setImageFile,
-    } = useActions(takeScreenshotLogic)
+    } = useActions(takeScreenshotLogic({ screenshotKey: screenshotKey }))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [drawings, setDrawings] = useState<DrawingItem[]>([])

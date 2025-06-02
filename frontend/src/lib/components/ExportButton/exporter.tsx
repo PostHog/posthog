@@ -20,4 +20,12 @@ export async function downloadExportedAsset(asset: ExportedAssetType): Promise<v
     downloadBlob(blobObject, asset.filename)
 }
 
+export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob> {
+    const downloadUrl = api.exports.determineExportUrl(asset.id)
+    const response = await api.getResponse(downloadUrl)
+    const blobObject = await response.blob()
+
+    return blobObject
+}
+
 export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>

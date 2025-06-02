@@ -315,7 +315,7 @@ function EmbeddedHeatmapBrowser({
         toggleFilterPanelCollapsed,
     } = useActions(logic)
 
-    const { setHtml } = useActions(takeScreenshotLogic)
+    const { setHtml } = useActions(takeScreenshotLogic({ screenshotKey: 'heatmaps' }))
     const { featureFlags } = useValues(featureFlagLogic)
 
     const embeddedFilterPanelProps = {
@@ -357,22 +357,24 @@ function EmbeddedHeatmapBrowser({
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
                 {featureFlags[FEATURE_FLAGS.SCREENSHOT_EDITOR] ? (
-                    <div className="flex justify-between items-center">
-                        <ViewportChooser />
-                        <LemonButton
-                            size="xsmall"
-                            className="mb-2 mr-2"
-                            type="secondary"
-                            onClick={handleShare}
-                            icon={<IconLlmPromptEvaluation />}
-                        >
-                            Take screenshot
-                        </LemonButton>
-                    </div>
+                    <>
+                        <ScreenShotEditor screenshotKey="heatmaps" />
+                        <div className="flex justify-between items-center">
+                            <ViewportChooser />
+                            <LemonButton
+                                size="xsmall"
+                                className="mb-2 mr-2"
+                                type="secondary"
+                                onClick={handleShare}
+                                icon={<IconLlmPromptEvaluation />}
+                            >
+                                Take screenshot
+                            </LemonButton>
+                        </div>
+                    </>
                 ) : (
                     <ViewportChooser />
                 )}
-                <ScreenShotEditor />
                 <div className="flex relative justify-center h-full border-l border-t">
                     <iframe
                         id="heatmap-iframe"
