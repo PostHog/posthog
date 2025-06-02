@@ -32,6 +32,7 @@ export function LinkedHogFunctions({
 
     return showNewDestination ? (
         <HogFunctionTemplateList
+            logicKey={logicKey}
             defaultFilters={{}}
             type={templateType}
             subTemplateIds={subTemplateIds}

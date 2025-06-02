@@ -164,14 +164,18 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
 export const scene: SceneExport = {
     component: HogFunctionScene,
     logic: hogFunctionSceneLogic,
-    paramsToProps: ({ params: { id, templateId } }): (typeof hogFunctionSceneLogic)['props'] => ({ id, templateId }),
+    paramsToProps: ({ params: { id, templateId }, hashParams }): (typeof hogFunctionSceneLogic)['props'] => ({
+        id,
+        templateId,
+        logicKey: hashParams.configuration.logicKey,
+    }),
 }
 
 export function HogFunctionScene(): JSX.Element {
     const { currentTab, loading, loaded, logicProps } = useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
 
-    const { id, templateId } = logicProps
+    const { id, templateId, logicKey } = logicProps
 
     if (loading && !loaded) {
         return (
@@ -187,7 +191,7 @@ export function HogFunctionScene(): JSX.Element {
     }
 
     if (templateId) {
-        return <HogFunctionConfiguration templateId={templateId} />
+        return <HogFunctionConfiguration templateId={templateId} logicKey={logicKey} />
     }
 
     if (!id) {
@@ -201,6 +205,7 @@ export function HogFunctionScene(): JSX.Element {
             content: (
                 <HogFunctionConfiguration
                     id={id}
+                    logicKey={logicKey}
                     // displayOptions={{ hideTestingConfiguration: false }}
                 />
             ),
