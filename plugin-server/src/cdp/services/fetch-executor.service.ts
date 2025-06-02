@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '../../utils/request'
+import { tryCatch } from '../../utils/try-catch'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -27,6 +28,28 @@ export const RETRIABLE_STATUS_CODES = [
     503, // Service Unavailable
     504, // Gateway Timeout
 ]
+
+export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
+    let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+
+    if (error) {
+        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+            canRetry = false
+        } else {
+            canRetry = true // Only retry on general errors, not security or validation errors
+        }
+    }
+
+    return canRetry
+}
+
+export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
+    const backoffMs = Math.min(
+        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
+        config.CDP_FETCH_BACKOFF_MAX_MS
+    )
+    return DateTime.utc().plus({ milliseconds: backoffMs })
+}
 
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
@@ -161,14 +184,7 @@ export class FetchExecutorService {
             fetchParams.body = params.body
         }
 
-        let fetchResponse: FetchResponse | null = null
-        let fetchError: any | undefined = undefined
-
-        try {
-            fetchResponse = await fetch(params.url, fetchParams)
-        } catch (err) {
-            fetchError = err
-        }
+        const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
 
         const duration = performance.now() - start
         cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })

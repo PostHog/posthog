@@ -3,29 +3,17 @@ import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
 import { PluginsServerConfig } from '~/src/types'
+import { tryCatch } from '~/src/utils/try-catch'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import {
-    fetch,
-    FetchOptions,
-    FetchResponse,
-    InvalidRequestError,
-    Response,
-    SecureRequestError,
-} from '../../utils/request'
+import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
-import {
-    CyclotronFetchFailureInfo,
-    CyclotronFetchFailureKind,
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-    HogFunctionQueueParametersFetchRequest,
-} from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { RETRIABLE_STATUS_CODES } from './fetch-executor.service'
+import { getNextRetryTime, isFetchResponseRetriable } from './fetch-executor.service'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -35,14 +23,9 @@ const pluginExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-class FetchError extends Error {
-    fetchResponse: FetchResponse | null
-    fetchError: any | undefined
-
-    constructor(message?: string, fetchResponse?: FetchResponse | null, fetchError?: any) {
+class SegmentRetriableError extends Error {
+    constructor(message?: string) {
         super(message)
-        this.fetchResponse = fetchResponse || null
-        this.fetchError = fetchError
     }
 }
 
@@ -123,154 +106,17 @@ export class SegmentDestinationExecutorService {
         return fetch(...args)
     }
 
-    private async handleFetchFailure(
-        invocation: CyclotronJobInvocationHogFunction,
-        response: FetchResponse | null,
-        error: any | null,
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        let kind: CyclotronFetchFailureKind = 'requesterror'
-
-        if (error?.message.toLowerCase().includes('timeout')) {
-            kind = 'timeout'
-        }
-
-        const failure: CyclotronFetchFailureInfo = response
-            ? {
-                  kind: 'failurestatus' as CyclotronFetchFailureKind,
-                  message: `Received failure status: ${response?.status}`,
-                  headers: response?.headers,
-                  status: response?.status,
-                  timestamp: DateTime.utc(),
-              }
-            : {
-                  kind: kind,
-                  message: String(error),
-                  timestamp: DateTime.utc(),
-              }
-
-        // Get existing metadata from previous attempts if any
-        const metadata = (invocation.queueMetadata as { tries: number; trace: CyclotronFetchFailureInfo[] }) || {
-            tries: 0,
-            trace: [],
-        }
-        const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        const maxTries = params?.max_tries ?? this.serverConfig.CDP_FETCH_RETRIES
-        const updatedMetadata = {
-            tries: metadata.tries + 1,
-            trace: [...metadata.trace, failure],
-        }
-
-        let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
-
-        if (error) {
-            if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
-                canRetry = false
-            } else {
-                canRetry = true // Only retry on general errors, not security or validation errors
-            }
-        }
-
-        // If we haven't exceeded retry limit, schedule a retry with backoff
-        if (canRetry && updatedMetadata.tries < maxTries) {
-            // Calculate backoff with jitter, similar to Rust implementation
-            const backoffMs = Math.min(
-                this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS * updatedMetadata.tries +
-                    Math.floor(Math.random() * this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS),
-                this.serverConfig.CDP_FETCH_BACKOFF_MAX_MS
-            )
-
-            const nextScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
-
-            logger.info(`[SegmentExecutorService] Scheduling retry`, {
-                hogFunctionId: invocation.hogFunction.id,
-                status: failure.status,
-                backoffMs,
-                nextScheduledAt: nextScheduledAt.toISO(),
-                retryCount: updatedMetadata.tries,
-            })
-
-            return createInvocationResult(
-                invocation,
-                {
-                    queue: 'segment', // Keep in segment queue for retry
-                    queueMetadata: updatedMetadata,
-                    queueParameters: invocation.queueParameters, // Keep the same parameters
-                    queuePriority: invocation.queuePriority + 1, // Decrease priority for retries
-                    queueScheduledAt: nextScheduledAt,
-                },
-                {
-                    finished: false,
-                }
-            )
-        }
-
-        // If we got a trace, then the last "result" is the final attempt, and we should try to grab a status from it
-        // or any preceding attempts, and produce a log message for each of them
-        if (updatedMetadata.trace.length > 0) {
-            result.logs.push({
-                level: 'error',
-                timestamp: DateTime.now(),
-                message: `Fetch failed after ${updatedMetadata.trace.length} attempts`,
-            })
-            for (const attempt of updatedMetadata.trace) {
-                result.logs.push({
-                    level: 'warn',
-                    timestamp: DateTime.now(),
-                    message: `Fetch failure of kind ${attempt.kind} with status ${
-                        attempt.status ?? '(none)'
-                    } and message ${attempt.message}`,
-                })
-            }
-        }
-
-        // If we've exceeded retries, return all failures in trace
-        const errorText = response ? await response.text() : undefined
-        result.logs.push({
-            level: 'error',
-            timestamp: DateTime.now(),
-            message: `Error executing function on event ${
-                invocation?.state?.globals?.event?.uuid || 'Unknown event'
-            }: Request failed with status ${response?.status} (${errorText})`,
-        })
-        return createInvocationResult(
-            invocation,
-            {
-                queue: 'segment',
-                queueParameters: {
-                    response: response
-                        ? {
-                              status: response?.status,
-                              headers: response?.headers,
-                          }
-                        : null,
-                    body: errorText,
-                    trace: updatedMetadata.trace,
-                    timings: [],
-                },
-            },
-            {
-                finished: true,
-                logs: result.logs,
-                metrics: [
-                    {
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'fetch',
-                        count: 1,
-                    },
-                ],
-            }
-        )
-    }
-
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'segment',
         })
+
+        // Upsert the tries count on the metadata
+        const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
+        metadata.tries = metadata.tries + 1
+        result.invocation.queueMetadata = metadata
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -400,21 +246,24 @@ export class SegmentDestinationExecutorService {
                         addLog('debug', 'fetchOptions', fetchOptions)
                     }
 
-                    let fetchResponse: FetchResponse | null = null
-                    let fetchError: any | undefined = undefined
+                    const [fetchError, fetchResponse] = await tryCatch(() =>
+                        this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
+                    )
 
-                    try {
-                        fetchResponse = await this.fetch(
-                            `${endpoint}${params.toString() ? '?' + params.toString() : ''}`,
-                            fetchOptions
+                    if (
+                        isFetchResponseRetriable(fetchResponse, fetchError) &&
+                        metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                    ) {
+                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        addLog(
+                            'info',
+                            `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
                         )
-                    } catch (err) {
-                        fetchError = err
+                        throw new SegmentRetriableError()
                     }
 
-                    // If error - decide if it can be retried and set the values
-                    if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
-                        throw new FetchError(fetchError, fetchResponse)
+                    if (!fetchResponse) {
+                        throw new Error('HTTP request failed')
                     }
 
                     const convertedResponse = await convertFetchResponse(fetchResponse)
@@ -440,8 +289,12 @@ export class SegmentDestinationExecutorService {
 
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            if (e instanceof FetchError) {
-                return await this.handleFetchFailure(invocation, e.fetchResponse, e.fetchError, result)
+            if (e instanceof SegmentRetriableError) {
+                // We have retries left so we can trigger a retry
+                result.finished = false
+                result.invocation.queue = 'segment'
+                result.invocation.queuePriority = metadata.tries + 1
+                result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
             }
 
             logger.error('💩', 'Segment destination errored', {
