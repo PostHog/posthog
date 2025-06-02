@@ -244,7 +244,7 @@ describe('Event Pipeline E2E tests', () => {
                         version: 1,
                     })
                 )
-            }, 5000)
+            })
 
             const updateEvents = [
                 new EventBuilder(team, distinctId)
@@ -266,7 +266,7 @@ describe('Event Pipeline E2E tests', () => {
                         version: 2,
                     })
                 )
-            }, 5000)
+            })
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -275,7 +275,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[0].properties.$group_set).toEqual({ foo: 'bar' })
                 expect(events[1].event).toEqual('$groupidentify')
                 expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
-            }, 5000)
+            })
         }
     )
 
@@ -289,7 +289,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(events.length).toEqual(1)
             expect(events[0].event).toEqual('$groupidentify')
             expect(events[0].properties).toEqual({})
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('can $set and update person properties when reading event', async (ingester, hub, team) => {
@@ -332,7 +332,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[2].person_properties).toEqual(
                 expect.objectContaining({ prop: 'updated value', value: 'new value' })
             )
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('can handle events with $process_person_profile=false', async (ingester, hub, team) => {
@@ -389,7 +389,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[1].person_properties).toEqual({})
             expect(events[2].event).toEqual('custom event')
             expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('can $set and update person properties with top level $set', async (ingester, hub, team) => {
@@ -413,7 +413,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(events.length).toEqual(1)
             expect(events[0].event).toEqual('$identify')
             expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-        }, 5000)
+        })
     })
 
     testWithTeamIngester(
@@ -460,7 +460,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[2].person_properties).toEqual(
                     expect.objectContaining({ prop: 'updated value', new_prop: 'new value' })
                 )
-            }, 5000)
+            })
         }
     )
 
@@ -488,7 +488,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                 expect(events[1].event).toEqual('$identify')
                 expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-            }, 5000)
+            })
         }
     )
 
@@ -521,7 +521,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
                 expect(events[2].event).toEqual('custom event')
                 expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-            }, 5000)
+            })
         }
     )
 
@@ -546,7 +546,7 @@ describe('Event Pipeline E2E tests', () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(2)
             expect(events[0].person_id).toEqual(events[1].person_id)
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('should perserve all events if merge fails', async (ingester, hub, team) => {
@@ -563,7 +563,7 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
             expect(persons.length).toEqual(2)
-        }, 5000)
+        })
 
         const mergeEvents = [
             new EventBuilder(team, distinctId)
@@ -584,7 +584,7 @@ describe('Event Pipeline E2E tests', () => {
             // Assert that there are 2 different persons in person_id column
             const personIds = new Set(events.map((event) => event.person_id))
             expect(personIds.size).toEqual(2)
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('should preserve properties if merge fails', async (ingester, hub, team) => {
@@ -608,7 +608,7 @@ describe('Event Pipeline E2E tests', () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(2)
             expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('should merge all events into same person id', async (ingester, hub, team) => {
@@ -637,7 +637,7 @@ describe('Event Pipeline E2E tests', () => {
                     }),
                 ])
             )
-        }, 5000)
+        })
 
         await ingester.handleKafkaBatch(
             createKafkaMessages([
@@ -664,7 +664,7 @@ describe('Event Pipeline E2E tests', () => {
             // assert all events have the same person_id
             const personIds = new Set(events.map((event) => event.person_id))
             expect(personIds.size).toEqual(1)
-        }, 5000)
+        })
     })
 
     testWithTeamIngester('should resolve to same person id chained merges', async (ingester, hub, team) => {
@@ -684,7 +684,7 @@ describe('Event Pipeline E2E tests', () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(3)
             expect(new Set(events.map((event) => event.person_id)).size).toEqual(3)
-        }, 5000)
+        })
 
         await ingester.handleKafkaBatch(
             createKafkaMessages([
@@ -709,7 +709,7 @@ describe('Event Pipeline E2E tests', () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(5)
             expect(new Set(events.map((event) => event.person_id)).size).toEqual(1)
-        }, 5000)
+        })
     })
 
     testWithTeamIngester(
@@ -732,7 +732,7 @@ describe('Event Pipeline E2E tests', () => {
             await waitForExpect(async () => {
                 const persons = await fetchPersons(hub, team.id)
                 expect(persons.length).toBe(4)
-            }, 5000)
+            })
 
             await ingester.handleKafkaBatch(
                 createKafkaMessages([
@@ -756,7 +756,7 @@ describe('Event Pipeline E2E tests', () => {
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toBe(6)
-            }, 5000)
+            })
 
             await ingester.handleKafkaBatch(
                 createKafkaMessages([
@@ -774,7 +774,7 @@ describe('Event Pipeline E2E tests', () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toBe(7)
                 expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
-            }, 5000)
+            })
         }
     )
 
@@ -809,7 +809,7 @@ describe('Event Pipeline E2E tests', () => {
             const ingestionWarnings = await fetchIngestionWarnings(hub, team.id)
             expect(ingestionWarnings.length).toBe(1)
             expect(ingestionWarnings[0].details.eventUuid).toBe(events[0].uuid)
-        }, 5000)
+        })
     })
 
     const fetchPersons = async (hub: Hub, teamId: number) => {
