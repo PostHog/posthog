@@ -142,7 +142,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.projectHomepage(), true)
             },
-            tooltip: 'Home',
+            tooltip: isLayoutNavCollapsed ? 'Home' : null,
         },
         {
             identifier: 'Project',
@@ -154,10 +154,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Project'
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Project'
                     ? 'Close project tree'
-                    : 'Open project tree',
+                    : 'Open project tree'
+                : null,
         },
         {
             identifier: 'Dashboards',
@@ -176,7 +177,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
-            identifier: 'Data',
+            identifier: 'Data management',
             id: 'Data',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
