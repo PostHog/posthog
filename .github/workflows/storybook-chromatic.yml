@@ -68,12 +68,13 @@ jobs:
 
             - name: Publish to Chromatic
               if: needs.changes.outputs.frontend == 'true'
-              uses: chromaui/action@d7afd50124cf4f337bcd943e7f45cfa85a5e4476 # v11
+              uses: chromaui/action@d7afd50124cf4f337bcd943e7f45cfa85a5e4476 # v12
               id: publish
+              env:
+                  # 👇 Chromatic project token, refer to the manage page to obtain it
+                  CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  # 👇 Chromatic projectToken, refer to the manage page to obtain it.
-                  projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
                   buildScriptName: build
                   workingDir: ./common/storybook/
 
