@@ -243,7 +243,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 addShortcutItem: async ({ item }) => {
                     const response = await api.fileSystemShortcuts.create({
-                        path: splitPath(item.path).pop() ?? 'Unnamed',
+                        path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
                         type: item.type,
                         ref: item.ref,
                         href: item.href,
