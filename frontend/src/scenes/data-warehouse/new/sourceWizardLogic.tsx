@@ -809,8 +809,15 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'GoogleAds',
         label: 'Google Ads',
         caption: '',
-        fields: [],
-        unreleasedSource: true,
+        fields: [
+            {
+                name: 'customer_id',
+                label: 'Customer ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
     },
     MetaAds: {
         name: 'MetaAds',
