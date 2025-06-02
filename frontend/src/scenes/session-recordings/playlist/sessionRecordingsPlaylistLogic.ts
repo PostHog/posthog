@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { groupsModel } from '~/models/groupsModel'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     EntityTypes,
@@ -335,6 +336,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['featureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
+            groupsModel,
+            ['groupsTaxonomicTypes'],
         ],
     })),
 
@@ -801,9 +804,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
 
+        allowReplayGroupsFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_GROUPS_FILTERS],
+        ],
+
         taxonomicGroupTypes: [
-            (s) => [s.allowHogQLFilters],
-            (allowHogQLFilters) => {
+            (s) => [s.allowHogQLFilters, s.allowReplayGroupsFilters, s.groupsTaxonomicTypes],
+            (allowHogQLFilters, allowReplayGroupsFilters, groupsTaxonomicTypes) => {
                 const taxonomicGroupTypes = [
                     TaxonomicFilterGroupType.Replay,
                     TaxonomicFilterGroupType.Events,
@@ -816,6 +824,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (allowHogQLFilters) {
                     taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+                }
+
+                if (allowReplayGroupsFilters) {
+                    taxonomicGroupTypes.push(...groupsTaxonomicTypes)
                 }
 
                 return taxonomicGroupTypes

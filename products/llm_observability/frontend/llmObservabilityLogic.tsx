@@ -538,7 +538,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 source: {
                     kind: NodeKind.EventsQuery,
                     select: [
-                        '*',
                         'uuid',
                         'properties.$ai_trace_id',
                         'person',
