@@ -2272,6 +2272,35 @@ export interface ExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface ExperimentMeanMetricVariantResultBase {
+    variant: string
+    significant: boolean
+    number_of_samples: number
+    sum: number
+    sum_squares: number
+}
+
+export interface ExperimentMeanMetricVariantResultFrequentist extends ExperimentMeanMetricVariantResultBase {
+    method: 'frequentist'
+    p_value: number
+    confidence_interval: [number, number]
+}
+
+export interface ExperimentMeanMetricVariantResultBayesian extends ExperimentMeanMetricVariantResultBase {
+    method: 'bayesian'
+    chance_to_win: number
+    credible_interval: [number, number]
+}
+
+export type ExperimentMeanMetricVariantResult =
+    | ExperimentMeanMetricVariantResultFrequentist
+    | ExperimentMeanMetricVariantResultBayesian
+
+export interface ExperimentMeanMetricResult {
+    baseline: ExperimentMeanMetricVariantResult
+    variants: ExperimentMeanMetricVariantResult[]
+}
+
 export interface ExperimentExposureTimeSeries {
     variant: string
     days: string[]

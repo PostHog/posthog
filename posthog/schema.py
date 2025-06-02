@@ -1023,6 +1023,45 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMeanMetricVariantResultBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    number_of_samples: float
+    significant: bool
+    sum: float
+    sum_squares: float
+    variant: str
+
+
+class ExperimentMeanMetricVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: float
+    significant: bool
+    sum: float
+    sum_squares: float
+    variant: str
+
+
+class ExperimentMeanMetricVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: float
+    p_value: float
+    significant: bool
+    sum: float
+    sum_squares: float
+    variant: str
+
+
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -5896,6 +5935,14 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class ExperimentMeanMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: Union[ExperimentMeanMetricVariantResultFrequentist, ExperimentMeanMetricVariantResultBayesian]
+    variants: list[Union[ExperimentMeanMetricVariantResultFrequentist, ExperimentMeanMetricVariantResultBayesian]]
 
 
 class FeaturePropertyFilter(BaseModel):

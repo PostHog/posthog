@@ -9234,6 +9234,22 @@
             "required": ["kind", "metric_type", "source"],
             "type": "object"
         },
+        "ExperimentMeanMetricResult": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentMeanMetricVariantResult"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentMeanMetricVariantResult"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["baseline", "variants"],
+            "type": "object"
+        },
         "ExperimentMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
@@ -9252,6 +9268,130 @@
                 }
             },
             "required": ["metric_type", "source"],
+            "type": "object"
+        },
+        "ExperimentMeanMetricVariantResult": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetricVariantResultFrequentist"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetricVariantResultBayesian"
+                }
+            ]
+        },
+        "ExperimentMeanMetricVariantResultBase": {
+            "additionalProperties": false,
+            "properties": {
+                "number_of_samples": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "sum_squares": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["variant", "significant", "number_of_samples", "sum", "sum_squares"],
+            "type": "object"
+        },
+        "ExperimentMeanMetricVariantResultBayesian": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": "number"
+                },
+                "credible_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "method": {
+                    "const": "bayesian",
+                    "type": "string"
+                },
+                "number_of_samples": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "sum_squares": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "chance_to_win",
+                "credible_interval",
+                "method",
+                "number_of_samples",
+                "significant",
+                "sum",
+                "sum_squares",
+                "variant"
+            ],
+            "type": "object"
+        },
+        "ExperimentMeanMetricVariantResultFrequentist": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "method": {
+                    "const": "frequentist",
+                    "type": "string"
+                },
+                "number_of_samples": {
+                    "type": "number"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "sum_squares": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "confidence_interval",
+                "method",
+                "number_of_samples",
+                "p_value",
+                "significant",
+                "sum",
+                "sum_squares",
+                "variant"
+            ],
             "type": "object"
         },
         "ExperimentMetric": {
