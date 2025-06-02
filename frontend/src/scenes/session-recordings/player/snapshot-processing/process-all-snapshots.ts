@@ -57,7 +57,10 @@ export function processAllSnapshots(
 
         if (processSnapshots.has(sourceKey)) {
             // If we already processed this source, skip it
-            result.push(...processSnapshots.get(sourceKey)!)
+            // doing push.apply to mutate the original array
+            // and avoid a spread on a large array
+            // eslint-disable-next-line prefer-spread
+            result.push.apply(result, processSnapshots.get(sourceKey)!)
             continue
         }
 
@@ -115,7 +118,10 @@ export function processAllSnapshots(
         }
 
         processSnapshots.set(sourceKey, sourceResult)
-        result.push(...sourceResult)
+        // doing push.apply to mutate the original array
+        // and avoid a spread on a large array
+        // eslint-disable-next-line prefer-spread
+        result.push.apply(result, sourceResult)
     }
 
     // sorting is very cheap for already sorted lists
