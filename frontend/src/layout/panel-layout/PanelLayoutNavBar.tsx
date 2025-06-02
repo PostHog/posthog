@@ -285,7 +285,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <ScrollableShadows className="flex-1" innerClassName="overflow-y-auto" direction="vertical">
+                        <ScrollableShadows
+                            className="flex-1"
+                            innerClassName="overflow-y-auto"
+                            direction="vertical"
+                            styledScrollbars
+                        >
                             <ListBox className="flex flex-col gap-px">
                                 <div
                                     className={`px-1 flex flex-col gap-px ${
@@ -325,14 +330,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     {!isLayoutNavCollapsed && (
                                                         <>
                                                             <span className="truncate">{item.id}</span>
-                                                            <span className="ml-auto">
+                                                            <span className="ml-auto pr-1">
                                                                 <IconChevronRight className="size-3 text-tertiary" />
                                                             </span>
                                                         </>
                                                     )}
                                                 </ButtonPrimitive>
                                             ) : (
-                                                <ButtonGroupPrimitive fullWidth className="[&>span]:w-full">
+                                                <ButtonGroupPrimitive
+                                                    fullWidth
+                                                    className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                >
                                                     <Link
                                                         data-attr={`menu-item-${item.identifier
                                                             .toString()
@@ -341,8 +349,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
-                                                            hasSideActionRight: true,
-                                                            fullWidth: true,
+                                                            hasSideActionRight:
+                                                                item.dropdownMenu && !isLayoutNavCollapsed,
+                                                            fullWidth: item.dropdownMenu && !isLayoutNavCollapsed,
                                                         }}
                                                         to={item.to}
                                                         tooltip={item.tooltip}
@@ -361,13 +370,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className="truncate">{item.id}</span>
                                                         )}
                                                     </Link>
-                                                    {item.dropdownMenu && (
+                                                    {item.dropdownMenu && !isLayoutNavCollapsed && (
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
                                                                 <ButtonPrimitive
                                                                     iconOnly
                                                                     isSideActionRight
-                                                                    className="w-[22px] z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
+                                                                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
                                                                 >
                                                                     <IconChevronRight className="size-3 text-tertiary rotate-90" />
                                                                 </ButtonPrimitive>

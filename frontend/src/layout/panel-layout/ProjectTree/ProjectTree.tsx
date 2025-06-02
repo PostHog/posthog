@@ -1,12 +1,4 @@
-import {
-    IconCheckbox,
-    IconChevronDown,
-    IconChevronRight,
-    IconFolder,
-    IconFolderPlus,
-    IconPlusSmall,
-    IconX,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -496,7 +488,7 @@ export function ProjectTree({
                     if (item.name === 'Product analytics') {
                         return <IconPlusSmall className="text-tertiary" />
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return <IconChevronDown className="text-tertiary" />
+                        return <IconChevronRight className="size-3 text-tertiary rotate-90" />
                     }
                 }
             }}
