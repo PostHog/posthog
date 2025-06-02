@@ -785,20 +785,24 @@ export function ProjectTree({
                         Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
                     </div>
 
-                    <div className="flex gap-1 items-center px-2">
+                    <div className="flex gap-1 items-center p-1 border-b border-tertiary">
                         <ButtonPrimitive
+                            variant="default"
                             size="sm"
-                            variant={sortMethod !== 'recent' ? 'outline' : 'default'}
                             onClick={() => setSortMethod('folder')}
-                            aria-label="Sort by folder structure"
+                            aria-label="Sort by alphabetical order"
+                            tooltip="Sort by alphabetical order"
+                            className={cn('border-transparent', { 'text-accent': sortMethod === 'folder' })}
                         >
-                            Structured
+                            Alphabetical
                         </ButtonPrimitive>
                         <ButtonPrimitive
+                            variant="default"
                             size="sm"
-                            variant={sortMethod === 'recent' ? 'outline' : 'default'}
                             onClick={() => setSortMethod('recent')}
                             aria-label="Sort by creation date"
+                            tooltip="Sort by creation date"
+                            className={cn('border-transparent', { 'text-accent': sortMethod === 'recent' })}
                         >
                             Recent
                         </ButtonPrimitive>
