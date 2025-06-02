@@ -2,10 +2,12 @@ import {
     IconCdCase,
     IconChevronRight,
     IconClock,
+    IconDashboard,
     IconDatabase,
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNotebook,
     IconPeople,
     IconSearch,
     IconShortcut,
@@ -158,16 +160,45 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     : 'Open project tree',
         },
         {
-            identifier: 'Recent',
-            id: 'Recent',
-            icon: <IconClock className="stroke-[1.2]" />,
+            identifier: 'Dashboards',
+            id: 'Dashboards',
+            icon: <IconDashboard className="stroke-[1.2]" />,
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.dashboards(), true)
+            },
+        },
+        {
+            identifier: 'Notebooks',
+            id: 'Notebooks',
+            icon: <IconNotebook className="stroke-[1.2]" />,
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.notebooks(), true)
+            },
+        },
+        {
+            identifier: 'Data',
+            id: 'Data',
+            icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Recent')
+                    handlePanelTriggerClick('Data management')
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Recent' ? 'Close recent' : 'Open recent',
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Data' ? 'Close data' : 'Open data',
+        },
+        {
+            identifier: 'People',
+            id: 'People',
+            icon: <IconPeople />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Persons')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close people' : 'Open people',
+            tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
             identifier: 'Products',
@@ -182,6 +213,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
         },
         {
+            identifier: 'Activity',
+            id: 'Activity',
+            icon: <IconClock />,
+            to: urls.activity(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.activity(), true)
+            },
+            tooltip: 'Activity',
+            tooltipDocLink: 'https://posthog.com/docs/data/events',
+        },
+        {
             identifier: 'Shortcuts',
             id: 'Shortcuts',
             icon: <IconShortcut />,
@@ -193,45 +235,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             tooltip:
                 isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
-        },
-        {
-            identifier: 'Data management',
-            id: 'Data management',
-            icon: <IconDatabase />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Data management')
-                }
-            },
-            showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Data management'
-                    ? 'Close data management'
-                    : 'Open data management',
-        },
-        {
-            identifier: 'Persons',
-            id: 'Persons',
-            icon: <IconPeople />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Persons')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close persons' : 'Open persons',
-            tooltipDocLink: 'https://posthog.com/docs/data/persons',
-        },
-        {
-            identifier: 'Activity',
-            id: 'Activity',
-            icon: <IconClock />,
-            to: urls.activity(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.activity(), true)
-            },
-            tooltip: 'Activity',
-            tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
     ]
 
