@@ -1,37 +1,21 @@
 import { DateTime, Settings } from 'luxon'
 
+import { defaultConfig } from '~/src/config/config'
 import { fetch, FetchResponse } from '~/src/utils/request'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import {
     amplitudeInputs,
     createExampleSegmentInvocation,
-    insertHogFunction as _insertHogFunction,
+    createHogFunction,
     pipedriveResponse,
 } from '../_tests/fixtures'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
-import { HogFunctionType } from '../types'
-import { CdpCyclotronWorkerSegment } from './cdp-cyclotron-segment-worker.consumer'
+import { SegmentDestinationExecutorService } from './segment-destination-executor.service'
 
-describe('CdpCyclotronWorkerSegment', () => {
-    let processor: CdpCyclotronWorkerSegment
-    let hub: Hub
-    let team: Team
-    let fn: HogFunctionType
+describe('SegmentDestinationExecutorService', () => {
+    let service: SegmentDestinationExecutorService
     let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
-
-    const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
-        const item = await _insertHogFunction(hub.postgres, team.id, {
-            ...hogFunction,
-            type: 'destination',
-        })
-        // Trigger the reload that django would do
-        processor['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
-        return item
-    }
 
     const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-amplitude']
     const amplitudeAction = amplitudePlugin.destination.actions['logEventV2']
@@ -39,17 +23,11 @@ describe('CdpCyclotronWorkerSegment', () => {
     const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-pipedrive']
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
 
-    beforeEach(async () => {
+    beforeEach(() => {
         Settings.defaultZone = 'UTC'
-        await resetTestDatabase()
-        hub = await createHub()
+        service = new SegmentDestinationExecutorService(defaultConfig)
 
-        team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorkerSegment(hub)
-
-        await processor.start()
-
-        processor['segmentPluginExecutor'].fetch = mockFetch = jest.fn((_url, _options) =>
+        service.fetch = mockFetch = jest.fn((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () => Promise.resolve({}),
@@ -58,18 +36,10 @@ describe('CdpCyclotronWorkerSegment', () => {
             } as any)
         )
 
-        jest.spyOn(processor['cyclotronJobQueue']!, 'queueInvocationResults').mockImplementation(() =>
-            Promise.resolve()
-        )
-
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-    })
-
-    afterEach(async () => {
-        Settings.defaultZone = 'system'
-        await processor.stop()
-        await closeHub(hub)
+        jest.spyOn(amplitudeAction as any, 'perform')
+        jest.spyOn(pipedriveAction as any, 'perform')
     })
 
     afterAll(() => {
@@ -78,9 +48,7 @@ describe('CdpCyclotronWorkerSegment', () => {
 
     describe('segment plugins', () => {
         it('should call the plugin perform method', async () => {
-            jest.spyOn(amplitudeAction as any, 'perform')
-
-            fn = await insertHogFunction({
+            const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'segment-amplitude',
             })
@@ -102,17 +70,17 @@ describe('CdpCyclotronWorkerSegment', () => {
                 headers: {},
             })
 
-            const { invocationResults } = await processor.processBatch([invocation])
+            const result = await service.execute(invocation)
 
-            expect(invocationResults.length).toBe(1)
+            expect(result.finished).toBe(true)
 
-            invocationResults[0].logs.forEach((x) => {
+            result.logs.forEach((x) => {
                 if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
                     x.message = 'Function completed in [REPLACED]'
                 }
             })
 
-            expect(invocationResults[0].logs).toMatchSnapshot()
+            expect(result.logs).toMatchSnapshot()
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(amplitudeAction.perform!).mock.calls[0][1])).toMatchSnapshot()
@@ -130,18 +98,12 @@ describe('CdpCyclotronWorkerSegment', () => {
                   },
                 ]
             `)
-
-            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
-                {
-                    finished: true,
-                },
-            ])
         }, 10000)
 
         it('should handle non retryable fetch errors', async () => {
             jest.spyOn(amplitudeAction as any, 'perform')
 
-            fn = await insertHogFunction({
+            const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'segment-amplitude',
             })
@@ -155,17 +117,17 @@ describe('CdpCyclotronWorkerSegment', () => {
                 headers: { 'retry-after': '60' },
             })
 
-            const { invocationResults } = await processor.processBatch([invocation])
+            const result = await service.execute(invocation)
 
-            expect(invocationResults.length).toBe(1)
+            expect(result.finished).toBe(true)
 
-            invocationResults[0].logs.forEach((x) => {
+            result.logs.forEach((x) => {
                 if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
                     x.message = 'Function completed in [REPLACED]'
                 }
             })
 
-            expect(invocationResults[0].logs).toMatchSnapshot()
+            expect(result.logs).toMatchSnapshot()
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(amplitudeAction.perform!).mock.calls[0][1])).toMatchSnapshot()
@@ -184,53 +146,27 @@ describe('CdpCyclotronWorkerSegment', () => {
                 ]
             `)
 
-            expect(
-                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation
-            ).toEqual({
+            expect(result.invocation).toEqual({
                 functionId: expect.any(String),
                 hogFunction: expect.any(Object),
                 id: expect.any(String),
                 queue: 'segment',
-                queueMetadata: undefined,
-                queueParameters: {
-                    body: '{"error":"Forbidden"}',
-                    response: {
-                        headers: {
-                            'retry-after': '60',
-                        },
-                        status: 403,
-                    },
-                    timings: [],
-                    trace: [
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 403',
-                            status: 403,
-                            timestamp: expect.any(Object),
-                        },
-                    ],
+                queueMetadata: {
+                    tries: 1,
                 },
                 queuePriority: 0,
+                queueParameters: undefined,
                 queueScheduledAt: undefined,
                 queueSource: undefined,
                 state: expect.any(Object),
-                teamId: 2,
+                teamId: 1,
             })
-
-            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
-                {
-                    finished: true,
-                },
-            ])
-        }, 10000)
+        })
 
         it('should retry retryable fetch errors', async () => {
             jest.spyOn(amplitudeAction as any, 'perform')
 
-            fn = await insertHogFunction({
+            const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'segment-amplitude',
             })
@@ -244,17 +180,17 @@ describe('CdpCyclotronWorkerSegment', () => {
                 headers: { 'retry-after': '60' },
             })
 
-            const { invocationResults } = await processor.processBatch([invocation])
+            const result = await service.execute(invocation)
 
-            expect(invocationResults.length).toBe(1)
+            expect(result.finished).toBe(false)
 
-            invocationResults[0].logs.forEach((x) => {
+            result.logs.forEach((x) => {
                 if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
                     x.message = 'Function completed in [REPLACED]'
                 }
             })
 
-            expect(invocationResults[0].logs).toMatchSnapshot()
+            expect(result.logs).toMatchSnapshot()
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(amplitudeAction.perform!).mock.calls[0][1])).toMatchSnapshot()
@@ -273,89 +209,41 @@ describe('CdpCyclotronWorkerSegment', () => {
                 ]
             `)
 
-            expect(
-                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation
-            ).toEqual({
+            expect(result.invocation).toEqual({
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
                 queue: 'segment',
-                queueMetadata: {
-                    trace: [
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                    ],
-                    tries: 1,
-                },
+                queueMetadata: { tries: 1 },
                 queueParameters: undefined,
                 queuePriority: 1,
                 queueScheduledAt: expect.any(Object),
                 queueSource: undefined,
                 state: expect.any(Object),
-                teamId: 2,
+                teamId: 1,
             })
 
-            let minBackoffMs = DateTime.utc().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            let minBackoffMs = DateTime.utc().plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             let maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS * 2 })
+                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
                 .toMillis()
-            let scheduledAt = DateTime.fromISO(
-                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation
-                    .queueScheduledAt as unknown as string
-            ).toMillis()
+            let scheduledAt = result.invocation.queueScheduledAt!.toMillis()
             expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
-
-            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
-                {
-                    finished: false,
-                },
-            ])
 
             // second fetch call
 
-            const { invocationResults: invocationResults2 } = await processor.processBatch([
-                invocationResults[0].invocation,
-            ])
+            const invocationResults2 = await service.execute(result.invocation)
 
-            expect(invocationResults2.length).toBe(1)
+            expect(invocationResults2.finished).toBe(false)
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(2)
 
-            expect(
-                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0][0].invocation
-            ).toEqual({
+            expect(invocationResults2.invocation).toEqual({
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
                 queue: 'segment',
                 queueMetadata: {
-                    trace: [
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                    ],
                     tries: 2,
                 },
                 queueParameters: undefined,
@@ -363,119 +251,40 @@ describe('CdpCyclotronWorkerSegment', () => {
                 queueScheduledAt: expect.any(Object),
                 queueSource: undefined,
                 state: expect.any(Object),
-                teamId: 2,
+                teamId: 1,
             })
 
             minBackoffMs = DateTime.utc()
-                .plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS * 2 })
+                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
                 .toMillis()
             maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS * 3 })
+                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 3 })
                 .toMillis()
-            scheduledAt = DateTime.fromISO(
-                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0][0].invocation
-                    .queueScheduledAt as unknown as string
-            ).toMillis()
+            scheduledAt = invocationResults2.invocation.queueScheduledAt!.toMillis()
             expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
-
-            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0]).toMatchObject([
-                {
-                    finished: false,
-                },
-            ])
 
             // third fetch call
 
-            const { invocationResults: invocationResults3 } = await processor.processBatch([
-                invocationResults2[0].invocation,
-            ])
+            const invocationResults3 = await service.execute(invocationResults2.invocation)
 
-            expect(invocationResults3.length).toBe(1)
+            expect(invocationResults3.finished).toBe(true)
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(3)
 
-            expect(
-                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[2][0][0].invocation
-            ).toEqual({
+            expect(invocationResults3.invocation).toEqual({
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
                 queue: 'segment',
-                queueMetadata: {
-                    trace: [
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                    ],
-                    tries: 2,
-                },
-                queueParameters: {
-                    body: '{"error":"Too many requests"}',
-                    response: {
-                        headers: {
-                            'retry-after': '60',
-                        },
-                        status: 429,
-                    },
-                    trace: [
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                    ],
-                    timings: [],
-                },
+                queueMetadata: { tries: 3 },
+                queueParameters: undefined,
                 queuePriority: 0,
                 queueScheduledAt: undefined,
                 queueSource: undefined,
                 state: expect.any(Object),
-                teamId: 2,
+                teamId: 1,
             })
-
-            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[2][0]).toMatchObject([
-                {
-                    finished: true,
-                },
-            ])
-        }, 10000)
+        })
 
         it('works with multiple fetches', async () => {
             jest.spyOn(pipedriveAction as any, 'perform')
@@ -496,7 +305,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 debug_mode: true,
             }
 
-            fn = await insertHogFunction({
+            const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'segment-pipedrive',
             })
@@ -510,17 +319,17 @@ describe('CdpCyclotronWorkerSegment', () => {
                 headers: {},
             })
 
-            const { invocationResults } = await processor.processBatch([invocation])
+            const result = await service.execute(invocation)
 
-            expect(invocationResults.length).toBe(1)
+            expect(result.finished).toBe(true)
 
-            invocationResults[0].logs.forEach((x) => {
+            result.logs.forEach((x) => {
                 if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
                     x.message = 'Function completed in [REPLACED]'
                 }
             })
 
-            expect(invocationResults[0].logs).toMatchSnapshot()
+            expect(result.logs).toMatchSnapshot()
 
             expect(pipedriveAction.perform).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(pipedriveAction.perform!).mock.calls[0][1])).toMatchSnapshot()
@@ -549,11 +358,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 ]
             `)
 
-            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
-                {
-                    finished: true,
-                },
-            ])
+            expect(result.finished).toBe(true)
         }, 10000)
     })
 })
