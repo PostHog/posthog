@@ -199,12 +199,7 @@ export function HogFunctionScene(): JSX.Element {
         {
             label: 'Configuration',
             key: 'configuration',
-            content: (
-                <HogFunctionConfiguration
-                    id={id}
-                    // displayOptions={{ hideTestingConfiguration: false }}
-                />
-            ),
+            content: <HogFunctionConfiguration id={id} />,
         },
         {
             label: 'Metrics',

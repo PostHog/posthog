@@ -22,12 +22,6 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
                 request and any JSON payload. You can then use the configuration options to parse the{' '}
                 <code>request.body</code> or <code>request.headers</code> to map to the required fields.
             </p>
-
-            <CodeSnippet thing="Example request">
-                {`curl -X POST -H "Content-Type: application/json" \\
-  -d '{"event": "test", "distinct_id": "123"}' \\
-  ${window.location.origin}/public/webhooks/${id}`}
-            </CodeSnippet>
         </div>
     )
 }

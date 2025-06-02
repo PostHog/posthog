@@ -37,6 +37,7 @@ import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
+import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
@@ -55,7 +56,6 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
-        hideTestingConfiguration?: boolean
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
@@ -212,8 +212,7 @@ export function HogFunctionConfiguration({
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
-        displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'source_webhook', 'email'].includes(type)
+        displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -543,9 +542,8 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? (
-                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
-                            ) : null}
+                            {showTesting ? <HogFunctionTest /> : null}
+                            {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
                             {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
