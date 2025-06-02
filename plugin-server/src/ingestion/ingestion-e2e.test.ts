@@ -127,7 +127,7 @@ const testWithTeamIngester = (
     testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
     team: Team = DEFAULT_TEAM
 ) => {
-    test(name, async () => {
+    test.concurrent(name, async () => {
         const hub = await createHub({
             PLUGINS_DEFAULT_LOG_LEVEL: 0,
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
