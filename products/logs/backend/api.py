@@ -35,6 +35,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             orderBy=query_data.get("orderBy"),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
+            limit=min(query_data.get("limit", 1000), 2000),
         )
         runner = LogsQueryRunner(query, self.team)
         try:

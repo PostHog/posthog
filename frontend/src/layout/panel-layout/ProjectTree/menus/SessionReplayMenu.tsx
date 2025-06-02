@@ -2,6 +2,7 @@ import { IconPinFilled } from '@posthog/icons'
 import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
 
@@ -10,7 +11,10 @@ import { ReplayTabs } from '~/types'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { CustomMenuProps } from '../types'
 
-export function SessionReplayMenu({ MenuItem, MenuSeparator }: CustomMenuProps): JSX.Element {
+export function SessionReplayMenu({
+    MenuItem = DropdownMenuItem,
+    MenuSeparator = DropdownMenuSeparator,
+}: CustomMenuProps): JSX.Element {
     const { playlists, playlistsLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     )

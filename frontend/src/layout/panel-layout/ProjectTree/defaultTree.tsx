@@ -3,7 +3,6 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBug,
     IconChevronRight,
     IconDatabase,
     IconFunnels,
@@ -84,9 +83,6 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
     },
     warning: {
         icon: <IconWarning />,
-    },
-    bug: {
-        icon: <IconBug />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
     },
     insightFunnel: {
@@ -237,13 +233,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `Max AI`,
-            type: 'aichat',
-            href: urls.max(),
-            flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-            visualOrder: PRODUCT_VISUAL_ORDER.aiChat,
-        } as FileSystemImport,
-        {
             path: `Data pipelines`,
             type: 'hog_function',
             iconType: 'plug',
@@ -258,7 +247,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            iconType: 'bug',
+            iconType: 'warning',
             href: urls.errorTracking(),
             visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,

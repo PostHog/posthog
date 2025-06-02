@@ -1,14 +1,17 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenuLabel, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { CustomMenuProps } from '../types'
 
-export function ProductAnalyticsMenu({ MenuItem, MenuSeparator }: CustomMenuProps): JSX.Element {
+export function ProductAnalyticsMenu({
+    MenuItem = DropdownMenuItem,
+    MenuSeparator = DropdownMenuSeparator,
+}: CustomMenuProps): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
 

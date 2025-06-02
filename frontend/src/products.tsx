@@ -495,6 +495,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/broadcast',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
         path: 'Campaigns',
@@ -502,8 +503,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
     {
         path: 'Early access features',
         type: 'early_access_feature',
@@ -546,7 +547,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
         tags: ['alpha'],
     },
-    { path: 'Notebooks', type: 'notebook', href: urls.notebooks(), visualOrder: PRODUCT_VISUAL_ORDER.notebooks },
     {
         path: 'Product analytics',
         type: 'insight',
