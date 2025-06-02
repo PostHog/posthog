@@ -367,29 +367,11 @@ describe('snapchat template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
-    it('handles missing pixel id', async () => {
-        const response = await tester.invokeMapping(
-            'Order Completed',
-            {
-                oauth: {
-                    access_token: 'access-token',
-                },
-            },
-            createPayload()
-        )
-
-        expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
-        expect(response.finished).toEqual(true)
-    })
-
-    it('handles missing access token', async () => {
-        const response = await tester.invokeMapping(
-            'Order Completed',
-            {
-                pixelId: 'pixel-id',
-            },
-            createPayload()
-        )
+    it.each([
+        ['missing pixel id', { oauth: { access_token: 'access-token' } }],
+        ['missing access token', { pixelId: 'pixel-id' }],
+    ])('handles %s', async (_, settings) => {
+        const response = await tester.invokeMapping('Order Completed', settings, createPayload())
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)
