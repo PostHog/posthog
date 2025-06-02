@@ -36,6 +36,7 @@ import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomizat
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
+import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 
 import { getPropertyKey } from '~/taxonomy/helpers'
 import {
@@ -243,6 +244,7 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         deleteBranchingLogic,
+        setSurveyManualErrors,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
         useValues(surveysLogic)
@@ -655,10 +657,20 @@ export default function SurveyEdit(): JSX.Element {
                                                           (question) => question.type === SurveyQuestionType.Open
                                                       )}
                                                       onAppearanceChange={(appearance) => {
-                                                          onChange({
+                                                          const newAppearance = sanitizeSurveyAppearance({
                                                               ...survey.appearance,
                                                               ...appearance,
                                                           })
+                                                          onChange(newAppearance)
+                                                          if (newAppearance) {
+                                                              setSurveyManualErrors(
+                                                                  validateSurveyAppearance(
+                                                                      newAppearance,
+                                                                      true,
+                                                                      survey.type
+                                                                  )
+                                                              )
+                                                          }
                                                       }}
                                                       validationErrors={surveyErrors?.appearance}
                                                   />
@@ -899,10 +911,11 @@ export default function SurveyEdit(): JSX.Element {
                                                                     }}
                                                                     className="w-12"
                                                                 />{' '}
-                                                                {value?.seenSurveyWaitPeriodInDays === 1
-                                                                    ? 'day'
-                                                                    : 'days'}
-                                                                .
+                                                                {value?.seenSurveyWaitPeriodInDays === 1 ? (
+                                                                    <span>day.</span>
+                                                                ) : (
+                                                                    <span>days.</span>
+                                                                )}
                                                             </div>
                                                         </LemonField.Pure>
                                                     </>

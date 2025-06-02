@@ -147,6 +147,8 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                                 ...editableSurveyConfig,
                                 ...appearance,
                             }
+                            const errors = validateSurveyAppearance(newAppearance, true, templatedSurvey.type)
+                            setValidationErrors(errors)
                             setEditableSurveyConfig(newAppearance)
                             setTemplatedSurvey({
                                 ...templatedSurvey,
