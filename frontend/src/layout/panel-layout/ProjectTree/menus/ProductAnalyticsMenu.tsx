@@ -34,7 +34,7 @@ export function ProductAnalyticsMenu({ MenuItem, MenuSeparator }: CustomMenuProp
                             )
                         }}
                         onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' || e.key === ' ') {
                                 handleRouting(
                                     typeof child.record?.href === 'function'
                                         ? child.record?.href(child.record?.ref)
@@ -46,7 +46,6 @@ export function ProductAnalyticsMenu({ MenuItem, MenuSeparator }: CustomMenuProp
                                 }, 10)
                             }
                         }}
-                        x
                     >
                         <ButtonPrimitive menuItem>
                             {child.icon}
