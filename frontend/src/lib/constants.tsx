@@ -305,6 +305,18 @@ export const PRODUCT_VISUAL_ORDER = {
     userInterviews: 340,
 }
 
+export const INSIGHT_VISUAL_ORDER = {
+    trends: 10,
+    funnel: 20,
+    retention: 30,
+    paths: 40,
+    stickiness: 50,
+    lifecycle: 60,
+    calendarHeatmap: 70,
+    sql: 80,
+    hog: 90,
+}
+
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'
 
