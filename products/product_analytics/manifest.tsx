@@ -1,7 +1,7 @@
 import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -84,36 +84,50 @@ export const manifest: ProductManifest = {
             path: `Insight/Trends`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.TRENDS }),
+            iconType: 'insightTrends',
+            visualOrder: INSIGHT_VISUAL_ORDER.trends,
         },
         {
             path: `Insight/Funnel`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.FUNNELS }),
+            iconType: 'insightFunnel',
+            visualOrder: INSIGHT_VISUAL_ORDER.funnel,
         },
         {
             path: `Insight/Retention`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.RETENTION }),
+            iconType: 'insightRetention',
+            visualOrder: INSIGHT_VISUAL_ORDER.retention,
         },
         {
             path: `Insight/User paths`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.PATHS }),
+            iconType: 'insightUserPaths',
+            visualOrder: INSIGHT_VISUAL_ORDER.paths,
         },
         {
             path: `Insight/Stickiness`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.STICKINESS }),
+            iconType: 'insightStickiness',
+            visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
         },
         {
             path: `Insight/Lifecycle`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+            iconType: 'insightLifecycle',
+            visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
         },
         {
             path: `Insight/Calendar Heatmap`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+            iconType: 'insightHogQL',
+            visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
         },
     ],
     treeItemsProducts: [

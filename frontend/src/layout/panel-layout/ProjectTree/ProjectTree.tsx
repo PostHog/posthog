@@ -480,13 +480,21 @@ export function ProjectTree({
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                return (
+                    <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'context')}
+                    </ContextMenuGroup>
+                )
             }}
             itemSideAction={(item) => {
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                return (
+                    <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'dropdown')}
+                    </DropdownMenuGroup>
+                )
             }}
             itemSideActionIcon={(item) => {
                 if (item.record?.protocol === 'products://') {

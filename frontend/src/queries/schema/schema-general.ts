@@ -17,6 +17,7 @@ import {
     EventType,
     ExperimentHoldoutType,
     ExperimentMetricMathType,
+    FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -2067,6 +2068,8 @@ export interface FileSystemEntry {
     _loading?: boolean
     /** Tag for the product 'beta' / 'alpha' */
     tags?: ('alpha' | 'beta')[]
+    /** Order of object in tree */
+    visualOrder?: number
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
@@ -2079,6 +2082,7 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     tags?: ('alpha' | 'beta')[]
     /** Protocol of the item, defaults to "project://" */
     protocol?: string
+    iconColor?: FileSystemIconColor
 }
 
 export interface PersistedFolder {

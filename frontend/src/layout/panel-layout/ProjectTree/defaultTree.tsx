@@ -6,13 +6,20 @@ import {
     IconBug,
     IconChevronRight,
     IconDatabase,
+    IconFunnels,
     IconHandMoney,
+    IconHogQL,
+    IconLifecycle,
     IconLive,
     IconNotification,
     IconPieChart,
     IconPiggyBank,
     IconPlug,
+    IconRetention,
     IconServer,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
@@ -82,12 +89,41 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
         icon: <IconBug />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
     },
+    insightFunnel: {
+        icon: <IconFunnels />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightTrends: {
+        icon: <IconTrends />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightRetention: {
+        icon: <IconRetention />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightUserPaths: {
+        icon: <IconUserPaths />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightLifecycle: {
+        icon: <IconLifecycle />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightStickiness: {
+        icon: <IconStickiness />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightHogQL: {
+        icon: <IconHogQL />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
 }
 
 const getIconColor = (type?: string): FileSystemIconColor => {
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
+
     const iconTypeColor = type && iconTypes[type]?.iconColor
 
     const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
