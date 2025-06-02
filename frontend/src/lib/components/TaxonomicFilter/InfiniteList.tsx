@@ -203,7 +203,8 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     // Show "Add non-captured event" option for CustomEvents group when searching
     const showNonCapturedEventOption =
         allowNonCapturedEvents &&
-        listGroupType === TaxonomicFilterGroupType.CustomEvents &&
+        (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+            listGroupType === TaxonomicFilterGroupType.Events) &&
         searchQuery &&
         searchQuery.trim().length > 0 &&
         !isLoading &&
@@ -268,16 +269,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         }
 
         // Regular items use rowIndex directly
-        const actualRowIndex = rowIndex
-        const item = results[actualRowIndex]
-
-        if (!item && isLoading) {
-            return (
-                <div key={`item_${rowIndex}`}>
-                    <LemonSkeleton className="h-8" />
-                </div>
-            )
-        }
+        const item = results[rowIndex]
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
@@ -326,7 +318,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         // - actualRowIndex === totalListCount - 1: This is the last row in the visible list
         // - isExpandable: There are more items available to load/show
         // - !isLoading: We're not currently in the middle of loading data
-        const isExpandRow = !item && actualRowIndex === totalResultCount - 1 && isExpandable && !isLoading
+        const isExpandRow = !item && rowIndex === totalResultCount - 1 && isExpandable && !isLoading
         if (isExpandRow) {
             return (
                 <div
@@ -391,10 +383,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         <List
                             width={width}
                             height={height}
-                            rowCount={Math.max(
-                                (results.length || 0) + (showNonCapturedEventOption ? 1 : 0),
-                                totalListCount + (showNonCapturedEventOption ? 1 : 0) || 0
-                            )}
+                            rowCount={
+                                showNonCapturedEventOption
+                                    ? 1
+                                    : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+                            }
                             overscanRowCount={100}
                             rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}
