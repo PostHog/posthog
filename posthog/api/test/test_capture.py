@@ -1144,7 +1144,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1238,7 +1237,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1269,7 +1267,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1299,7 +1296,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1434,7 +1430,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
