@@ -6,7 +6,12 @@ from urllib.parse import urlparse
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST, IN_EVAL_TESTING
+from posthog.settings.base_variables import (
+    DEBUG,
+    IN_EVAL_TESTING,
+    IS_COLLECT_STATIC,
+    TEST,
+)
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -19,8 +24,6 @@ SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
-
-JOB_QUEUE_GRAPHILE_URL: str = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
 
 def postgres_config(host: str) -> dict:
@@ -129,8 +132,6 @@ if os.getenv("PERSONS_DB_WRITER_URL"):
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
-if JOB_QUEUE_GRAPHILE_URL:
-    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
@@ -182,6 +183,11 @@ CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
 )
 
 CLICKHOUSE_USE_HTTP: str = get_from_env("CLICKHOUSE_USE_HTTP", False, type_cast=str_to_bool)
+CLICKHOUSE_USE_HTTP_PER_TEAM = set[int]([])
+with suppress(Exception):
+    as_json = json.loads(os.getenv("CLICKHOUSE_USE_HTTP_PER_TEAM", "[]"))
+    CLICKHOUSE_USE_HTTP_PER_TEAM = {int(v) for v in as_json}
+
 QUERYSERVICE_HOST: str = get_from_env("QUERYSERVICE_HOST", CLICKHOUSE_HOST)
 QUERYSERVICE_SECURE: bool = get_from_env("QUERYSERVICE_SECURE", CLICKHOUSE_SECURE, type_cast=str_to_bool)
 QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIFY, type_cast=str_to_bool)
@@ -195,16 +201,38 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+
+CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
+CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
+CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+
+# Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
+# routing. Keys should be strings, not numbers.
 try:
     CLICKHOUSE_PER_TEAM_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
+# Per-team settings used for query execution. Keys should be strings, not numbers.
+try:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
+
+# Per-team API /query concurrent limits, e.g. {"2": 7}
 API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
 
+API_QUERIES_ON_ONLINE_CLUSTER = set[int]([])
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
+    API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

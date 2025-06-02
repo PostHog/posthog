@@ -23,3 +23,9 @@
         z-index: 0 !important;
     }
 }
+
+.survey-table-results {
+    .LemonTable__boundary {
+        text-align: left;
+    }
+}

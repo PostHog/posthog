@@ -27,6 +27,7 @@ from posthog.hogql.functions.mapping import (
     validate_function_args,
 )
 from posthog.hogql.functions.recording_button import recording_button
+from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
@@ -485,6 +486,8 @@ class Resolver(CloningVisitor):
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":
                 return self.visit(recording_button(node=node, args=node.args))
+            if node.name == "explain_csp_report":
+                return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
                 events_alias, _ = self._get_events_table_current_scope()
                 if events_alias is None:
@@ -679,6 +682,9 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
+            # TODO: This will never return None, it always raises an exception
+            # once it finds the unsupported field/type
+            # There's no reason to have the `if loop_type is None` check here
             loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")

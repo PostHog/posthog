@@ -144,6 +144,18 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 currencyAwareDecimal: true,
             },
         ],
+        goals: [
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+            },
+            {
+                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                name: '2035 Q4',
+                goal: 1_500_000,
+            },
+        ],
     },
     flags_persistence_default: false,
     access_control_version: 'v1',

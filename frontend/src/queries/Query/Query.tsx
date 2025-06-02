@@ -1,6 +1,7 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsInsightsNode,
     RevenueAnalyticsOverviewNode,
     RevenueAnalyticsTopCustomersNode,
 } from 'products/revenue_analytics/frontend/nodes'
@@ -30,12 +31,13 @@ import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualiza
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
+    isCalendarHeatmapQuery,
     isDataTableNode,
     isDataVisualizationNode,
-    isEventsHeatMapQuery,
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsInsightsQuery,
     isRevenueAnalyticsOverviewQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
@@ -151,6 +153,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
+    } else if (isRevenueAnalyticsInsightsQuery(query)) {
+        component = (
+            <RevenueAnalyticsInsightsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
             <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
@@ -175,7 +181,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
-    } else if (isEventsHeatMapQuery(query)) {
+    } else if (isCalendarHeatmapQuery(query)) {
         component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />

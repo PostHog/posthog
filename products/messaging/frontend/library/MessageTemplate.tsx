@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { EmailTemplater } from 'scenes/pipeline/hogfunctions/email-templater/EmailTemplater'
+import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { messageTemplateLogic, MessageTemplateLogicProps } from './messageTemplateLogic'
@@ -50,7 +50,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Ele
                     }
                 />
                 <div className="flex flex-wrap gap-4 items-start">
-                    <div className="space-y-2 flex-1 min-w-100 p-3 bg-surface-primary border rounded self-start">
+                    <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">
                         <LemonField name="name" label="Name">
                             <LemonInput disabled={messageLoading} />
                         </LemonField>
@@ -64,7 +64,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Ele
                         </LemonField>
                     </div>
 
-                    <div className="flex-2 min-w-100 space-y-2 p-3 bg-surface-primary border rounded">
+                    <div className="p-3 space-y-2 rounded border flex-2 min-w-100 bg-surface-primary">
                         <h3>Email template</h3>
                         {messageLoading ? (
                             <Spinner className="text-lg" />

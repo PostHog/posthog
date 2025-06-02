@@ -1,4 +1,4 @@
-import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -16,13 +16,14 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
-import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
@@ -35,16 +36,17 @@ export const scene: SceneExport = {
 
 export function Experiments(): JSX.Element {
     const {
-        filteredExperiments,
+        currentProjectId,
+        experiments,
         experimentsLoading,
         tab,
-        searchTerm,
         shouldShowEmptyState,
-        searchStatus,
-        userFilter,
         showLegacyBadge,
+        filters,
+        count,
+        pagination,
     } = useValues(experimentsLogic)
-    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
+    const { loadExperiments, setExperimentsTab, archiveExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -53,6 +55,10 @@ export function Experiments(): JSX.Element {
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
         'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+
+    const page = filters.page || 1
+    const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
+    const endCount = page * EXPERIMENTS_PER_PAGE < count ? page * EXPERIMENTS_PER_PAGE : count
 
     const getExperimentDuration = (experiment: Experiment): number | undefined => {
         return experiment.end_date
@@ -77,9 +83,14 @@ export function Experiments(): JSX.Element {
                             <>
                                 {stringWithWBR(experiment.name, 17)}
                                 {showLegacyBadge && isLegacyExperiment(experiment) && (
-                                    <LemonTag type="warning" className="ml-1">
-                                        Legacy
-                                    </LemonTag>
+                                    <Tooltip
+                                        title="This experiment uses the legacy engine, so some features and improvements may be missing."
+                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
+                                    >
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    </Tooltip>
                                 )}
                             </>
                         }
@@ -135,6 +146,13 @@ export function Experiments(): JSX.Element {
                                 <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
+                                <LemonButton
+                                    to={urls.experiment(`${experiment.id}`, 'duplicate')}
+                                    size="small"
+                                    fullWidth
+                                >
+                                    Duplicate
+                                </LemonButton>
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
@@ -175,14 +193,22 @@ export function Experiments(): JSX.Element {
                                             title: 'Delete this experiment?',
                                             content: (
                                                 <div className="text-sm text-secondary">
-                                                    This action cannot be undone. All experiment data will be
-                                                    permanently removed.
+                                                    Experiment with its settings will be deleted, but event data will be
+                                                    preserved.
                                                 </div>
                                             ),
                                             primaryButton: {
                                                 children: 'Delete',
                                                 type: 'primary',
-                                                onClick: () => deleteExperiment(experiment.id as number),
+                                                onClick: () => {
+                                                    void deleteWithUndo({
+                                                        endpoint: `projects/${currentProjectId}/experiments`,
+                                                        object: { name: experiment.name, id: experiment.id },
+                                                        callback: () => {
+                                                            loadExperiments()
+                                                        },
+                                                    })
+                                                },
                                                 size: 'small',
                                             },
                                             secondaryButton: {
@@ -237,7 +263,6 @@ export function Experiments(): JSX.Element {
                 onChange={(newKey) => setExperimentsTab(newKey)}
                 tabs={[
                     { key: ExperimentsTabs.All, label: 'All experiments' },
-                    { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
                     { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' },
@@ -277,8 +302,8 @@ export function Experiments(): JSX.Element {
                                 <LemonInput
                                     type="search"
                                     placeholder="Search experiments"
-                                    onChange={setSearchTerm}
-                                    value={searchTerm}
+                                    onChange={(search) => setExperimentsFilters({ search, page: 1 })}
+                                    value={filters.search || ''}
                                 />
                                 <div className="flex items-center gap-2">
                                     <span>
@@ -287,8 +312,11 @@ export function Experiments(): JSX.Element {
                                     <LemonSelect
                                         size="small"
                                         onChange={(status) => {
-                                            if (status) {
-                                                setSearchStatus(status as ProgressStatus | 'all')
+                                            if (status === 'all') {
+                                                const { status: _, ...restFilters } = filters
+                                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
+                                            } else {
+                                                setExperimentsFilters({ status: status as ProgressStatus, page: 1 })
                                             }
                                         }}
                                         options={
@@ -299,7 +327,7 @@ export function Experiments(): JSX.Element {
                                                 { label: 'Complete', value: ProgressStatus.Complete },
                                             ] as { label: string; value: string }[]
                                         }
-                                        value={searchStatus ?? 'all'}
+                                        value={filters.status ?? 'all'}
                                         dropdownMatchSelectWidth={false}
                                         dropdownMaxContentWidth
                                     />
@@ -308,13 +336,30 @@ export function Experiments(): JSX.Element {
                                     </span>
                                     <MemberSelect
                                         defaultLabel="Any user"
-                                        value={userFilter ?? null}
-                                        onChange={(user) => setUserFilter(user?.uuid ?? null)}
+                                        value={filters.created_by_id ?? null}
+                                        onChange={(user) => {
+                                            if (!user) {
+                                                const { created_by_id, ...restFilters } = filters
+                                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
+                                            } else {
+                                                setExperimentsFilters({ created_by_id: user.id, page: 1 })
+                                            }
+                                        }}
                                     />
                                 </div>
                             </div>
+                            <LemonDivider className="my-4" />
+                            <div className="mb-4">
+                                <span className="text-secondary">
+                                    {count
+                                        ? `${startCount}${
+                                              endCount - startCount > 1 ? '-' + endCount : ''
+                                          } of ${count} experiment${count === 1 ? '' : 's'}`
+                                        : null}
+                                </span>
+                            </div>
                             <LemonTable
-                                dataSource={filteredExperiments}
+                                dataSource={experiments.results}
                                 columns={columns}
                                 rowKey="id"
                                 loading={experimentsLoading}
@@ -323,9 +368,18 @@ export function Experiments(): JSX.Element {
                                     order: -1,
                                 }}
                                 noSortingCancellation
-                                pagination={{ pageSize: 100 }}
+                                pagination={pagination}
                                 nouns={['experiment', 'experiments']}
                                 data-attr="experiment-table"
+                                emptyState="No results for this filter, change filter or create a new experiment."
+                                onSort={(newSorting) =>
+                                    setExperimentsFilters({
+                                        order: newSorting
+                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                            : undefined,
+                                        page: 1,
+                                    })
+                                }
                             />
                         </>
                     )}
