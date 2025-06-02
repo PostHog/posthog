@@ -1,6 +1,6 @@
 import { Hub } from '../../types'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 /**
@@ -9,7 +9,6 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerPlugins'
     private pluginExecutor: LegacyPluginExecutorService
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     constructor(hub: Hub) {
         super(hub, 'plugin')
