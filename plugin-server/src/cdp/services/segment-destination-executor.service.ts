@@ -268,7 +268,7 @@ export class SegmentDestinationExecutorService {
                         throw new SegmentRetriableError()
                     }
 
-                    if (method !== 'GET' && !retriesPossible) {
+                    if (method !== 'GET') {
                         // If we have got to this point with anything other than a GET request, we can't retry for the risk of duplicating data
                         // as retries apply to the entire invocation, not just the http request.
                         retriesPossible = false
