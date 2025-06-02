@@ -47,6 +47,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
+        CONSUMER_MAX_BACKGROUND_TASKS: 1,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -85,17 +86,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        JOB_QUEUES: 'graphile',
-        JOB_QUEUE_GRAPHILE_URL: '',
-        JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
-        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
-        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
-        JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
-        JOB_QUEUE_S3_BUCKET_NAME: '',
-        JOB_QUEUE_S3_PREFIX: '',
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
@@ -195,15 +185,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
 
+        CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
+        CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+        CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
-            : '',
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
 
@@ -222,6 +214,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
+        PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION: 0.0, // defaults to off, value in [0,1] for percentage rollout
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
@@ -233,8 +226,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: '',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
+        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -258,6 +253,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
+
+        DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
 
@@ -298,10 +295,6 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (!newConfig.JOB_QUEUE_GRAPHILE_URL) {
-        newConfig.JOB_QUEUE_GRAPHILE_URL = newConfig.DATABASE_URL
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {

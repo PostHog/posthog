@@ -1,6 +1,9 @@
 import {
+    IconCheck,
     IconCollapse,
     IconExpand,
+    IconEye,
+    IconHide,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -9,14 +12,25 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonPropsBase,
+    LemonInput,
+    LemonSkeleton,
+    ProfilePicture,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { IconOpenInNew, IconSync } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { twMerge } from 'tailwind-merge'
@@ -31,9 +45,12 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
+import { ProductKey } from '~/types'
 
 import { MarkdownMessage } from './MarkdownMessage'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -45,13 +62,67 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { threadGrouped } = useValues(maxLogic)
+    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
-            {threadGrouped.map((group, index) => (
-                <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
-            ))}
+            {conversationLoading ? (
+                <>
+                    <MessageGroupSkeleton groupType="human" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-80" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-65" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-40" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-20" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-10" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-5" />
+                </>
+            ) : threadGrouped.length > 0 ? (
+                threadGrouped.map((group, index) => (
+                    <MessageGroup
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
+                        messages={group}
+                        isFinal={index === threadGrouped.length - 1}
+                    />
+                ))
+            ) : (
+                conversationId && (
+                    <div className="flex flex-1 items-center justify-center">
+                        <ProductIntroduction
+                            isEmpty
+                            productName="Max"
+                            productKey={ProductKey.MAX}
+                            thingName="message"
+                            titleOverride="Start chatting with Max"
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                            docsURL="https://posthog.com/docs/data/max-ai"
+                        />
+                    </div>
+                )
+            )}
+        </div>
+    )
+}
+
+function MessageGroupContainer({
+    groupType,
+    children,
+    className,
+}: {
+    groupType: 'human' | 'ai'
+    children: React.ReactNode
+    className?: string
+}): JSX.Element {
+    return (
+        <div
+            className={twMerge(
+                'relative flex gap-2',
+                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
+                className
+            )}
+        >
+            {children}
         </div>
     )
 }
@@ -59,21 +130,17 @@ export function Thread(): JSX.Element | null {
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
-    index: number
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
+    const { tools } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
+    const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
 
     return (
-        <div
-            className={clsx(
-                'relative flex gap-2',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
-            )}
-        >
+        <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
@@ -121,7 +188,14 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
-                        return <VisualizationAnswer key={messageIndex} message={message} status={message.status} />
+                        return (
+                            <VisualizationAnswer
+                                key={messageIndex}
+                                message={message}
+                                status={message.status}
+                                isEditingInsight={isEditingInsight}
+                            />
+                        )
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
@@ -151,7 +225,22 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     </MessageTemplate>
                 )}
             </div>
-        </div>
+        </MessageGroupContainer>
+    )
+}
+
+function MessageGroupSkeleton({
+    groupType,
+    className,
+}: {
+    groupType: 'human' | 'ai'
+    className?: string
+}): JSX.Element {
+    return (
+        <MessageGroupContainer className={clsx('mb-4 items-center', className)} groupType={groupType}>
+            <LemonSkeleton className="w-8 h-8 rounded-full hidden @md/thread:flex" />
+            <LemonSkeleton className="h-10 w-3/5" />
+        </MessageGroupContainer>
     )
 }
 
@@ -170,7 +259,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words',
+                'flex flex-col gap-px w-full break-words scroll-mt-12',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
@@ -249,7 +338,7 @@ interface AssistantMessageFormProps {
 }
 
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     return (
         <div className="flex flex-wrap gap-2 mt-1">
             {form.options.map((option) => (
@@ -270,14 +359,24 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
     )
 }
 
-function VisualizationAnswer({
+const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
+    isEditingInsight,
 }: {
     message: VisualizationMessage
     status?: MessageStatus
+    isEditingInsight: boolean
 }): JSX.Element | null {
+    const { insight } = useValues(insightSceneLogic)
+    const { setQuery } = useActions(insightVizDataLogic({ dashboardItemId: insight?.short_id }))
     const [isSummaryShown, setIsSummaryShown] = useState(false)
+    const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
+    const [isApplied, setIsApplied] = useState(false)
+
+    useEffect(() => {
+        setIsCollapsed(isEditingInsight)
+    }, [isEditingInsight])
 
     const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
@@ -295,28 +394,54 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
-                      <Query query={query} readOnly embedded />
-                      <div className="flex items-center justify-between mt-2">
+                  <MessageTemplate
+                      type="ai"
+                      className="w-full"
+                      boxClassName={clsx('flex flex-col w-full', !isCollapsed && 'min-h-60')}
+                  >
+                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
+                          <div className="flex items-center gap-2">
+                              <LemonButton
+                                  sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                                  onClick={() => setIsSummaryShown(!isSummaryShown)}
+                                  size="xsmall"
+                                  className="-m-1 shrink"
+                                  tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                              >
+                                  <h5 className="m-0 leading-none">
+                                      <TopHeading query={query} />
+                                  </h5>
+                              </LemonButton>
+                          </div>
+                          {isEditingInsight ? (
+                              <LemonButton
+                                  onClick={() => {
+                                      setQuery(query)
+                                      setIsApplied(true)
+                                  }}
+                                  sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                  size="xsmall"
+                              >
+                                  Apply to current insight
+                              </LemonButton>
+                          ) : (
+                              <LemonButton
+                                  to={urls.insightNew({ query })}
+                                  sideIcon={<IconOpenInNew />}
+                                  size="xsmall"
+                                  targetBlank
+                              >
+                                  Open as new insight
+                              </LemonButton>
+                          )}
                           <LemonButton
-                              sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                              onClick={() => setIsSummaryShown(!isSummaryShown)}
+                              sideIcon={isCollapsed ? <IconEye /> : <IconHide />}
+                              onClick={() => setIsCollapsed(!isCollapsed)}
                               size="xsmall"
                               className="-m-1 shrink"
-                              tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                          >
-                              <h5 className="m-0 leading-none">
-                                  <TopHeading query={query} />
-                              </h5>
-                          </LemonButton>
-                          <LemonButton
-                              to={urls.insightNew({ query })}
-                              sideIcon={<IconOpenInNew />}
-                              size="xsmall"
-                              targetBlank
-                          >
-                              Open as new insight
-                          </LemonButton>
+                              tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
+                          />
                       </div>
                       {isSummaryShown && (
                           <>
@@ -332,10 +457,10 @@ function VisualizationAnswer({
                   </MessageTemplate>
               </>
           )
-}
+})
 
 function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     return (
         <LemonButton
@@ -352,8 +477,8 @@ function RetriableFailureActions(): JSX.Element {
 }
 
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
-    const { traceId } = useValues(maxLogic)
-    const { retryLastMessage } = useActions(maxLogic)
+    const { traceId } = useValues(maxThreadLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')

@@ -476,6 +476,8 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
     )
 
 
+# Note: Any changes to this function need to be reflected in the rust version
+# rust/feature-flags/src/properties/relative_date.rs
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
     regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)

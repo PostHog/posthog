@@ -45,8 +45,8 @@ export function SessionRecordingsPlaylist({
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
-        allowFlagsFilters,
         allowHogQLFilters,
+        allowReplayGroupsFilters,
         totalFiltersCount,
     } = useValues(playlistLogic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
@@ -55,7 +55,7 @@ export function SessionRecordingsPlaylist({
 
     const sections: PlaylistSection[] = []
 
-    if (logicProps.logicKey) {
+    if (pinnedRecordings.length) {
         sections.push({
             key: 'pinned',
             title: (
@@ -72,7 +72,7 @@ export function SessionRecordingsPlaylist({
         })
     }
 
-    if (!logicProps.logicKey) {
+    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
         sections.push({
             key: 'other',
             title: (
@@ -121,7 +121,7 @@ export function SessionRecordingsPlaylist({
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
                                 allowReplayHogQLFilters={allowHogQLFilters}
-                                allowReplayFlagsFilters={allowFlagsFilters}
+                                allowReplayGroupsFilters={allowReplayGroupsFilters}
                             />
                         )
                     }

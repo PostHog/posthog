@@ -1,14 +1,12 @@
 import {
     IconAI,
-    IconArrowUpRight,
+    IconChat,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
     IconGraph,
-    IconGroups,
     IconHome,
     IconLive,
-    IconLogomark,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -20,7 +18,6 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
-    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -30,10 +27,9 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
+import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -41,7 +37,6 @@ import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -52,7 +47,6 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
-import { experimentsSidebarLogic } from './sidebars/experiments'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
@@ -79,8 +73,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            teamLogic,
-            ['hasOnboardedAnyProduct'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
             ['playlists', 'playlistsLoading'],
         ],
@@ -357,130 +349,86 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.hasOnboardedAnyProduct,
                 s.playlists,
                 s.playlistsLoading,
-                s.groupTypes,
-                s.groupsAccessStatus,
             ],
-            (
-                featureFlags,
-                dashboardsLoading,
-                pinnedDashboards,
-                hasOnboardedAnyProduct,
-                playlists,
-                playlistsLoading,
-                groupTypes,
-                groupsAccessStatus
-            ): NavbarItem[][] => {
+            (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
 
-                const showGroupsIntroductionPage = [
-                    GroupsAccessStatus.HasAccess,
-                    GroupsAccessStatus.HasGroupTypes,
-                    GroupsAccessStatus.NoAccess,
-                ].includes(groupsAccessStatus)
-
-                const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
-                    ? [
-                          {
-                              identifier: Scene.ProjectHomepage,
-                              label: 'Home',
-                              icon: <IconHome />,
-                              to: urls.projectHomepage(),
-                          },
-                          {
-                              identifier: Scene.Dashboards,
-                              label: 'Dashboards',
-                              icon: <IconDashboard />,
-                              tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
-                              logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.dashboards(),
-                              sideAction:
-                                  pinnedDashboards.length > 0
-                                      ? {
-                                            identifier: 'pinned-dashboards-dropdown',
-                                            dropdown: {
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={[
-                                                            {
-                                                                title: 'Pinned dashboards',
-                                                                items: pinnedDashboards.map((dashboard) => ({
-                                                                    label: dashboard.name,
-                                                                    to: urls.dashboard(dashboard.id),
-                                                                })),
-                                                                footer: dashboardsLoading && (
-                                                                    <div className="px-2 py-1 text-tertiary">
-                                                                        <Spinner /> Loading…
-                                                                    </div>
-                                                                ),
-                                                            },
-                                                        ]}
-                                                    />
-                                                ),
-                                                placement: 'bottom-end',
-                                            },
-                                        }
-                                      : undefined,
-                          },
-                          {
-                              identifier: Scene.Notebooks,
-                              label: 'Notebooks',
-                              icon: <IconNotebook />,
-                              to: urls.notebooks(),
-                              tooltipDocLink: 'https://posthog.com/docs/notebooks',
-                          },
-                          {
-                              identifier: Scene.DataManagement,
-                              label: 'Data management',
-                              icon: <IconDatabase />,
-                              logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.eventDefinitions(),
-                              tooltipDocLink: 'https://posthog.com/docs/data',
-                          },
-                          {
-                              identifier: Scene.PersonsManagement,
-                              label: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'People' : 'People and groups',
-                              icon: <IconPeople />,
-                              logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.persons(),
-                              tooltipDocLink: 'https://posthog.com/docs/data/persons',
-                          },
-                          {
-                              identifier: Scene.Activity,
-                              label: 'Activity',
-                              icon: <IconLive />,
-                              to: urls.activity(),
-                              tooltipDocLink: 'https://posthog.com/docs/data/events',
-                          },
-                      ]
-                    : [
-                          {
-                              identifier: Scene.Products,
-                              label: 'Welcome to PostHog',
-                              icon: <IconLogomark />,
-                              to: urls.products(),
-                          },
-                      ]
-
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-                    sectionOne.splice(1, 0, {
-                        identifier: Scene.Max,
-                        label: 'Max',
-                        icon: <IconSparkles />,
-                        onClick: () =>
-                            lemonToast.info(
-                                'Max now lives in the top right corner of the app – he will soon disappear from the navbar',
-                                { icon: <IconArrowUpRight /> }
-                            ),
-                        to: urls.max(),
-                        tag: 'beta' as const,
-                    })
-                }
-
                 return [
-                    sectionOne,
+                    [
+                        {
+                            identifier: Scene.ProjectHomepage,
+                            label: 'Home',
+                            icon: <IconHome />,
+                            to: urls.projectHomepage(),
+                        },
+                        {
+                            identifier: Scene.Dashboards,
+                            label: 'Dashboards',
+                            icon: <IconDashboard />,
+                            tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
+                            logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.dashboards(),
+                            sideAction:
+                                pinnedDashboards.length > 0
+                                    ? {
+                                          identifier: 'pinned-dashboards-dropdown',
+                                          dropdown: {
+                                              overlay: (
+                                                  <LemonMenuOverlay
+                                                      items={[
+                                                          {
+                                                              title: 'Pinned dashboards',
+                                                              items: pinnedDashboards.map((dashboard) => ({
+                                                                  label: dashboard.name,
+                                                                  to: urls.dashboard(dashboard.id),
+                                                              })),
+                                                              footer: dashboardsLoading && (
+                                                                  <div className="px-2 py-1 text-tertiary">
+                                                                      <Spinner /> Loading…
+                                                                  </div>
+                                                              ),
+                                                          },
+                                                      ]}
+                                                  />
+                                              ),
+                                              placement: 'bottom-end',
+                                          },
+                                      }
+                                    : undefined,
+                        },
+                        {
+                            identifier: Scene.Notebooks,
+                            label: 'Notebooks',
+                            icon: <IconNotebook />,
+                            to: urls.notebooks(),
+                            tooltipDocLink: 'https://posthog.com/docs/notebooks',
+                        },
+                        {
+                            identifier: Scene.DataManagement,
+                            label: 'Data management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                            tooltipDocLink: 'https://posthog.com/docs/data',
+                        },
+                        {
+                            identifier: Scene.PersonsManagement,
+                            label: 'People and groups',
+                            icon: <IconPeople />,
+                            logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.persons(),
+                            tooltipDocLink: 'https://posthog.com/docs/data/persons',
+                        },
+                        {
+                            identifier: Scene.Activity,
+                            label: 'Activity',
+                            icon: <IconLive />,
+                            to: urls.activity(),
+                            tooltipDocLink: 'https://posthog.com/docs/data/events',
+                        },
+                    ],
                     [
                         {
                             identifier: Scene.SavedInsights,
@@ -507,35 +455,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                            ? {
-                                  identifier: Scene.Groups,
-                                  label: 'B2B analytics',
-                                  icon: <IconGroups />,
-                                  to: urls.groups(0),
-                                  tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/product-analytics/group-analytics',
-                                  sideAction:
-                                      groupTypes.size > 1 && !showGroupsIntroductionPage
-                                          ? {
-                                                identifier: 'groups-dropdown',
-                                                dropdown: {
-                                                    overlay: (
-                                                        <LemonMenuOverlay
-                                                            items={Array.from(groupTypes.values()).map((groupType) => ({
-                                                                label: capitalizeFirstLetter(
-                                                                    groupType.name_plural || groupType.group_type
-                                                                ),
-                                                                to: urls.groups(groupType.group_type_index),
-                                                            }))}
-                                                        />
-                                                    ),
-                                                    placement: 'bottom-end',
-                                                },
-                                            }
-                                          : undefined,
-                              }
-                            : null,
 
                         featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
                             ? {
@@ -606,7 +525,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.Experiments,
                             label: 'Experiments',
                             icon: <IconTestTube />,
-                            logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),
                             tooltipDocLink: 'https://posthog.com/docs/experiments/creating-an-experiment',
                         },
@@ -624,6 +542,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.earlyAccessFeatures(),
                             tooltipDocLink: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
                         },
+                        featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
+                            ? {
+                                  identifier: Scene.UserInterviews,
+                                  label: 'User interviews',
+                                  icon: <IconChat />,
+                                  tag: 'alpha' as const,
+                                  to: urls.userInterviews(),
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
                                   identifier: 'LLMObservability',
@@ -632,6 +559,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.llmObservabilityDashboard(),
                                   tag: 'beta' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.LOGS]
+                            ? {
+                                  identifier: 'Logs',
+                                  label: 'Logs',
+                                  icon: <IconLive />,
+                                  to: urls.logs(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         {
@@ -649,15 +585,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: editorSceneLogic,
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
-                        hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.Pipeline,
-                                  label: 'Data pipelines',
-                                  icon: <IconPlug />,
-                                  to: urls.pipeline(),
-                                  tooltipDocLink: 'https://posthog.com/docs/cdp',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Pipeline,
+                            label: 'Data pipelines',
+                            icon: <IconPlug />,
+                            to: urls.pipeline(),
+                            tooltipDocLink: 'https://posthog.com/docs/cdp',
+                        },
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
                             ? {
                                   identifier: Scene.Heatmaps,
@@ -668,7 +602,17 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
+                        featureFlags[FEATURE_FLAGS.LINKS]
+                            ? {
+                                  identifier: Scene.Links,
+                                  label: 'Links',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.links(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/links',
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.MESSAGING]
                             ? {
                                   identifier: Scene.MessagingBroadcasts,
                                   label: 'Messaging',

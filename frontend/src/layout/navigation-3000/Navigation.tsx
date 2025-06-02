@@ -9,12 +9,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useRef } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { Navbar } from '~/layout/navigation-3000/components/Navbar'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
-import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
@@ -55,7 +55,14 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.TREE_VIEW}
+                fallback={
+                    <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_RELEASE} fallback={<Navbar />}>
+                        <PanelLayout mainRef={mainRef} />
+                    </FlaggedFeature>
+                }
+            >
                 <PanelLayout mainRef={mainRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>

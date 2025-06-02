@@ -43,7 +43,7 @@ PropertyType = Literal[
     "data_warehouse",
     "data_warehouse_person_property",
     "error_tracking_issue",
-    "error_tracking_issue_property",
+    "log",
 ]
 
 PropertyName = str
@@ -93,7 +93,6 @@ VALIDATE_PROP_TYPES = {
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
     "error_tracking_issue": ["key", "value"],
-    "error_tracking_issue_property": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
@@ -101,6 +100,7 @@ VALIDATE_PROP_TYPES = {
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
+    "log": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],

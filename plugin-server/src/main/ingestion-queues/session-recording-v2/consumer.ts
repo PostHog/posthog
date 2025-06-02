@@ -1,14 +1,15 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/src/kafka/producer'
-import { PostgresRouter } from '~/src/utils/db/postgres'
-
 import { buildIntegerMatcher } from '../../../config/config'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { logger as logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
 import {
@@ -20,7 +21,6 @@ import {
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
-import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
@@ -61,6 +61,24 @@ export class SessionRecordingIngester {
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
+
+        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
+        let metadataSwitchoverDate: Date | null = null
+        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
+            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
+            if (!isNaN(parsed)) {
+                metadataSwitchoverDate = new Date(parsed)
+                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                    parsedDate: metadataSwitchoverDate.toISOString(),
+                })
+            } else {
+                logger.warn('SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                })
+                metadataSwitchoverDate = null
+            }
+        }
 
         this.promiseScheduler = new PromiseScheduler()
 
@@ -105,7 +123,10 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(producer)
+        const metadataStore = new SessionMetadataStore(
+            producer,
+            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC || KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST
+        )
         const consoleLogStore = new SessionConsoleLogStore(
             producer,
             this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
@@ -127,6 +148,7 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            metadataSwitchoverDate,
         })
     }
 
@@ -286,7 +308,7 @@ export class SessionRecordingIngester {
 
         void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
 
-        const promiseResults = await this.promiseScheduler.waitForAll()
+        const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 

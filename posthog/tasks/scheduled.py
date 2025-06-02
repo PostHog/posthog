@@ -14,7 +14,7 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -35,9 +35,7 @@ from posthog.tasks.tasks import (
     ee_persist_finished_recordings,
     ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
-    graphile_worker_queue_size,
     ingestion_lag,
-    monitoring_check_clickhouse_schema_drift,
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
@@ -55,7 +53,6 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
     count_items_in_playlists,
-    sync_hog_function_templates_task,
 )
 from posthog.utils import get_crontab
 
@@ -86,14 +83,6 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
-    # Monitoring tasks
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        monitoring_check_clickhouse_schema_drift.s(),
-        "check clickhouse schema drift",
-    )
-
     if not settings.DEBUG:
         add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth.s(), "10 sec queue probe")
 
@@ -195,13 +184,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="0", hour="*"),
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        graphile_worker_queue_size.s(),
-        name="Graphile Worker queue size",
     )
 
     sender.add_periodic_task(
@@ -368,12 +350,4 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
-    )
-
-    # Every 20 minutes, sync hog function templates
-    add_periodic_task_with_expiry(
-        sender,
-        20 * 60,  # 20 minutes in seconds
-        sync_hog_function_templates_task.s(),
-        name="sync hog function templates",
     )
