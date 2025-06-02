@@ -138,8 +138,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
 
                 const canvas = canvasRef.current
                 if (canvas) {
-                    const maxDisplayWidth = window.innerWidth * 0.8
-                    const maxDisplayHeight = window.innerHeight * 0.8
+                    const maxDisplayWidth = window.innerWidth * 0.7
+                    const maxDisplayHeight = window.innerHeight * 0.7
 
                     const { naturalWidth, naturalHeight } = img
 
@@ -244,8 +244,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         if (mode === 'draw') {
             setCurrentPath((prevPath) => [...prevPath, { x: offsetX, y: offsetY }])
         } else if (mode === 'moveText' && selectedTextIndex !== null && dragStartOffset) {
-            const newX = offsetX - dragStartOffset.x
-            const newY = offsetY - dragStartOffset.y
+            const newX = offsetX - (dragStartOffset as Point).x
+            const newY = offsetY - (dragStartOffset as Point).y
             setTexts((prevTexts) =>
                 prevTexts.map((item, index) => (index === selectedTextIndex ? { ...item, x: newX, y: newY } : item))
             )

@@ -169,26 +169,18 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             actions.setIsLoading(true)
             actions.setIsOpen(true)
             const blob = await toBlob(html)
-            if (blob) {
-                const image = new File([blob], 'screenshot.png', { type: 'image/jpg' })
-                actions.setImageFile(image)
-            } else {
-                lemonToast.error('Cannot take screenshot. Please try again.')
-            }
-            actions.setIsLoading(false)
+            actions.setBlob(blob)
         },
         setBlob: async ({ blob }) => {
             if (!blob) {
+                lemonToast.error('Cannot take screenshot. Please try again.')
                 return
             }
             actions.setIsLoading(true)
             actions.setIsOpen(true)
-            if (blob) {
-                const image = new File([blob], 'screenshot.png', { type: 'image/png' })
-                actions.setImageFile(image)
-            } else {
-                lemonToast.error('Cannot take screenshot. Please try again.')
-            }
+
+            const image = new File([blob], 'screenshot.png', { type: 'image/png' })
+            actions.setImageFile(image)
             actions.setIsLoading(false)
         },
     })),
