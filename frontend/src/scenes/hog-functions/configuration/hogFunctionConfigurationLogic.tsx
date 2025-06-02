@@ -500,7 +500,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
-                    if (!values.canLoadSampleGlobals) {
+                    if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
                     const errorMessage =

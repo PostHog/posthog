@@ -1,5 +1,14 @@
 import { IconInfo, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonLabel,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -147,7 +156,6 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                                         Response
                                         {testResult && (
                                             <>
-                                                <span> - </span>
                                                 <LemonTag
                                                     type={
                                                         testResult.status >= 200 && testResult.status < 300
@@ -181,7 +189,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                                         <CodeSnippet thing="Response body">{testResult.body}</CodeSnippet>
                                     </div>
                                 ) : isTestInvocationSubmitting ? (
-                                    <p>Loading...</p>
+                                    <LemonSkeleton className="h-12" />
                                 ) : (
                                     <p>No response yet</p>
                                 )}

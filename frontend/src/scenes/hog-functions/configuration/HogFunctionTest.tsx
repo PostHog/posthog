@@ -156,7 +156,7 @@ export function HogFunctionTest(): JSX.Element {
         isTestInvocationSubmitting,
         testResult,
         expanded,
-        sampleGlobalsLoading,
+        sampleGlobalsLoadingAndNotCancelled,
         sampleGlobalsError,
         type,
         savedGlobals,
@@ -164,7 +164,6 @@ export function HogFunctionTest(): JSX.Element {
         testResultMode,
         sortedTestsResult,
         jsonError,
-        fetchCancelled,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -195,7 +194,6 @@ export function HogFunctionTest(): JSX.Element {
                     <div className="flex-1 deprecated-space-y-2">
                         <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
-                            {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
                         </h2>
                         {inactive ? <p>Click here to test your function with an example event</p> : null}
                     </div>
@@ -306,11 +304,17 @@ export function HogFunctionTest(): JSX.Element {
                                     {canLoadSampleGlobals ? (
                                         <LemonButton
                                             type="secondary"
-                                            onClick={() => loadSampleGlobals()}
-                                            loading={sampleGlobalsLoading && !fetchCancelled}
+                                            onClick={() => {
+                                                if (sampleGlobalsLoadingAndNotCancelled) {
+                                                    cancelSampleGlobalsLoading()
+                                                } else {
+                                                    loadSampleGlobals()
+                                                }
+                                            }}
                                             tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                            icon={sampleGlobalsLoadingAndNotCancelled ? <Spinner /> : undefined}
                                         >
-                                            Load new event
+                                            {sampleGlobalsLoadingAndNotCancelled ? 'Cancel loading' : 'Load new event'}
                                         </LemonButton>
                                     ) : null}
                                     <LemonButton
@@ -469,19 +473,6 @@ export function HogFunctionTest(): JSX.Element {
                                                         ? 'The provider will be tested with this sample data:'
                                                         : 'Here are all the global variables you can use in your code:'}
                                                 </div>
-                                                {sampleGlobalsLoading && !fetchCancelled && (
-                                                    <div className="flex gap-2 items-center text-muted">
-                                                        <Spinner />
-                                                        <span>Fetching new event...</span>
-                                                        <LemonButton
-                                                            size="small"
-                                                            type="secondary"
-                                                            onClick={() => cancelSampleGlobalsLoading()}
-                                                        >
-                                                            Cancel
-                                                        </LemonButton>
-                                                    </div>
-                                                )}
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>
                                                 ) : null}
@@ -489,7 +480,7 @@ export function HogFunctionTest(): JSX.Element {
                                             <HogFunctionTestEditor
                                                 value={value}
                                                 onChange={onChange}
-                                                readOnly={sampleGlobalsLoading}
+                                                readOnly={sampleGlobalsLoadingAndNotCancelled}
                                             />
                                         </>
                                     )}
