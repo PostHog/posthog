@@ -241,8 +241,7 @@ class TestCapture(BaseTest):
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
         args = patch_process_event_with_plugins.call_args[1]["data"]
-
-        return {
+        res = {
             "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
@@ -250,8 +249,12 @@ class TestCapture(BaseTest):
             "data": json.loads(args["data"]),
             "token": args["token"],
             "now": args["now"],
-            "sent_at": args["sent_at"],
         }
+
+        if "sent_at" in args:
+            res["sent_at"] = args["sent_at"]
+
+        return res
 
     def _send_original_version_session_recording_event(
         self,
@@ -559,7 +562,6 @@ class TestCapture(BaseTest):
             "data": expected_data,
             "token": self.team.api_token,
             "uuid": ANY,
-            "sent_at": "",
             "now": ANY,
         } == self._to_arguments(kafka_produce)
 
