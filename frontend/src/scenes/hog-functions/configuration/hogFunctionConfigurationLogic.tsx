@@ -625,8 +625,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         payload._create_in_folder = folder
                     }
                 }
-                // console.log('🔧 Final payload being sent:', payload)
-                // console.log('🔧 inputs_schema in payload:', payload.inputs_schema)
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
         },
