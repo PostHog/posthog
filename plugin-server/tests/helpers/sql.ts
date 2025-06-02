@@ -33,36 +33,50 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-// Reset the tables with some truncated first if we have issues regarding foreign keys
-export const POSTGRES_DELETE_PERSON_TABLES_QUERY = `
-DO $$
-BEGIN
-    DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_person CASCADE;
-END $$;
-`
-
-export const POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY = `
-DO $$
-BEGIN
-    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
-    DELETE FROM posthog_cohortpeople CASCADE;
-    DELETE FROM posthog_cohort CASCADE;
-    DELETE FROM posthog_featureflag CASCADE;
-END $$;
-`
-
 export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
 DO $$
 DECLARE
     r RECORD;
 BEGIN
+    -- First handle tables with foreign key dependencies
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_cohort CASCADE;
+    DELETE FROM posthog_featureflag CASCADE;
+    DELETE FROM posthog_organizationmembership CASCADE;
+    DELETE FROM posthog_grouptypemapping CASCADE;
+    DELETE FROM posthog_project CASCADE;
+    DELETE FROM posthog_pluginsourcefile CASCADE;
+    DELETE FROM posthog_pluginconfig CASCADE;
+    DELETE FROM posthog_plugin CASCADE;
+    DELETE FROM posthog_organization CASCADE;
+    DELETE FROM posthog_action CASCADE;
+    DELETE FROM posthog_user CASCADE;
+    DELETE FROM posthog_group CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+    DELETE FROM posthog_team CASCADE;
+    
     -- Then handle remaining tables
     FOR r IN (
         SELECT tablename
         FROM pg_tables
         WHERE schemaname = current_schema()
-        AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
+        AND tablename NOT IN (
+            'posthog_persondistinctid',
+            'posthog_person',
+            'posthog_organizationmembership',
+            'posthog_grouptypemapping',
+            'posthog_project',
+            'posthog_pluginsourcefile',
+            'posthog_pluginconfig',
+            'posthog_plugin',
+            'posthog_organization',
+            'posthog_action',
+            'posthog_user',
+            'posthog_group',
+            'posthog_person',
+            'posthog_team')
     ) LOOP
         EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
     END LOOP;
@@ -78,23 +92,7 @@ export async function resetTestDatabase(
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
 
-    // Delete pre-person tables using COMMON_WRITE
-    await db
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY, undefined, 'delete-pre-person-tables')
-        .catch((e) => {
-            console.error('Error deleting pre-person tables', e)
-            throw e
-        })
-
-    // Delete person tables using PERSONS_WRITE
-    await db
-        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSON_TABLES_QUERY, undefined, 'delete-person-tables')
-        .catch((e) => {
-            console.error('Error deleting person tables', e)
-            throw e
-        })
-
-    // Delete other tables using COMMON_WRITE
+    // Delete all tables using COMMON_WRITE
     await db
         .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
         .catch((e) => {
