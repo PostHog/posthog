@@ -31,15 +31,13 @@ const productTypesMapped = [
 
 interface TreeSearchFieldProps {
     root?: string
-    logicKey?: string
-    uniqueKey: string
     placeholder?: string
 }
 
-export function TreeSearchField({ root, placeholder, logicKey, uniqueKey }: TreeSearchFieldProps): JSX.Element {
+export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JSX.Element {
     const { panelTreeRef } = useValues(panelLayoutLogic)
-    const { searchTerm } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
-    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
+    const { searchTerm } = useValues(projectTreeLogic())
+    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic())
     const { featureFlags } = useValues(featureFlagLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
