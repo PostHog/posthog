@@ -23,7 +23,6 @@ describe('incoming webhook template', () => {
                 },
             },
             {
-                // TODO: Fix typing
                 request: {
                     body: {
                         eventName: 'the event',
