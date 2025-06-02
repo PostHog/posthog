@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
+from django.test.utils import freeze_time
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
@@ -3501,3 +3502,93 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    def test_retention_with_virtual_person_property_breakdown(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            # Create person with initial referring domain
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"$initial_referring_domain": "https://www.facebook.com"},
+            )
+
+            # Create events for both users
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-13T12:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-12T12:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-14T12:00:00Z",
+            )
+
+        result = self.run_query(
+            {
+                "dateRange": {
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                    },
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                    },
+                    "totalIntervals": 7,
+                    "period": "Day",
+                },
+                "breakdownFilter": {
+                    "breakdowns": [
+                        {
+                            "type": "person",
+                            "property": "$virt_initial_channel_type",
+                        }
+                    ],
+                },
+            }
+        )
+
+        results_by_breakdown = {}
+        for r in result:
+            breakdown_value = r["breakdown_value"]
+            if breakdown_value not in results_by_breakdown:
+                results_by_breakdown[breakdown_value] = []
+            results_by_breakdown[breakdown_value].append(r)
+
+        assert len(results_by_breakdown) == 2  # One for each channel type
+
+        social_results = results_by_breakdown["Organic Social"]
+        assert len(social_results) == 8  # 8 days
+        assert social_results[0]["values"][0]["count"] == 1  # Day 0
+        assert social_results[0]["values"][1]["count"] == 0  # Day 1
+        assert social_results[0]["values"][2]["count"] == 1  # Day 2
+
+        organic_results = results_by_breakdown["Organic Search"]
+        assert len(organic_results) == 8  # 8 days
+        assert organic_results[0]["values"][0]["count"] == 1  # Day 0
+        assert organic_results[0]["values"][1]["count"] == 1  # Day 1
+        assert organic_results[0]["values"][2]["count"] == 0  # Day 2
