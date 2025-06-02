@@ -25,13 +25,8 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
-/**
- * seen hashes has to survive outside of the context of any one call to processAllSnapshots
- * but also not grow unbounded
- * the amount of ram it uses should be relatively small since it's a set of strings
- */
-let hashId: string | null = null
-const seenHashes: Set<string> = new Set()
+const seenId: string | null = null
+const processSnapshots = new Map<SourceKey, RecordingSnapshot[]>()
 
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
@@ -43,13 +38,13 @@ export function processAllSnapshots(
         return []
     }
 
-    if (hashId !== sessionRecordingId) {
-        hashId = sessionRecordingId
-        seenHashes.clear()
+    if (seenId !== sessionRecordingId) {
+        processSnapshots.clear()
     }
 
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
+    const seenHashes: Set<string> = new Set()
 
     let metaCount = 0
     let fullSnapshotCount = 0
@@ -59,10 +54,19 @@ export function processAllSnapshots(
     // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
         const sourceKey = keyForSource(source)
+
+        if (processSnapshots.has(sourceKey)) {
+            // If we already processed this source, skip it
+            result.push(...processSnapshots.get(sourceKey)!)
+            continue
+        }
+
         // sorting is very cheap for already sorted lists
         const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
             (a, b) => a.timestamp - b.timestamp
         )
+
+        const sourceResult: RecordingSnapshot[] = []
 
         for (const snapshot of sourceSnapshots) {
             const { delay: _delay, ...delayFreeSnapshot } = snapshot
@@ -107,8 +111,11 @@ export function processAllSnapshots(
                 }
             }
 
-            result.push(snapshot)
+            sourceResult.push(snapshot)
         }
+
+        processSnapshots.set(sourceKey, sourceResult)
+        result.push(...sourceResult)
     }
 
     // sorting is very cheap for already sorted lists
