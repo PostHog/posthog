@@ -22,7 +22,7 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
         default_value=[],
-        description="List of team IDs to process - if empty we will process for teams [1,2] only",
+        description="List of team IDs to process - if empty we will process for default teams only",
     ),
     "clickhouse_settings": Field(
         str,
