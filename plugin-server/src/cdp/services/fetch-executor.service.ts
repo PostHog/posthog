@@ -89,7 +89,8 @@ const parseLiquidTemplate = (
             return date.toISOString()
         })
 
-        // HTML decode the template before processing
+        // HTML decode the template before processing. To do maybe we should use a library for better html decoding
+        // $ is not decoded because it is used as a variable in liquid templates, so we need to handle this separately
         const decodedTemplate = template
             .replace(/&gt;/g, '>')
             .replace(/&lt;/g, '<')

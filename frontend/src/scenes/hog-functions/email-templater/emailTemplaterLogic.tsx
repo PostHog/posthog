@@ -101,25 +101,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     }
                 })
 
-                // Add some common person fields
-                tags['person_id'] = {
-                    name: 'Person ID',
-                    value: '{{person.id}}',
-                    sample: 'person_123',
-                }
-
-                tags['person_name'] = {
-                    name: 'Person Name',
-                    value: '{{person.name}}',
-                    sample: 'John Doe',
-                }
-
-                tags['person_email'] = {
-                    name: 'Person Email',
-                    value: '{{person.properties.email}}',
-                    sample: 'john@example.com',
-                }
-
                 return tags
             },
         ],
