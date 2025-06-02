@@ -423,7 +423,6 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         date=timestamp,
         table=table,
         incremental=incremental,
-        workload=Workload.ONLINE,
     )
     return dagster.RunRequest(
         run_key=f"{timestamp}-{table}",
