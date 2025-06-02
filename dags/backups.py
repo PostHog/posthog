@@ -200,6 +200,7 @@ class BackupConfig(dagster.Config):
         pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
         validate_default=True,
     )
+    workload: Workload = Workload.ONLINE
 
 
 def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatus]:
@@ -265,9 +266,9 @@ def check_latest_backup_status(
     def map_hosts(func: Callable[[Client], Any]):
         if latest_backup.shard:
             return cluster.map_hosts_in_shard_by_role(
-                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=config.workload
             )
-        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
     is_done = map_hosts(latest_backup.is_done).result().values()
     if not all(is_done):
@@ -319,13 +320,13 @@ def run_backup(
         cluster.map_any_host_in_shards_by_role(
             {backup.shard: backup.create},
             node_role=NodeRole.DATA,
-            workload=Workload.ONLINE,
+            workload=config.workload,
         ).result()
     else:
         cluster.any_host_by_role(
             backup.create,
             node_role=NodeRole.DATA,
-            workload=Workload.ONLINE,
+            workload=config.workload,
         ).result()
 
     return backup
@@ -345,9 +346,9 @@ def wait_for_backup(
     def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
             return cluster.map_hosts_in_shard_by_role(
-                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=config.workload
             )
-        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
     if backup:
         map_hosts(backup.wait).result().values()
@@ -406,6 +407,15 @@ def non_sharded_backup():
     wait_for_backup(new_backup)
 
 
+def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
+    return dagster.RunConfig(
+        {
+            op.name: {"config": config.model_dump(mode="json")}
+            for op in [get_latest_backup, run_backup, check_latest_backup_status, wait_for_backup]
+        }
+    )
+
+
 def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     config = BackupConfig(
@@ -413,15 +423,11 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         date=timestamp,
         table=table,
         incremental=incremental,
+        workload=Workload.ONLINE,
     )
     return dagster.RunRequest(
         run_key=f"{timestamp}-{table}",
-        run_config={
-            "ops": {
-                op.name: {"config": config.model_dump()}
-                for op in [get_latest_backup, run_backup, check_latest_backup_status, wait_for_backup]
-            }
-        },
+        run_config=prepare_run_config(config),
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
