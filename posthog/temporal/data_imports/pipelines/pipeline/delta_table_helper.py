@@ -5,6 +5,7 @@ from typing import Any
 import deltalake.exceptions
 import pyarrow as pa
 import pyarrow.compute as pc
+from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import deltalake as deltalake
 from django.conf import settings
@@ -12,7 +13,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    ensure_delta_compatible_arrow_schema,
     normalize_column_name,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY

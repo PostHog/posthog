@@ -7,7 +7,6 @@ import uuid
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
-from collections.abc import Callable, Mapping
 
 import deltalake as deltalake
 import numpy as np
@@ -16,6 +15,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
 from dlt.common.data_types.typing import TDataType
+from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 
@@ -42,42 +42,6 @@ DLT_TO_PA_TYPE_MAP = {
 DEFAULT_NUMERIC_PRECISION = 76
 DEFAULT_NUMERIC_SCALE = 32
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
-
-
-# Taken from https://github.com/dlt-hub/dlt/blob/devel/dlt/common/libs/pyarrow.py
-def cast_arrow_schema_types(
-    schema: pa.Schema,
-    type_map: Mapping[Callable[[pa.DataType], bool], pa.DataType],
-) -> pa.Schema:
-    """Returns type-casted Arrow schema.
-
-    Replaces data types for fields matching a type check in `type_map`.
-    Type check functions in `type_map` are assumed to be mutually exclusive, i.e.
-    a data type does not match more than one type check function.
-    """
-    for i, e in enumerate(schema.types):
-        for type_check, cast_type in type_map.items():
-            if type_check(e):
-                adjusted_field = schema.field(i).with_type(cast_type)
-                schema = schema.set(i, adjusted_field)
-                break  # if type matches type check, do not do other type checks
-    return schema
-
-
-# Taken from https://github.com/dlt-hub/dlt/blob/devel/dlt/common/libs/deltalake.py
-def ensure_delta_compatible_arrow_schema(schema: pa.Schema) -> pa.Schema:
-    """Returns Arrow schema compatible with Delta table format.
-
-    Casts schema to replace data types not supported by Delta.
-    """
-    ARROW_TO_DELTA_COMPATIBLE_ARROW_TYPE_MAP = {
-        # maps type check function to type factory function
-        pa.types.is_null: pa.string(),
-        pa.types.is_time: pa.string(),
-        pa.types.is_decimal256: pa.string(),  # pyarrow does not allow downcasting to decimal128
-    }
-    # NOTE: also consider calling _convert_pa_schema_to_delta() from delta.schema which casts unsigned types
-    return cast_arrow_schema_types(schema, ARROW_TO_DELTA_COMPATIBLE_ARROW_TYPE_MAP)
 
 
 def normalize_column_name(column_name: str) -> str:
