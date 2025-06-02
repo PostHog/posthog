@@ -200,7 +200,7 @@ class BackupConfig(dagster.Config):
         pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
         validate_default=True,
     )
-    workload: Workload = Workload.ONLINE
+    workload: Workload = Workload.OFFLINE
 
 
 def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatus]:
