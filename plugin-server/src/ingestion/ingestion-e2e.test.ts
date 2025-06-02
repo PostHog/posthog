@@ -778,6 +778,40 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
+    testWithTeamIngester('should produce ingestion warnings for messages over 1MB', async (ingester, hub, team) => {
+        // For this we basically want the plugin-server to try and produce a new
+        // message larger than 1MB. We do this by creating a person with a lot of
+        // properties. We will end up denormalizing the person properties onto the
+        // event, which already has the properties as $set therefore resulting in a
+        // message that's larger than 1MB. There may also be other attributes that
+        // are added to the event which pushes it over the limit.
+        //
+        // We verify that this is handled by checking that there is a message in the
+        // appropriate topic.
+        const distinctId = new UUIDT().toString()
+
+        const personProperties = {
+            distinct_id: distinctId,
+            $set: {} as Record<string, string>,
+        }
+
+        for (let i = 0; i < 10000; i++) {
+            personProperties.$set[new UUIDT().toString()] = new UUIDT().toString()
+        }
+
+        const events = [
+            new EventBuilder(team, distinctId).withEvent('$identify').withProperties(personProperties).build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForExpect(async () => {
+            const ingestionWarnings = await fetchIngestionWarnings(hub, team.id)
+            expect(ingestionWarnings.length).toBe(1)
+            expect(ingestionWarnings[0].details.eventUuid).toBe(events[0].uuid)
+        }, 5000)
+    })
+
     const fetchPersons = async (hub: Hub, teamId: number) => {
         const persons = await hub.db.fetchPersons(Database.ClickHouse, teamId)
         return persons.map((person) => ({
