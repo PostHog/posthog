@@ -118,6 +118,9 @@ export class SegmentDestinationExecutorService {
         metadata.tries = metadata.tries + 1
         result.invocation.queueMetadata = metadata
 
+        // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
+        let retriesPossible = true
+
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
                 level,
@@ -202,8 +205,10 @@ export class SegmentDestinationExecutorService {
                         )
                     }
 
+                    const method = options?.method?.toUpperCase() ?? 'GET'
+
                     const fetchOptions: FetchOptions = {
-                        method: options?.method?.toUpperCase() ?? 'GET',
+                        method,
                         headers,
                         body,
                     }
@@ -251,6 +256,7 @@ export class SegmentDestinationExecutorService {
                     )
 
                     if (
+                        retriesPossible &&
                         isFetchResponseRetriable(fetchResponse, fetchError) &&
                         metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
                     ) {
@@ -260,6 +266,12 @@ export class SegmentDestinationExecutorService {
                             `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
                         )
                         throw new SegmentRetriableError()
+                    }
+
+                    if (method !== 'GET' && !retriesPossible) {
+                        // If we have got to this point with anything other than a GET request, we can't retry for the risk of duplicating data
+                        // as retries apply to the entire invocation, not just the http request.
+                        retriesPossible = false
                     }
 
                     if (!fetchResponse) {
