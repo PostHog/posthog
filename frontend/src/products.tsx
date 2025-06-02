@@ -4,9 +4,10 @@
 
 import {
     IconChat,
+    IconCursor,
     IconDashboard,
+    IconExternal,
     IconGraph,
-    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -17,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -34,15 +35,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
-import {
-    ActionType,
-    DashboardType,
-    FileSystemFilterType,
-    InsightShortId,
-    InsightType,
-    RecordingUniversalFilters,
-    ReplayTabs,
-} from './types'
+import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -379,16 +372,4 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
-export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
-    action: { name: 'Actions' },
-    dashboard: { name: 'Dashboards' },
-    early_access_feature: { name: 'Early access features' },
-    experiment: { name: 'Experiments' },
-    feature_flag: { name: 'Feature flags' },
-    broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
-    campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
-    notebook: { name: 'Notebooks' },
-    insight: { name: 'Insights' },
-    session_recording_playlist: { name: 'Replay playlists' },
-    user_interview: { name: 'User interviews' },
-})
+export const getTreeItemsDataManagement = (): FileSystemImport[] => []
