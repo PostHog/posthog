@@ -20,7 +20,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+            - uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4
               with:
                   aws-region: us-east-1
                   role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role

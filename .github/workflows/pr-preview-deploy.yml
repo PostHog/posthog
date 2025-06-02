@@ -36,7 +36,7 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+            - uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4
               with:
                   aws-region: us-east-1
                   role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
