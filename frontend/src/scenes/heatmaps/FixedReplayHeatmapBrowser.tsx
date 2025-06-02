@@ -87,7 +87,6 @@ export function FixedReplayHeatmapBrowser({
                         <div className="flex justify-between items-center">
                             <ViewportChooser />
                             <LemonButton
-                                size="xsmall"
                                 className="mb-2 mr-2"
                                 type="secondary"
                                 onClick={handleShare}
