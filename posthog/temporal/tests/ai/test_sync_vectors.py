@@ -26,6 +26,7 @@ from posthog.temporal.ai.sync_vectors import (
     BatchEmbedAndSyncActionsInputs,
     BatchEmbedAndSyncActionsOutputs,
     BatchSummarizeActionsInputs,
+    EmbeddingVersion,
     GetApproximateActionsCountInputs,
     SyncVectorsInputs,
     SyncVectorsWorkflow,
@@ -865,7 +866,11 @@ async def test_updates_embedding_version(embeddings_mock, azure_mock, ateam):
         ):
             await activity_environment.client.execute_workflow(
                 SyncVectorsWorkflow.run,
-                SyncVectorsInputs(start_dt=start_dt.isoformat(), delay_between_batches=0, embedding_version=2),
+                SyncVectorsInputs(
+                    start_dt=start_dt.isoformat(),
+                    delay_between_batches=0,
+                    embedding_versions=EmbeddingVersion(actions=2),
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )

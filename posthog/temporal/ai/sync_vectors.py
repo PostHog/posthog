@@ -331,6 +331,13 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
 
 
 @dataclass
+class EmbeddingVersion:
+    """The version of the embedding model to use per a domain."""
+
+    actions: int | None
+
+
+@dataclass
 class SyncVectorsInputs:
     start_dt: str | None = None
     """Start date for the sync if the workflow is not triggered by a schedule."""
@@ -345,7 +352,9 @@ class SyncVectorsInputs:
     delay_between_batches: int = 60
     """How many seconds to wait between batches."""
     embedding_version: int | None = None
-    """The version of the embedding model to use. Update in the schedule."""
+    """DEPRECATED: use `embedding_versions` instead. Kept for backward compatibility."""
+    embedding_versions: EmbeddingVersion | None = None
+    """The versions of the embedding model to use per a domain."""
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
@@ -398,7 +407,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     insert_batch_size=inputs.insert_batch_size,
                     embeddings_batch_size=inputs.embed_batch_size,
                     max_parallel_requests=inputs.max_parallel_requests,
-                    embedding_version=inputs.embedding_version,
+                    embedding_version=inputs.embedding_versions.actions if inputs.embedding_versions else None,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
