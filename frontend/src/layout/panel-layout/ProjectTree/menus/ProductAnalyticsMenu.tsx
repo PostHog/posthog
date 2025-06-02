@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenuLabel, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
@@ -19,6 +20,8 @@ export function ProductAnalyticsMenu({ MenuItem, MenuSeparator }: CustomMenuProp
 
     return (
         <>
+            <DropdownMenuLabel>Create new insight type</DropdownMenuLabel>
+            <DropdownMenuSeparator />
             {treeItemsNew
                 .find(({ name }) => name === 'Insight')
                 ?.children?.sort((a, b) => (a.visualOrder ?? 0) - (b.visualOrder ?? 0))
@@ -49,7 +52,7 @@ export function ProductAnalyticsMenu({ MenuItem, MenuSeparator }: CustomMenuProp
                     >
                         <ButtonPrimitive menuItem>
                             {child.icon}
-                            New {child.name.toLowerCase()}
+                            {child.name}
                         </ButtonPrimitive>
                     </MenuItem>
                 ))}
