@@ -1,24 +1,12 @@
-import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { IconBlank } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { getTreeFilterTypes } from '~/products'
-import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
@@ -80,88 +68,6 @@ const panelLayoutPanelVariants = cva({
     ],
 })
 
-interface FiltersDropdownProps {
-    setSearchTerm: (searchTerm: string) => void
-    searchTerm: string
-}
-
-export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const types: [string, FileSystemFilterType][] = [
-        ...Object.entries(getTreeFilterTypes()),
-        ['destination', { name: 'Destinations' }],
-        ['site_app', { name: 'Site apps' }],
-        ['source', { name: 'Sources' }],
-        ['transformation', { name: 'Transformations' }],
-    ]
-    const removeTagsStarting = (str: string, tag: string): string =>
-        str
-            .split(' ')
-            .filter((p) => !p.startsWith(tag))
-            .join(' ')
-            .trim()
-    const removeTagsEquals = (str: string, tag: string): string =>
-        str
-            .split(' ')
-            .filter((p) => p != tag)
-            .join(' ')
-            .trim()
-    const addTag = (str: string, tag: string): string => `${str.trim()} ${tag.trim()}`.trim()
-
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive
-                    iconOnly
-                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
-                >
-                    <IconFilter className="size-3 text-tertiary" />
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                <DropdownMenuGroup>
-                    <DropdownMenuItem
-                        onClick={(e) => {
-                            e.preventDefault()
-                            setSearchTerm(
-                                searchTerm.includes('user:me')
-                                    ? removeTagsEquals(searchTerm, 'user:me')
-                                    : addTag(searchTerm, 'user:me')
-                            )
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>
-                            {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
-                            Only my stuff
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {types
-                        .filter(([_, { flag }]) => !flag || featureFlags[flag as keyof typeof featureFlags])
-                        .map(([obj, { name }]) => (
-                            <DropdownMenuItem
-                                key={obj}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    setSearchTerm(
-                                        searchTerm.includes(`type:${obj}`)
-                                            ? removeTagsStarting(searchTerm, 'type:')
-                                            : addTag(removeTagsStarting(searchTerm, 'type:'), `type:${obj}`)
-                                    )
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>
-                                    {searchTerm.includes(`type:${obj}`) ? <IconCheck /> : <IconBlank />}
-                                    {name}
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        ))}
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
-    )
-}
-
 export function PanelLayoutPanel({
     searchField,
     panelActions,
@@ -200,6 +106,7 @@ export function PanelLayoutPanel({
                             iconOnly
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                             tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
                                 <IconPinFilled className="size-3 text-tertiary" />
@@ -243,6 +150,7 @@ export function PanelLayoutPanel({
             innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
+            data-attr="tree-panel-resizer"
         >
             {panelContents}
         </ResizableElement>
