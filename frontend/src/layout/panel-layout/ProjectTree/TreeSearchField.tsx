@@ -36,8 +36,8 @@ interface TreeSearchFieldProps {
 
 export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JSX.Element {
     const { panelTreeRef } = useValues(panelLayoutLogic)
-    const { searchTerm } = useValues(projectTreeLogic())
-    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic())
+    const { searchTerm } = useValues(projectTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {

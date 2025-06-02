@@ -272,7 +272,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         {!isLayoutNavCollapsed && (
                             <div
-                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
                                 aria-label="Add a new item menu actions"
                             >
                                 <ButtonPrimitive
