@@ -22,7 +22,8 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -43,6 +44,7 @@ import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/act
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
+import { DashboardsMenu } from './ProjectTree/menus/DashboardsMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
@@ -167,6 +169,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
+            dropdownMenu: <DashboardsMenu />,
         },
         {
             identifier: 'Notebooks',
@@ -282,12 +285,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <ScrollableShadows
-                            className="flex-1"
-                            innerClassName="overflow-y-auto"
-                            direction="vertical"
-                            styledScrollbars
-                        >
+                        <ScrollableShadows className="flex-1" innerClassName="overflow-y-auto" direction="vertical">
                             <ListBox className="flex flex-col gap-px">
                                 <div
                                     className={`px-1 flex flex-col gap-px ${
@@ -328,36 +326,65 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         <>
                                                             <span className="truncate">{item.id}</span>
                                                             <span className="ml-auto">
-                                                                <IconChevronRight className="size-3 text-secondary" />
+                                                                <IconChevronRight className="size-3 text-tertiary" />
                                                             </span>
                                                         </>
                                                     )}
                                                 </ButtonPrimitive>
                                             ) : (
-                                                <Link
-                                                    data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
-                                                    buttonProps={{
-                                                        menuItem: !isLayoutNavCollapsed,
-                                                        className: 'group',
-                                                        iconOnly: isLayoutNavCollapsed,
-                                                    }}
-                                                    to={item.to}
-                                                    tooltip={item.tooltip}
-                                                    tooltipPlacement="right"
-                                                    tooltipDocLink={item.tooltipDocLink}
-                                                >
-                                                    <span
-                                                        className={`flex text-tertiary group-hover:text-primary ${
-                                                            isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                                        }`}
+                                                <ButtonGroupPrimitive fullWidth className="[&>span]:w-full">
+                                                    <Link
+                                                        data-attr={`menu-item-${item.identifier
+                                                            .toString()
+                                                            .toLowerCase()}`}
+                                                        buttonProps={{
+                                                            menuItem: !isLayoutNavCollapsed,
+                                                            className: 'group',
+                                                            iconOnly: isLayoutNavCollapsed,
+                                                            hasSideActionRight: true,
+                                                            fullWidth: true,
+                                                        }}
+                                                        to={item.to}
+                                                        tooltip={item.tooltip}
+                                                        tooltipPlacement="right"
+                                                        tooltipDocLink={item.tooltipDocLink}
                                                     >
-                                                        {item.icon}
-                                                    </span>
+                                                        <span
+                                                            className={`flex text-tertiary group-hover:text-primary ${
+                                                                isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                                            }`}
+                                                        >
+                                                            {item.icon}
+                                                        </span>
 
-                                                    {!isLayoutNavCollapsed && (
-                                                        <span className="truncate">{item.id}</span>
+                                                        {!isLayoutNavCollapsed && (
+                                                            <span className="truncate">{item.id}</span>
+                                                        )}
+                                                    </Link>
+                                                    {item.dropdownMenu && (
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <ButtonPrimitive
+                                                                    iconOnly
+                                                                    isSideActionRight
+                                                                    className="w-[22px] z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
+                                                                >
+                                                                    <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                                                                </ButtonPrimitive>
+                                                            </DropdownMenuTrigger>
+
+                                                            {/* The Dropdown content menu */}
+                                                            <DropdownMenuContent
+                                                                loop
+                                                                align="end"
+                                                                side="bottom"
+                                                                className="max-w-[250px]"
+                                                            >
+                                                                {item.dropdownMenu}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
                                                     )}
-                                                </Link>
+                                                </ButtonGroupPrimitive>
                                             )}
                                         </ListBox.Item>
                                     ))}
@@ -383,7 +410,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             not sure how better to do this other than lower the notices z-index.. 
                         */}
                         <div
-                            className={`pt-1 px-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
+                            className={`pt-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
                                 isDev ? 'pb-10' : 'pb-2'
                             }`}
                         >

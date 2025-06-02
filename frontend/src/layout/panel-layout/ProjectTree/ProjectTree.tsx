@@ -163,7 +163,10 @@ export function ProjectTree({
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
                 <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
-                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                <>
+                    <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
             ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
                 <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : null
