@@ -949,6 +949,7 @@ class Producer:
                     query_parameters=query_parameters,
                     interval_start=interval_start,
                     interval_end=interval_end,
+                    team_id=team_id,
                 )
                 try:
                     async for record_batch in record_batch_iterator:
@@ -963,6 +964,8 @@ class Producer:
 
 
 class RetryOOMRecorBatchAsyncIterator:
+    """Async iterator of record batches handling OOM errors from ClickHouse."""
+
     def __init__(
         self,
         clickhouse_client: ClickHouseClient,
@@ -970,19 +973,25 @@ class RetryOOMRecorBatchAsyncIterator:
         query_parameters: dict[str, str],
         interval_start: dt.datetime | None,
         interval_end: dt.datetime,
+        team_id: int,
     ):
         self.client = clickhouse_client
         self.query = query
         self.query_parameters = query_parameters
         self.interval_start = interval_start
         self.interval_end = interval_end
-        self.streamers = []
+        self.team_id = team_id
+        self.streamers: list[tuple[collections.abc.AsyncIterator[pa.RecordBatch], dt.datetime, dt.datetime]] = []
 
     def __aiter__(self) -> collections.abc.AsyncIterator[pa.RecordBatch]:
         return self.stream()
 
     async def stream(self) -> collections.abc.AsyncIterator[pa.RecordBatch]:
-        if not self.streamers and self.interval_start is not None:
+        if (
+            not self.streamers
+            and self.interval_start is not None
+            and str(self.team_id) in settings.BATCH_EXPORT_SPLIT_QUERIES_TEAM_IDS
+        ):
             new_streamer = self.start_new_stream(interval_start=self.interval_start, interval_end=self.interval_end)
             self.streamers.append((new_streamer, self.interval_start, self.interval_end))
         else:
@@ -1025,7 +1034,9 @@ class RetryOOMRecorBatchAsyncIterator:
                 except StopAsyncIteration:
                     break
 
-    def start_new_stream(self, interval_start: dt.datetime | None, interval_end: dt.datetime):
+    def start_new_stream(
+        self, interval_start: dt.datetime | None, interval_end: dt.datetime
+    ) -> collections.abc.AsyncIterator[pa.RecordBatch]:
         query_parameters = self.query_parameters.copy()
         query_id = uuid.uuid4()
 
