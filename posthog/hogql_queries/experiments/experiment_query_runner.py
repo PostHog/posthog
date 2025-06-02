@@ -675,17 +675,17 @@ class ExperimentQueryRunner(QueryRunner):
             )
 
         else:
-            variants = self._get_legacy_variant_results(sorted_results)
+            variants_legacy = self._get_legacy_variant_results(sorted_results)
 
-            self._validate_event_variants(variants)
+            self._validate_event_variants(variants_legacy)
 
             if isinstance(self.metric, ExperimentFunnelMetric):
                 control_variant, test_variants = split_baseline_and_test_variants(
-                    cast(list[ExperimentVariantFunnelsBaseStats], variants)
+                    cast(list[ExperimentVariantFunnelsBaseStats], variants_legacy)
                 )
             else:
                 control_variant, test_variants = split_baseline_and_test_variants(
-                    cast(list[ExperimentVariantTrendsBaseStats], variants)
+                    cast(list[ExperimentVariantTrendsBaseStats], variants_legacy)
                 )
 
             match self.metric:
@@ -740,7 +740,7 @@ class ExperimentQueryRunner(QueryRunner):
             kind="ExperimentQuery",
             insight=[],
             metric=self.metric,
-            variants=variants,
+            variants=variants_legacy,
             probability={
                 variant.key: probability
                 for variant, probability in zip([control_variant, *test_variants], probabilities)
