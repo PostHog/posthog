@@ -3,7 +3,7 @@ import { DateTime, Settings } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
 
-jest.setTimeout(2 * 60 * 1000)
+jest.setTimeout(60 * 1000)
 
 describe('google template', () => {
     const tester = new TemplateTester(template)
