@@ -89,13 +89,11 @@ export function InsightTooltip({
     groupTypeLabel = 'people',
     breakdownFilter,
 }: InsightTooltipProps): JSX.Element {
-    // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
+    // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group/multi-formula happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
-    // Throw these rules out the window if `formula` is set
     const itemizeEntitiesAsColumns =
-        !!formula ||
-        ((seriesData?.length ?? 0) > 1 &&
-            (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined))
+        (seriesData?.length ?? 0) > 1 &&
+        (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -110,7 +108,7 @@ export function InsightTooltip({
 
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
-        const dataSource = invertDataSource(seriesData, breakdownFilter)
+        const dataSource = invertDataSource(seriesData, breakdownFilter, formula)
         const columns: LemonTableColumns<InvertedSeriesDatum> = [
             {
                 key: 'datum',
