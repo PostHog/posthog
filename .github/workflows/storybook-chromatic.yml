@@ -68,7 +68,7 @@ jobs:
 
             - name: Publish to Chromatic
               if: needs.changes.outputs.frontend == 'true'
-              uses: chromaui/action@c93e0bc3a63aa176e14a75b61a31847cbfdd341c # v11
+              uses: chromaui/action@d7afd50124cf4f337bcd943e7f45cfa85a5e4476 # v11
               id: publish
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
