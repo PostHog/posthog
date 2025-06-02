@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { toBlob } from 'html-to-image'
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import type { takeScreenshotLogicType } from './takeScreenshotLogicType'
 
@@ -161,7 +162,7 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props }) => ({
         setHtml: async ({ html }) => {
             if (html === null) {
                 return
@@ -174,11 +175,17 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             } else {
                 lemonToast.error('Failed to generate image blob.')
                 actions.setIsLoading(false)
+                posthog.capture('screenshot_failed', {
+                    screenshot_key: props.screenshotKey,
+                })
             }
         },
         setBlob: async ({ blob }) => {
             if (!blob) {
                 lemonToast.error('Cannot take screenshot. Please try again.')
+                posthog.capture('screenshot_failed', {
+                    screenshot_key: props.screenshotKey,
+                })
                 return
             }
             actions.setIsLoading(true)
@@ -187,6 +194,10 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             const image = new File([blob], 'screenshot.png', { type: 'image/png' })
             actions.setImageFile(image)
             actions.setIsLoading(false)
+
+            posthog.capture('screenshot_taken', {
+                screenshot_key: props.screenshotKey,
+            })
         },
     })),
 ])

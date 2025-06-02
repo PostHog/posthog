@@ -768,8 +768,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 const snapshot = snapshots[currIndex]
                 return {
-                    width: (snapshot.data as any).width,
-                    height: (snapshot.data as any).height,
+                    width: snapshot.data?.['width'],
+                    height: snapshot.data?.['height'],
                 }
             },
             {
