@@ -192,18 +192,27 @@ async def sync_action_vectors(
     for i in range(0, len(actions_with_embeddings), insert_batch_size):
         batch = actions_with_embeddings[i : i + insert_batch_size]
 
-        rows = [
-            (
-                "action",
-                action["team_id"],
-                action["id"],
-                embedding,
-                action["summary"],
-                json.dumps({"name": action["name"], "description": action["description"]}),
-                1 if action["deleted"] else 0,
+        rows: list[tuple] = []
+        for action, embedding in batch:
+            properties = {
+                "name": action["name"],
+                "description": action["description"],
+            }
+            if embedding_version is not None:
+                properties["embedding_version"] = embedding_version
+
+            rows.append(
+                (
+                    "action",
+                    action["team_id"],
+                    action["id"],
+                    embedding,
+                    action["summary"],
+                    json.dumps(properties),
+                    1 if action["deleted"] else 0,
+                )
             )
-            for (action, embedding) in batch
-        ]
+
         if not rows:
             break
 

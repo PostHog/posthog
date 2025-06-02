@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
@@ -10,6 +10,9 @@ from posthog.schema import (
     VectorSearchQueryResponse,
     VectorSearchResponseItem,
 )
+
+VECTOR_SEARCH_EMBEDDING_VERSION: int = 2
+"""Bump the version when the embedding model changes."""
 
 
 class VectorSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
@@ -50,7 +53,7 @@ class VectorSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
             FROM
                 pg_embeddings
             WHERE
-                domain = 'action' and is_deleted = 0
+                {where_clause}
             GROUP BY
                 id
             ORDER BY
@@ -59,5 +62,20 @@ class VectorSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
             """,
             placeholders={
                 "embedding": ast.Constant(value=self.query.embedding),
+                "where_clause": self._get_where_clause(),
             },
         )
+
+    def _get_where_clause(self) -> ast.Expr:
+        base_filter = parse_expr("domain = 'action' and is_deleted = 0")
+        if self.query.embeddingVersion is not None:
+            return ast.And(
+                exprs=[
+                    base_filter,
+                    parse_expr(
+                        "JSONExtractUInt(properties, 'embedding_version') = {version}",
+                        {"version": ast.Constant(value=self.query.embeddingVersion)},
+                    ),
+                ]
+            )
+        return base_filter

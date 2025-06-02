@@ -8892,6 +8892,7 @@ class VectorSearchQuery(BaseModel):
         extra="forbid",
     )
     embedding: list[float]
+    embeddingVersion: Optional[float] = None
     kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

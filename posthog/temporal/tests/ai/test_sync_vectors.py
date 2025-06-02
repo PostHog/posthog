@@ -688,6 +688,11 @@ async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, mock_f
         assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
             action.id for action in parse_records(rows)
         }
+        assert {action.properties["embedding_version"] for action in parse_records(rows)} == {2}
+
+        for action in actions:
+            await action.arefresh_from_db()
+            assert action.embedding_version == 2
 
 
 @pytest.mark.asyncio

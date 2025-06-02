@@ -19207,6 +19207,9 @@
                     },
                     "type": "array"
                 },
+                "embeddingVersion": {
+                    "type": "number"
+                },
                 "kind": {
                     "const": "VectorSearchQuery",
                     "type": "string"
