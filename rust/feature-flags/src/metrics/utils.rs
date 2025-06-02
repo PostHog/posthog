@@ -12,6 +12,7 @@ pub fn team_id_label_filter(
                         Ok(team_id) => {
                             let filtered_value = match &team_ids_to_track {
                                 TeamIdsToTrack::All => value.clone(),
+                                TeamIdsToTrack::None => "none".to_string(),
                                 TeamIdsToTrack::TeamIds(ids) => {
                                     if ids.contains(&team_id) {
                                         value.clone()

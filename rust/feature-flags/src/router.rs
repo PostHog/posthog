@@ -35,6 +35,7 @@ pub struct State {
     pub team_ids_to_track: TeamIdsToTrack,
     pub billing_limiter: RedisLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
+    pub config: Config,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -62,6 +63,7 @@ where
         team_ids_to_track: config.team_ids_to_track.clone(),
         billing_limiter,
         cookieless_manager,
+        config: config.clone(),
     };
 
     // Very permissive CORS policy, as old SDK versions

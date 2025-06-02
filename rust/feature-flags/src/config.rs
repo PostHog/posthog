@@ -9,6 +9,7 @@ use std::str::FromStr;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamIdsToTrack {
     All,
+    None,
     TeamIds(Vec<i32>),
 }
 
@@ -36,6 +37,8 @@ impl FromStr for TeamIdsToTrack {
         let s = s.trim();
         if s.eq_ignore_ascii_case("all") {
             Ok(TeamIdsToTrack::All)
+        } else if s.eq_ignore_ascii_case("none") {
+            Ok(TeamIdsToTrack::None)
         } else {
             let mut team_ids = Vec::new();
             for part in s.split(',').map(|p| p.trim()) {
@@ -118,6 +121,18 @@ pub struct Config {
 
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
+
+    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "")]
+    pub new_analytics_capture_endpoint: String,
+
+    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", default = "none")]
+    pub new_analytics_capture_excluded_team_ids: TeamIdsToTrack,
+
+    #[envconfig(from = "ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", default = "none")]
+    pub element_chain_as_string_excluded_teams: TeamIdsToTrack,
+
+    #[envconfig(from = "DEBUG", default = "false")]
+    pub debug: bool,
 }
 
 impl Config {
@@ -140,6 +155,10 @@ impl Config {
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
+            new_analytics_capture_endpoint: "".to_string(),
+            new_analytics_capture_excluded_team_ids: TeamIdsToTrack::None,
+            element_chain_as_string_excluded_teams: TeamIdsToTrack::None,
+            debug: false,
         }
     }
 
@@ -165,6 +184,14 @@ impl Config {
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
         }
     }
+
+    pub fn is_team_excluded(&self, team_id: i32, setting: &TeamIdsToTrack) -> bool {
+        match setting {
+            TeamIdsToTrack::All => false,
+            TeamIdsToTrack::None => true,
+            TeamIdsToTrack::TeamIds(ids) => !ids.contains(&team_id),
+        }
+    }
 }
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
@@ -175,6 +202,7 @@ mod tests {
 
     #[test]
     fn test_default_config() {
+        std::env::set_var("DEBUG", "false");
         let config = Config::init_from_env().unwrap();
         assert_eq!(
             config.address,
@@ -192,6 +220,14 @@ mod tests {
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(
+            config.new_analytics_capture_excluded_team_ids,
+            TeamIdsToTrack::None
+        );
+        assert_eq!(
+            config.element_chain_as_string_excluded_teams,
+            TeamIdsToTrack::None
+        );
     }
 
     #[test]
@@ -210,6 +246,14 @@ mod tests {
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(
+            config.new_analytics_capture_excluded_team_ids,
+            TeamIdsToTrack::None
+        );
+        assert_eq!(
+            config.element_chain_as_string_excluded_teams,
+            TeamIdsToTrack::None
+        );
     }
 
     #[test]
@@ -228,12 +272,26 @@ mod tests {
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(
+            config.new_analytics_capture_excluded_team_ids,
+            TeamIdsToTrack::None
+        );
+        assert_eq!(
+            config.element_chain_as_string_excluded_teams,
+            TeamIdsToTrack::None
+        );
     }
 
     #[test]
     fn test_team_ids_to_track_all() {
         let team_ids: TeamIdsToTrack = "all".parse().unwrap();
         assert_eq!(team_ids, TeamIdsToTrack::All);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_none() {
+        let team_ids: TeamIdsToTrack = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdsToTrack::None);
     }
 
     #[test]

@@ -3,6 +3,7 @@ pub mod cohorts;
 pub mod config;
 pub mod flags;
 pub mod metrics;
+pub mod plugin_config;
 pub mod properties;
 pub mod router;
 pub mod server;

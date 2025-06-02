@@ -1,6 +1,9 @@
-use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
+use crate::{
+    flags::flag_match_reason::FeatureFlagMatchReason,
+    plugin_config::plugin_config_operations::WebJsUrl,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -18,7 +21,7 @@ pub enum FlagValue {
     String(String),
 }
 
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
@@ -55,7 +58,7 @@ pub struct FlagsResponse {
     pub core: FlagsCore,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsPlusConfigResponse {
     #[serde(flatten)]
@@ -72,6 +75,9 @@ pub struct FlagsPlusConfigResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_performance: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analytics: Option<AnalyticsConfig>,
@@ -91,19 +97,17 @@ pub struct FlagsPlusConfigResponse {
     #[serde(skip_serializing_if = "is_empty_value", default)]
     pub toolbar_params: Value,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub editor_params: Option<Value>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub toolbar_version: Option<String>,
-
+    // Backwards compatibility, is always false
     pub is_authenticated: bool,
 
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub site_apps: Vec<SiteApp>,
+    pub site_apps: Vec<WebJsUrl>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heatmaps: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags_persistence_default: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_identified_only: Option<bool>,
@@ -113,6 +117,7 @@ pub struct FlagsPlusConfigResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_feature_flags: Option<bool>,
+    // TODO NEEDS QUOTA LIMITING FOR RECORDINGS
 }
 
 impl From<FlagsPlusConfigResponse> for FlagsResponse {
@@ -155,13 +160,13 @@ fn is_empty_value(val: &serde_json::Value) -> bool {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalyticsConfig {
     pub endpoint: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecordingConfig {
     pub endpoint: Option<String>,
@@ -185,8 +190,14 @@ pub struct SessionRecordingConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionRecordingField {
-    Disabled(bool), // should only ever be false
+    Disabled(bool), // NB: this should only ever be false
     Config(SessionRecordingConfig),
+}
+
+impl Default for SessionRecordingField {
+    fn default() -> Self {
+        SessionRecordingField::Disabled(false)
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Default, Clone)]

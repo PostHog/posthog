@@ -51,6 +51,7 @@ dateparser = "0.2.1"
 rust_decimal = "1.37.1"
 rayon = "1.10.0"
 percent-encoding = "2.3.1"
+md5 = "0.7.0"
 
 [lints]
 workspace = true

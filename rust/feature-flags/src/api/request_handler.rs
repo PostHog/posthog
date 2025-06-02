@@ -2,8 +2,8 @@ use crate::{
     api::{
         errors::FlagError,
         types::{
-            FlagsCore, FlagsPlusConfigResponse, FlagsResponse, SessionRecordingConfig,
-            SessionRecordingField,
+            AnalyticsConfig, FlagsCore, FlagsPlusConfigResponse, FlagsResponse,
+            SessionRecordingConfig, SessionRecordingField,
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
@@ -16,6 +16,7 @@ use crate::{
         flag_service::FlagService,
     },
     metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
+    plugin_config::plugin_config_operations::get_decide_site_apps,
     router,
     team::team_models::Team,
 };
@@ -184,7 +185,7 @@ pub async fn process_request(
     )
     .await;
 
-    let mut response = FlagsPlusConfigResponse {
+    let response = FlagsPlusConfigResponse {
         core: FlagsCore {
             errors_while_computing_flags: flags_response.core.errors_while_computing_flags,
             flags: flags_response.core.flags.clone(),
@@ -203,53 +204,96 @@ pub async fn process_request(
             .iter()
             .filter_map(|(k, v)| v.metadata.payload.clone().map(|p| (k.clone(), p)))
             .collect(),
-        ..Default::default()
-    };
+        // Use a helper function to handle config fields
+        ..if config_requested {
+            let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
+            let autocapture_web_vitals_allowed_metrics =
+                team.autocapture_web_vitals_allowed_metrics.as_ref();
+            let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
 
-    // Only populate config fields if requested
-    if config_requested {
-        response.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-        response.autocapture_opt_out = team.autocapture_opt_out;
-        let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
-        let autocapture_web_vitals_allowed_metrics =
-            team.autocapture_web_vitals_allowed_metrics.as_ref();
-        let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
-
-        response.capture_performance = match (capture_network_timing, capture_web_vitals) {
-            (false, false) => Some(serde_json::json!(false)),
-            (network, web_vitals) => {
-                let mut perf_map = std::collections::HashMap::new();
-                perf_map.insert("network_timing".to_string(), serde_json::json!(network));
-                perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
-                if web_vitals {
-                    perf_map.insert(
-                        "web_vitals_allowed_metrics".to_string(),
-                        serde_json::json!(autocapture_web_vitals_allowed_metrics.cloned()),
-                    );
-                }
-                Some(serde_json::json!(perf_map))
+            FlagsPlusConfigResponse {
+                core: FlagsCore {
+                    errors_while_computing_flags: flags_response.core.errors_while_computing_flags,
+                    flags: flags_response.core.flags.clone(),
+                    quota_limited: flags_response.core.quota_limited.clone(),
+                    request_id: flags_response.core.request_id,
+                },
+                has_feature_flags: Some(!flags_response.core.flags.is_empty()),
+                feature_flags: flags_response
+                    .core
+                    .flags
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_value()))
+                    .collect(),
+                feature_flag_payloads: flags_response
+                    .core
+                    .flags
+                    .iter()
+                    .filter_map(|(k, v)| v.metadata.payload.clone().map(|p| (k.clone(), p)))
+                    .collect(),
+                analytics: if !context.state.config.debug
+                    && !context.state.config.is_team_excluded(
+                        team.id,
+                        &context.state.config.new_analytics_capture_excluded_team_ids,
+                    ) {
+                    Some(AnalyticsConfig {
+                        endpoint: Some(context.state.config.new_analytics_capture_endpoint.clone()),
+                    })
+                } else {
+                    None
+                },
+                elements_chain_as_string: if !context.state.config.is_team_excluded(
+                    team.id,
+                    &context.state.config.element_chain_as_string_excluded_teams,
+                ) {
+                    Some(true)
+                } else {
+                    None
+                },
+                supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+                autocapture_opt_out: team.autocapture_opt_out,
+                capture_performance: match (capture_network_timing, capture_web_vitals) {
+                    (false, false) => Some(serde_json::json!(false)),
+                    (network, web_vitals) => {
+                        let mut perf_map = HashMap::new();
+                        perf_map.insert("network_timing".to_string(), serde_json::json!(network));
+                        perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
+                        if web_vitals {
+                            perf_map.insert(
+                                "web_vitals_allowed_metrics".to_string(),
+                                serde_json::json!(autocapture_web_vitals_allowed_metrics.cloned()),
+                            );
+                        }
+                        Some(serde_json::json!(perf_map))
+                    }
+                },
+                config: Some(serde_json::json!({"enable_collect_everything": true})),
+                autocapture_exceptions: if team.autocapture_exceptions_opt_in.unwrap_or(false) {
+                    Some(serde_json::json!(HashMap::from([(
+                        "endpoint".to_string(),
+                        serde_json::json!("/e/")
+                    )])))
+                } else {
+                    Some(serde_json::json!(false))
+                },
+                surveys: Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false))),
+                heatmaps: Some(team.heatmaps_opt_in.unwrap_or(false)),
+                default_identified_only: Some(true),
+                flags_persistence_default: Some(team.flags_persistence_default.unwrap_or(false)),
+                session_recording: session_recording_config_response(&team, &context),
+                toolbar_params: serde_json::json!(HashMap::<String, serde_json::Value>::new()),
+                is_authenticated: false,
+                site_apps: if team.inject_web_apps.unwrap_or(false) {
+                    get_decide_site_apps(context.state.reader.clone(), team_id).await?
+                } else {
+                    vec![]
+                },
+                capture_dead_clicks: team.capture_dead_clicks,
             }
-        };
-
-        response.autocapture_exceptions = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
-            let mut exceptions_map = std::collections::HashMap::new();
-            exceptions_map.insert("endpoint".to_string(), serde_json::json!("/e/"));
-            Some(serde_json::json!(exceptions_map))
         } else {
-            Some(serde_json::json!(false))
-        };
-
-        response.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
-        response.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
-        response.default_identified_only = Some(true);
-        response.session_recording = session_recording_config_response(&team, &context);
-        response.toolbar_params =
-            serde_json::json!(std::collections::HashMap::<String, serde_json::Value>::new());
-        response.is_authenticated = false; // TODO?
-        response.site_apps = vec![]; // TODO
-        response.capture_dead_clicks = team.capture_dead_clicks;
-    }
-
+            FlagsPlusConfigResponse::default()
+        }
+    };
     // bill the flag request
     if filtered_flags
         .flags
@@ -744,7 +788,7 @@ fn session_recording_config_response(
 ) -> Option<SessionRecordingField> {
     if !team.session_recording_opt_in || session_recording_domain_not_allowed(team, request_context)
     {
-        return Some(SessionRecordingField::Disabled(false));
+        return Some(SessionRecordingField::Disabled(false)); // TODO: make this a default?
     }
 
     let capture_console_logs = team.capture_console_log_opt_in.unwrap_or(false);
