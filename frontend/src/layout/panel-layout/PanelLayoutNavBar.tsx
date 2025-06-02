@@ -221,8 +221,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             tooltip: isLayoutNavCollapsed
                 ? isLayoutPanelVisible && activePanelIdentifier === 'People'
-                    ? 'Close persons'
-                    : 'Open persons'
+                    ? 'Close people'
+                    : 'Open people'
                 : null,
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
