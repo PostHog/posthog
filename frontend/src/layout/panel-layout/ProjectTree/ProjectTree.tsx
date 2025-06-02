@@ -475,13 +475,21 @@ export function ProjectTree({
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                return (
+                    <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'context')}
+                    </ContextMenuGroup>
+                )
             }}
             itemSideAction={(item) => {
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                return (
+                    <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'dropdown')}
+                    </DropdownMenuGroup>
+                )
             }}
             itemSideActionIcon={(item) => {
                 if (item.record?.protocol === 'products://') {
@@ -550,7 +558,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)

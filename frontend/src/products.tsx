@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -320,7 +320,7 @@ export const productUrls = {
 
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
-    action: { name: 'Action', icon: <IconRocket />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
+    action: { name: 'Action', icon: <IconCursor />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
     cohort: { name: 'Cohort', icon: <IconPeople />, href: (ref: string) => urls.cohort(ref), filterKey: 'cohort' },
     dashboard: {
         name: 'Dashboard',
@@ -436,13 +436,51 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Insight/Calendar Heatmap`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+        iconType: 'insightHogQL',
+        visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
     },
-    { path: `Insight/Funnel`, type: 'insight', href: urls.insightNew({ type: InsightType.FUNNELS }) },
-    { path: `Insight/Lifecycle`, type: 'insight', href: urls.insightNew({ type: InsightType.LIFECYCLE }) },
-    { path: `Insight/Retention`, type: 'insight', href: urls.insightNew({ type: InsightType.RETENTION }) },
-    { path: `Insight/Stickiness`, type: 'insight', href: urls.insightNew({ type: InsightType.STICKINESS }) },
-    { path: `Insight/Trends`, type: 'insight', href: urls.insightNew({ type: InsightType.TRENDS }) },
-    { path: `Insight/User paths`, type: 'insight', href: urls.insightNew({ type: InsightType.PATHS }) },
+    {
+        path: `Insight/Funnel`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.FUNNELS }),
+        iconType: 'insightFunnel',
+        visualOrder: INSIGHT_VISUAL_ORDER.funnel,
+    },
+    {
+        path: `Insight/Lifecycle`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+        iconType: 'insightLifecycle',
+        visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
+    },
+    {
+        path: `Insight/Retention`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.RETENTION }),
+        iconType: 'insightRetention',
+        visualOrder: INSIGHT_VISUAL_ORDER.retention,
+    },
+    {
+        path: `Insight/Stickiness`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.STICKINESS }),
+        iconType: 'insightStickiness',
+        visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
+    },
+    {
+        path: `Insight/Trends`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.TRENDS }),
+        iconType: 'insightTrends',
+        visualOrder: INSIGHT_VISUAL_ORDER.trends,
+    },
+    {
+        path: `Insight/User paths`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.PATHS }),
+        iconType: 'insightUserPaths',
+        visualOrder: INSIGHT_VISUAL_ORDER.paths,
+    },
     { path: `Link`, type: 'link', href: urls.link('new'), flag: FEATURE_FLAGS.LINKS },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new') },
     { path: `Replay playlist`, type: 'session_recording_playlist', href: urls.replayPlaylist('new') },
