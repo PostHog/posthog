@@ -233,7 +233,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     fullWidth
                     className={clsx(
                         'taxonomic-list-row',
-                        'border-2 border-dashed border-border-bold rounded min-h-9 justify-center',
+                        'border-2 border-dashed rounded min-h-9 justify-center',
                         isSelected && 'border-primary bg-accent-3000'
                     )}
                     outlined={false}
@@ -290,7 +290,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         // If there's an item to render
         if (item && group) {
-            const itemValue = group?.getValue?.(item)
             return (
                 <div
                     {...commonDivProps}
@@ -314,10 +313,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         // Check if this row should be the "show more" expand row:
         // - !item: No actual item data exists at this index
-        // - actualRowIndex === totalListCount - 1: This is the last row in the visible list
+        // - rowIndex === totalListCount - 1: This is the last row in the visible list
         // - isExpandable: There are more items available to load/show
         // - !isLoading: We're not currently in the middle of loading data
-        const isExpandRow = !item && rowIndex === totalResultCount - 1 && isExpandable && !isLoading
+        const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
         if (isExpandRow) {
             return (
                 <div
