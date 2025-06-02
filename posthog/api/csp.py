@@ -4,6 +4,7 @@ from typing import Optional
 import structlog
 
 from posthog.exceptions import generate_exception_response
+from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
 from posthog.models.utils import uuid7
 
@@ -29,6 +30,27 @@ CSP_REPORT_TYPES_MAPPING_TABLE = """
 | `$csp_user_agent`          | top-level `user_agent`               | not available                      |
 | `$csp_report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
+
+
+def sample_csp_report(properties: dict, percent: float, add_metadata: bool = False) -> bool:
+    if percent >= 1.0:
+        return True
+
+    document_url = properties.get("document_url", "")
+    should_ingest_report = sample_on_property(document_url, percent)
+
+    if add_metadata:
+        properties["csp_sampled"] = should_ingest_report
+        properties["csp_sample_threshold"] = percent
+
+    if not should_ingest_report:
+        logger.debug(
+            "CSP report sampled out",
+            document_url=document_url,
+            sample_rate=percent,
+        )
+
+    return should_ingest_report
 
 
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
@@ -120,6 +142,11 @@ def process_csp_report(request):
         # If by any chance we got this far and this is not looking like a CSP report, keep the ingestion pipeline working as it was
         # we don't want to return an error here to avoid breaking the ingestion pipeline
         if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
+            logger.warning(
+                "CSP report skipped - invalid content type",
+                content_type=request.content_type,
+                expected_types=["application/csp-report", "application/reports+json"],
+            )
             return None, None
 
         csp_data = json.loads(request.body)
@@ -129,9 +156,31 @@ def process_csp_report(request):
         version = request.GET.get("v") or "unknown"
         user_agent = request.headers.get("User-Agent")
 
+        try:
+            sample_rate = request.GET.get("sample_rate", 1.0)
+            sample_rate = float(sample_rate)
+        except (ValueError, TypeError):
+            sample_rate = 1.0
+
         if request.content_type == "application/csp-report" and "csp-report" in csp_data:
+            properties = parse_report_uri(csp_data)
+
+            if not sample_csp_report(properties, sample_rate, add_metadata=True):
+                logger.warning(
+                    "CSP report sampled out - report-uri format",
+                    document_url=properties.get("document_url"),
+                    sample_rate=sample_rate,
+                )
+                return None, None
+
             return (
-                build_csp_event(parse_report_uri(csp_data), distinct_id, session_id, version, user_agent),
+                build_csp_event(
+                    properties,
+                    distinct_id,
+                    session_id,
+                    version,
+                    user_agent,
+                ),
                 None,
             )
 
@@ -140,20 +189,34 @@ def process_csp_report(request):
                 parse_report_to(item) for item in csp_data if "type" in item and item["type"] == "csp-violation"
             ]
 
+            sampled_violations = []
+            for prop in violations_props:
+                if sample_csp_report(prop, sample_rate, add_metadata=True):
+                    sampled_violations.append(prop)
+
+            if not sampled_violations:
+                logger.warning(
+                    "CSP report sampled out - report-to format",
+                    total_violations=len(violations_props),
+                    sample_rate=sample_rate,
+                )
+                return None, None
+
             return [
-                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in violations_props
+                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
             ], None
 
         else:
             raise ValueError("Invalid CSP report")
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.exception("Invalid CSP report JSON format", error=e)
         return None, cors_response(
             request,
             generate_exception_response("capture", "Invalid CSP report format", code="invalid_csp_payload"),
         )
     except ValueError as e:
-        logger.exception("Invalid CSP report properties are being parsed", error=e)
+        logger.exception("Invalid CSP report properties", error=e)
         return None, cors_response(
             request,
             generate_exception_response(
@@ -161,5 +224,5 @@ def process_csp_report(request):
             ),
         )
     except Exception as e:
-        logger.exception("Error processing CSP report", error=e)
+        logger.exception("CSP report processing failed with exception", error=e)
         return None, None

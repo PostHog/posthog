@@ -2,15 +2,13 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.models.team.team import Team
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
-from posthog.schema import CurrencyCode
 from posthog.hogql.database.models import (
-    BooleanDatabaseField,
     DateTimeDatabaseField,
-    DecimalDatabaseField,
     StringDatabaseField,
     FieldOrTable,
 )
@@ -19,37 +17,20 @@ from posthog.hogql.database.schema.exchange_rate import (
     convert_currency_call,
     currency_expression_for_events,
 )
+from products.revenue_analytics.backend.views.currency_helpers import (
+    BASE_CURRENCY_FIELDS,
+    currency_aware_divider,
+    currency_aware_amount,
+    is_zero_decimal_in_stripe,
+)
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 
 SOURCE_VIEW_SUFFIX = "charge_revenue_view"
-EVENTS_VIEW_SUFFIX = "events_revenue_view"
+EVENTS_VIEW_SUFFIX = "charge_events_revenue_view"
 STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
-
-# Stripe represents most currencies with integer amounts multiplied by 100,
-# since most currencies have its smallest unit as 1/100 of their base unit
-# It just so happens that some currencies don't have that concept, so they're listed here
-# https://docs.stripe.com/currencies#zero-decimal
-ZERO_DECIMAL_CURRENCIES_IN_STRIPE: list[str] = [
-    CurrencyCode.BIF.value,
-    CurrencyCode.CLP.value,
-    CurrencyCode.DJF.value,
-    CurrencyCode.GNF.value,
-    CurrencyCode.JPY.value,
-    CurrencyCode.KMF.value,
-    CurrencyCode.KRW.value,
-    CurrencyCode.MGA.value,
-    CurrencyCode.PYG.value,
-    CurrencyCode.RWF.value,
-    CurrencyCode.UGX.value,
-    CurrencyCode.VND.value,
-    CurrencyCode.VUV.value,
-    CurrencyCode.XAF.value,
-    CurrencyCode.XOF.value,
-    CurrencyCode.XPF.value,
-]
 
 FIELDS: dict[str, FieldOrTable] = {
     # Helpers so that we can properly join across views when necessary
@@ -58,61 +39,18 @@ FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "customer_id": StringDatabaseField(name="customer_id"),
+    "invoice_id": StringDatabaseField(name="invoice_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
-    # Most important fields
-    "currency": StringDatabaseField(name="currency"),
-    "amount": DecimalDatabaseField(name="amount"),
-    # Mostly helper fields
-    "original_currency": StringDatabaseField(name="original_currency"),
-    "original_amount": DecimalDatabaseField(name="original_amount"),
-    "enable_currency_aware_divider": BooleanDatabaseField(name="enable_currency_aware_divider"),
-    "currency_aware_divider": DecimalDatabaseField(name="currency_aware_divider"),
-    "currency_aware_amount": DecimalDatabaseField(name="currency_aware_amount"),
+    **BASE_CURRENCY_FIELDS,
 }
 
 
-def is_zero_decimal_in_stripe(field: ast.Field) -> ast.Call:
-    return ast.Call(
-        name="in",
-        args=[field, ast.Constant(value=ZERO_DECIMAL_CURRENCIES_IN_STRIPE)],
-    )
-
-
-def currency_aware_divider() -> ast.Alias:
-    return ast.Alias(
-        alias="currency_aware_divider",
-        expr=ast.Call(
-            name="if",
-            args=[
-                ast.Field(chain=["enable_currency_aware_divider"]),
-                ast.Call(
-                    name="toDecimal",
-                    args=[ast.Constant(value=1), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
-                ),
-                ast.Call(
-                    name="toDecimal",
-                    args=[ast.Constant(value=100), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
-                ),
-            ],
-        ),
-    )
-
-
-def currency_aware_amount() -> ast.Alias:
-    return ast.Alias(
-        alias="currency_aware_amount",
-        expr=ast.Call(
-            name="divideDecimal",
-            args=[
-                ast.Field(chain=["original_amount"]),
-                ast.Field(chain=["currency_aware_divider"]),
-            ],
-        ),
-    )
-
-
 class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
+    @staticmethod
+    def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:
+        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
+
     @staticmethod
     def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
@@ -136,6 +74,9 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
+                    ast.Alias(
+                        alias="invoice_id", expr=ast.Constant(value=None)
+                    ),  # Helpful for sources, not helpful for events
                     ast.Alias(
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
@@ -176,6 +117,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             RevenueAnalyticsChargeView(
                 id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
                 name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_event(event_name),
                 query=query.to_hogql(),
                 fields=FIELDS,
             )
@@ -213,6 +155,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 # Useful for cross joins
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice_id"])),
                 # Empty, but required for the `events` view to work
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
@@ -283,6 +226,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             RevenueAnalyticsChargeView(
                 id=str(table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
+                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

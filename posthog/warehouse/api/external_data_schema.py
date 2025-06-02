@@ -13,11 +13,28 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.bigquery import (
+    BigQuerySourceConfig,
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
 )
+from posthog.temporal.data_imports.pipelines.mssql import (
+    MSSQLSourceConfig,
+    get_schemas as get_mssql_schemas,
+)
+from posthog.temporal.data_imports.pipelines.mysql import (
+    MySQLSourceConfig,
+    get_schemas as get_mysql_schemas,
+)
+from posthog.temporal.data_imports.pipelines.postgres import (
+    PostgreSQLSourceConfig,
+    get_schemas as get_postgres_schemas,
+)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
+)
+from posthog.temporal.data_imports.pipelines.snowflake import (
+    SnowflakeSourceConfig,
+    get_schemas as get_snowflake_schemas,
 )
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
@@ -34,13 +51,10 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    get_snowflake_schemas,
-    get_sql_schemas_for_source_type,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
@@ -309,122 +323,46 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         source: ExternalDataSource = instance.source
         incremental_columns: list[IncrementalField] = []
 
-        if source.source_type in [
-            ExternalDataSource.Type.POSTGRES,
-            ExternalDataSource.Type.MYSQL,
-            ExternalDataSource.Type.MSSQL,
-        ]:
-            # TODO(@Gilbert09): Move all this into a util and replace elsewhere
-            host = source.job_inputs.get("host")
-            port = source.job_inputs.get("port")
-            user = source.job_inputs.get("user")
-            password = source.job_inputs.get("password")
-            database = source.job_inputs.get("database")
-            pg_schema = source.job_inputs.get("schema")
-
-            using_ssh_tunnel = str(source.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
-            ssh_tunnel_host = source.job_inputs.get("ssh_tunnel_host")
-            ssh_tunnel_port = source.job_inputs.get("ssh_tunnel_port")
-            ssh_tunnel_auth_type = source.job_inputs.get("ssh_tunnel_auth_type")
-            ssh_tunnel_auth_type_username = source.job_inputs.get("ssh_tunnel_auth_type_username")
-            ssh_tunnel_auth_type_password = source.job_inputs.get("ssh_tunnel_auth_type_password")
-            ssh_tunnel_auth_type_passphrase = source.job_inputs.get("ssh_tunnel_auth_type_passphrase")
-            ssh_tunnel_auth_type_private_key = source.job_inputs.get("ssh_tunnel_auth_type_private_key")
-
-            using_ssl = str(source.job_inputs.get("using_ssl", True)) == "True"
-
-            ssh_tunnel = SSHTunnel(
-                enabled=using_ssh_tunnel,
-                host=ssh_tunnel_host,
-                port=ssh_tunnel_port,
-                auth_type=ssh_tunnel_auth_type,
-                username=ssh_tunnel_auth_type_username,
-                password=ssh_tunnel_auth_type_password,
-                passphrase=ssh_tunnel_auth_type_passphrase,
-                private_key=ssh_tunnel_auth_type_private_key,
-            )
-
-            db_schemas = get_sql_schemas_for_source_type(
-                source.source_type,
-                host=host,
-                port=port,
-                database=database,
-                user=user,
-                password=password,
-                schema=pg_schema,
-                ssh_tunnel=ssh_tunnel,
-                using_ssl=using_ssl,
-            )
-
+        if source.source_type == ExternalDataSource.Type.POSTGRES:
+            db_schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(source.job_inputs))
             columns = db_schemas.get(instance.name, [])
-            if source.source_type == ExternalDataSource.Type.POSTGRES:
-                incremental_fields_func = filter_postgres_incremental_fields
-            elif source.source_type == ExternalDataSource.Type.MYSQL:
-                incremental_fields_func = filter_mysql_incremental_fields
-            elif source.source_type == ExternalDataSource.Type.MSSQL:
-                incremental_fields_func = filter_mssql_incremental_fields
-
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in incremental_fields_func(columns)
+                for name, field_type in filter_postgres_incremental_fields(columns)
             ]
+
+        elif source.source_type == ExternalDataSource.Type.MYSQL:
+            db_schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(source.job_inputs))
+            columns = db_schemas.get(instance.name, [])
+            incremental_columns = [
+                {"field": name, "field_type": field_type, "label": name, "type": field_type}
+                for name, field_type in filter_mysql_incremental_fields(columns)
+            ]
+
+        elif source.source_type == ExternalDataSource.Type.MSSQL:
+            db_schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(source.job_inputs))
+            columns = db_schemas.get(instance.name, [])
+            incremental_columns = [
+                {"field": name, "field_type": field_type, "label": name, "type": field_type}
+                for name, field_type in filter_mssql_incremental_fields(columns)
+            ]
+
+        elif source.source_type == ExternalDataSource.Type.BIGQUERY:
+            db_schemas = get_bigquery_schemas(BigQuerySourceConfig.from_dict(source.job_inputs), logger=logger)
+            columns = db_schemas.get(instance.name, [])
+            incremental_columns = [
+                {"field": name, "field_type": field_type, "label": name, "type": field_type}
+                for name, field_type in filter_bigquery_incremental_fields(columns)
+            ]
+
         elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            # TODO(@Gilbert09): Move all this into a util and replace elsewhere
-            account_id = source.job_inputs.get("account_id")
-            user = source.job_inputs.get("user")
-            password = source.job_inputs.get("password")
-            database = source.job_inputs.get("database")
-            warehouse = source.job_inputs.get("warehouse")
-            sf_schema = source.job_inputs.get("schema")
-            role = source.job_inputs.get("role")
-
-            auth_type = source.job_inputs.get("auth_type", "password")
-            auth_type_username = source.job_inputs.get("user")
-            auth_type_password = source.job_inputs.get("password")
-            auth_type_passphrase = source.job_inputs.get("passphrase")
-            auth_type_private_key = source.job_inputs.get("private_key")
-
-            sf_schemas = get_snowflake_schemas(
-                account_id=account_id,
-                database=database,
-                warehouse=warehouse,
-                user=auth_type_username,
-                password=auth_type_password,
-                schema=sf_schema,
-                role=role,
-                auth_type=auth_type,
-                passphrase=auth_type_passphrase,
-                private_key=auth_type_private_key,
-            )
-
+            sf_schemas = get_snowflake_schemas(SnowflakeSourceConfig.from_dict(source.job_inputs))
             columns = sf_schemas.get(instance.name, [])
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
-        elif source.source_type == ExternalDataSource.Type.BIGQUERY:
-            dataset_id = source.job_inputs.get("dataset_id")
-            project_id = source.job_inputs.get("project_id")
-            private_key = source.job_inputs.get("private_key")
-            private_key_id = source.job_inputs.get("private_key_id")
-            client_email = source.job_inputs.get("client_email")
-            token_uri = source.job_inputs.get("token_uri")
 
-            bq_schemas = get_bigquery_schemas(
-                dataset_id=dataset_id,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
-                logger=logger,
-            )
-
-            columns = bq_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_bigquery_incremental_fields(columns)
-            ]
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
             if mapping is None:

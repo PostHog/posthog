@@ -299,3 +299,23 @@ class TestModifiers(BaseTest):
         assert response is not None
         assert response.clickhouse is not None
         assert response.clickhouse.count("ilike") == 2
+
+    def test_no_convert_timezone(self):
+        # default to convert to timezone
+        response = execute_hogql_query(
+            f"select timestamp from events limit 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(),
+        )
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("toTimeZone") == 1
+
+        response = execute_hogql_query(
+            f"select timestamp from events limit 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("toTimeZone") == 0

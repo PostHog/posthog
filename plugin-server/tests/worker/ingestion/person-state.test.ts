@@ -2257,3 +2257,477 @@ describe('PersonState.update()', () => {
         })
     })
 })
+
+describe('JSONB optimization flag compatibility', () => {
+    let hub: Hub
+    let teamId: number
+    let mainTeam: Team
+    let organizationId: string
+    let newUserUuid: string
+    let oldUserUuid: string
+    const newUserDistinctId = 'new-user-opt-test'
+    const oldUserDistinctId = 'old-user-opt-test'
+
+    beforeAll(async () => {
+        hub = await createHub({})
+        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+        organizationId = await createOrganization(hub.db.postgres)
+    })
+
+    beforeEach(async () => {
+        teamId = await createTeam(hub.db.postgres, organizationId)
+        mainTeam = (await getTeam(hub, teamId))!
+        newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
+        oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
+    })
+
+    afterAll(async () => {
+        await closeHub(hub)
+        await hub.db.clickhouseQuery('SYSTEM START MERGES')
+    })
+
+    async function testBothUpdatePaths(
+        testName: string,
+        eventData: Partial<PluginEvent>,
+        initialPersonProperties: Properties = {},
+        testFn: (person: InternalPerson, useOptimized: boolean) => void = () => {}
+    ) {
+        const baseDistinctId = eventData.distinct_id || `test-${Date.now()}`
+        const legacyDistinctId = `${baseDistinctId}-legacy`
+        const optimizedDistinctId = `${baseDistinctId}-optimized`
+        await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
+            { distinctId: legacyDistinctId },
+        ])
+
+        const legacyPersonState = new PersonState(
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: legacyDistinctId } as any,
+            mainTeam,
+            legacyDistinctId,
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, legacyDistinctId),
+            0,
+            0.0
+        )
+
+        const [legacyPerson, legacyKafkaAcks] = await legacyPersonState.updateProperties()
+        await hub.db.kafkaProducer.flush()
+        await legacyKafkaAcks
+
+        await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, oldUserUuid, [
+            { distinctId: optimizedDistinctId },
+        ])
+
+        const optimizedPersonState = new PersonState(
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: optimizedDistinctId } as any,
+            mainTeam,
+            optimizedDistinctId,
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, optimizedDistinctId),
+            0,
+            1.0
+        )
+
+        const [optimizedPerson, optimizedKafkaAcks] = await optimizedPersonState.updateProperties()
+        await hub.db.kafkaProducer.flush()
+        await optimizedKafkaAcks
+
+        expect(legacyPerson.properties).toEqual(optimizedPerson.properties)
+        expect(legacyPerson.is_identified).toEqual(optimizedPerson.is_identified)
+        expect(legacyPerson.version).toEqual(optimizedPerson.version)
+
+        testFn(legacyPerson, false)
+        testFn(optimizedPerson, true)
+
+        console.log(`✅ ${testName}: Legacy and optimized paths produced identical results`)
+    }
+
+    it('produces identical results for $set operations', async () => {
+        await testBothUpdatePaths(
+            '$set operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'John', age: 30, active: true },
+                },
+            },
+            { existing: 'value' }
+        )
+    })
+
+    it('produces identical results for $set_once operations', async () => {
+        await testBothUpdatePaths(
+            '$set_once operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set_once: { initial_source: 'google', first_seen: '2023-01-01' },
+                },
+            },
+            { existing: 'value', initial_source: 'existing' }
+        )
+    })
+
+    it('produces identical results for $unset operations', async () => {
+        await testBothUpdatePaths(
+            '$unset operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $unset: ['temp_property', 'old_field'],
+                },
+            },
+            {
+                keep_this: 'value',
+                temp_property: 'should_be_removed',
+                old_field: 'also_removed',
+                another_keeper: 123,
+            }
+        )
+    })
+
+    it('produces identical results for mixed operations', async () => {
+        await testBothUpdatePaths(
+            'mixed $set, $set_once, and $unset',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Updated', counter: 5 },
+                    $set_once: { initial_value: 'new', existing_initial: 'should_not_override' },
+                    $unset: ['temp_data', 'old_counter'],
+                },
+            },
+            {
+                name: 'Original',
+                existing_initial: 'keep_this',
+                temp_data: 'remove_me',
+                old_counter: 3,
+                permanent: 'stays',
+            }
+        )
+    })
+
+    it('produces identical results for special property values', async () => {
+        await testBothUpdatePaths('special values and edge cases', {
+            event: '$pageview',
+            distinct_id: newUserDistinctId,
+            properties: {
+                $set: {
+                    null_value: null,
+                    empty_string: '',
+                    zero: 0,
+                    false_value: false,
+                    array: [1, 2, 3],
+                    object: { nested: 'value' },
+                    null_byte: '\u0000',
+                },
+            },
+        })
+    })
+
+    it('produces identical results for person events vs regular events', async () => {
+        await testBothUpdatePaths(
+            'person event updates',
+            {
+                event: '$set',
+                distinct_id: `${newUserDistinctId}-person-event`,
+                properties: {
+                    $set: { $current_url: 'https://new-url.com' },
+                },
+            },
+            { $current_url: 'https://old-url.com' }
+        )
+
+        await testBothUpdatePaths(
+            'regular event updates',
+            {
+                event: '$pageview',
+                distinct_id: `${newUserDistinctId}-regular-event`,
+                properties: {
+                    $set: { $current_url: 'https://new-url.com' },
+                },
+            },
+            { $current_url: 'https://old-url.com' }
+        )
+    })
+
+    it('produces identical results when no updates needed', async () => {
+        await testBothUpdatePaths(
+            'no-op updates',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Same' },
+                    $set_once: { existing: 'keep' },
+                },
+            },
+            { name: 'Same', existing: 'keep' }
+        )
+    })
+
+    it('produces identical results for is_identified updates', async () => {
+        const testWithIdentified = async (updateIsIdentified: boolean) => {
+            const uuid_suffix = updateIsIdentified ? '-identified' : '-unidentified'
+            await createPerson(
+                hub,
+                timestamp,
+                { test: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, `${newUserDistinctId}-${uuid_suffix}`),
+                [{ distinctId: `${newUserDistinctId}-${uuid_suffix}` }]
+            )
+
+            await createPerson(
+                hub,
+                timestamp,
+                { test: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, `${oldUserDistinctId}-${uuid_suffix}`),
+                [{ distinctId: `${oldUserDistinctId}-${uuid_suffix}` }]
+            )
+
+            const legacyPersonState = new PersonState(
+                { team_id: teamId, properties: {}, event: '$pageview', distinct_id: newUserDistinctId } as any,
+                mainTeam,
+                newUserDistinctId,
+                timestamp,
+                true,
+                hub.db.kafkaProducer,
+                new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, newUserDistinctId),
+                0,
+                0.0
+            )
+            legacyPersonState.updateIsIdentified = updateIsIdentified
+
+            const optimizedPersonState = new PersonState(
+                { team_id: teamId, properties: {}, event: '$pageview', distinct_id: oldUserDistinctId } as any,
+                mainTeam,
+                oldUserDistinctId,
+                timestamp,
+                true,
+                hub.db.kafkaProducer,
+                new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
+                0,
+                1.0
+            )
+            optimizedPersonState.updateIsIdentified = updateIsIdentified
+
+            const [legacyResult] = await legacyPersonState.updateProperties()
+            const [optimizedResult] = await optimizedPersonState.updateProperties()
+
+            expect(legacyResult.is_identified).toEqual(optimizedResult.is_identified)
+            expect(legacyResult.properties).toEqual(optimizedResult.properties)
+            expect(legacyResult.version).toEqual(optimizedResult.version)
+        }
+
+        await testWithIdentified(true)
+        await testWithIdentified(false)
+    })
+
+    it('uses different SQL queries but produces same results', async () => {
+        const legacyQueries: string[] = []
+        const optimizedQueries: string[] = []
+
+        const originalQuery = hub.db.postgres.query
+        jest.spyOn(hub.db.postgres, 'query').mockImplementation((...args) => {
+            const query = args[1] as string
+            if (query.includes('UPDATE posthog_person')) {
+                if (query.includes('properties ||') || query.includes('properties -')) {
+                    optimizedQueries.push(query)
+                } else {
+                    legacyQueries.push(query)
+                }
+            }
+            return originalQuery.apply(hub.db.postgres, args)
+        })
+
+        await testBothUpdatePaths(
+            'different SQL queries',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { new_prop: 'value' },
+                    $unset: ['old_prop'],
+                },
+            },
+            { old_prop: 'remove_me', keep_prop: 'keep_me' }
+        )
+
+        expect(legacyQueries.length).toBeGreaterThan(0)
+        expect(optimizedQueries.length).toBeGreaterThan(0)
+
+        expect(legacyQueries[0]).toContain('"properties" = $')
+        expect(legacyQueries[0]).not.toContain('||')
+        expect(legacyQueries[0]).not.toContain(' - ')
+
+        expect(optimizedQueries[0]).toContain('properties ||')
+        expect(optimizedQueries[0]).toContain('-')
+
+        jest.restoreAllMocks()
+    })
+
+    it('produces identical results for events that should not update persons', async () => {
+        const excludedEvents = ['$exception', '$$heatmap']
+
+        for (const eventType of excludedEvents) {
+            await testBothUpdatePaths(
+                `excluded event: ${eventType}`,
+                {
+                    event: eventType,
+                    distinct_id: `${newUserDistinctId}-${eventType}`,
+                    properties: {
+                        $set: { should_not_update: 'value' },
+                        $set_once: { also_should_not: 'value' },
+                        $unset: ['existing_prop'],
+                    },
+                },
+                {
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                },
+                (person, _useOptimized) => {
+                    expect(person.properties).toEqual({
+                        existing_prop: 'should_stay',
+                        other: 'prop',
+                    })
+                    expect(person.version).toBe(0)
+                }
+            )
+        }
+    })
+
+    it('produces identical results for events that should not update persons $exception', async () => {
+        const eventType = '$exception'
+        await testBothUpdatePaths(
+            `excluded event: ${eventType}`,
+            {
+                event: eventType,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { should_not_update: 'value' },
+                    $set_once: { also_should_not: 'value' },
+                    $unset: ['existing_prop'],
+                },
+            },
+            {
+                existing_prop: 'should_stay',
+                other: 'prop',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties).toEqual({
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                })
+                expect(person.version).toBe(0)
+            }
+        )
+    })
+
+    it('produces identical results for events that should not update persons $$heatmap', async () => {
+        const eventType = '$$heatmap'
+        await testBothUpdatePaths(
+            `excluded event: ${eventType}`,
+            {
+                event: eventType,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { should_not_update: 'value' },
+                    $set_once: { also_should_not: 'value' },
+                    $unset: ['existing_prop'],
+                },
+            },
+            {
+                existing_prop: 'should_stay',
+                other: 'prop',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties).toEqual({
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                })
+                expect(person.version).toBe(0)
+            }
+        )
+    })
+
+    it('produces identical results for GeoIP properties', async () => {
+        await testBothUpdatePaths(
+            'GeoIP property handling',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: {
+                        $geoip_country_name: 'United States',
+                        $initial_geoip_city_name: 'San Francisco',
+                        regular_prop: 'should_update',
+                    },
+                },
+            },
+            {
+                $geoip_country_name: 'Canada',
+                regular_prop: 'old_value',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties.$geoip_country_name).toBe('United States')
+                expect(person.properties.$initial_geoip_city_name).toBe('San Francisco')
+                expect(person.properties.regular_prop).toBe('should_update')
+            }
+        )
+    })
+
+    it('produces identical results for large property payloads', async () => {
+        const largeProperties: Properties = {}
+        const initialProperties: Properties = {}
+
+        for (let i = 0; i < 50; i++) {
+            largeProperties[`prop_${i}`] = `value_${i}`
+            if (i < 25) {
+                initialProperties[`prop_${i}`] = `old_value_${i}`
+            }
+        }
+
+        initialProperties.remove_me_1 = 'gone'
+        initialProperties.remove_me_2 = 'also_gone'
+        initialProperties.keep_me = 'stays'
+
+        await testBothUpdatePaths(
+            'large property payload',
+            {
+                event: '$set',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: largeProperties,
+                    $unset: ['remove_me_1', 'remove_me_2'],
+                },
+            },
+            initialProperties,
+            (person, _useOptimized) => {
+                for (let i = 0; i < 50; i++) {
+                    expect(person.properties[`prop_${i}`]).toBe(`value_${i}`)
+                }
+                expect(person.properties.keep_me).toBe('stays')
+                expect(person.properties.remove_me_1).toBeUndefined()
+                expect(person.properties.remove_me_2).toBeUndefined()
+                expect(person.version).toBe(1)
+            }
+        )
+    })
+})

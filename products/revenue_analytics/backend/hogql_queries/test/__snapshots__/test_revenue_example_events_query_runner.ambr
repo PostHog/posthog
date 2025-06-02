@@ -26,6 +26,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                'USD' AS original_currency,
@@ -38,7 +39,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -73,6 +74,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                'USD' AS original_currency,
@@ -85,7 +87,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -162,6 +164,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                'GBP' AS original_currency,
@@ -175,7 +178,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -210,6 +213,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -223,7 +227,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -258,6 +262,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -271,7 +276,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -332,6 +337,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                'GBP' AS original_currency,
@@ -345,7 +351,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -380,6 +386,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -393,7 +400,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -428,6 +435,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -441,7 +449,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -502,6 +510,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                'GBP' AS original_currency,
@@ -514,7 +523,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -549,6 +558,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -561,7 +571,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -596,6 +606,7 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
+               NULL AS invoice_id,
                toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -608,7 +619,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.event, view.event_name)
+     INNER JOIN events ON equals(events.uuid, view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -658,6 +669,7 @@
     (SELECT events.uuid AS id,
             toTimeZone(events.created_at, 'UTC') AS timestamp,
             events.distinct_id AS customer_id,
+            NULL AS invoice_id,
             toString(events.`$session_id`) AS session_id,
             events.event AS event_name,
             'USD' AS original_currency,
@@ -670,7 +682,7 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
      ORDER BY timestamp DESC) AS view
-  INNER JOIN events ON equals(events.event, view.event_name)
+  INNER JOIN events ON equals(events.uuid, view.id)
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -719,6 +731,7 @@
     (SELECT events.uuid AS id,
             toTimeZone(events.created_at, 'UTC') AS timestamp,
             events.distinct_id AS customer_id,
+            NULL AS invoice_id,
             toString(events.`$session_id`) AS session_id,
             events.event AS event_name,
             'USD' AS original_currency,
@@ -732,7 +745,7 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
      ORDER BY timestamp DESC) AS view
-  INNER JOIN events ON equals(events.event, view.event_name)
+  INNER JOIN events ON equals(events.uuid, view.id)
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id

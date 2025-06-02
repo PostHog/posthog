@@ -3,6 +3,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
 import { ErrorTrackingClientSuppression } from 'scenes/error-tracking/configuration/rules/ErrorTrackingClientSuppression'
@@ -247,6 +248,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RevenueBaseCurrencySettings />,
             },
             {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
+            },
+            {
                 id: 'revenue-analytics-events',
                 title: 'Revenue events',
                 component: <EventConfiguration />,
@@ -255,6 +262,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
             },
         ],
     },
@@ -423,12 +431,19 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-csp-reporting',
         title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
         settings: [
             {
                 id: 'csp-reporting',
-                title: 'CSP reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 component: <CSPReportingSettings />,
-                flag: 'CSP_REPORTING',
             },
         ],
     },

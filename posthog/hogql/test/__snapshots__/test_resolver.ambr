@@ -2294,6 +2294,9 @@
                     active_milliseconds: {
                       hidden: False
                     },
+                    all_urls: {
+                      hidden: False
+                    },
                     click_count: {
                       hidden: False
                     },
@@ -2409,6 +2412,24 @@
         hidden: True
         type: {
           alias: "first_url"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "all_urls"
+        expr: {
+          chain: [
+            "e",
+            "all_urls"
+          ]
+          type: {
+            name: "all_urls"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "all_urls"
           type: <recursion ...>
         }
       },
@@ -2872,6 +2893,7 @@
       anonymous_tables: []
       columns: {
         active_milliseconds: <recursion ...>,
+        all_urls: <recursion ...>,
         click_count: <recursion ...>,
         console_error_count: <recursion ...>,
         console_log_count: <recursion ...>,
