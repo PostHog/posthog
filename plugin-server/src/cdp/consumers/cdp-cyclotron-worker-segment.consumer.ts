@@ -13,7 +13,7 @@ export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
 
     constructor(hub: Hub) {
         super(hub, 'segment')
-        this.segmentPluginExecutor = new SegmentDestinationExecutorService()
+        this.segmentPluginExecutor = new SegmentDestinationExecutorService(this.hub)
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
