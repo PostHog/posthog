@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, UTC
 
 from freezegun import freeze_time
+from posthog.hogql import ast
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
@@ -1011,3 +1012,47 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(
             pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
         )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_combine_with_realtime_data_when_including_current_date(self):
+        """Test that we can combine pre-aggregated data with real-time data when date range includes current date."""
+        today = datetime.now(UTC).date().isoformat()
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to=today),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+
+        # Should not use pure pre-aggregated tables because it includes current date
+        self.assertFalse(
+            pre_agg_builder.can_use_preaggregated_tables(),
+            "Should not use pure pre-aggregated tables when date range includes current date",
+        )
+
+        # But should be able to combine with real-time data
+        self.assertTrue(
+            pre_agg_builder.can_combine_with_realtime_data(),
+            "Should be able to combine pre-aggregated data with real-time data",
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_combined_query_generation(self):
+        """Test that the combined query is generated correctly."""
+        today = datetime.now(UTC).date().isoformat()
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to=today),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+
+        # Test that get_combined_query returns a valid AST
+        combined_query_ast = pre_agg_builder.get_combined_query()
+        self.assertIsInstance(combined_query_ast, ast.SelectSetQuery)
+
+        # The query should be a UNION ALL combining historical and current day data
+        self.assertEqual(combined_query_ast.subsequent_select_queries[0].set_operator, "UNION ALL")
+
+        # Should have 2 queries - historical (pre-aggregated) and current day (events-based)
+        self.assertEqual(len(combined_query_ast.subsequent_select_queries), 1)  # 1 additional + initial = 2 total

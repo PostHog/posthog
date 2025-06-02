@@ -43,28 +43,54 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
         )
 
-        if not should_use_preaggregated:
-            return None
+        should_use_combined = (
+            self.modifiers
+            and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and not should_use_preaggregated  # Only if pure pre-aggregated doesn't work
+            and self.preaggregated_query_builder.can_combine_with_realtime_data()
+        )
 
-        try:
-            response = execute_hogql_query(
-                query_type="web_overview_preaggregated_query",
-                query=self.preaggregated_query_builder.get_query(),
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
+        if should_use_preaggregated:
+            try:
+                response = execute_hogql_query(
+                    query_type="web_overview_preaggregated_query",
+                    query=self.preaggregated_query_builder.get_query(),
+                    team=self.team,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
 
-            # We could have a empty result in normal conditions but also when we're recreating the tables.
-            # While we're testing, if it is a empty result, let's  fallback on using the
-            # regular queries to be extra careful.
-            assert response.results
+                # We could have a empty result in normal conditions but also when we're recreating the tables.
+                # While we're testing, if it is a empty result, let's  fallback on using the
+                # regular queries to be extra careful.
+                assert response.results
 
-            return response
-        except Exception as e:
-            logger.exception("Error getting pre-aggregated web_overview", error=e)
-            return None
+                return response
+            except Exception as e:
+                logger.exception("Error getting pre-aggregated web_overview", error=e)
+                return None
+
+        elif should_use_combined:
+            try:
+                response = execute_hogql_query(
+                    query_type="web_overview_combined_query",
+                    query=self.preaggregated_query_builder.get_combined_query(),
+                    team=self.team,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+
+                # Check if we got valid results
+                assert response.results
+
+                return response
+            except Exception as e:
+                logger.exception("Error getting combined web_overview", error=e)
+                return None
+
+        return None
 
     def calculate(self) -> WebOverviewQueryResponse:
         pre_aggregated_response = self.get_pre_aggregated_response()

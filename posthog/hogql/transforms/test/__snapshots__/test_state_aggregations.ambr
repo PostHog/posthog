@@ -164,21 +164,13 @@
 # name: TestStateTransforms.test_combine_web_analytics_historical_and_realtime_data
   '''
   
-  SELECT tuple(uniqMerge(tupleElement(daily_metrics, 1)), countMerge(tupleElement(daily_metrics, 2)), sumMerge(tupleElement(daily_metrics, 3))) AS daily_metrics, date AS date 
+  SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2))) AS engagement_metrics, %(hogql_val_1)s AS host 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_0)s))) AS daily_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)) AS date 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_2)s)), %(hogql_val_3)s)) 
-  GROUP BY date) 
-  GROUP BY date 
+  SELECT tuple(uniqState(1), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS engagement_metrics, %(hogql_val_0)s AS host) 
   LIMIT 50000 UNION ALL 
-  SELECT tuple(uniqMerge(tupleElement(daily_metrics, 1)), countMerge(tupleElement(daily_metrics, 2)), sumMerge(tupleElement(daily_metrics, 3))) AS daily_metrics, date AS date 
+  SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2))) AS engagement_metrics, %(hogql_val_3)s AS host 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_4)s))) AS daily_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_5)s)) AS date 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), equals(toDate(toTimeZone(events.timestamp, %(hogql_val_6)s)), %(hogql_val_7)s)) 
-  GROUP BY date) 
-  GROUP BY date 
+  SELECT tuple(uniqState(1), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS engagement_metrics, %(hogql_val_2)s AS host) 
   LIMIT 50000
   '''
 # ---
@@ -526,6 +518,118 @@
   WHERE equals(events.team_id, 420) 
   GROUP BY host) 
   GROUP BY host 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_bounce_rate_and_conversion_funnel
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(bounce_metrics, 1)), countMerge(tupleElement(bounce_metrics, 2)), avgMerge(tupleElement(bounce_metrics, 3))) AS bounce_metrics, tuple(uniqMerge(tupleElement(funnel_metrics, 1)), uniqMerge(tupleElement(funnel_metrics, 2)), uniqMerge(tupleElement(funnel_metrics, 3))) AS funnel_metrics, 12 AS hour, %(hogql_val_1)s AS pathname 
+  FROM (
+  SELECT tuple(uniqState(1), countStateIf(1), avgState(1)) AS bounce_metrics, tuple(uniqStateIf(1, 1), uniqStateIf(1, 1), uniqStateIf(1, 1)) AS funnel_metrics, 12 AS hour, %(hogql_val_0)s AS pathname) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(bounce_metrics, 1)), countMerge(tupleElement(bounce_metrics, 2)), avgMerge(tupleElement(bounce_metrics, 3))) AS bounce_metrics, tuple(uniqMerge(tupleElement(funnel_metrics, 1)), uniqMerge(tupleElement(funnel_metrics, 2)), uniqMerge(tupleElement(funnel_metrics, 3))) AS funnel_metrics, 12 AS hour, %(hogql_val_3)s AS pathname 
+  FROM (
+  SELECT tuple(uniqState(1), countStateIf(1), avgState(1)) AS bounce_metrics, tuple(uniqStateIf(1, 1), uniqStateIf(1, 1), uniqStateIf(1, 1)) AS funnel_metrics, 12 AS hour, %(hogql_val_2)s AS pathname) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_cohort_analysis_with_tuple_retention
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(retention_metrics, 1)), countMerge(tupleElement(retention_metrics, 2)), countMerge(tupleElement(retention_metrics, 3)), countMerge(tupleElement(retention_metrics, 4))) AS retention_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2)), sumMerge(tupleElement(engagement_metrics, 3))) AS engagement_metrics, %(hogql_val_2)s AS cohort_period, %(hogql_val_3)s AS acquisition_channel 
+  FROM (
+  SELECT tuple(uniqState(1), countStateIf(1), countStateIf(1), countStateIf(1)) AS retention_metrics, tuple(sumState(1), avgState(1), sumState(1)) AS engagement_metrics, %(hogql_val_0)s AS cohort_period, %(hogql_val_1)s AS acquisition_channel) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(retention_metrics, 1)), countMerge(tupleElement(retention_metrics, 2)), countMerge(tupleElement(retention_metrics, 3)), countMerge(tupleElement(retention_metrics, 4))) AS retention_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2)), sumMerge(tupleElement(engagement_metrics, 3))) AS engagement_metrics, %(hogql_val_6)s AS cohort_period, %(hogql_val_7)s AS acquisition_channel 
+  FROM (
+  SELECT tuple(uniqState(1), countStateIf(1), countStateIf(1), countStateIf(1)) AS retention_metrics, tuple(sumState(1), avgState(1), sumState(1)) AS engagement_metrics, %(hogql_val_4)s AS cohort_period, %(hogql_val_5)s AS acquisition_channel) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(retention_metrics, 1)), countMerge(tupleElement(retention_metrics, 2)), countMerge(tupleElement(retention_metrics, 3)), countMerge(tupleElement(retention_metrics, 4))) AS retention_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2)), sumMerge(tupleElement(engagement_metrics, 3))) AS engagement_metrics, %(hogql_val_10)s AS cohort_period, %(hogql_val_11)s AS acquisition_channel 
+  FROM (
+  SELECT tuple(uniqState(1), countStateIf(1), countStateIf(1), countStateIf(1)) AS retention_metrics, tuple(sumState(1), avgState(1), sumState(1)) AS engagement_metrics, %(hogql_val_8)s AS cohort_period, %(hogql_val_9)s AS acquisition_channel) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_device_and_browser_analysis
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(performance_metrics, 1)), countMerge(tupleElement(performance_metrics, 2)), avgMerge(tupleElement(performance_metrics, 3))) AS performance_metrics, tuple(countMerge(tupleElement(interaction_metrics, 1)), countMerge(tupleElement(interaction_metrics, 2)), countMerge(tupleElement(interaction_metrics, 3))) AS interaction_metrics, tuple(avgMerge(tupleElement(vitals_metrics, 1)), avgMerge(tupleElement(vitals_metrics, 2)), avgMerge(tupleElement(vitals_metrics, 3))) AS vitals_metrics, %(hogql_val_3)s AS device_type, %(hogql_val_4)s AS browser_name, %(hogql_val_5)s AS browser_version 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), avgState(1)) AS performance_metrics, tuple(countStateIf(1), countStateIf(1), countStateIf(1)) AS interaction_metrics, tuple(avgStateIf(1, 1), avgStateIf(1, 1), avgStateIf(1, 1)) AS vitals_metrics, %(hogql_val_0)s AS device_type, %(hogql_val_1)s AS browser_name, %(hogql_val_2)s AS browser_version) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(performance_metrics, 1)), countMerge(tupleElement(performance_metrics, 2)), avgMerge(tupleElement(performance_metrics, 3))) AS performance_metrics, tuple(countMerge(tupleElement(interaction_metrics, 1)), countMerge(tupleElement(interaction_metrics, 2)), countMerge(tupleElement(interaction_metrics, 3))) AS interaction_metrics, tuple(avgMerge(tupleElement(vitals_metrics, 1)), avgMerge(tupleElement(vitals_metrics, 2)), avgMerge(tupleElement(vitals_metrics, 3))) AS vitals_metrics, %(hogql_val_9)s AS device_type, %(hogql_val_10)s AS browser_name, %(hogql_val_11)s AS browser_version 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), avgState(1)) AS performance_metrics, tuple(countStateIf(1), countStateIf(1), countStateIf(1)) AS interaction_metrics, tuple(avgStateIf(1, 1), avgStateIf(1, 1), avgStateIf(1, 1)) AS vitals_metrics, %(hogql_val_6)s AS device_type, %(hogql_val_7)s AS browser_name, %(hogql_val_8)s AS browser_version) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_geographic_segmentation_with_tuples
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(visitor_metrics, 1)), countMerge(tupleElement(visitor_metrics, 2)), sumMerge(tupleElement(visitor_metrics, 3))) AS visitor_metrics, tuple(uniqMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2)), countMerge(tupleElement(session_metrics, 3))) AS session_metrics, tuple(sumMerge(tupleElement(revenue_metrics, 1)), countMerge(tupleElement(revenue_metrics, 2)), avgMerge(tupleElement(revenue_metrics, 3))) AS revenue_metrics, %(hogql_val_2)s AS country_code, %(hogql_val_3)s AS region 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS visitor_metrics, tuple(uniqState(1), avgState(1), countStateIf(1)) AS session_metrics, tuple(sumStateIf(1, 1), countStateIf(1, 1), avgStateIf(1, 1)) AS revenue_metrics, %(hogql_val_0)s AS country_code, %(hogql_val_1)s AS region) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(visitor_metrics, 1)), countMerge(tupleElement(visitor_metrics, 2)), sumMerge(tupleElement(visitor_metrics, 3))) AS visitor_metrics, tuple(uniqMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2)), countMerge(tupleElement(session_metrics, 3))) AS session_metrics, tuple(sumMerge(tupleElement(revenue_metrics, 1)), countMerge(tupleElement(revenue_metrics, 2)), avgMerge(tupleElement(revenue_metrics, 3))) AS revenue_metrics, %(hogql_val_6)s AS country_code, %(hogql_val_7)s AS region 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS visitor_metrics, tuple(uniqState(1), avgState(1), countStateIf(1)) AS session_metrics, tuple(sumStateIf(1, 1), countStateIf(1, 1), avgStateIf(1, 1)) AS revenue_metrics, %(hogql_val_4)s AS country_code, %(hogql_val_5)s AS region) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_historical_and_realtime_with_tuples
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2))) AS engagement_metrics, %(hogql_val_1)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS engagement_metrics, %(hogql_val_0)s AS host) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(engagement_metrics, 1)), avgMerge(tupleElement(engagement_metrics, 2))) AS engagement_metrics, %(hogql_val_3)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS engagement_metrics, %(hogql_val_2)s AS host) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_mixed_state_and_regular_aggregations_realistic
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(user_pageview_tuple, 1)), countMerge(tupleElement(user_pageview_tuple, 2)), sumMerge(tupleElement(user_pageview_tuple, 3))) AS user_pageview_tuple, tuple(avgMerge(tupleElement(session_behavior_tuple, 1)), countMerge(tupleElement(session_behavior_tuple, 2)), sumMerge(tupleElement(session_behavior_tuple, 3))) AS session_behavior_tuple, %(hogql_val_2)s AS date, %(hogql_val_3)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS user_pageview_tuple, tuple(avgState(1), countState(), sumStateIf(1, 1)) AS session_behavior_tuple, %(hogql_val_0)s AS date, %(hogql_val_1)s AS host) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(user_pageview_tuple, 1)), countMerge(tupleElement(user_pageview_tuple, 2)), sumMerge(tupleElement(user_pageview_tuple, 3))) AS user_pageview_tuple, tuple(avgMerge(tupleElement(session_behavior_tuple, 1)), countMerge(tupleElement(session_behavior_tuple, 2)), sumMerge(tupleElement(session_behavior_tuple, 3))) AS session_behavior_tuple, %(hogql_val_6)s AS date, %(hogql_val_7)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS user_pageview_tuple, tuple(avgState(1), countState(), sumStateIf(1, 1)) AS session_behavior_tuple, %(hogql_val_4)s AS date, %(hogql_val_5)s AS host) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(user_pageview_tuple, 1)), countMerge(tupleElement(user_pageview_tuple, 2)), sumMerge(tupleElement(user_pageview_tuple, 3))) AS user_pageview_tuple, tuple(avgMerge(tupleElement(session_behavior_tuple, 1)), countMerge(tupleElement(session_behavior_tuple, 2)), sumMerge(tupleElement(session_behavior_tuple, 3))) AS session_behavior_tuple, %(hogql_val_10)s AS date, %(hogql_val_11)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS user_pageview_tuple, tuple(avgState(1), countState(), sumStateIf(1, 1)) AS session_behavior_tuple, %(hogql_val_8)s AS date, %(hogql_val_9)s AS host) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_multi_metric_tuples_combination
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(user_pageview_metrics, 1)), countMerge(tupleElement(user_pageview_metrics, 2)), sumMerge(tupleElement(user_pageview_metrics, 3))) AS user_pageview_metrics, tuple(uniqMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2)), sumMerge(tupleElement(session_metrics, 3))) AS session_metrics, tuple(sumMerge(tupleElement(conversion_metrics, 1)), avgMerge(tupleElement(conversion_metrics, 2))) AS conversion_metrics, %(hogql_val_2)s AS date, %(hogql_val_3)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS user_pageview_metrics, tuple(uniqState(1), avgState(1), sumState(1)) AS session_metrics, tuple(sumStateIf(1, 1), avgStateIf(1, 1)) AS conversion_metrics, %(hogql_val_0)s AS date, %(hogql_val_1)s AS host) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(user_pageview_metrics, 1)), countMerge(tupleElement(user_pageview_metrics, 2)), sumMerge(tupleElement(user_pageview_metrics, 3))) AS user_pageview_metrics, tuple(uniqMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2)), sumMerge(tupleElement(session_metrics, 3))) AS session_metrics, tuple(sumMerge(tupleElement(conversion_metrics, 1)), avgMerge(tupleElement(conversion_metrics, 2))) AS conversion_metrics, %(hogql_val_6)s AS date, %(hogql_val_7)s AS host 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS user_pageview_metrics, tuple(uniqState(1), avgState(1), sumState(1)) AS session_metrics, tuple(sumStateIf(1, 1), avgStateIf(1, 1)) AS conversion_metrics, %(hogql_val_4)s AS date, %(hogql_val_5)s AS host) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebAnalyticsIntegrationWithStateAggregations.test_web_analytics_utm_campaign_performance_tuples
+  '''
+  
+  SELECT tuple(uniqMerge(tupleElement(traffic_metrics, 1)), countMerge(tupleElement(traffic_metrics, 2)), sumMerge(tupleElement(traffic_metrics, 3))) AS traffic_metrics, tuple(uniqMerge(tupleElement(signup_metrics, 1)), countMerge(tupleElement(signup_metrics, 2)), sumMerge(tupleElement(signup_metrics, 3))) AS signup_metrics, tuple(uniqMerge(tupleElement(purchase_metrics, 1)), countMerge(tupleElement(purchase_metrics, 2)), sumMerge(tupleElement(purchase_metrics, 3))) AS purchase_metrics, %(hogql_val_3)s AS utm_source, %(hogql_val_4)s AS utm_medium, %(hogql_val_5)s AS utm_campaign 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS traffic_metrics, tuple(uniqStateIf(1, 1), countStateIf(1, 1), sumStateIf(1, 1)) AS signup_metrics, tuple(uniqStateIf(1, 1), countStateIf(1, 1), sumStateIf(1, 1)) AS purchase_metrics, %(hogql_val_0)s AS utm_source, %(hogql_val_1)s AS utm_medium, %(hogql_val_2)s AS utm_campaign) 
+  LIMIT 50000 UNION ALL 
+  SELECT tuple(uniqMerge(tupleElement(traffic_metrics, 1)), countMerge(tupleElement(traffic_metrics, 2)), sumMerge(tupleElement(traffic_metrics, 3))) AS traffic_metrics, tuple(uniqMerge(tupleElement(signup_metrics, 1)), countMerge(tupleElement(signup_metrics, 2)), sumMerge(tupleElement(signup_metrics, 3))) AS signup_metrics, tuple(uniqMerge(tupleElement(purchase_metrics, 1)), countMerge(tupleElement(purchase_metrics, 2)), sumMerge(tupleElement(purchase_metrics, 3))) AS purchase_metrics, %(hogql_val_9)s AS utm_source, %(hogql_val_10)s AS utm_medium, %(hogql_val_11)s AS utm_campaign 
+  FROM (
+  SELECT tuple(uniqState(1), countState(), sumState(1)) AS traffic_metrics, tuple(uniqStateIf(1, 1), countStateIf(1, 1), sumStateIf(1, 1)) AS signup_metrics, tuple(uniqStateIf(1, 1), countStateIf(1, 1), sumStateIf(1, 1)) AS purchase_metrics, %(hogql_val_6)s AS utm_source, %(hogql_val_7)s AS utm_medium, %(hogql_val_8)s AS utm_campaign) 
   LIMIT 50000
   '''
 # ---

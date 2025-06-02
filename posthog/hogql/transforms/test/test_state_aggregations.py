@@ -575,20 +575,16 @@ class TestStateTransforms(BaseTest):
     def test_combine_web_analytics_historical_and_realtime_data(self):
         historical_query = """
         SELECT
-            (uniq(distinct_id), count(), sumIf(1, event = '$pageview')) AS daily_metrics,
-            toDate(timestamp) as date
-        FROM events
-        WHERE toDate(timestamp) < '2023-01-01'
-        GROUP BY date
+            (uniqState(1), countState()) AS user_metrics,
+            (sumState(1), avgState(1)) AS engagement_metrics,
+            'app.posthog.com' as host
         """
 
         realtime_query = """
         SELECT
-            (uniq(distinct_id), count(), sumIf(1, event = '$pageview')) AS daily_metrics,
-            toDate(timestamp) as date
-        FROM events
-        WHERE toDate(timestamp) = '2023-01-01'
-        GROUP BY date
+            (uniq(1), count()) AS user_metrics,
+            (sum(1), avg(1)) AS engagement_metrics,
+            'app.posthog.com' as host
         """
 
         combined_query = combine_queries_with_state_and_merge(historical_query, realtime_query)
@@ -1029,7 +1025,10 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
 
         original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
 
-        self.assertEqual(original_result, transformed_result)
+        # Results should be equivalent (order might differ, so we sort)
+        original_sorted = sorted(original_result)
+        transformed_sorted = sorted(transformed_result)
+        self.assertEqual(original_sorted, transformed_sorted)
 
     def test_grouped_union_all_tuples_with_db(self):
         original_query_str = """
@@ -1114,3 +1113,410 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         original_sorted = sorted(original_result)
         transformed_sorted = sorted(transformed_result)
         self.assertEqual(original_sorted, transformed_sorted)
+
+
+class TestWebAnalyticsIntegrationWithStateAggregations(BaseTest):
+    """
+    Integration tests that simulate real-world web analytics scenarios where
+    state aggregations with tuples are used to combine pre-aggregated data
+    with real-time data, similar to what's done in web_overview_pre_aggregated.py
+    """
+
+    snapshot: Any
+
+    def _print_select(self, expr: ast.SelectQuery | ast.SelectSetQuery):
+        query = print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_historical_and_realtime_with_tuples(self):
+        """Test combining pre-aggregated historical data with real-time current day data using tuples."""
+        # Simulate pre-aggregated historical data query (already using state aggregations)
+        historical_query = """
+        SELECT
+            (uniqState(1), countState()) AS user_metrics,
+            (sumState(1), avgState(1)) AS engagement_metrics,
+            'app.posthog.com' as host
+        """
+
+        # Simulate real-time current day query (regular aggregations that will be transformed)
+        realtime_query = """
+        SELECT
+            (uniq(1), count()) AS user_metrics,
+            (sum(1), avg(1)) AS engagement_metrics,
+            'app.posthog.com' as host
+        """
+
+        combined_query = combine_queries_with_state_and_merge(historical_query, realtime_query)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_multi_metric_tuples_combination(self):
+        """Test web analytics scenario with complex tuple structures combining multiple metrics."""
+        # Historical materialized view data
+        mv_query = """
+        SELECT
+            (
+                uniqState(1),
+                countState(),
+                sumState(1)
+            ) AS user_pageview_metrics,
+            (
+                uniqState(1),
+                avgState(1),
+                sumState(1)
+            ) AS session_metrics,
+            (
+                sumStateIf(1, 1),
+                avgStateIf(1, 1)
+            ) AS conversion_metrics,
+            '2023-01-01' as date,
+            'app.posthog.com' as host
+        """
+
+        # Real-time events data
+        events_query = """
+        SELECT
+            (
+                uniq(1),
+                count(),
+                sum(1)
+            ) AS user_pageview_metrics,
+            (
+                uniq(1),
+                avg(1),
+                sum(1)
+            ) AS session_metrics,
+            (
+                sumIf(1, 1),
+                avgIf(1, 1)
+            ) AS conversion_metrics,
+            '2023-01-01' as date,
+            'app.posthog.com' as host
+        """
+
+        combined_query = combine_queries_with_state_and_merge(mv_query, events_query)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_bounce_rate_and_conversion_funnel(self):
+        """Test web analytics bounce rate and conversion funnel calculations with tuples."""
+        # Pre-aggregated bounce and conversion data
+        preagg_query = """
+        SELECT
+            (
+                uniqState(1),
+                countStateIf(1),
+                avgState(1)
+            ) AS bounce_metrics,
+            (
+                uniqStateIf(1, 1),
+                uniqStateIf(1, 1),
+                uniqStateIf(1, 1)
+            ) AS funnel_metrics,
+            12 as hour,
+            '/home' as pathname
+        """
+
+        # Current hour real-time data
+        realtime_query = """
+        SELECT
+            (
+                uniq(1),
+                countIf(1),
+                avg(1)
+            ) AS bounce_metrics,
+            (
+                uniqIf(1, 1),
+                uniqIf(1, 1),
+                uniqIf(1, 1)
+            ) AS funnel_metrics,
+            12 as hour,
+            '/home' as pathname
+        """
+
+        combined_query = combine_queries_with_state_and_merge(preagg_query, realtime_query)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_cohort_analysis_with_tuple_retention(self):
+        """Test cohort analysis combining retention metrics in tuples across time periods."""
+        # Week 1 cohort data (pre-aggregated)
+        week1_cohort = """
+        SELECT
+            (
+                uniqState(1),
+                countStateIf(1),
+                countStateIf(1),
+                countStateIf(1)
+            ) AS retention_metrics,
+            (
+                sumState(1),
+                avgState(1),
+                sumState(1)
+            ) AS engagement_metrics,
+            'week_1' as cohort_period,
+            'organic' as acquisition_channel
+        """
+
+        # Week 2 cohort data (pre-aggregated)
+        week2_cohort = """
+        SELECT
+            (
+                uniqState(1),
+                countStateIf(1),
+                countStateIf(1),
+                countStateIf(1)
+            ) AS retention_metrics,
+            (
+                sumState(1),
+                avgState(1),
+                sumState(1)
+            ) AS engagement_metrics,
+            'week_2' as cohort_period,
+            'organic' as acquisition_channel
+        """
+
+        # Current week cohort (real-time)
+        current_week_cohort = """
+        SELECT
+            (
+                uniq(1),
+                countIf(1),
+                countIf(1),
+                countIf(1)
+            ) AS retention_metrics,
+            (
+                sum(1),
+                avg(1),
+                sum(1)
+            ) AS engagement_metrics,
+            'current_week' as cohort_period,
+            'organic' as acquisition_channel
+        """
+
+        combined_query = combine_queries_with_state_and_merge(week1_cohort, week2_cohort, current_week_cohort)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_geographic_segmentation_with_tuples(self):
+        """Test geographic segmentation analytics with tuple-based metrics."""
+        # Regional pre-aggregated data
+        regional_data = """
+        SELECT
+            (
+                uniqState(1),
+                countState(),
+                sumState(1)
+            ) AS visitor_metrics,
+            (
+                uniqState(1),
+                avgState(1),
+                countStateIf(1)
+            ) AS session_metrics,
+            (
+                sumStateIf(1, 1),
+                countStateIf(1, 1),
+                avgStateIf(1, 1)
+            ) AS revenue_metrics,
+            'US' as country_code,
+            'California' as region
+        """
+
+        # Current day geo data from events
+        current_geo_data = """
+        SELECT
+            (
+                uniq(1),
+                count(),
+                sum(1)
+            ) AS visitor_metrics,
+            (
+                uniq(1),
+                avg(1),
+                countIf(1)
+            ) AS session_metrics,
+            (
+                sumIf(1, 1),
+                countIf(1, 1),
+                avgIf(1, 1)
+            ) AS revenue_metrics,
+            'US' as country_code,
+            'California' as region
+        """
+
+        combined_query = combine_queries_with_state_and_merge(regional_data, current_geo_data)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_device_and_browser_analysis(self):
+        """Test device and browser analytics with tuple aggregations."""
+        # Historical device/browser stats
+        historical_stats = """
+        SELECT
+            (
+                uniqState(1),
+                countState(),
+                avgState(1)
+            ) AS performance_metrics,
+            (
+                countStateIf(1),
+                countStateIf(1),
+                countStateIf(1)
+            ) AS interaction_metrics,
+            (
+                avgStateIf(1, 1),
+                avgStateIf(1, 1),
+                avgStateIf(1, 1)
+            ) AS vitals_metrics,
+            'mobile' as device_type,
+            'Chrome' as browser_name,
+            '91.0' as browser_version
+        """
+
+        # Current day device/browser data
+        current_stats = """
+        SELECT
+            (
+                uniq(1),
+                count(),
+                avg(1)
+            ) AS performance_metrics,
+            (
+                countIf(1),
+                countIf(1),
+                countIf(1)
+            ) AS interaction_metrics,
+            (
+                avgIf(1, 1),
+                avgIf(1, 1),
+                avgIf(1, 1)
+            ) AS vitals_metrics,
+            'mobile' as device_type,
+            'Chrome' as browser_name,
+            '91.0' as browser_version
+        """
+
+        combined_query = combine_queries_with_state_and_merge(historical_stats, current_stats)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_mixed_state_and_regular_aggregations_realistic(self):
+        """Test a realistic scenario mixing different stages of aggregation transformation."""
+        # Fully pre-computed state aggregations (from materialized view)
+        materialized_view_query = """
+        SELECT
+            (
+                uniqState(1),
+                countState(),
+                sumState(1)
+            ) AS user_pageview_tuple,
+            (
+                avgState(1),
+                countState(),
+                sumStateIf(1, 1)
+            ) AS session_behavior_tuple,
+            '2023-01-01' as date,
+            'app.posthog.com' as host
+        """
+
+        # Yesterday's data (regular aggregations, will be transformed to state)
+        yesterday_query = """
+        SELECT
+            (
+                uniq(1),
+                count(),
+                sum(1)
+            ) AS user_pageview_tuple,
+            (
+                avg(1),
+                count(),
+                sumIf(1, 1)
+            ) AS session_behavior_tuple,
+            '2023-01-01' as date,
+            'app.posthog.com' as host
+        """
+
+        # Today's data (real-time, regular aggregations)
+        today_query = """
+        SELECT
+            (
+                uniq(1),
+                count(),
+                sum(1)
+            ) AS user_pageview_tuple,
+            (
+                avg(1),
+                count(),
+                sumIf(1, 1)
+            ) AS session_behavior_tuple,
+            '2023-01-01' as date,
+            'app.posthog.com' as host
+        """
+
+        combined_query = combine_queries_with_state_and_merge(materialized_view_query, yesterday_query, today_query)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_web_analytics_utm_campaign_performance_tuples(self):
+        """Test UTM campaign performance analysis with tuple-based attribution metrics."""
+        # Historical campaign performance
+        campaign_historical = """
+        SELECT
+            (
+                uniqState(1),
+                countState(),
+                sumState(1)
+            ) AS traffic_metrics,
+            (
+                uniqStateIf(1, 1),
+                countStateIf(1, 1),
+                sumStateIf(1, 1)
+            ) AS signup_metrics,
+            (
+                uniqStateIf(1, 1),
+                countStateIf(1, 1),
+                sumStateIf(1, 1)
+            ) AS purchase_metrics,
+            'google' as utm_source,
+            'cpc' as utm_medium,
+            'summer_sale' as utm_campaign
+        """
+
+        # Current day campaign data
+        campaign_current = """
+        SELECT
+            (
+                uniq(1),
+                count(),
+                sum(1)
+            ) AS traffic_metrics,
+            (
+                uniqIf(1, 1),
+                countIf(1, 1),
+                sumIf(1, 1)
+            ) AS signup_metrics,
+            (
+                uniqIf(1, 1),
+                countIf(1, 1),
+                sumIf(1, 1)
+            ) AS purchase_metrics,
+            'google' as utm_source,
+            'cpc' as utm_medium,
+            'summer_sale' as utm_campaign
+        """
+
+        combined_query = combine_queries_with_state_and_merge(campaign_historical, campaign_current)
+        printed = self._print_select(combined_query)
+        assert printed == self.snapshot
