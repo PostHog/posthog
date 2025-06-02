@@ -4244,6 +4244,8 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+    | 'warehouse_view'
+    | 'warehouse_table'
 
 export enum AccessControlLevel {
     None = 'none',
