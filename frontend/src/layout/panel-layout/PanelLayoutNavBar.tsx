@@ -9,6 +9,7 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
+    IconPin,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -23,7 +24,13 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -169,7 +176,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
-            dropdownMenu: <DashboardsMenu />,
+            dropdownMenu: (
+                <>
+                    <DropdownMenuLabel>Pinned dashboards</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DashboardsMenu />
+                </>
+            ),
         },
         {
             identifier: 'Notebooks',
@@ -374,11 +387,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
                                                                 <ButtonPrimitive
-                                                                    iconOnly
                                                                     isSideActionRight
+                                                                    iconOnly
                                                                     className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
                                                                 >
-                                                                    <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                                                                    <IconPin className="size-3 text-tertiary" />
                                                                 </ButtonPrimitive>
                                                             </DropdownMenuTrigger>
 
