@@ -467,7 +467,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
     {
         path: 'Early access features',
         type: 'early_access_feature',
@@ -510,7 +509,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
         tags: ['alpha'],
     },
-    { path: 'Notebooks', type: 'notebook', href: urls.notebooks(), visualOrder: PRODUCT_VISUAL_ORDER.notebooks },
     {
         path: 'Product analytics',
         type: 'insight',
