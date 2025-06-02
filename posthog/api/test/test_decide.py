@@ -764,7 +764,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
-        response = self._post_decide(assert_num_queries=2)
+        response = self._post_decide(assert_num_queries=3)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
@@ -787,7 +787,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 4)
+        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
@@ -4009,6 +4009,10 @@ class TestDecideRemoteConfig(TestDecide):
                 "autocaptureExceptions": False,
                 "analytics": {"endpoint": "/i/v0/e/"},
                 "elementsChainAsString": True,
+                "errorTracking": {
+                    "autocaptureExceptions": False,
+                    "suppressionRules": [],
+                },
                 "sessionRecording": False,
                 "heatmaps": False,
                 "surveys": False,

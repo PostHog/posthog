@@ -12,6 +12,7 @@ import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
 from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
@@ -465,4 +466,9 @@ def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
+    _update_team_remote_config(instance.team_id)
+
+
+@receiver(post_save, sender=ErrorTrackingSuppressionRule)
+def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
     _update_team_remote_config(instance.team_id)
