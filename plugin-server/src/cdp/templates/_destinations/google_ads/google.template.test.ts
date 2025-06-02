@@ -1,4 +1,4 @@
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
@@ -9,11 +9,13 @@ describe('google template', () => {
     const tester = new TemplateTester(template)
 
     beforeEach(async () => {
+        Settings.defaultZone = 'UTC'
         await tester.beforeEach()
         jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
     })
 
     afterEach(() => {
+        Settings.defaultZone = 'system'
         jest.useRealTimers()
     })
 
@@ -243,17 +245,17 @@ describe('google template', () => {
               {
                 "level": "debug",
                 "message": "Executing function",
-                "timestamp": "2025-01-01T01:00:00.000+01:00",
+                "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {
                 "level": "info",
                 "message": "Empty \`gclid\`. Skipping...",
-                "timestamp": "2025-01-01T01:00:00.000+01:00",
+                "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {
                 "level": "debug",
                 "message": "Function completed in 0ms. Sync: 0ms. Mem: 34 bytes. Ops: 10. Event: 'https://us.posthog.com/projects/1/events/1234'",
-                "timestamp": "2025-01-01T01:00:00.000+01:00",
+                "timestamp": "2025-01-01T00:00:00.000Z",
               },
             ]
         `)
