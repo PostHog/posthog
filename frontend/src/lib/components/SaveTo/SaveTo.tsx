@@ -9,13 +9,9 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function SaveToModal(): JSX.Element {
-    const { isOpen, form, isFeatureEnabled } = useValues(saveToLogic)
+    const { isOpen, form } = useValues(saveToLogic)
     const { closeSaveToModal, submitForm } = useActions(saveToLogic)
     const allFolders = splitPath(form.folder || '')
-
-    if (!isFeatureEnabled) {
-        return <></>
-    }
 
     return (
         <LemonModal
