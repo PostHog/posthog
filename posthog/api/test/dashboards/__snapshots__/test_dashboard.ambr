@@ -126,6 +126,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -364,6 +365,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -445,6 +447,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -480,6 +483,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -520,6 +524,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -1465,6 +1470,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2261,6 +2267,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2288,6 +2295,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2396,6 +2404,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2628,6 +2637,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2709,6 +2719,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2736,6 +2747,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -2966,6 +2978,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -4090,6 +4103,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -4117,6 +4131,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -4437,6 +4452,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -4518,6 +4534,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -5289,6 +5306,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -5330,6 +5348,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -5643,6 +5662,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -5740,6 +5760,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -5780,6 +5801,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7069,6 +7091,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7104,6 +7127,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7185,6 +7209,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7340,6 +7365,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7875,6 +7901,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7956,6 +7983,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -7989,6 +8017,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -9118,6 +9147,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -9145,6 +9175,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -9480,6 +9511,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -9561,6 +9593,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -10261,6 +10294,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -10288,6 +10322,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -10390,6 +10425,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -10628,6 +10664,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -10709,6 +10746,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -11464,6 +11502,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -11545,6 +11584,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -11585,6 +11625,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -12239,6 +12280,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -12274,6 +12316,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -12355,6 +12398,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -12510,6 +12554,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -13045,6 +13090,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -13126,6 +13172,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -13159,6 +13206,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -13199,6 +13247,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
@@ -13498,6 +13547,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
