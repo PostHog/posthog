@@ -141,7 +141,6 @@ const ExportsContent = (): JSX.Element => {
                         <div className="mt-2" key={asset.id}>
                             <LemonButton
                                 type={isNotDownloaded ? 'primary' : 'secondary'}
-                                key={asset.id}
                                 fullWidth
                                 disabledReason={disabledReason}
                                 onClick={() => {

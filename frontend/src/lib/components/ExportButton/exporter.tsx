@@ -13,19 +13,18 @@ export function downloadBlob(content: Blob, filename: string): void {
     window.URL.revokeObjectURL(objectURL)
 }
 
-export async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
-    const downloadUrl = api.exports.determineExportUrl(asset.id)
-    const response = await api.getResponse(downloadUrl)
-    const blobObject = await response.blob()
-    downloadBlob(blobObject, asset.filename)
-}
-
 export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob> {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
     const response = await api.getResponse(downloadUrl)
     const blobObject = await response.blob()
 
     return blobObject
+}
+
+export async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
+    const blobObject = await exportedAssetBlob(asset)
+
+    downloadBlob(blobObject, asset.filename)
 }
 
 export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>
