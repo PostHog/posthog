@@ -1,12 +1,4 @@
-import {
-    IconCheckbox,
-    IconChevronDown,
-    IconChevronRight,
-    IconFolder,
-    IconFolderPlus,
-    IconPlusSmall,
-    IconX,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -163,7 +155,10 @@ export function ProjectTree({
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
                 <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
-                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                <>
+                    <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
             ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
                 <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : null
@@ -493,7 +488,7 @@ export function ProjectTree({
                     if (item.name === 'Product analytics') {
                         return <IconPlusSmall className="text-tertiary" />
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return <IconChevronDown className="text-tertiary" />
+                        return <IconChevronRight className="size-3 text-tertiary rotate-90" />
                     }
                 }
             }}
