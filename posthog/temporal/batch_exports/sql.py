@@ -475,15 +475,14 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
     settings=HogQLQueryBatchExportSettings(),
 )
 
-# TODO: Play around with number of partitions to see how it affects performance
 EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT = Template(
     """
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -530,10 +529,10 @@ EXPORT_TO_S3_FROM_EVENTS_RECENT = Template(
     """
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -579,10 +578,10 @@ EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED = Template(
     """
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -627,10 +626,10 @@ EXPORT_TO_S3_FROM_EVENTS_BACKFILL = Template(
     """
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -674,10 +673,10 @@ EXPORT_TO_S3_FROM_EVENTS = Template(
     """
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -723,10 +722,10 @@ SETTINGS
 EXPORT_TO_S3_FROM_PERSONS_BACKFILL = Template("""
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -798,10 +797,10 @@ SETTINGS
 EXPORT_TO_S3_FROM_PERSONS = Template("""
 INSERT INTO FUNCTION
    s3(
-       '$s3_folder/export_{{_partition_id}}.parquet',
+       '$s3_folder/export_{{_partition_id}}.arrow',
        '$s3_key',
        '$s3_secret',
-       'Parquet'
+       'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT

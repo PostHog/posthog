@@ -6,13 +6,14 @@ import uuid
 from dataclasses import dataclass
 
 import aioboto3
-import pyarrow.dataset as ds
 from django.conf import settings
-from pyarrow import fs
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+import posthog.temporal.common.asyncpa as asyncpa
+
 if typing.TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
 from posthog.batch_exports.models import BatchExportRun
@@ -334,7 +335,7 @@ async def _get_query(
         else:
             query_template = EXPORT_TO_S3_FROM_PERSONS
 
-        # TODO - configure this
+        # TODO: Play around with number of partitions to see how it affects performance/memory usage
         num_partitions = 10
 
         query = query_template.safe_substitute(
@@ -561,34 +562,51 @@ class ProducerFromInternalS3Stage:
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
-        # Create dataset from S3 path
-        s3 = fs.S3FileSystem(
-            access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            secret_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            endpoint_override=settings.OBJECT_STORAGE_ENDPOINT if settings.DEBUG or settings.TEST else None,
-            region=settings.OBJECT_STORAGE_REGION,
-        )
         folder = _get_s3_staging_folder(
             batch_export_id=batch_export_id,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
         )
-        dataset_path = f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}/"
-        try:
-            dataset = ds.dataset(
-                dataset_path,
-                format="parquet",
-                filesystem=s3,
-            )
-        except FileNotFoundError:
-            await self.logger.ainfo("Dataset not found in S3 -> assuming no data to export")
-            return
 
-        # Read in batches
-        try:
-            for batch in dataset.to_batches():
-                for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
-                    await queue.put(record_batch_slice)
-        except Exception as e:
-            await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
-            raise
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            # TODO - should we use our own set of env vars for this?
+            # TODO - check these are available in production workers
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            region_name=settings.OBJECT_STORAGE_REGION,
+        ) as s3_client:
+            response = await s3_client.list_objects_v2(
+                Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder
+            )
+            if not (contents := response.get("Contents", [])):
+                await self.logger.ainfo("No files found in S3 -> assuming no data to export")
+                return
+            keys = [obj["Key"] for obj in contents if "Key" in obj]
+            await self.logger.ainfo(f"Found {len(keys)} files in S3")
+
+            # Read in batches
+            try:
+                async for batch in self._stream_record_batches_from_s3(s3_client, keys):
+                    for record_batch_slice in slice_record_batch(
+                        batch, max_record_batch_size_bytes, min_records_per_batch
+                    ):
+                        await queue.put(record_batch_slice)
+            except Exception as e:
+                await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                raise
+
+    async def _stream_record_batches_from_s3(
+        self,
+        s3_client: "S3Client",
+        keys: list[str],
+    ):
+        for key in keys:
+            s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
+            assert "Body" in s3_ob, "Body not found in S3 object"
+            stream = s3_ob["Body"]
+            reader = asyncpa.AsyncRecordBatchReader(stream)
+            async for batch in reader:
+                yield batch
