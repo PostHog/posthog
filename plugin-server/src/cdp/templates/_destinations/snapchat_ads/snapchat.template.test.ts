@@ -1,9 +1,41 @@
+import merge from 'deepmerge'
 import { DateTime } from 'luxon'
 
-import { TemplateTester } from '../../test/test-helpers'
+import { DeepPartialHogFunctionInvocationGlobals, TemplateTester } from '../../test/test-helpers'
 import { template } from './snapchat.template'
 
 jest.setTimeout(2 * 60 * 1000)
+
+/**
+ * Creates a standard payload for invokeMapping.
+ * Allows overriding specific event and person properties.
+ */
+
+const createPayload = (globals?: DeepPartialHogFunctionInvocationGlobals): DeepPartialHogFunctionInvocationGlobals => {
+    let defaultPayload = {
+        event: {
+            properties: {},
+            event: 'Order Completed',
+            uuid: 'event-id',
+            timestamp: '2025-01-01T00:00:00Z',
+            distinct_id: 'distinct-id',
+            elements_chain: '',
+            url: 'https://us.posthog.com/projects/1/events/1234',
+        },
+        person: {
+            id: 'person-id',
+            properties: {
+                email: 'example@posthog.com',
+                sccid: 'snapchat-id',
+            },
+            url: 'https://us.posthog.com/projects/1/persons/1234',
+        },
+    }
+
+    defaultPayload = merge(defaultPayload, globals ?? {})
+
+    return defaultPayload
+}
 
 describe('snapchat template', () => {
     const tester = new TemplateTester(template)
@@ -26,7 +58,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            {
+            createPayload({
                 event: {
                     properties: {
                         product_id: '1bdfef47c9724b58b6831933',
@@ -47,25 +79,16 @@ describe('snapchat template', () => {
                         $current_url: 'https://posthog.com/merch?product=tactical-black-t-shirt',
                     },
                     event: 'Product Viewed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
                 },
                 person: {
-                    id: 'person-id',
                     properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
                         phone: '+1234567890',
                         external_id: '1234567890',
                         first_name: 'Max',
                         last_name: 'AI',
                     },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
                 },
-            }
+            })
         )
 
         expect(response.error).toBeUndefined()
@@ -101,7 +124,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            {
+            createPayload({
                 event: {
                     properties: {
                         checkout_id: 'e461659ed1714b9ebc3299ae',
@@ -147,21 +170,8 @@ describe('snapchat template', () => {
                         ],
                     },
                     event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
                 },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            })
         )
 
         expect(response.error).toBeUndefined()
@@ -197,25 +207,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -251,25 +243,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -308,25 +282,7 @@ describe('snapchat template', () => {
                 pixelId: 'pixel-id',
                 testEventMode: true,
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -362,7 +318,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            {
+            createPayload({
                 event: {
                     properties: {
                         $ip: '123.123.123.123',
@@ -370,14 +326,8 @@ describe('snapchat template', () => {
                             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
                     },
                     event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
                 },
                 person: {
-                    id: 'person-id',
                     properties: {
                         email: 'example@posthog.com',
                         sccid: 'snapchat-id',
@@ -389,9 +339,8 @@ describe('snapchat template', () => {
                         $geoip_country_code: 'US',
                         $geoip_postal_code: '94101',
                     },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
                 },
-            }
+            })
         )
 
         expect(response.error).toBeUndefined()
@@ -426,25 +375,7 @@ describe('snapchat template', () => {
                     access_token: 'access-token',
                 },
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
@@ -457,25 +388,7 @@ describe('snapchat template', () => {
             {
                 pixelId: 'pixel-id',
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Order Completed',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        sccid: 'snapchat-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
