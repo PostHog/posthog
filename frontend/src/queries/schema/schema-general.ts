@@ -17,7 +17,6 @@ import {
     EventType,
     ExperimentHoldoutType,
     ExperimentMetricMathType,
-    FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -2082,7 +2081,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     tags?: ('alpha' | 'beta')[]
     /** Protocol of the item, defaults to "project://" */
     protocol?: string
-    iconColor?: FileSystemIconColor
 }
 
 export interface PersistedFolder {
