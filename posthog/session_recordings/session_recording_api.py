@@ -27,7 +27,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
-from rest_framework.exceptions import Throttled
+from rest_framework.exceptions import Throttled, NotFound
 
 from ee.api.conversation import ServerSentEventRenderer
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
@@ -751,6 +751,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
+        except NotFound:
+            raise
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -760,6 +762,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "session_id": str(recording.session_id) if recording else None,
                 },
             )
+            breakpoint()
             return Response(
                 {"error": "An unexpected error has occurred. Please try again later."},
                 status=500,
