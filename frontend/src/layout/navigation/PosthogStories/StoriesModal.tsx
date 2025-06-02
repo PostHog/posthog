@@ -197,7 +197,7 @@ export const StoriesModal = (): JSX.Element | null => {
                       window.open(story.link, '_self')
                       return null
                   }
-                : undefined,
+                : () => <></>, // this is hack to hide the swipe component and not hide the profile component on stories
             preloadResource: true,
         })
     )
