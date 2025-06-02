@@ -63,8 +63,10 @@ BEGIN
         FROM pg_tables
         WHERE schemaname = current_schema()
         AND tablename NOT IN (
-            'posthog_persondistinctid',
-            'posthog_person',
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
+            'posthog_cohort',
+            'posthog_featureflag',
             'posthog_organizationmembership',
             'posthog_grouptypemapping',
             'posthog_project',
@@ -75,13 +77,28 @@ BEGIN
             'posthog_action',
             'posthog_user',
             'posthog_group',
-            'posthog_team')
+            'posthog_persondistinctid',
+            'posthog_person',
+            'posthog_team'
+        )
     ) LOOP
         EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
     END LOOP;
 END $$;
 `
 
+export async function clearDatabase(db: PostgresRouter) {
+    // Delete all tables using COMMON_WRITE
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .catch((e) => {
+            console.error('Error deleting other tables', e)
+            throw e
+        })
+}
+
+// TODO: This shouldn't be called resetTestDatabase, as it actually adds data to the database
+// which can be misleading for people running tests
 export async function resetTestDatabase(
     code?: string,
     extraServerConfig: Partial<PluginsServerConfig> = {},

@@ -18,7 +18,7 @@ describe('workerTasks.runEventPipeline()', () => {
     beforeAll(async () => {
         hub = await createHub()
         redis = await hub.redisPool.acquire()
-        resetTestDatabase()
+        await resetTestDatabase()
         process.env = { ...OLD_ENV } // Make a copy
     })
 
