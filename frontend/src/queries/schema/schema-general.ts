@@ -2292,13 +2292,9 @@ export interface ExperimentMeanMetricVariantResultBayesian extends ExperimentMea
     credible_interval: [number, number]
 }
 
-export type ExperimentMeanMetricVariantResult =
-    | ExperimentMeanMetricVariantResultFrequentist
-    | ExperimentMeanMetricVariantResultBayesian
-
 export interface ExperimentMeanMetricResult {
-    baseline: ExperimentMeanMetricVariantResult
-    variants: ExperimentMeanMetricVariantResult[]
+    baseline: ExperimentResultStats
+    variants: ExperimentMeanMetricVariantResultFrequentist[] | ExperimentMeanMetricVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {

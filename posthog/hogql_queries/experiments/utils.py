@@ -2,6 +2,8 @@ from typing import TypeVar
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMeanMetricResult,
+    ExperimentMeanMetricVariantResultFrequentist,
     ExperimentQueryResponse,
     ExperimentResultStats,
     ExperimentSignificanceCode,
@@ -63,7 +65,7 @@ def metric_variant_to_statistic(
         )
 
 
-def get_frequentist_experiment_result(
+def get_frequentist_experiment_result_legacy_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentResultStats,
     test_variants: list[ExperimentResultStats],
@@ -121,4 +123,37 @@ def get_frequentist_experiment_result(
         stats_version=2,
         p_value=0.05,
         credible_intervals=confidence_intervals,
+    )
+
+
+def get_frequentist_experiment_result_new_format(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    control_variant: ExperimentResultStats,
+    test_variants: list[ExperimentResultStats],
+) -> ExperimentMeanMetricResult:
+    config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
+    method = FrequentistMethod(config)
+
+    control_stat = metric_variant_to_statistic(metric, control_variant)
+
+    variants: list[ExperimentMeanMetricVariantResultFrequentist] = []
+
+    for test_variant in test_variants:
+        test_stat = metric_variant_to_statistic(metric, test_variant)
+        result = method.run_test(test_stat, control_stat)
+        variants.append(
+            ExperimentMeanMetricVariantResultFrequentist(
+                variant=test_variant.key,
+                p_value=result.p_value,
+                confidence_interval=[result.confidence_interval[0], result.confidence_interval[1]],
+                number_of_samples=test_variant.number_of_samples,
+                sum=test_variant.sum,
+                sum_squares=test_variant.sum_squares,
+                significant=result.is_significant,
+            )
+        )
+
+    return ExperimentMeanMetricResult(
+        baseline=control_variant,
+        variants=variants,
     )

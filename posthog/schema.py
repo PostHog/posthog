@@ -5941,8 +5941,8 @@ class ExperimentMeanMetricResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: Union[ExperimentMeanMetricVariantResultFrequentist, ExperimentMeanMetricVariantResultBayesian]
-    variants: list[Union[ExperimentMeanMetricVariantResultFrequentist, ExperimentMeanMetricVariantResultBayesian]]
+    baseline: ExperimentResultStats
+    variants: Union[list[ExperimentMeanMetricVariantResultFrequentist], list[ExperimentMeanMetricVariantResultBayesian]]
 
 
 class FeaturePropertyFilter(BaseModel):

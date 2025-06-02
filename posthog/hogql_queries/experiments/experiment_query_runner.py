@@ -29,7 +29,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 )
 
 from posthog.hogql_queries.experiments.utils import (
-    get_frequentist_experiment_result,
+    get_frequentist_experiment_result_legacy_format,
     split_baseline_and_test_variants,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -668,7 +668,7 @@ class ExperimentQueryRunner(QueryRunner):
 
             control_variant, test_variants = split_baseline_and_test_variants(variants)
 
-            return get_frequentist_experiment_result(
+            return get_frequentist_experiment_result_legacy_format(
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,

@@ -9238,13 +9238,23 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentMeanMetricVariantResult"
+                    "$ref": "#/definitions/ExperimentResultStats"
                 },
                 "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentMeanMetricVariantResult"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentMeanMetricVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentMeanMetricVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 }
             },
             "required": ["baseline", "variants"],
@@ -9269,16 +9279,6 @@
             },
             "required": ["metric_type", "source"],
             "type": "object"
-        },
-        "ExperimentMeanMetricVariantResult": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/ExperimentMeanMetricVariantResultFrequentist"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentMeanMetricVariantResultBayesian"
-                }
-            ]
         },
         "ExperimentMeanMetricVariantResultBase": {
             "additionalProperties": false,
