@@ -1,16 +1,19 @@
-import { actions, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { tryJsonParse } from 'lib/utils'
-
-import { HogFunctionTestInvocationResult } from '~/types'
 
 import { hogFunctionConfigurationLogic, HogFunctionConfigurationLogicProps } from '../hogFunctionConfigurationLogic'
 import type { hogFunctionSourceWebhookTestLogicType } from './hogFunctionSourceWebhookTestLogicType'
 
-export type HogFunctionSourceWebhookTestInvocationForm = {
+export type HogFunctionSourceWebhookTestForm = {
     headers: string
     body: string
     mock_request: boolean
+}
+
+export type HogFunctionSourceWebhookTestResult = {
+    status: number
+    body: string
 }
 
 export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTestLogicType>([
@@ -24,7 +27,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
         values: [hogFunctionConfigurationLogic(props), ['configuration', 'templateId']],
     })),
     actions({
-        setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
+        setTestResult: (result: HogFunctionSourceWebhookTestResult | null) => ({ result }),
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
     }),
     reducers({
@@ -36,14 +39,14 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
         ],
 
         testResult: [
-            null as HogFunctionTestInvocationResult | null,
+            null as HogFunctionSourceWebhookTestResult | null,
             {
                 setTestResult: (_, { result }) => result,
             },
         ],
     }),
 
-    forms(({ props, actions, values }) => ({
+    forms(({ props, actions }) => ({
         testInvocation: {
             defaults: {
                 mock_request: true,
@@ -54,7 +57,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
   "event": "my example event",
   "distinct_id": "webhook-test-123"
 }`,
-            } as HogFunctionSourceWebhookTestInvocationForm,
+            } as HogFunctionSourceWebhookTestForm,
             alwaysShowErrors: true,
             errors: ({ headers, body }) => {
                 return {
@@ -63,33 +66,37 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
                 }
             },
             submit: async (data) => {
-                // Submit the test invocation
-                // Set the response somewhere
-                // const parsedData = tryJsonParse(data.globals)
-                // const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
-                // configuration.template_id = values.templateId
-                // // Transformations have a simpler UI just showing the event so we need to map it back to the event
-                // const globals =
-                //     values.type === 'transformation'
-                //         ? {
-                //               event: parsedData,
-                //           }
-                //         : parsedData
-                // try {
-                //     const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
-                //         globals,
-                //         mock_async_functions: data.mock_async_functions,
-                //         configuration,
-                //     })
-                //     // Modify the result to match better our globals format
-                //     if (values.type === 'transformation' && res.result) {
-                //         res.result = convertFromTransformationEvent(res.result)
-                //     }
-                //     actions.setTestResult(res)
-                // } catch (e) {
-                //     lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
-                // }
+                actions.setTestResult(null)
+
+                const response = await fetch(`${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`, {
+                    method: 'POST',
+                    headers: tryJsonParse(data.headers),
+                    body: data.body,
+                })
+
+                actions.setTestResult({
+                    status: response.status,
+                    body: await response.text(),
+                })
             },
         },
     })),
+
+    selectors({
+        exampleCurlRequest: [
+            (s) => [s.testInvocation, (_, props) => props],
+            (testInvocation, props) => {
+                const headersJson = tryJsonParse(testInvocation.headers)
+                const headers = headersJson
+                    ? Object.entries(headersJson)
+                          .map(([key, value]) => `-H "${key}: ${value}"`)
+                          .join(' ')
+                    : ''
+
+                return `curl -X POST ${headers} \\
+  -d '${testInvocation.body}' \\
+  ${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`
+            },
+        ],
+    }),
 ])

@@ -1,10 +1,9 @@
 import { IconInfo, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useRef } from 'react'
@@ -13,8 +12,8 @@ import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { hogFunctionSourceWebhookTestLogic } from './hogFunctionSourceWebhookTestLogic'
 
 export function HogFunctionSourceWebhookTest(): JSX.Element {
-    const { logicProps } = useValues(hogFunctionConfigurationLogic)
-    const { isTestInvocationSubmitting, testResult, expanded, testInvocation } = useValues(
+    const { logicProps, configurationChanged } = useValues(hogFunctionConfigurationLogic)
+    const { isTestInvocationSubmitting, testResult, expanded, exampleCurlRequest } = useValues(
         hogFunctionSourceWebhookTestLogic(logicProps)
     )
     const { submitTestInvocation, setTestResult, toggleExpanded } = useActions(
@@ -24,6 +23,8 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
     const testResultsRef = useRef<HTMLDivElement>(null)
 
     const inactive = !expanded
+
+    const unsaved = !logicProps.id
 
     return (
         <Form logic={hogFunctionSourceWebhookTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
@@ -40,13 +41,22 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                         <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
                         </h2>
-                        {inactive ? <p>Click here to test your webhook</p> : null}
+                        {inactive ? (
+                            unsaved ? (
+                                <p>Testing tools are only available after creating the webhook</p>
+                            ) : (
+                                <p>Click here to test your webhook</p>
+                            )
+                        ) : null}
                     </div>
 
                     {inactive ? (
                         <LemonButton
                             data-attr="expand-hog-testing"
                             type="secondary"
+                            disabledReason={
+                                unsaved ? 'Testing tools are only available after creating the webhook' : undefined
+                            }
                             onClick={() => {
                                 toggleExpanded()
                                 // Add a small delay to allow the content to expand
@@ -59,53 +69,31 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                         </LemonButton>
                     ) : (
                         <>
-                            {testResult ? (
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => setTestResult(null)}
-                                    loading={isTestInvocationSubmitting}
-                                    data-attr="clear-hog-test-result"
-                                >
-                                    Clear test result
-                                </LemonButton>
-                            ) : (
-                                <>
-                                    <LemonField name="mock_request">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                onChange={(v) => onChange(!v)}
-                                                checked={!value}
-                                                data-attr="toggle-hog-test-mocking"
-                                                className="px-2 py-1"
-                                                label={
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                When disabled, the webhook request will be sent but only
-                                                                tested without creating events or performing HTTP
-                                                                requests.
-                                                            </>
-                                                        }
-                                                    >
-                                                        <span className="flex gap-2">
-                                                            Debug webhook request only
-                                                            <IconInfo className="text-lg" />
-                                                        </span>
-                                                    </Tooltip>
+                            <LemonField name="mock_request">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        onChange={(v) => onChange(!v)}
+                                        checked={!value}
+                                        data-attr="toggle-hog-test-mocking"
+                                        className="px-2 py-1"
+                                        label={
+                                            <Tooltip
+                                                title={
+                                                    <>
+                                                        When disabled, the webhook request will be sent but only tested
+                                                        without creating events or performing HTTP requests.
+                                                    </>
                                                 }
-                                            />
-                                        )}
-                                    </LemonField>
-                                    <LemonButton
-                                        type="primary"
-                                        data-attr="test-hog-function"
-                                        onClick={submitTestInvocation}
-                                        loading={isTestInvocationSubmitting}
-                                    >
-                                        Test function
-                                    </LemonButton>
-                                </>
-                            )}
+                                            >
+                                                <span className="flex gap-2">
+                                                    Debug webhook request only
+                                                    <IconInfo className="text-lg" />
+                                                </span>
+                                            </Tooltip>
+                                        }
+                                    />
+                                )}
+                            </LemonField>
 
                             {expanded && (
                                 <LemonButton
@@ -121,82 +109,91 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
 
                 {expanded ? (
                     <>
-                        {testResult ? (
-                            <div className="deprecated-space-y-2" data-attr="test-results">
-                                <LemonBanner
-                                    type={
-                                        testResult.status === 'success'
-                                            ? 'success'
-                                            : testResult.status === 'skipped'
-                                            ? 'warning'
-                                            : 'error'
-                                    }
-                                >
-                                    {testResult.status === 'success' ? 'Success' : 'Error'}
-                                </LemonBanner>
+                        <LemonBanner type={configurationChanged ? 'warning' : 'info'} className="mb-2">
+                            {configurationChanged ? <span>You have unsaved changes.</span> : null}
+                            <span>
+                                Testing is performed against the latest saved configuration and will create real events.
+                            </span>
+                        </LemonBanner>
 
-                                <LemonLabel>Test invocation logs</LemonLabel>
+                        <div className="flex flex-col gap-2">
+                            <LemonField name="headers" label="HTTP Headers">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <div className="deprecated-space-y-2">
+                                            <div />
+                                        </div>
+                                        <CodeEditorResizeable
+                                            language="json"
+                                            value={value}
+                                            onChange={onChange}
+                                            maxHeight={200}
+                                        />
+                                    </>
+                                )}
+                            </LemonField>
+                            <LemonField name="body" label="HTTP Body">
+                                {({ value, onChange }) => (
+                                    <CodeEditorResizeable
+                                        language="json"
+                                        value={value}
+                                        onChange={onChange}
+                                        maxHeight={200}
+                                    />
+                                )}
+                            </LemonField>
+                            <LemonDivider className="my-4" />
+                            <div className="flex flex-col gap-2">
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonLabel className="flex-1">
+                                        Response
+                                        {testResult && (
+                                            <>
+                                                <span> - </span>
+                                                <LemonTag
+                                                    type={
+                                                        testResult.status >= 200 && testResult.status < 300
+                                                            ? 'success'
+                                                            : 'danger'
+                                                    }
+                                                >
+                                                    {testResult.status}
+                                                </LemonTag>
+                                            </>
+                                        )}
+                                    </LemonLabel>
+                                    {testResult ? (
+                                        <LemonButton type="secondary" size="small" onClick={() => setTestResult(null)}>
+                                            Clear
+                                        </LemonButton>
+                                    ) : null}
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="test-hog-webhook"
+                                        onClick={submitTestInvocation}
+                                        loading={isTestInvocationSubmitting}
+                                        size="small"
+                                    >
+                                        Test webhook
+                                    </LemonButton>
+                                </div>
 
-                                <LemonTable
-                                    dataSource={testResult.logs ?? []}
-                                    columns={[
-                                        {
-                                            title: 'Timestamp',
-                                            key: 'timestamp',
-                                            dataIndex: 'timestamp',
-                                            render: (timestamp) => <TZLabel time={timestamp as string} />,
-                                            width: 0,
-                                        },
-                                        {
-                                            width: 100,
-                                            title: 'Level',
-                                            key: 'level',
-                                            dataIndex: 'level',
-                                        },
-                                        {
-                                            title: 'Message',
-                                            key: 'message',
-                                            dataIndex: 'message',
-                                            render: (message) => <code className="whitespace-pre-wrap">{message}</code>,
-                                        },
-                                    ]}
-                                    className="ph-no-capture"
-                                    rowKey="timestamp"
-                                    pagination={{ pageSize: 200, hideOnSinglePage: true }}
-                                />
+                                {testResult ? (
+                                    <div className="flex flex-col gap-2">
+                                        <CodeSnippet thing="Response body">{testResult.body}</CodeSnippet>
+                                    </div>
+                                ) : isTestInvocationSubmitting ? (
+                                    <p>Loading...</p>
+                                ) : (
+                                    <p>No response yet</p>
+                                )}
                             </div>
-                        ) : (
-                            <div className="deprecated-space-y-2">
-                                <LemonField name="headers" label="HTTP Headers">
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <div className="deprecated-space-y-2">
-                                                <div />
-                                            </div>
-                                            <CodeEditorResizeable language="json" value={value} onChange={onChange} />
-                                        </>
-                                    )}
-                                </LemonField>
-                                <LemonField name="body" label="HTTP Body">
-                                    {({ value, onChange }) => (
-                                        <CodeEditorResizeable language="json" value={value} onChange={onChange} />
-                                    )}
-                                </LemonField>
-                            </div>
-                        )}
+                        </div>
 
                         <LemonDivider className="my-4" />
 
-                        <h2>Example request</h2>
-
-                        <p>Below is an example of how to test the webhook using curl.</p>
-
                         {/* Show an example curl request */}
-                        <CodeSnippet thing="Example request">
-                            {`curl -X POST -H "Content-Type: application/json" \\
-  -d '${testInvocation.body}' \\
-  ${window.location.origin}/public/webhooks/${logicProps.id}`}
-                        </CodeSnippet>
+                        <CodeSnippet thing="Example request">{exampleCurlRequest}</CodeSnippet>
                     </>
                 ) : null}
             </div>
