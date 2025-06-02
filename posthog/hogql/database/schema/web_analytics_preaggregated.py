@@ -1,3 +1,4 @@
+from typing import Literal
 from posthog.hogql.database.models import (
     DatabaseField,
     IntegerDatabaseField,
@@ -81,13 +82,17 @@ WEB_BOUNCES_DAILY_SPECIFIC_FIELDS = {
 }
 
 
-web_preaggregated_base_fields = {
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "day_bucket": DateDatabaseField(name="day_bucket"),
-    "host": StringDatabaseField(name="host", nullable=True),
-    "device_type": StringDatabaseField(name="device_type", nullable=True),
-    "updated_at": DateTimeDatabaseField(name="updated_at"),
-}
+def web_preaggregated_base_fields(granularity: Literal["daily", "hourly"]):
+    bucket_name = "day_bucket" if granularity == "daily" else "hour_bucket"
+
+    return {
+        "team_id": IntegerDatabaseField(name="team_id"),
+        bucket_name: DateDatabaseField(name=bucket_name),
+        "host": StringDatabaseField(name="host", nullable=True),
+        "device_type": StringDatabaseField(name="device_type", nullable=True),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    }
+
 
 web_preaggregated_base_aggregation_fields = {
     "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
@@ -98,7 +103,7 @@ web_preaggregated_base_aggregation_fields = {
 
 class WebStatsDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields,
+        **web_preaggregated_base_fields("daily"),
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
         **WEB_STATS_DAILY_SPECIFIC_FIELDS,
@@ -113,7 +118,7 @@ class WebStatsDailyTable(Table):
 
 class WebBouncesDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields,
+        **web_preaggregated_base_fields("daily"),
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
         **WEB_BOUNCES_DAILY_SPECIFIC_FIELDS,
@@ -124,3 +129,31 @@ class WebBouncesDailyTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_daily"
+
+
+class WebStatsHourlyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields("hourly"),
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_stats_hourly"
+
+    def to_printed_hogql(self):
+        return "web_stats_hourly"
+
+
+class WebBouncesHourlyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields("hourly"),
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_bounces_hourly"
+
+    def to_printed_hogql(self):
+        return "web_bounces_hourly"
