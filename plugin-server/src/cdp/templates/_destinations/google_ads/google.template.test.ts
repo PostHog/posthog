@@ -1,9 +1,41 @@
+import { merge } from 'lodash'
 import { DateTime, Settings } from 'luxon'
 
-import { TemplateTester } from '../../test/test-helpers'
+import { DeepPartialHogFunctionInvocationGlobals, TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
 
 jest.setTimeout(60 * 1000)
+
+/**
+ * Creates a standard payload for invokeMapping.
+ * Allows overriding specific event and person properties.
+ */
+
+const createPayload = (globals?: DeepPartialHogFunctionInvocationGlobals): DeepPartialHogFunctionInvocationGlobals => {
+    let defaultPayload = {
+        event: {
+            properties: {},
+            event: 'Signed Up',
+            uuid: 'event-id',
+            timestamp: '2025-01-01T00:00:00Z',
+            distinct_id: 'distinct-id',
+            elements_chain: '',
+            url: 'https://us.posthog.com/projects/1/events/1234',
+        },
+        person: {
+            id: 'person-id',
+            properties: {
+                email: 'example@posthog.com',
+                gclid: 'google-id',
+            },
+            url: 'https://us.posthog.com/projects/1/persons/1234',
+        },
+    }
+
+    defaultPayload = merge(defaultPayload, globals ?? {})
+
+    return defaultPayload
+}
 
 describe('google template', () => {
     const tester = new TemplateTester(template)
@@ -29,7 +61,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            {
+            createPayload({
                 event: {
                     properties: {
                         $current_url: 'https://posthog.com/merch?product=tactical-black-t-shirt',
@@ -37,26 +69,16 @@ describe('google template', () => {
                         value: '100',
                         order_id: '1234567890',
                     },
-                    event: 'Signed Up',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
                 },
                 person: {
-                    id: 'person-id',
                     properties: {
-                        email: 'example@posthog.com',
-                        gclid: 'google-id',
                         phone: '+1234567890',
                         external_id: '1234567890',
                         first_name: 'Max',
                         last_name: 'AI',
                     },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
                 },
-            },
+            }),
             {
                 currencyCode: '{event.properties.currency}',
                 conversionValue: '{event.properties.value}',
@@ -101,25 +123,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Signed Up',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        gclid: 'gclid-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -127,7 +131,7 @@ describe('google template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"gclid-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
+              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -160,25 +164,7 @@ describe('google template', () => {
                 conversionActionId: '123456789',
                 currencyCode: '{event.properties.currency}',
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Signed Up',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
-                person: {
-                    id: 'person-id',
-                    properties: {
-                        email: 'example@posthog.com',
-                        gclid: 'google-id',
-                    },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
-                },
-            }
+            createPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -220,24 +206,13 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            {
-                event: {
-                    properties: {},
-                    event: 'Signed Up',
-                    uuid: 'event-id',
-                    timestamp: '2025-01-01T00:00:00Z',
-                    distinct_id: 'distinct-id',
-                    elements_chain: '',
-                    url: 'https://us.posthog.com/projects/1/events/1234',
-                },
+            createPayload({
                 person: {
-                    id: 'person-id',
                     properties: {
-                        email: 'example@posthog.com',
+                        gclid: null,
                     },
-                    url: 'https://us.posthog.com/projects/1/persons/1234',
                 },
-            }
+            })
         )
 
         expect(response.logs).toMatchInlineSnapshot(`
