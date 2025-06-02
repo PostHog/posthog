@@ -72,6 +72,8 @@ export function RevenueAnalyticsInsightsNode(props: {
                             legend={{
                                 display: grossRevenueGroupBy === 'product' && datasets.length > 1,
                                 position: 'right',
+                                // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
+                                reverse: true,
                             }}
                             trendsFilter={{
                                 aggregationAxisFormat: 'numeric',
