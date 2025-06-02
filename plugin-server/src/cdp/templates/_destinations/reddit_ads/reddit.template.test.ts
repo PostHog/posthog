@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { DeepPartialHogFunctionInvocationGlobals, TemplateTester } from '../../test/test-helpers'
 import { template } from './reddit.template'
 
-jest.setTimeout(2 * 60 * 1000)
+jest.setTimeout(60 * 1000)
 
 /**
  * Creates a standard payload for invokeMapping.
