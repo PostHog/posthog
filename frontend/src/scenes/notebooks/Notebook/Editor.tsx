@@ -15,6 +15,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { NotebookNodeType } from '~/types'
 
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
+import { NotebookNodeLatex } from '../Marks/NotebookMarkLatex'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
@@ -103,6 +104,7 @@ export function Editor(): JSX.Element {
             }),
             NotebookMarkLink,
             NotebookMarkComment,
+            NotebookNodeLatex,
             NotebookNodeBacklink,
             NotebookNodeQuery,
             NotebookNodeRecording,

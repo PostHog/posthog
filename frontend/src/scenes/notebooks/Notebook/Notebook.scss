@@ -154,6 +154,36 @@
                 cursor: text;
             }
         }
+
+        .NotebookLatex {
+            font-size: 1.1em;
+            line-height: 1.5;
+            text-align: center;
+
+            &[data-display='true'] {
+                display: block;
+                margin: 1.5em 0;
+                font-size: 1.2em;
+                text-align: center;
+            }
+
+            &[data-display='false'] {
+                display: inline;
+                vertical-align: middle;
+            }
+
+            // Style for the MathJax rendered content
+            .MathJax {
+                font-size: 1.1em;
+            }
+        }
+
+        .NotebookLatex svg,
+        .NotebookLatex mjx-container {
+            display: block;
+            margin-right: auto;
+            margin-left: auto;
+        }
     }
 
     &--compact:not(.Notebook--canvas) {
