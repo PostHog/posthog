@@ -246,6 +246,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     })),
     selectors({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
+        allowNonCapturedEvents: [
+            () => [(_, props) => props.allowNonCapturedEvents],
+            (allowNonCapturedEvents: boolean) => allowNonCapturedEvents ?? false,
+        ],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
             (s) => [s.listGroupType, s.taxonomicGroups],

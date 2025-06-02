@@ -1,7 +1,7 @@
-import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
+import './InfiniteList.scss'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconPlus } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -15,6 +15,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -176,7 +177,7 @@ const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
+    const { mouseInteractionsEnabled, activeTab, searchQuery, eventNames, allowNonCapturedEvents } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -199,17 +200,86 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
 
+    // Show "Add non-captured event" option for Events or CustomEvents group when searching
+    const showNonCapturedEventOption =
+        allowNonCapturedEvents &&
+        (listGroupType === TaxonomicFilterGroupType.Events ||
+            listGroupType === TaxonomicFilterGroupType.CustomEvents) &&
+        searchQuery &&
+        searchQuery.trim().length > 0 &&
+        !isLoading &&
+        // Don't show if the search query exactly matches an existing event
+        !results.some((item) => group?.getName?.(item)?.toLowerCase() === searchQuery.trim().toLowerCase())
+
     // Only show empty state if:
     // 1. There are no results
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
-    const showEmptyState = totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource)
+    // 4. We're not showing the non-captured event option
+    const showEmptyState =
+        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        const item = results[rowIndex]
-        const itemValue = item ? group?.getValue?.(item) : null
-        const isSelected = listGroupType === groupType && itemValue === value
-        const isHighlighted = rowIndex === index && isActiveTab
+        const isSelected = rowIndex === index
+        const isHighlighted = rowIndex === index
+
+        // Show create custom event option at the top when applicable
+        if (showNonCapturedEventOption && rowIndex === 0) {
+            return (
+                <LemonRow
+                    key={`item_${rowIndex}`}
+                    fullWidth
+                    className={clsx(
+                        'taxonomic-list-row',
+                        'border-2 border-dashed border-border-bold rounded min-h-9 justify-center',
+                        isSelected && 'border-primary bg-accent-3000'
+                    )}
+                    outlined={false}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            selectItem(
+                                group,
+                                searchQuery.trim(),
+                                { name: searchQuery.trim(), isNonCaptured: true },
+                                searchQuery.trim()
+                            )
+                        }
+                    }}
+                    onClick={() => {
+                        selectItem(
+                            group,
+                            searchQuery.trim(),
+                            { name: searchQuery.trim(), isNonCaptured: true },
+                            searchQuery.trim()
+                        )
+                    }}
+                    onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
+                    icon={<IconPlus className="text-muted size-4" />}
+                    data-attr="prop-filter-event-option-custom"
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="text-muted">Select event:</span>
+                        <span className="font-medium">{searchQuery.trim()}</span>
+                        <LemonTag type="caution" size="small">
+                            Not seen yet
+                        </LemonTag>
+                    </div>
+                </LemonRow>
+            )
+        }
+
+        // Adjust item index for existing results when custom event option is shown
+        const actualRowIndex = showNonCapturedEventOption ? rowIndex - 1 : rowIndex
+        const item = results[actualRowIndex]
+
+        if (!item && isLoading) {
+            return (
+                // eslint-disable-next-line react/forbid-dom-props
+                <div key={`item_${rowIndex}`} style={style}>
+                    <LemonSkeleton className="h-8" />
+                </div>
+            )
+        }
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
@@ -231,6 +301,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         // If there's an item to render
         if (item && group) {
+            const itemValue = group?.getValue?.(item)
             return (
                 <div
                     {...commonDivProps}
@@ -254,10 +325,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         // Check if this row should be the "show more" expand row:
         // - !item: No actual item data exists at this index
-        // - rowIndex === totalListCount - 1: This is the last row in the visible list
+        // - actualRowIndex === totalListCount - 1: This is the last row in the visible list
         // - isExpandable: There are more items available to load/show
         // - !isLoading: We're not currently in the middle of loading data
-        const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
+        const isExpandRow = !item && actualRowIndex === totalResultCount - 1 && isExpandable && !isLoading
         if (isExpandRow) {
             return (
                 <div
@@ -266,7 +337,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     data-attr={`expand-list-${listGroupType}`}
                     onClick={expand}
                 >
-                    {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                    {group?.expandLabel?.({ count: totalResultCount, expandedCount }) ??
                         `See ${expandedCount - totalResultCount} more ${pluralize(
                             expandedCount - totalResultCount,
                             'row',
@@ -322,9 +393,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         <List
                             width={width}
                             height={height}
-                            rowCount={Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)}
+                            rowCount={Math.max(
+                                (results.length || 0) + (showNonCapturedEventOption ? 1 : 0),
+                                totalListCount + (showNonCapturedEventOption ? 1 : 0) || 0
+                            )}
                             overscanRowCount={100}
-                            rowHeight={36} // LemonRow heights
+                            rowHeight={36}
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}
