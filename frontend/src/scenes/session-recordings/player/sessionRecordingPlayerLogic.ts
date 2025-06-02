@@ -1435,8 +1435,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             return
         }
 
-        delete (window as any).__debug_player
-
         actions.stopAnimation()
 
         cache.hasInitialized = false
