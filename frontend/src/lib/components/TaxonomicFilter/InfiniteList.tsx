@@ -177,7 +177,7 @@ const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, eventNames, allowNonCapturedEvents } =
+    const { mouseInteractionsEnabled, activeTab, searchQuery, eventNames, allowNonCapturedEvents, groupType, value } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -220,8 +220,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        const isSelected = rowIndex === index
-        const isHighlighted = rowIndex === index
+        const item = results[rowIndex]
+        const itemValue = item ? group?.getValue?.(item) : null
+        const isSelected = listGroupType === groupType && itemValue === value
+        const isHighlighted = rowIndex === index && isActiveTab
 
         // Show create custom event option when there are no results
         if (showNonCapturedEventOption && rowIndex === 0) {
@@ -267,9 +269,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 </LemonRow>
             )
         }
-
-        // Regular items use rowIndex directly
-        const item = results[rowIndex]
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
