@@ -401,128 +401,157 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry _kx",
+            "ignored_in_assistant": True,
         },
         "$session_entry_dclid": {
             "description": "DoubleClick ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry dclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_epik": {
             "description": "Pinterest Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry epik",
+            "ignored_in_assistant": True,
         },
         "$session_entry_fbclid": {
             "description": "Facebook Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry fbclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_gad_source": {
             "description": "Google Ads Source Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry gad_source",
+            "ignored_in_assistant": True,
         },
         "$session_entry_gbraid": {
             "description": "Google Ads, web to app Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry gbraid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_gclid": {
             "description": "Google Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry gclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_gclsrc": {
             "description": "Google Click Source Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry gclsrc",
+            "ignored_in_assistant": True,
         },
         "$session_entry_host": {
             "description": "The hostname of the Current URL. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["example.com", "localhost:8000"],
             "label": "Session entry Host",
+            "ignored_in_assistant": True,
         },
         "$session_entry_igshid": {
             "description": "Instagram Share ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry igshid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_irclid": {
             "description": "Impact Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry irclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry li_fat_id",
+            "ignored_in_assistant": True,
         },
         "$session_entry_mc_cid": {
             "description": "Mailchimp Campaign ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry mc_cid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_msclkid": {
             "description": "Microsoft Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry msclkid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_pathname": {
             "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["/pricing", "/about-us/team"],
             "label": "Session entry Path name",
+            "ignored_in_assistant": True,
         },
         "$session_entry_qclid": {
             "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry qclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_rdt_cid": {
             "description": "Reddit Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry rdt_cid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_referrer": {
             "description": "URL of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
             "label": "Session entry Referrer URL",
+            "ignored_in_assistant": True,
         },
         "$session_entry_referring_domain": {
             "description": "Domain of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["google.com", "facebook.com"],
             "label": "Session entry Referring domain",
+            "ignored_in_assistant": True,
         },
         "$session_entry_sccid": {
             "description": "Snapchat Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry sccid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_ttclid": {
             "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry ttclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_twclid": {
             "description": "Twitter Click ID Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry twclid",
+            "ignored_in_assistant": True,
         },
         "$session_entry_url": {
             "description": "The URL visited at the time of the event. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
             "label": "Session entry Current URL",
+            "ignored_in_assistant": True,
         },
         "$session_entry_utm_campaign": {
             "description": "UTM campaign tag. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["feature launch", "discount"],
             "label": "Session entry UTM campaign",
+            "ignored_in_assistant": True,
         },
         "$session_entry_utm_content": {
             "description": "UTM content tag. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["bottom link", "second button"],
             "label": "Session entry UTM content",
+            "ignored_in_assistant": True,
         },
         "$session_entry_utm_medium": {
             "description": "UTM medium tag. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["Social", "Organic", "Paid", "Email"],
             "label": "Session entry UTM medium",
+            "ignored_in_assistant": True,
         },
         "$session_entry_utm_source": {
             "description": "UTM source tag. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
             "label": "Session entry UTM source",
+            "ignored_in_assistant": True,
         },
         "$session_entry_utm_term": {
             "description": "UTM term tag. Captured at the start of the session and remains constant for the duration of the session.",
             "examples": ["free goodies"],
             "label": "Session entry UTM term",
+            "ignored_in_assistant": True,
         },
         "$session_entry_wbraid": {
             "description": "Google Ads, app to web Captured at the start of the session and remains constant for the duration of the session.",
             "label": "Session entry wbraid",
+            "ignored_in_assistant": True,
         },
         "$session_recording_recorder_version_server_side": {
             "label": "Session recording recorder version server-side",
