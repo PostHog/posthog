@@ -521,13 +521,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             serializer.save()
 
         if config_data := validated_data.pop("marketing_analytics_config", None):
-            serializer = TeamMarketingAnalyticsConfigSerializer(
+            marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
                 instance.marketing_analytics_config, data=config_data, partial=True
             )
-            if not serializer.is_valid():
-                raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+            if not marketing_serializer.is_valid():
+                raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
 
-            serializer.save()
+            marketing_serializer.save()
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
