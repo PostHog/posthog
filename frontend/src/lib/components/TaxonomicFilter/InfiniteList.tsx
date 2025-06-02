@@ -227,6 +227,15 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         // Show create custom event option when there are no results
         if (showNonCapturedEventOption && rowIndex === 0) {
+            const selectNonCapturedEvent = (): void => {
+                selectItem(
+                    group,
+                    searchQuery.trim(),
+                    { name: searchQuery.trim(), isNonCaptured: true },
+                    searchQuery.trim()
+                )
+            }
+
             return (
                 <LemonRow
                     key={`item_${rowIndex}`}
@@ -238,22 +247,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     outlined={false}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                            selectItem(
-                                group,
-                                searchQuery.trim(),
-                                { name: searchQuery.trim(), isNonCaptured: true },
-                                searchQuery.trim()
-                            )
+                            selectNonCapturedEvent()
                         }
                     }}
-                    onClick={() => {
-                        selectItem(
-                            group,
-                            searchQuery.trim(),
-                            { name: searchQuery.trim(), isNonCaptured: true },
-                            searchQuery.trim()
-                        )
-                    }}
+                    onClick={selectNonCapturedEvent}
                     onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
                     icon={<IconPlus className="text-muted size-4" />}
                     data-attr="prop-filter-event-option-custom"
@@ -324,7 +321,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     data-attr={`expand-list-${listGroupType}`}
                     onClick={expand}
                 >
-                    {group?.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                    {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
                         `See ${expandedCount - totalResultCount} more ${pluralize(
                             expandedCount - totalResultCount,
                             'row',
