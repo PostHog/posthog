@@ -7,7 +7,6 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconPlus,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -22,7 +21,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -31,7 +29,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
@@ -258,26 +255,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
                                 aria-label="Add a new item menu actions"
                             >
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <ButtonPrimitive
-                                            size="base"
-                                            iconOnly
-                                            data-attr="tree-navbar-new-button"
-                                            tooltip="Add new"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                            }}
-                                        >
-                                            <IconPlus className="text-secondary" />
-                                        </ButtonPrimitive>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent>
-                                        <NewMenu type="dropdown" />
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-
                                 <ButtonPrimitive
                                     size="base"
                                     iconOnly
