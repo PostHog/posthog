@@ -1,0 +1,372 @@
+# serializer version: 1
+# name: TestWebOverviewPreAggregated.test_combined_query_execution_produces_valid_results
+  '''
+  SELECT unique_persons AS unique_persons,
+         previous_unique_persons AS previous_unique_persons,
+         pageviews AS pageviews,
+         previous_pageviews AS previous_pageviews,
+         unique_sessions AS unique_sessions,
+         previous_unique_sessions AS previous_unique_sessions,
+         avg_session_duration AS avg_session_duration,
+         previous_avg_session_duration AS previous_avg_session_duration,
+         bounce_rate AS bounce_rate,
+         previous_bounce_rate AS previous_bounce_rate,
+         NULL AS revenue,
+         NULL AS previous_revenue
+  FROM
+    (SELECT uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))) AS unique_persons,
+            uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))) AS previous_unique_persons,
+            sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))) AS pageviews,
+            sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))) AS previous_pageviews,
+            uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))) AS unique_sessions,
+            uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))) AS previous_unique_sessions,
+            if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC'))))), 0) AS avg_session_duration,
+            if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC'))))), 0) AS previous_avg_session_duration,
+            if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC'))))), 0) AS bounce_rate,
+            if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC')))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC'))))), 0) AS previous_bounce_rate,
+            NULL AS revenue,
+            NULL AS previous_revenue
+     FROM web_bounces_daily FINAL
+     WHERE and(equals(web_bounces_daily.team_id, 99999), and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64('today', 6, 'UTC'))))
+     LIMIT 50000)
+  LIMIT 50000
+  UNION ALL
+  SELECT uniqMerge(unique_users) AS unique_users,
+         NULL AS previous_unique_users,
+         sumMerge(total_filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniqMerge(unique_sessions) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avgMerge(avg_duration_s) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avgMerge(bounce_rate) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT uniqState(session_person_id) AS unique_users,
+            NULL AS previous_unique_users,
+            sumState(filtered_pageview_count) AS total_filtered_pageview_count,
+            NULL AS previous_total_filtered_pageview_count,
+            uniqState(session_id) AS unique_sessions,
+            NULL AS previous_unique_sessions,
+            avgState(session_duration) AS avg_duration_s,
+            NULL AS previous_avg_duration_s,
+            avgState(is_bounce) AS bounce_rate,
+            NULL AS previous_bounce_rate
+     FROM
+       (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+               events__session.session_id AS session_id,
+               min(events__session.`$start_timestamp`) AS start_timestamp,
+               any(events__session.`$session_duration`) AS session_duration,
+               countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+               any(events__session.`$is_bounce`) AS is_bounce
+        FROM events
+        LEFT JOIN
+          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+                  dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                  if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+                  raw_sessions.session_id_v7 AS session_id_v7
+           FROM raw_sessions
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))))
+           GROUP BY raw_sessions.session_id_v7,
+                    raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), 1))
+        GROUP BY session_id
+        HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64('today', 6, 'UTC')), 0))
+     LIMIT 50000)
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_combined_query_execution_produces_valid_results.1
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+            events__session.session_id AS session_id,
+            min(events__session.`$start_timestamp`) AS start_timestamp,
+            any(events__session.`$session_duration`) AS session_duration,
+            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            any(events__session.`$is_bounce`) AS is_bounce
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+               dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2025-05-26 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2025-06-02 23:59:59', 'UTC')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-26 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-06-02 23:59:59', 'UTC')))), 0), 1))
+     GROUP BY session_id
+     HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-05-26 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-06-02 23:59:59', 'UTC'))), 0)), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_combined_query_generation_with_state_aggregations
+  '''
+  
+  SELECT unique_persons AS unique_persons, previous_unique_persons AS previous_unique_persons, pageviews AS pageviews, previous_pageviews AS previous_pageviews, unique_sessions AS unique_sessions, previous_unique_sessions AS previous_unique_sessions, avg_session_duration AS avg_session_duration, previous_avg_session_duration AS previous_avg_session_duration, bounce_rate AS bounce_rate, previous_bounce_rate AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM (
+  SELECT uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS unique_persons, uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) AS previous_unique_persons, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_10)s, 6, %(hogql_val_11)s)))) AS pageviews, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) AS previous_pageviews, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_16)s, 6, %(hogql_val_17)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_18)s, 6, %(hogql_val_19)s)))) AS unique_sessions, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)))) AS previous_unique_sessions, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_24)s, 6, %(hogql_val_25)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_26)s, 6, %(hogql_val_27)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_30)s, 6, %(hogql_val_31)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_32)s, 6, %(hogql_val_33)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_34)s, 6, %(hogql_val_35)s))))), 0) AS avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_36)s, 6, %(hogql_val_37)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_38)s, 6, %(hogql_val_39)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_40)s, 6, %(hogql_val_41)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_42)s, 6, %(hogql_val_43)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_44)s, 6, %(hogql_val_45)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_46)s, 6, %(hogql_val_47)s))))), 0) AS previous_avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_48)s, 6, %(hogql_val_49)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_50)s, 6, %(hogql_val_51)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_52)s, 6, %(hogql_val_53)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_54)s, 6, %(hogql_val_55)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_56)s, 6, %(hogql_val_57)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_58)s, 6, %(hogql_val_59)s))))), 0) AS bounce_rate, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_60)s, 6, %(hogql_val_61)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_62)s, 6, %(hogql_val_63)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_64)s, 6, %(hogql_val_65)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_66)s, 6, %(hogql_val_67)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_68)s, 6, %(hogql_val_69)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_70)s, 6, %(hogql_val_71)s))))), 0) AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM web_bounces_daily FINAL 
+  WHERE and(equals(web_bounces_daily.team_id, 420), and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_72)s, 6, %(hogql_val_73)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_74)s, 6, %(hogql_val_75)s)))) 
+  LIMIT 50000) 
+  LIMIT 50000 UNION ALL 
+  SELECT uniqMerge(unique_users) AS unique_users, NULL AS previous_unique_users, sumMerge(total_filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqMerge(unique_sessions) AS unique_sessions, NULL AS previous_unique_sessions, avgMerge(avg_duration_s) AS avg_duration_s, NULL AS previous_avg_duration_s, avgMerge(bounce_rate) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT uniqState(session_person_id) AS unique_users, NULL AS previous_unique_users, sumState(filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqState(session_id) AS unique_sessions, NULL AS previous_unique_sessions, avgState(session_duration) AS avg_duration_s, NULL AS previous_avg_duration_s, avgState(is_bounce) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id, events__session.session_id AS session_id, min(events__session.`$start_timestamp`) AS start_timestamp, any(events__session.`$session_duration`) AS session_duration, countIf(or(equals(events.event, %(hogql_val_88)s), equals(events.event, %(hogql_val_89)s))) AS filtered_pageview_count, any(events__session.`$is_bounce`) AS is_bounce 
+  FROM events LEFT JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_76)s)) AS `$start_timestamp`, dateDiff(%(hogql_val_77)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_78)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_79)s))) AS `$session_duration`, if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff(%(hogql_val_80)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_81)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_82)s))), 10)))) AS `$is_bounce`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64(%(hogql_val_83)s, 6, %(hogql_val_84)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64(%(hogql_val_85)s, 6, %(hogql_val_86)s), toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_87)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), and(isNotNull(events.`$session_id`), or(equals(events.event, %(hogql_val_90)s), equals(events.event, %(hogql_val_91)s)), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_92)s), toDateTime64(%(hogql_val_93)s, 6, %(hogql_val_94)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_95)s), toDateTime64(%(hogql_val_96)s, 6, %(hogql_val_97)s))), 1)) 
+  GROUP BY session_id 
+  HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64(%(hogql_val_98)s, 6, %(hogql_val_99)s)), 0)) 
+  LIMIT 50000) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_complex_date_range_spanning_multiple_periods
+  '''
+  
+  SELECT unique_persons AS unique_persons, previous_unique_persons AS previous_unique_persons, pageviews AS pageviews, previous_pageviews AS previous_pageviews, unique_sessions AS unique_sessions, previous_unique_sessions AS previous_unique_sessions, avg_session_duration AS avg_session_duration, previous_avg_session_duration AS previous_avg_session_duration, bounce_rate AS bounce_rate, previous_bounce_rate AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM (
+  SELECT uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS unique_persons, uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) AS previous_unique_persons, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_10)s, 6, %(hogql_val_11)s)))) AS pageviews, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) AS previous_pageviews, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_16)s, 6, %(hogql_val_17)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_18)s, 6, %(hogql_val_19)s)))) AS unique_sessions, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)))) AS previous_unique_sessions, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_24)s, 6, %(hogql_val_25)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_26)s, 6, %(hogql_val_27)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_30)s, 6, %(hogql_val_31)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_32)s, 6, %(hogql_val_33)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_34)s, 6, %(hogql_val_35)s))))), 0) AS avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_36)s, 6, %(hogql_val_37)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_38)s, 6, %(hogql_val_39)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_40)s, 6, %(hogql_val_41)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_42)s, 6, %(hogql_val_43)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_44)s, 6, %(hogql_val_45)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_46)s, 6, %(hogql_val_47)s))))), 0) AS previous_avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_48)s, 6, %(hogql_val_49)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_50)s, 6, %(hogql_val_51)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_52)s, 6, %(hogql_val_53)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_54)s, 6, %(hogql_val_55)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_56)s, 6, %(hogql_val_57)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_58)s, 6, %(hogql_val_59)s))))), 0) AS bounce_rate, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_60)s, 6, %(hogql_val_61)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_62)s, 6, %(hogql_val_63)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_64)s, 6, %(hogql_val_65)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_66)s, 6, %(hogql_val_67)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_68)s, 6, %(hogql_val_69)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_70)s, 6, %(hogql_val_71)s))))), 0) AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM web_bounces_daily FINAL 
+  WHERE and(equals(web_bounces_daily.team_id, 420), and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_72)s, 6, %(hogql_val_73)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_74)s, 6, %(hogql_val_75)s)), ifNull(equals(web_bounces_daily.host, %(hogql_val_76)s), 0))) 
+  LIMIT 50000) 
+  LIMIT 50000 UNION ALL 
+  SELECT uniqMerge(unique_users) AS unique_users, NULL AS previous_unique_users, sumMerge(total_filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqMerge(unique_sessions) AS unique_sessions, NULL AS previous_unique_sessions, avgMerge(avg_duration_s) AS avg_duration_s, NULL AS previous_avg_duration_s, avgMerge(bounce_rate) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT uniqState(session_person_id) AS unique_users, NULL AS previous_unique_users, sumState(filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqState(session_id) AS unique_sessions, NULL AS previous_unique_sessions, avgState(session_duration) AS avg_duration_s, NULL AS previous_avg_duration_s, avgState(is_bounce) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id, events__session.session_id AS session_id, min(events__session.`$start_timestamp`) AS start_timestamp, any(events__session.`$session_duration`) AS session_duration, countIf(or(equals(events.event, %(hogql_val_89)s), equals(events.event, %(hogql_val_90)s))) AS filtered_pageview_count, any(events__session.`$is_bounce`) AS is_bounce 
+  FROM events LEFT JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_77)s)) AS `$start_timestamp`, dateDiff(%(hogql_val_78)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_79)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_80)s))) AS `$session_duration`, if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff(%(hogql_val_81)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_82)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_83)s))), 10)))) AS `$is_bounce`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64(%(hogql_val_84)s, 6, %(hogql_val_85)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64(%(hogql_val_86)s, 6, %(hogql_val_87)s), toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_88)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), and(isNotNull(events.`$session_id`), or(equals(events.event, %(hogql_val_91)s), equals(events.event, %(hogql_val_92)s)), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_93)s), toDateTime64(%(hogql_val_94)s, 6, %(hogql_val_95)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_96)s), toDateTime64(%(hogql_val_97)s, 6, %(hogql_val_98)s))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_99)s), ''), 'null'), '^"|"$', ''), %(hogql_val_100)s), 0))) 
+  GROUP BY session_id 
+  HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64(%(hogql_val_101)s, 6, %(hogql_val_102)s)), 0)) 
+  LIMIT 50000) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_current_day_query_string_generation
+  '''
+  
+  SELECT uniq(session_person_id) AS unique_users, NULL AS previous_unique_users, sum(filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniq(session_id) AS unique_sessions, NULL AS previous_unique_sessions, avg(session_duration) AS avg_duration_s, NULL AS previous_avg_duration_s, avg(is_bounce) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id, events__session.session_id AS session_id, min(events__session.`$start_timestamp`) AS start_timestamp, any(events__session.`$session_duration`) AS session_duration, countIf(or(equals(events.event, %(hogql_val_12)s), equals(events.event, %(hogql_val_13)s))) AS filtered_pageview_count, any(events__session.`$is_bounce`) AS is_bounce 
+  FROM events LEFT JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`, dateDiff(%(hogql_val_1)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`, if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))), 10)))) AS `$is_bounce`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64(%(hogql_val_7)s, 6, %(hogql_val_8)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64(%(hogql_val_9)s, 6, %(hogql_val_10)s), toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_11)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), and(isNotNull(events.`$session_id`), or(equals(events.event, %(hogql_val_14)s), equals(events.event, %(hogql_val_15)s)), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_16)s), toDateTime64(%(hogql_val_17)s, 6, %(hogql_val_18)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_19)s), toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s))), 1)) 
+  GROUP BY session_id 
+  HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)), 0)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_error_handling_fallback_to_regular_query
+  '''
+  SELECT uniqMerge(unique_users) AS unique_users,
+         NULL AS previous_unique_users,
+         sumMerge(total_filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniqMerge(unique_sessions) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avgMerge(avg_duration_s) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avgMerge(bounce_rate) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT uniqState(session_person_id) AS unique_users,
+            NULL AS previous_unique_users,
+            sumState(filtered_pageview_count) AS total_filtered_pageview_count,
+            NULL AS previous_total_filtered_pageview_count,
+            uniqState(session_id) AS unique_sessions,
+            NULL AS previous_unique_sessions,
+            avgState(session_duration) AS avg_duration_s,
+            NULL AS previous_avg_duration_s,
+            avgState(is_bounce) AS bounce_rate,
+            NULL AS previous_bounce_rate
+     FROM
+       (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+               events__session.session_id AS session_id,
+               min(events__session.`$start_timestamp`) AS start_timestamp,
+               any(events__session.`$session_duration`) AS session_duration,
+               countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+               any(events__session.`$is_bounce`) AS is_bounce
+        FROM events
+        LEFT JOIN
+          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+                  dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                  if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+                  raw_sessions.session_id_v7 AS session_id_v7
+           FROM raw_sessions
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))))
+           GROUP BY raw_sessions.session_id_v7,
+                    raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), 1))
+        GROUP BY session_id
+        HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64('today', 6, 'UTC')), 0))
+     LIMIT 50000)
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_historical_query_string_generation
+  '''
+  
+  SELECT uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS unique_persons, uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) AS previous_unique_persons, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_10)s, 6, %(hogql_val_11)s)))) AS pageviews, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) AS previous_pageviews, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_16)s, 6, %(hogql_val_17)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_18)s, 6, %(hogql_val_19)s)))) AS unique_sessions, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)))) AS previous_unique_sessions, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_24)s, 6, %(hogql_val_25)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_26)s, 6, %(hogql_val_27)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_30)s, 6, %(hogql_val_31)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_32)s, 6, %(hogql_val_33)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_34)s, 6, %(hogql_val_35)s))))), 0) AS avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_36)s, 6, %(hogql_val_37)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_38)s, 6, %(hogql_val_39)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_40)s, 6, %(hogql_val_41)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_42)s, 6, %(hogql_val_43)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_44)s, 6, %(hogql_val_45)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_46)s, 6, %(hogql_val_47)s))))), 0) AS previous_avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_48)s, 6, %(hogql_val_49)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_50)s, 6, %(hogql_val_51)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_52)s, 6, %(hogql_val_53)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_54)s, 6, %(hogql_val_55)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_56)s, 6, %(hogql_val_57)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_58)s, 6, %(hogql_val_59)s))))), 0) AS bounce_rate, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_60)s, 6, %(hogql_val_61)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_62)s, 6, %(hogql_val_63)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_64)s, 6, %(hogql_val_65)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_66)s, 6, %(hogql_val_67)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_68)s, 6, %(hogql_val_69)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_70)s, 6, %(hogql_val_71)s))))), 0) AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM web_bounces_daily FINAL 
+  WHERE and(equals(web_bounces_daily.team_id, 420), and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_72)s, 6, %(hogql_val_73)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_74)s, 6, %(hogql_val_75)s)))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_last_seven_days_generates_and_combines_both_queries
+  '''
+  
+  SELECT unique_persons AS unique_persons, previous_unique_persons AS previous_unique_persons, pageviews AS pageviews, previous_pageviews AS previous_pageviews, unique_sessions AS unique_sessions, previous_unique_sessions AS previous_unique_sessions, avg_session_duration AS avg_session_duration, previous_avg_session_duration AS previous_avg_session_duration, bounce_rate AS bounce_rate, previous_bounce_rate AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM (
+  SELECT uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS unique_persons, uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) AS previous_unique_persons, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_10)s, 6, %(hogql_val_11)s)))) AS pageviews, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) AS previous_pageviews, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_16)s, 6, %(hogql_val_17)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_18)s, 6, %(hogql_val_19)s)))) AS unique_sessions, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)))) AS previous_unique_sessions, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_24)s, 6, %(hogql_val_25)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_26)s, 6, %(hogql_val_27)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_30)s, 6, %(hogql_val_31)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_32)s, 6, %(hogql_val_33)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_34)s, 6, %(hogql_val_35)s))))), 0) AS avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_36)s, 6, %(hogql_val_37)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_38)s, 6, %(hogql_val_39)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_40)s, 6, %(hogql_val_41)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_42)s, 6, %(hogql_val_43)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_44)s, 6, %(hogql_val_45)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_46)s, 6, %(hogql_val_47)s))))), 0) AS previous_avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_48)s, 6, %(hogql_val_49)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_50)s, 6, %(hogql_val_51)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_52)s, 6, %(hogql_val_53)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_54)s, 6, %(hogql_val_55)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_56)s, 6, %(hogql_val_57)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_58)s, 6, %(hogql_val_59)s))))), 0) AS bounce_rate, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_60)s, 6, %(hogql_val_61)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_62)s, 6, %(hogql_val_63)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_64)s, 6, %(hogql_val_65)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_66)s, 6, %(hogql_val_67)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_68)s, 6, %(hogql_val_69)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_70)s, 6, %(hogql_val_71)s))))), 0) AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM web_bounces_daily FINAL 
+  WHERE and(equals(web_bounces_daily.team_id, 420), and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_72)s, 6, %(hogql_val_73)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_74)s, 6, %(hogql_val_75)s)))) 
+  LIMIT 50000) 
+  LIMIT 50000 UNION ALL 
+  SELECT uniqMerge(unique_users) AS unique_users, NULL AS previous_unique_users, sumMerge(total_filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqMerge(unique_sessions) AS unique_sessions, NULL AS previous_unique_sessions, avgMerge(avg_duration_s) AS avg_duration_s, NULL AS previous_avg_duration_s, avgMerge(bounce_rate) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT uniqState(session_person_id) AS unique_users, NULL AS previous_unique_users, sumState(filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqState(session_id) AS unique_sessions, NULL AS previous_unique_sessions, avgState(session_duration) AS avg_duration_s, NULL AS previous_avg_duration_s, avgState(is_bounce) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id, events__session.session_id AS session_id, min(events__session.`$start_timestamp`) AS start_timestamp, any(events__session.`$session_duration`) AS session_duration, countIf(or(equals(events.event, %(hogql_val_88)s), equals(events.event, %(hogql_val_89)s))) AS filtered_pageview_count, any(events__session.`$is_bounce`) AS is_bounce 
+  FROM events LEFT JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_76)s)) AS `$start_timestamp`, dateDiff(%(hogql_val_77)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_78)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_79)s))) AS `$session_duration`, if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff(%(hogql_val_80)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_81)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_82)s))), 10)))) AS `$is_bounce`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64(%(hogql_val_83)s, 6, %(hogql_val_84)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64(%(hogql_val_85)s, 6, %(hogql_val_86)s), toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_87)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), and(isNotNull(events.`$session_id`), or(equals(events.event, %(hogql_val_90)s), equals(events.event, %(hogql_val_91)s)), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_92)s), toDateTime64(%(hogql_val_93)s, 6, %(hogql_val_94)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_95)s), toDateTime64(%(hogql_val_96)s, 6, %(hogql_val_97)s))), 1)) 
+  GROUP BY session_id 
+  HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64(%(hogql_val_98)s, 6, %(hogql_val_99)s)), 0)) 
+  LIMIT 50000) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestWebOverviewPreAggregated.test_last_thirty_days_spans_more_historical_data
+  '''
+  
+  SELECT unique_persons AS unique_persons, previous_unique_persons AS previous_unique_persons, pageviews AS pageviews, previous_pageviews AS previous_pageviews, unique_sessions AS unique_sessions, previous_unique_sessions AS previous_unique_sessions, avg_session_duration AS avg_session_duration, previous_avg_session_duration AS previous_avg_session_duration, bounce_rate AS bounce_rate, previous_bounce_rate AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM (
+  SELECT uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS unique_persons, uniqMergeIf(web_bounces_daily.persons_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) AS previous_unique_persons, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_10)s, 6, %(hogql_val_11)s)))) AS pageviews, sumMergeIf(web_bounces_daily.pageviews_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) AS previous_pageviews, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_16)s, 6, %(hogql_val_17)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_18)s, 6, %(hogql_val_19)s)))) AS unique_sessions, uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_20)s, 6, %(hogql_val_21)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)))) AS previous_unique_sessions, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_24)s, 6, %(hogql_val_25)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_26)s, 6, %(hogql_val_27)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_30)s, 6, %(hogql_val_31)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_32)s, 6, %(hogql_val_33)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_34)s, 6, %(hogql_val_35)s))))), 0) AS avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_36)s, 6, %(hogql_val_37)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_38)s, 6, %(hogql_val_39)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.total_session_duration_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_40)s, 6, %(hogql_val_41)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_42)s, 6, %(hogql_val_43)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_44)s, 6, %(hogql_val_45)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_46)s, 6, %(hogql_val_47)s))))), 0) AS previous_avg_session_duration, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_48)s, 6, %(hogql_val_49)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_50)s, 6, %(hogql_val_51)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_52)s, 6, %(hogql_val_53)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_54)s, 6, %(hogql_val_55)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_56)s, 6, %(hogql_val_57)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_58)s, 6, %(hogql_val_59)s))))), 0) AS bounce_rate, if(ifNull(greater(uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_60)s, 6, %(hogql_val_61)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_62)s, 6, %(hogql_val_63)s)))), 0), 0), divide(sumMergeIf(web_bounces_daily.bounces_count_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_64)s, 6, %(hogql_val_65)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_66)s, 6, %(hogql_val_67)s)))), uniqMergeIf(web_bounces_daily.sessions_uniq_state, and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_68)s, 6, %(hogql_val_69)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_70)s, 6, %(hogql_val_71)s))))), 0) AS previous_bounce_rate, NULL AS revenue, NULL AS previous_revenue 
+  FROM web_bounces_daily FINAL 
+  WHERE and(equals(web_bounces_daily.team_id, 420), and(greaterOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_72)s, 6, %(hogql_val_73)s)), lessOrEquals(web_bounces_daily.day_bucket, toDateTime64(%(hogql_val_74)s, 6, %(hogql_val_75)s)))) 
+  LIMIT 50000) 
+  LIMIT 50000 UNION ALL 
+  SELECT uniqMerge(unique_users) AS unique_users, NULL AS previous_unique_users, sumMerge(total_filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqMerge(unique_sessions) AS unique_sessions, NULL AS previous_unique_sessions, avgMerge(avg_duration_s) AS avg_duration_s, NULL AS previous_avg_duration_s, avgMerge(bounce_rate) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT uniqState(session_person_id) AS unique_users, NULL AS previous_unique_users, sumState(filtered_pageview_count) AS total_filtered_pageview_count, NULL AS previous_total_filtered_pageview_count, uniqState(session_id) AS unique_sessions, NULL AS previous_unique_sessions, avgState(session_duration) AS avg_duration_s, NULL AS previous_avg_duration_s, avgState(is_bounce) AS bounce_rate, NULL AS previous_bounce_rate 
+  FROM (
+  SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id, events__session.session_id AS session_id, min(events__session.`$start_timestamp`) AS start_timestamp, any(events__session.`$session_duration`) AS session_duration, countIf(or(equals(events.event, %(hogql_val_88)s), equals(events.event, %(hogql_val_89)s))) AS filtered_pageview_count, any(events__session.`$is_bounce`) AS is_bounce 
+  FROM events LEFT JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_76)s)) AS `$start_timestamp`, dateDiff(%(hogql_val_77)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_78)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_79)s))) AS `$session_duration`, if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff(%(hogql_val_80)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_81)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_82)s))), 10)))) AS `$is_bounce`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64(%(hogql_val_83)s, 6, %(hogql_val_84)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64(%(hogql_val_85)s, 6, %(hogql_val_86)s), toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_87)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), and(isNotNull(events.`$session_id`), or(equals(events.event, %(hogql_val_90)s), equals(events.event, %(hogql_val_91)s)), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_92)s), toDateTime64(%(hogql_val_93)s, 6, %(hogql_val_94)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_95)s), toDateTime64(%(hogql_val_96)s, 6, %(hogql_val_97)s))), 1)) 
+  GROUP BY session_id 
+  HAVING ifNull(greaterOrEquals(start_timestamp, toDateTime64(%(hogql_val_98)s, 6, %(hogql_val_99)s)), 0)) 
+  LIMIT 50000) 
+  LIMIT 50000
+  '''
+# ---
