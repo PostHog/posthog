@@ -36,6 +36,9 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     ),
 }
 
+# TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
+DEFAULT_TEAM_IDS = [2, 55348, 47074]
+
 
 def pre_aggregate_web_analytics_hourly_data(
     context: dagster.AssetExecutionContext,
@@ -43,13 +46,13 @@ def pre_aggregate_web_analytics_hourly_data(
     sql_generator: Callable,
 ) -> None:
     config = context.op_config
-    team_ids = config.get("team_ids", [1, 2])
+    team_ids = config.get("team_ids", DEFAULT_TEAM_IDS)
     clickhouse_settings = config["clickhouse_settings"]
     hours_back = config["hours_back"]
 
     # Process the last N hours to handle any late-arriving data
-    # Align with hour boundaries to match toStartOfHour() used in SQL, we convert this to UTC
-    # on the SQL side so this is just to make sure we get complete hours
+    # Align with hour boundaries to match toStartOfHour() used in SQL, where we convert this to UTC,
+    # so this is just to make sure we get complete hours
     now = datetime.now(UTC)
     current_hour = now.replace(minute=0, second=0, microsecond=0)
     date_end = current_hour.strftime("%Y-%m-%d %H:%M:%S")
@@ -108,7 +111,7 @@ def web_bounces_hourly(
     context: dagster.AssetExecutionContext,
 ) -> None:
     """
-    Real-time hourly bounce rate data for web analytics with 24h TTL. Updates every 5 minutes.
+    Hourly bounce rate data for web analytics with 24h TTL. Updates every 5 minutes.
     """
     return pre_aggregate_web_analytics_hourly_data(
         context=context, table_name="web_bounces_hourly", sql_generator=WEB_BOUNCES_INSERT_SQL
@@ -125,7 +128,7 @@ def web_bounces_hourly(
 )
 def web_stats_hourly(context: dagster.AssetExecutionContext) -> None:
     """
-    Real-time hourly aggregated dimensional data with pageviews and unique user counts with 24h TTL. Updates every 5 minutes.
+    Hourly aggregated dimensional data with pageviews and unique user counts with 24h TTL. Updates every 5 minutes.
     """
     return pre_aggregate_web_analytics_hourly_data(
         context=context,
@@ -152,13 +155,12 @@ def recreate_web_analytics_preaggregated_hourly_data(context: dagster.ScheduleEv
     Creates real-time web analytics pre-aggregated data with 24h TTL for real-time analytics.
     Runs every 5 minutes and processes the last hour to handle late-arriving data.
     """
-    team_ids = [2, 55348, 47074]
 
     return dagster.RunRequest(
         run_config={
             "ops": {
-                "web_analytics_bounces_hourly": {"config": {"team_ids": team_ids}},
-                "web_analytics_stats_table_hourly": {"config": {"team_ids": team_ids}},
+                "web_analytics_bounces_hourly": {"config": {"team_ids": DEFAULT_TEAM_IDS}},
+                "web_analytics_stats_table_hourly": {"config": {"team_ids": DEFAULT_TEAM_IDS}},
             }
         },
     )
