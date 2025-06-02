@@ -98,7 +98,7 @@ describe('SegmentDestinationExecutorService', () => {
                   },
                 ]
             `)
-        }, 10000)
+        })
 
         it('should handle non retryable fetch errors', async () => {
             jest.spyOn(amplitudeAction as any, 'perform')
@@ -359,6 +359,6 @@ describe('SegmentDestinationExecutorService', () => {
             `)
 
             expect(result.finished).toBe(true)
-        }, 10000)
+        })
     })
 })
