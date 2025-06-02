@@ -997,10 +997,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         consolidatedSurveyResults: {
             loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
-                if (!values.isNewQuestionVizEnabled) {
-                    return { responsesByQuestion: {} }
-                }
-
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
@@ -1493,7 +1489,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Parse the date string to a dayjs object
                 let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
 
-                // Use survey start date as lower bound if needed
+                // Use survey creation date as lower bound if needed
                 const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
                 if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
                     fromDateDayjs = surveyStartDayjs
@@ -1549,6 +1545,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.surveyMultipleChoiceResultsReady,
                 s.surveyOpenTextResultsReady,
                 s.surveyRecurringNPSResultsReady,
+                s.consolidatedSurveyResultsLoading,
+                s.isNewQuestionVizEnabled,
             ],
             (
                 surveyBaseStatsLoading: boolean,
@@ -1557,8 +1555,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 surveySingleChoiceResultsReady: boolean,
                 surveyMultipleChoiceResultsReady: boolean,
                 surveyOpenTextResultsReady: boolean,
-                surveyRecurringNPSResultsReady: boolean
+                surveyRecurringNPSResultsReady: boolean,
+                consolidatedSurveyResultsLoading: boolean,
+                isNewQuestionVizEnabled: boolean
             ) => {
+                if (isNewQuestionVizEnabled) {
+                    return (
+                        consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                    )
+                }
+
                 return (
                     surveyBaseStatsLoading ||
                     surveyDismissedAndSentCountLoading ||
@@ -1815,7 +1821,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         getBranchingDropdownValue: [
             (s) => [s.survey],
-            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+            (survey) => (questionIndex: number, question: SurveyQuestion) => {
                 if (question.branching?.type) {
                     const { type } = question.branching
 

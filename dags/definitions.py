@@ -5,7 +5,7 @@ from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 from django.conf import settings
 
-from dags.common import ClickhouseClusterResource
+from dags.common import ClickhouseClusterResource, job_status_metrics_sensors
 from dags import (
     backups,
     ch_examples,
@@ -55,10 +55,8 @@ defs = dagster.Definitions(
         orm_examples.pending_deletions,
         orm_examples.process_pending_deletions,
         web_preaggregated_internal.web_analytics_preaggregated_tables,
-        web_preaggregated_internal.web_overview_daily,
         web_preaggregated_internal.web_stats_daily,
         web_preaggregated_internal.web_bounces_daily,
-        web_preaggregated_internal.web_paths_daily,
     ],
     jobs=[
         deletes.deletes_job,
@@ -88,6 +86,7 @@ defs = dagster.Definitions(
     sensors=[
         deletes.run_deletes_after_squash,
         slack_alerts.notify_slack_on_failure,
+        *job_status_metrics_sensors,
     ],
     resources=resources,
 )

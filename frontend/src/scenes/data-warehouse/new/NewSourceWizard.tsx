@@ -1,11 +1,14 @@
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
-import { ManualLinkSourceType, SourceConfig } from '~/types'
+import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import SchemaForm from '../external/forms/SchemaForm'
@@ -120,6 +123,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
         if (sourceConfig.name == 'Hubspot') {
@@ -135,6 +139,10 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
+    const filteredConnectors = connectors.filter((n) => {
+        return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
+    })
+
     return (
         <>
             <h2 className="mt-4">Managed by PostHog</h2>
@@ -144,7 +152,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={connectors}
+                dataSource={filteredConnectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[
@@ -159,14 +167,18 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Name',
                         key: 'name',
                         render: (_, sourceConfig) => (
-                            <span className="font-semibold text-sm gap-1">
-                                {sourceConfig.label ?? sourceConfig.name}
-                            </span>
+                            <div className="flex flex-col">
+                                <span className="font-semibold text-sm gap-1">
+                                    {sourceConfig.label ?? sourceConfig.name}
+                                </span>
+                                {sourceConfig.unreleasedSource && (
+                                    <span>Get notified when {sourceConfig.label} is available to connect</span>
+                                )}
+                            </div>
                         ),
                     },
                     {
                         key: 'actions',
-                        width: 0,
                         render: (_, sourceConfig) => {
                             const isConnected = disableConnectedSources && sourceConfig.existingSource
 
@@ -178,7 +190,29 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                                             Connected
                                         </LemonTag>
                                     )}
-                                    {!isConnected && (
+                                    {!isConnected && sourceConfig.unreleasedSource === true && (
+                                        <LemonButton
+                                            className="my-2"
+                                            type="primary"
+                                            icon={<IconBell />}
+                                            onClick={() => {
+                                                // https://us.posthog.com/project/2/surveys/0190ff15-5032-0000-722a-e13933c140ac
+                                                posthog.capture(SurveyEventName.SENT, {
+                                                    [SurveyEventProperties.SURVEY_ID]:
+                                                        '0190ff15-5032-0000-722a-e13933c140ac',
+                                                    [`${SurveyEventProperties.SURVEY_RESPONSE}_ad030277-3642-4abf-b6b0-7ecb449f07e8`]:
+                                                        sourceConfig.label ?? sourceConfig.name,
+                                                })
+                                                posthog.capture('source_notify_me', {
+                                                    source: sourceConfig.label ?? sourceConfig.name,
+                                                })
+                                                lemonToast.success('Notification registered successfully')
+                                            }}
+                                        >
+                                            Notify me
+                                        </LemonButton>
+                                    )}
+                                    {!isConnected && !sourceConfig.unreleasedSource && (
                                         <LemonButton
                                             onClick={() => onClick(sourceConfig)}
                                             className="my-2"
