@@ -185,7 +185,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Data' ? 'Close data' : 'Open data',
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Data management' ? 'Close data' : 'Open data',
         },
         {
             identifier: 'People',
