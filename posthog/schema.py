@@ -2836,6 +2836,16 @@ class ExperimentMetricBaseProperties(BaseModel):
     name: Optional[str] = None
 
 
+class ExperimentResultStats(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

@@ -2114,6 +2114,13 @@ export interface ExperimentVariantFunnelsBaseStats {
     failure_count: number
 }
 
+export interface ExperimentResultStats {
+    key: string
+    number_of_samples: integer
+    sum: number
+    sum_squares: number
+}
+
 export enum ExperimentSignificanceCode {
     Significant = 'significant',
     NotEnoughExposure = 'not_enough_exposure',
