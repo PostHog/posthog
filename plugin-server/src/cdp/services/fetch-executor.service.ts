@@ -91,15 +91,7 @@ export class FetchExecutorService {
             trace: [...metadata.trace, failure],
         }
 
-        let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
-
-        if (error) {
-            if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
-                canRetry = false
-            } else {
-                canRetry = true // Only retry on general errors, not security or validation errors
-            }
-        }
+        const canRetry = isFetchResponseRetriable(response, error)
 
         // If we haven't exceeded retry limit, schedule a retry with backoff
         if (canRetry && updatedMetadata.tries < maxTries) {
