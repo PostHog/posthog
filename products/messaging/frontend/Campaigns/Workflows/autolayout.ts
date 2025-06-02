@@ -1,7 +1,15 @@
-import { WorkflowNodeData } from '@posthog/workflows'
-import { WorkflowEdgeData } from '@posthog/workflows'
 import { Edge, Node, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+
+import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
+import { WorkflowEdgeData, WorkflowNodeData } from './temporary_workflow_types_for_dev_to_be_deleted'
+
+/**
+ * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
+ * to format node positions and (tries to) prevent edges from crossing over each other.
+ *
+ * https://eclipse.dev/elk/reference/algorithms/org-eclipse-elk-layered.html
+ */
 
 const getElkPortSide = (position: Position): string => {
     switch (position) {
@@ -16,21 +24,22 @@ const getElkPortSide = (position: Position): string => {
     }
 }
 
+const elk = new ELK()
+
 export const getFormattedNodes = async (
     nodes: Node<WorkflowNodeData>[],
     edges: Edge<WorkflowEdgeData>[]
 ): Promise<Node<WorkflowNodeData>[]> => {
-    const elk = new ELK()
-
     const elkOptions = {
         'elk.algorithm': 'layered',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '100',
-        'elk.spacing.nodeNode': '100',
-        'elk.spacing.edgeEdge': '100',
-        'elk.spacing.edgeNode': '100',
+        'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
+        'elk.spacing.nodeNode': `${NODE_GAP}`,
+        'elk.spacing.edgeEdge': `${NODE_GAP}`,
+        'elk.spacing.edgeNode': `${NODE_GAP}`,
         'elk.direction': 'DOWN',
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+        'elk.padding': '[left=0, top=0, right=0, bottom=0]',
     }
 
     const graph: ElkNode = {
@@ -47,8 +56,8 @@ export const getFormattedNodes = async (
 
             return {
                 ...node,
-                width: 100,
-                height: 34,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
                 },
@@ -64,6 +73,17 @@ export const getFormattedNodes = async (
     }
 
     const layoutedGraph = await elk.layout(graph)
+
+    // Find the trigger node and use its position as the offset
+    const triggerNode = layoutedGraph.children?.find((node) => node.id === 'trigger_node')
+    const offsetX = triggerNode?.x || 0
+    const offsetY = triggerNode?.y || 0
+
+    // Adjust all node positions relative to the trigger node
+    layoutedGraph.children?.forEach((node) => {
+        node.x = (node.x || 0) - offsetX
+        node.y = (node.y || 0) - offsetY
+    })
 
     return layoutedGraph.children?.map((node) => ({
         ...node,

@@ -1,37 +1,61 @@
-import { WorkflowEdgeData, WorkflowNodeData, WorkflowNodeType } from '@posthog/workflows'
-import { Edge, Handle, Node, Position, XYPosition } from '@xyflow/react'
+import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xyflow/react'
 
 import { Optional } from '~/types'
 
-import { ToolbarNode } from './WorkflowEditor'
+import {
+    BOTTOM_HANDLE_POSITION,
+    DEFAULT_EDGE_OPTIONS,
+    DEFAULT_NODE_OPTIONS,
+    LEFT_HANDLE_POSITION,
+    NODE_HEIGHT,
+    NODE_WIDTH,
+    RIGHT_HANDLE_POSITION,
+    TOP_HANDLE_POSITION,
+} from '../constants'
+import { WorkflowEdgeData, WorkflowNodeData, WorkflowNodeType } from '../temporary_workflow_types_for_dev_to_be_deleted'
+import { ToolbarNode } from '../Toolbar'
 
-export const NODE_WIDTH = 100
-export const NODE_HEIGHT = 34
+// When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
+export const addDropzoneNodes = (
+    nodes: Node<WorkflowNodeData>[],
+    edges: Edge<WorkflowEdgeData>[]
+): Node<WorkflowNodeData>[] => {
+    const newNodes = [...nodes]
 
-const TOP_HANDLE_POSITION = {
-    x: NODE_WIDTH / 2,
-    y: 0,
+    edges.forEach((edge) => {
+        const sourceNode = nodes.find((n) => n.id === edge.source)
+        const targetNode = nodes.find((n) => n.id === edge.target)
+
+        if (sourceNode && targetNode) {
+            const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
+            const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
+
+            const [, labelX, labelY] = getSmoothStepPath({
+                sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
+                sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
+                targetX: targetNode.position.x + (targetHandle?.x || 0),
+                targetY: targetNode.position.y + (targetHandle?.y || 0),
+                sourcePosition: sourceHandle?.position || Position.Bottom,
+                targetPosition: targetHandle?.position || Position.Top,
+            })
+
+            const dropzoneId = `dropzone_edge_${edge.id}`
+            newNodes.push({
+                id: dropzoneId,
+                type: 'dropzone',
+                position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                data: { label: '', description: '', config: null },
+                draggable: false,
+                selectable: false,
+            })
+        }
+    })
+
+    return newNodes
 }
 
-const BOTTOM_HANDLE_POSITION = {
-    x: NODE_WIDTH / 2,
-    y: NODE_HEIGHT,
-}
-
-const LEFT_HANDLE_POSITION = {
-    x: 0,
-    y: NODE_HEIGHT / 2,
-}
-
-const RIGHT_HANDLE_POSITION = {
-    x: NODE_WIDTH,
-    y: NODE_HEIGHT / 2,
-}
-
-export const getNodeHandles = (
-    nodeId: string,
-    nodeType: WorkflowNodeType
-): Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'>[] => {
+type NodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
+export const getNodeHandles = (nodeId: string, nodeType: WorkflowNodeType): NodeHandle[] => {
     switch (nodeType) {
         case 'trigger':
             return [
@@ -52,6 +76,28 @@ export const getNodeHandles = (
                 },
             ]
         case 'email':
+            return [
+                {
+                    id: `${nodeId}_target`,
+                    type: 'target',
+                    position: Position.Top,
+                    ...TOP_HANDLE_POSITION,
+                },
+                {
+                    id: `${nodeId}_on_success`,
+                    type: 'source',
+                    position: Position.Left,
+                    label: 'Successful delivery',
+                    ...LEFT_HANDLE_POSITION,
+                },
+                {
+                    id: `${nodeId}_on_error`,
+                    type: 'source',
+                    position: Position.Right,
+                    label: 'Delivery failed',
+                    ...RIGHT_HANDLE_POSITION,
+                },
+            ]
         case 'delay_until':
             return [
                 {
@@ -64,12 +110,14 @@ export const getNodeHandles = (
                     id: `${nodeId}_on_success`,
                     type: 'source',
                     position: Position.Left,
+                    label: 'Match',
                     ...LEFT_HANDLE_POSITION,
                 },
                 {
                     id: `${nodeId}_on_error`,
                     type: 'source',
                     position: Position.Right,
+                    label: 'Max checks reached',
                     ...RIGHT_HANDLE_POSITION,
                 },
             ]
@@ -85,12 +133,14 @@ export const getNodeHandles = (
                     id: `${nodeId}_on_match_condition_0`, // Start conditions with a single condition match edge
                     type: 'source',
                     position: Position.Left,
+                    label: 'Match condition 1',
                     ...LEFT_HANDLE_POSITION,
                 },
                 {
                     id: `${nodeId}_on_error`, // The "else" edge
                     type: 'source',
                     position: Position.Right,
+                    label: 'No match',
                     ...RIGHT_HANDLE_POSITION,
                 },
             ]
@@ -106,8 +156,7 @@ export const getNodeHandles = (
                     id: `${nodeId}_source`,
                     type: 'source',
                     position: Position.Bottom,
-                    x: 0,
-                    y: 0,
+                    ...BOTTOM_HANDLE_POSITION,
                 },
             ]
     }
@@ -131,6 +180,7 @@ export const createNewNode = (
             x: position?.x || 0,
             y: position?.y || 0,
         },
+        ...DEFAULT_NODE_OPTIONS,
     }
 }
 
@@ -153,6 +203,7 @@ export const createEdgesForNewNode = (
                 sourceHandle: edgeToInsertNodeInto.sourceHandle,
                 targetHandle: handle.id,
                 ...DEFAULT_EDGE_OPTIONS,
+                label: edgeToInsertNodeInto?.label,
             }
         }
         // This is an outgoing edge
@@ -163,20 +214,9 @@ export const createEdgesForNewNode = (
             sourceHandle: handle.id,
             targetHandle: edgeToInsertNodeInto.targetHandle,
             ...DEFAULT_EDGE_OPTIONS,
+            label: handle.label,
         }
     })
-}
-
-export const DEFAULT_EDGE_OPTIONS = {
-    type: 'smoothstep',
-    deletable: false,
-    selectable: false,
-}
-
-export const DEFAULT_NODE_OPTIONS = {
-    deletable: false,
-    draggable: false,
-    selectable: true,
 }
 
 // Initial node setup - just one starting node
@@ -188,6 +228,7 @@ export const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
         ...DEFAULT_NODE_OPTIONS,
+        deletable: false,
     },
     {
         id: 'exit_node',
@@ -196,6 +237,8 @@ export const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },
         ...DEFAULT_NODE_OPTIONS,
+        selectable: false,
+        deletable: false,
     },
 ]
 
@@ -210,5 +253,3 @@ export const DEFAULT_EDGES: Edge<WorkflowEdgeData>[] = [
         ...DEFAULT_EDGE_OPTIONS,
     },
 ]
-
-console.log({ DEFAULT_NODES, DEFAULT_EDGES })

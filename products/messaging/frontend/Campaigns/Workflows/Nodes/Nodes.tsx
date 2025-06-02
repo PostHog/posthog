@@ -1,8 +1,9 @@
 import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRevert, IconSend } from '@posthog/icons'
-import { WorkflowNode, WorkflowNodeType } from '@posthog/workflows'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import { useEffect } from 'react'
-import { getNodeHandles } from './nodeUtils'
+
+import { WorkflowNode, WorkflowNodeType } from '../temporary_workflow_types_for_dev_to_be_deleted'
+import { getNodeHandles } from './utils'
 
 export const REACT_FLOW_NODE_TYPES = {
     dropzone: DropzoneNode,
@@ -14,6 +15,9 @@ export const REACT_FLOW_NODE_TYPES = {
     delay_until: DelayUntilNode,
     exit: ExitNode,
 }
+
+export const DROPZONE_NODE_TYPES = ['dropzone', 'dropzone_highlighted']
+
 interface NodeProps {
     id: string
     children?: React.ReactNode
@@ -47,6 +51,7 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
 
     return (
         <div
+            // Keep in sync with NODE_WIDTH and NODE_HEIGHT (tailwind will not accept dynamic values)
             className={`w-[100px] h-[34px] bg-surface-primary border ${
                 selected ? 'border-secondary' : 'border-primary'
             } rounded p-2 hover:bg-surface-secondary transition-transform duration-300 cursor-pointer`}
@@ -57,7 +62,8 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
             </div>
             {children}
             {handles?.map((handle) => (
-                <Handle key={handle.id} {...handle} />
+                // isConnectable={false} prevents edges from being manually added
+                <Handle key={handle.id} {...handle} isConnectable={false} className="opacity-0" />
             ))}
         </div>
     )

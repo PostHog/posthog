@@ -79,7 +79,6 @@
         "@posthog/rrweb-plugin-console-record": "0.0.13",
         "@posthog/rrweb-types": "0.0.13",
         "@posthog/tailwind": "workspace:*",
-        "@posthog/workflows": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.2",
         "@radix-ui/react-context-menu": "^2.2.6",
         "@radix-ui/react-dropdown-menu": "^2.1.6",

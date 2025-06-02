@@ -1,18 +1,12 @@
 import { IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
-import { WorkflowNodeData } from '@posthog/workflows'
-import { Node, Panel } from '@xyflow/react'
-import { useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonButton, LemonLabel } from '@posthog/lemon-ui'
+import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { stepDetailsLogic } from './stepDetailsLogic'
+import { WorkflowNodeData } from '../temporary_workflow_types_for_dev_to_be_deleted'
 
 export function StepDetailsPanel({
-    workflowId,
     node,
-    onChange,
     onDelete,
     onClose,
 }: {
@@ -22,13 +16,17 @@ export function StepDetailsPanel({
     onDelete: (node: Node<WorkflowNodeData>) => void
     onClose: () => void
 }): JSX.Element {
-    const _foo = useValues(
-        stepDetailsLogic({
-            workflowId,
-            node,
-            onChange,
-        })
-    )
+    const nodes = useNodes()
+    const edges = useEdges()
+
+    const canBeDeleted = (): boolean => {
+        const outgoingNodes = getOutgoers(node, nodes, edges)
+        if (outgoingNodes.length === 1) {
+            return true
+        }
+
+        return new Set(outgoingNodes.map((node) => node.id)).size === 1
+    }
 
     return (
         <Panel position="top-right">
@@ -36,22 +34,21 @@ export function StepDetailsPanel({
                 <div className="flex items-center justify-between">
                     <h3 className="font-semibold">Edit {node.data.label} step</h3>
                     <div className="flex items-center gap-1">
-                        {!['trigger', 'exit'].includes(node.type || '') && (
+                        {node.deletable && (
                             <LemonButton
                                 size="small"
                                 status="danger"
                                 onClick={() => onDelete(node)}
                                 icon={<IconTrash />}
+                                disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
                             />
                         )}
                         <LemonButton size="small" icon={<IconX />} onClick={onClose} aria-label="close" />
                     </div>
                 </div>
-                <Form logic={stepDetailsLogic} formKey="step">
-                    <LemonField name="label" label="Name">
-                        <LemonInput />
-                    </LemonField>
-                </Form>
+                {/* TODO: Add dynamic form using renderer like HogFunctionInputs */}
+                <LemonLabel>Name</LemonLabel>
+                <LemonInput />
             </div>
         </Panel>
     )

@@ -376,12 +376,6 @@ importers:
         specifier: 4.0.12
         version: 4.0.12
 
-  common/workflows:
-    devDependencies:
-      typescript:
-        specifier: ~4.9.5
-        version: 4.9.5
-
   cypress:
     dependencies:
       '@babel/runtime':
@@ -629,9 +623,6 @@ importers:
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
-      '@posthog/workflows':
-        specifier: workspace:*
-        version: link:../common/workflows
       '@radix-ui/react-accordion':
         specifier: ^1.2.2
         version: 1.2.2(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -1768,9 +1759,6 @@ importers:
       '@posthog/icons':
         specifier: 0.13.1
         version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      '@posthog/workflows':
-        specifier: workspace:*
-        version: link:../../common/workflows
       '@types/react':
         specifier: '*'
         version: 17.0.52
