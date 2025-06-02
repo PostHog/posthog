@@ -296,6 +296,7 @@ export class KafkaConsumer {
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
         if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
+            // For hobby deploys we want to auto-create, but on cloud we don't
             await ensureTopicExists(this.consumerConfig, this.config.topic)
         }
 
