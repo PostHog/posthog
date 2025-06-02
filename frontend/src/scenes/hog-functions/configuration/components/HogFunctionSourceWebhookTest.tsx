@@ -22,8 +22,6 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
 
     const testResultsRef = useRef<HTMLDivElement>(null)
 
-    const inactive = !expanded
-
     const unsaved = !logicProps.id
 
     return (
@@ -41,7 +39,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                         <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
                         </h2>
-                        {inactive ? (
+                        {!expanded ? (
                             unsaved ? (
                                 <p>Testing tools are only available after creating the webhook</p>
                             ) : (
@@ -50,7 +48,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                         ) : null}
                     </div>
 
-                    {inactive ? (
+                    {!expanded ? (
                         <LemonButton
                             data-attr="expand-hog-testing"
                             type="secondary"
