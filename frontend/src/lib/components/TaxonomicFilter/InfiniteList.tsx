@@ -233,8 +233,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     fullWidth
                     className={clsx(
                         'taxonomic-list-row',
-                        'border-2 border-dashed rounded min-h-9 justify-center',
-                        isSelected && 'border-primary bg-accent-3000'
+                        'border border-dashed border-secondary border rounded min-h-9 justify-center'
                     )}
                     outlined={false}
                     onKeyDown={(e) => {
