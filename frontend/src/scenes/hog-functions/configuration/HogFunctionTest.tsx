@@ -318,7 +318,7 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                                             loading={sampleGlobalsLoading && !fetchCancelled}
                                             tooltip="Find the last event matching filters, and use it to populate the globals below."
                                         >
-                                            Fetch new event
+                                            Load new event
                                         </LemonButton>
                                     ) : null}
                                     <LemonButton
