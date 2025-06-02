@@ -353,8 +353,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 s.playlistsLoading,
             ],
             (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
-                // const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
-                const isUsingSidebar = true
+                const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
 
                 return [
                     [

@@ -425,7 +425,8 @@ def clean_referer_url(current_url: str | None) -> str:
 
         path = re.sub(r"^/?project/\d+", "", path)
 
-        path = re.sub(r"^/?person/.*$", "person-page", path)
+        # matches person or persons
+        path = re.sub(r"^/?persons?/.*$", "person-page", path)
 
         path = re.sub(r"^/?insights/[^/]+/edit$", "insight-edit", path)
 
@@ -840,6 +841,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                     if might_have_realtime:
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+
                 if might_have_realtime:
                     sources.append(
                         {
