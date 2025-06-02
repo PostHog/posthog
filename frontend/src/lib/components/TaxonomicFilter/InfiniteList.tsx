@@ -200,16 +200,15 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
 
-    // Show "Add non-captured event" option for Events or CustomEvents group when searching
+    // Show "Add non-captured event" option for CustomEvents group when searching
     const showNonCapturedEventOption =
         allowNonCapturedEvents &&
-        (listGroupType === TaxonomicFilterGroupType.Events ||
-            listGroupType === TaxonomicFilterGroupType.CustomEvents) &&
+        listGroupType === TaxonomicFilterGroupType.CustomEvents &&
         searchQuery &&
         searchQuery.trim().length > 0 &&
         !isLoading &&
-        // Don't show if the search query exactly matches an existing event
-        !results.some((item) => group?.getName?.(item)?.toLowerCase() === searchQuery.trim().toLowerCase())
+        // Only show if no results found at all
+        results.length === 0
 
     // Only show empty state if:
     // 1. There are no results
@@ -223,7 +222,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         const isSelected = rowIndex === index
         const isHighlighted = rowIndex === index
 
-        // Show create custom event option at the top when applicable
+        // Show create custom event option when there are no results
         if (showNonCapturedEventOption && rowIndex === 0) {
             return (
                 <LemonRow
@@ -268,14 +267,13 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             )
         }
 
-        // Adjust item index for existing results when custom event option is shown
-        const actualRowIndex = showNonCapturedEventOption ? rowIndex - 1 : rowIndex
+        // Regular items use rowIndex directly
+        const actualRowIndex = rowIndex
         const item = results[actualRowIndex]
 
         if (!item && isLoading) {
             return (
-                // eslint-disable-next-line react/forbid-dom-props
-                <div key={`item_${rowIndex}`} style={style}>
+                <div key={`item_${rowIndex}`}>
                     <LemonSkeleton className="h-8" />
                 </div>
             )
@@ -398,7 +396,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                                 totalListCount + (showNonCapturedEventOption ? 1 : 0) || 0
                             )}
                             overscanRowCount={100}
-                            rowHeight={36}
+                            rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}

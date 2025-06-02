@@ -26,10 +26,7 @@ export const EventSelect = ({
     allowNonCapturedEvents = false,
 }: EventSelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
-    const eventSelectFilterGroupTypes = filterGroupTypes || [
-        TaxonomicFilterGroupType.Events,
-        TaxonomicFilterGroupType.CustomEvents,
-    ]
+    const eventSelectFilterGroupTypes = filterGroupTypes || [TaxonomicFilterGroupType.Events]
 
     const handleChange = (name: string): void => {
         if (onChange) {
