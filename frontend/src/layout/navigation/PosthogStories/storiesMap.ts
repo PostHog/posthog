@@ -146,7 +146,7 @@ export const storiesMap: storyGroup[] = [
         title: 'DeskHog',
         stories: [
             {
-                id: 'deskhog',
+                id: 'deskhog-intro',
                 title: 'DeskHog',
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
@@ -289,9 +289,9 @@ export const storiesMap: storyGroup[] = [
         title: 'Experiments',
         stories: [
             {
-                id: 'Give Andy, Javier, and Edwin feedback!',
+                id: 'experiments-overview',
                 title: 'Experiments',
-                description: 'Give us feedback!',
+                description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_473107c5b2.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
                 type: 'video',
