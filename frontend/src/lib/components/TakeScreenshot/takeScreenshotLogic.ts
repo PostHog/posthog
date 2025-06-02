@@ -77,13 +77,13 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             },
         ],
         html: [
-            null,
+            null as HTMLElement | null,
             {
                 setHtml: (_, { html }) => html,
             },
         ],
         imageFile: [
-            null,
+            null as File | null,
             {
                 setImageFile: (_, { imageFile }) => imageFile,
             },
@@ -113,13 +113,13 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             },
         ],
         selectedTextIndex: [
-            null,
+            null as number | null,
             {
                 setSelectedTextIndex: (_, { selectedTextIndex }) => selectedTextIndex,
             },
         ],
         dragStartOffset: [
-            null,
+            null as Point | null,
             {
                 setDragStartOffset: (_, { dragStartOffset }) => dragStartOffset,
             },
@@ -131,7 +131,7 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             },
         ],
         originalImage: [
-            null,
+            null as HTMLImageElement | null,
             {
                 setOriginalImage: (_, { originalImage }) => originalImage,
             },
@@ -155,7 +155,7 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             },
         ],
         textInputPosition: [
-            { x: 0, y: 0, visible: false },
+            { x: 0, y: 0, visible: false } as { x: number; y: number; visible: boolean },
             {
                 setTextInputPosition: (_, { textInputPosition }) => textInputPosition,
             },
@@ -169,7 +169,12 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             actions.setIsLoading(true)
             actions.setIsOpen(true)
             const blob = await toBlob(html)
-            actions.setBlob(blob)
+            if (blob) {
+                actions.setBlob(blob)
+            } else {
+                lemonToast.error('Failed to generate image blob.')
+                actions.setIsLoading(false)
+            }
         },
         setBlob: async ({ blob }) => {
             if (!blob) {
