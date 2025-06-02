@@ -1,5 +1,4 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
-import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -527,8 +526,16 @@ class ApiRequest {
     }
 
     // # Logs
+    public logs(projectId?: ProjectType['id']): ApiRequest {
+        return this.environmentsDetail(projectId).addPathComponent('logs')
+    }
+
     public logsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('logs').addPathComponent('query')
+        return this.logs(projectId).addPathComponent('query')
+    }
+
+    public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('sparkline')
     }
 
     // # Data management
@@ -1648,8 +1655,17 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<{ results: LogMessage[] }> {
-            return new ApiRequest().logsQuery().create({ data: { query } })
+        async query({
+            query,
+            signal,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            signal?: AbortSignal
+        }): Promise<{ results: LogMessage[] }> {
+            return new ApiRequest().logsQuery().create({ signal, data: { query } })
+        },
+        async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
+            return new ApiRequest().logsSparkline().create({ signal, data: { query } })
         },
     },
 
@@ -2328,6 +2344,9 @@ const api = {
         async getStatus(id: HogFunctionType['id']): Promise<HogFunctionStatus> {
             return await new ApiRequest().hogFunction(id).withAction('status').get()
         },
+        async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
+            return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
+        },
     },
 
     links: {
@@ -2580,9 +2599,7 @@ const api = {
             } catch (e) {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
-
-            // TODO can be removed after 01-08-2024 when we know no valid snapshots are stored in the old format
-            return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
+            return []
         },
 
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {

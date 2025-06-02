@@ -1,4 +1,5 @@
 import { IconNotebook } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -12,9 +13,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         notebook: {
+            name: 'Notebook',
             icon: <IconNotebook />,
             href: (ref: string) => urls.notebook(ref),
             iconColor: ['var(--product-notebooks-light)'],
+            filterKey: 'notebook',
         },
     },
     treeItemsNew: [
@@ -24,7 +27,12 @@ export const manifest: ProductManifest = {
             href: urls.notebook('new'),
         },
     ],
-    fileSystemFilterTypes: {
-        notebook: { name: 'Notebooks' },
-    },
+    treeItemsProducts: [
+        {
+            path: 'Notebooks',
+            type: 'notebook',
+            href: urls.notebooks(),
+            visualOrder: PRODUCT_VISUAL_ORDER.notebooks,
+        },
+    ],
 }

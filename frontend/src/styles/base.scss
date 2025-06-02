@@ -345,7 +345,8 @@
     --product-user-interviews-light: rgb(0 140 255);
     --product-notebooks-light: rgb(255 7 243);
     --product-dashboards-light: rgb(255 139 7);
-    --product-early-access-features-light: rgb(53 213 189);
+    --product-early-access-features-light: rgb(39 171 151);
+    --product-early-access-features-dark: rgb(53 213 189);
 
     // Generic brand color assignments
     // Change these to change the brand colors
@@ -619,13 +620,13 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-resizer: 761;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
     --z-layout-navbar-under: 755;
     --z-main-nav: 750;
+    --z-resizer: 701;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
     --z-mobile-nav-overlay: 600;

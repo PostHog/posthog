@@ -255,7 +255,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     // Unsupported message.
     return [
         {
-            role: 'message',
+            role: 'user',
             content: typeof output === 'string' ? output : JSON.stringify(output),
         },
     ]
@@ -278,6 +278,13 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
+    }
+
+    if (typeof messages === 'string') {
+        normalizedMessages.push({
+            role: 'user',
+            content: messages,
+        })
     }
 
     return normalizedMessages

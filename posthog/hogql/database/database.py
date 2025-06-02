@@ -95,8 +95,6 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDailyTable,
-    WebOverviewDailyTable,
-    WebPathsDailyTable,
     WebStatsDailyTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
@@ -108,7 +106,6 @@ from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
-    DatabaseSchemaManagedViewTableKind,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
@@ -125,9 +122,6 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
     RevenueAnalyticsBaseView,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    RevenueAnalyticsChargeView,
 )
 
 if TYPE_CHECKING:
@@ -160,10 +154,8 @@ class Database(BaseModel):
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
 
     # Web analytics pre-aggregated tables (internal use only)
-    web_overview_daily: WebOverviewDailyTable = WebOverviewDailyTable()
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
     web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
-    web_paths_daily: WebPathsDailyTable = WebPathsDailyTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -994,9 +986,7 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
-                kind=DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
-                if isinstance(view, RevenueAnalyticsChargeView)
-                else DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
+                kind=view.get_database_schema_table_kind(),
                 source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )

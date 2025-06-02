@@ -49,6 +49,7 @@ dependencies = [
     "drf-extensions==0.7.0",
     "drf-spectacular==0.27.2",
     "geoip2==4.6.0",
+    "google-ads==26.1.0",
     "google-cloud-bigquery==3.26",
     "google-genai==1.10.0",
     "gunicorn==20.1.0",
@@ -136,6 +137,7 @@ dependencies = [
     "tenacity>=8.4.2",
     "chdb>=3.1.2",
     "elevenlabs>=1.58.1",
+    "django-oauth-toolkit>=3.0.1",
     "langchain-perplexity>=0.1.1",
 ]
 
@@ -202,7 +204,7 @@ dev = [
 ]
 
 [tool.uv]
-required-version = ">=0.6.0"
+required-version = ">=0.7.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }

@@ -1,16 +1,18 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     getDefaultTreeDataManagement,
-    getDefaultTreeGames,
     getDefaultTreeNew,
+    getDefaultTreePersons,
     getDefaultTreeProducts,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -24,6 +26,7 @@ import {
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
+import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -36,7 +39,14 @@ export const PAGINATION_LIMIT = 100
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], breadcrumbsLogic, ['projectTreeRef']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            breadcrumbsLogic,
+            ['projectTreeRef'],
+            groupsModel,
+            ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
+        ],
     })),
     actions({
         loadUnfiledItems: true,
@@ -522,18 +532,54 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return treeItem ?? null
             },
         ],
+        groupItems: [
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
+            (groupTypes, groupsAccessStatus, aggregationLabel): FileSystemImport[] => {
+                const showGroupsIntroductionPage = [
+                    GroupsAccessStatus.HasAccess,
+                    GroupsAccessStatus.HasGroupTypes,
+                    GroupsAccessStatus.NoAccess,
+                ].includes(groupsAccessStatus)
+
+                const groupItems: FileSystemImport[] = showGroupsIntroductionPage
+                    ? [
+                          {
+                              path: 'Groups',
+                              iconType: 'cohort',
+                              href: urls.groups(0),
+                              visualOrder: 30,
+                          },
+                      ]
+                    : Array.from(groupTypes.values()).map((groupType) => ({
+                          path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                          iconType: 'cohort',
+                          href: urls.groups(groupType.group_type_index),
+                          visualOrder: 30 + groupType.group_type_index,
+                      }))
+                return groupItems
+            },
+        ],
         getStaticTreeItems: [
-            (s) => [s.featureFlags, s.shortcutData],
-            (featureFlags, shortcutData): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+            (s) => [s.featureFlags, s.shortcutData, s.groupItems],
+            (
+                featureFlags,
+                shortcutData,
+                groupItems
+            ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 const convert = (
                     imports: FileSystemImport[],
-                    root: string,
+                    protocol: string,
                     searchTerm: string | undefined,
                     onlyFolders: boolean
                 ): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
-                        root,
-                        imports: imports.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
+                        root: protocol,
+                        imports: imports
+                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .map((i) => ({
+                                ...i,
+                                protocol,
+                            })),
                         checkedItems: {},
                         folderStates: {},
                         users: {},
@@ -547,19 +593,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
                         ['data-management://', getDefaultTreeDataManagement()],
-                        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
-                            ? ([['games://', getDefaultTreeGames()]] as [string, FileSystemImport[]][])
-                            : ([] as [string, FileSystemImport[]][])),
+                        ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                         ['shortcuts://', shortcutData],
                     ]
-                    return data.map(([id, files]) => ({
-                        id: id,
-                        name: id,
-                        displayName: <>{formatUrlAsName(id)}</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(files, id, searchTerm, onlyFolders),
+                    const staticItems = data.map(([protocol, files]) => ({
+                        id: protocol,
+                        name: protocol,
+                        displayName: <>{formatUrlAsName(protocol)}</>,
+                        record: { type: 'folder', protocol, path: '' },
+                        children: convert(files, protocol, searchTerm, onlyFolders),
                     }))
+                    return staticItems
                 }
             },
         ],

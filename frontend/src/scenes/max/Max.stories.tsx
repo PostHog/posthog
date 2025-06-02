@@ -2,7 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
+import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
@@ -13,10 +13,12 @@ import {
     formChunk,
     generationFailureChunk,
     humanMessage,
+    longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { maxLogic } from './maxLogic'
+import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -45,9 +47,9 @@ const meta: Meta = {
 }
 export default meta
 
-const Template = (props: MaxInstanceProps): JSX.Element => {
+const Template = ({ className, ...props }: MaxInstanceProps & { className?: string }): JSX.Element => {
     return (
-        <div className="relative flex flex-col h-fit">
+        <div className={twMerge('relative flex flex-col h-fit', className)}>
             <MaxInstance {...props} />
         </div>
     )
@@ -70,53 +72,6 @@ export const Welcome: StoryFn = () => {
     return <Template />
 }
 
-export const WelcomeSuggestionsAvailable: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': () => [
-                200,
-                {
-                    questions: [
-                        'What are our most popular pages in the blog?',
-                        'Where are our new users located?',
-                        'Who are the biggest customers using our paid product?',
-                        'Which feature drives most usage?',
-                    ],
-                },
-            ],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-
-export const WelcomeLoadingSuggestions: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-WelcomeLoadingSuggestions.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
-}
-
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
     return <Template />
 }
@@ -125,9 +80,11 @@ WelcomeFeaturePreviewAutoEnrolled.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -141,9 +98,11 @@ export const EmptyThreadLoading: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -162,10 +121,15 @@ export const GenerationFailureThread: StoryFn = () => {
         },
     })
 
-    const { askMax, setMessageStatus } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
-    const { threadRaw, threadLoading } = useValues(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
+
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+
+    const { askMax, setMessageStatus } = useActions(threadLogic)
+    const { threadRaw, threadLoading } = useValues(threadLogic)
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -185,9 +149,11 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -202,9 +168,11 @@ export const ThreadWithRateLimit: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax('Is Bielefeld real?')
     }, [])
 
@@ -218,9 +186,11 @@ export const ThreadWithForm: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -234,10 +204,10 @@ export const ThreadWithConversationLoading: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
-        setConversationId('test')
+        setConversationId(CONVERSATION_ID)
     }, [])
 
     return <Template />
@@ -255,7 +225,7 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
         setConversationId('empty')
@@ -272,7 +242,7 @@ export const ThreadWithInProgressConversation: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
         setConversationId('in_progress')
@@ -295,6 +265,11 @@ export const WelcomeWithLatestConversations: StoryFn = () => {
 
     return <Template sidePanel />
 }
+WelcomeWithLatestConversations.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const ChatHistory: StoryFn = () => {
     useStorybookMocks({
@@ -303,7 +278,7 @@ export const ChatHistory: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -324,7 +299,7 @@ export const ChatHistoryEmpty: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -345,7 +320,7 @@ export const ChatHistoryLoading: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -354,6 +329,81 @@ export const ChatHistoryLoading: StoryFn = () => {
     return <Template sidePanel />
 }
 ChatHistoryLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestionsMobile.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
+}
+
+export const ThreadWithOpenedSuggestions: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(ctx.delay(100), ctx.text(longResponseChunk)),
+        },
+    })
+
+    const { conversation } = useValues(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const logic = maxThreadLogic({ conversationId: 'poem', conversation })
+    const { threadRaw } = useValues(logic)
+    const { askMax } = useActions(logic)
+
+    useEffect(() => {
+        setConversationId('poem')
+    }, [setConversationId])
+
+    const messagesSet = threadRaw.length > 0
+    useEffect(() => {
+        if (messagesSet) {
+            askMax('This message must be on the top of the container')
+        }
+    }, [messagesSet, askMax])
+
+    return (
+        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+            <Template />
+        </div>
+    )
+}
+ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
