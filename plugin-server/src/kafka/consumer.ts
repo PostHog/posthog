@@ -300,7 +300,6 @@ export class KafkaConsumer {
             await ensureTopicExists(this.consumerConfig, this.config.topic)
         }
 
-
         // The consumer has an internal pre-fetching queue that sequentially pools
         // each partition, with the consumerMaxWaitMs timeout. We want to read big
         // batches from this queue, but guarantee we are still running (with smaller
