@@ -186,27 +186,11 @@ describe('reddit template', () => {
         )
     })
 
-    it('handles missing pixel id', async () => {
-        const response = await tester.invokeMapping(
-            'Order Completed',
-            {
-                conversionsAccessToken: 'access-token',
-            },
-            createPayload()
-        )
-
-        expect(response.error).toMatchInlineSnapshot(`"Account ID and access token are required"`)
-        expect(response.finished).toEqual(true)
-    })
-
-    it('handles missing access token', async () => {
-        const response = await tester.invokeMapping(
-            'Order Completed',
-            {
-                accountId: 'pixel-id',
-            },
-            createPayload()
-        )
+    it.each([
+        ['missing pixel id', { conversionsAccessToken: 'access-token' }],
+        ['missing access token', { accountId: 'pixel-id' }],
+    ])('handles %s', async (_, settings) => {
+        const response = await tester.invokeMapping('Order Completed', settings, createPayload())
 
         expect(response.error).toMatchInlineSnapshot(`"Account ID and access token are required"`)
         expect(response.finished).toEqual(true)
