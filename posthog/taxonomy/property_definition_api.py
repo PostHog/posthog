@@ -729,33 +729,26 @@ class PropertyDefinitionViewSet(
         if v.get("type") != "person":
             return False
 
-        # 1) explicit name filter  (?properties=a,b,c)
+        # explicit name filter  (?properties=a,b,c)
         names = set(v.get("properties", "").split(",")) if v.get("properties") else None
         if names and prop["name"] not in names:
             return False
 
-        # 2) is_numerical flag
+        # is_numerical flag
         is_num = v.get("is_numerical")
         if is_num is True and not prop["is_numerical"]:
             return False
         if is_num is False and prop["is_numerical"]:
             return False
 
-        # 3) feature flag filter
-        is_feature_flag = v.get("is_feature_flag")
-        if is_feature_flag is True and not prop["name"].startswith("$feature/"):
-            return False
-        if is_feature_flag is False and prop["name"].startswith("$feature/"):
-            return False
-
-        # 4) exclusion lists
+        # exclusion lists
         excluded = set(json.loads(v["excluded_properties"])) if v.get("excluded_properties") else set()
         if v.get("exclude_core_properties", False):
             excluded |= set(EXCLUDED_EVENT_CORE_PROPERTIES)
         if prop["name"] in excluded:
             return False
 
-        # 5) text search / aliases
+        # text search / aliases
         search = (v.get("search") or "").strip().lower()
         if search:
             words = search.split()
@@ -765,15 +758,9 @@ class PropertyDefinitionViewSet(
                 if not (alias and all(w in alias.lower() for w in words)):
                     return False
 
-        # 6) hidden filter
+        # hidden filter
         if v.get("exclude_hidden", False) and prop.get("hidden", False):
             return False
-
-        # 7) event property filter
-        if v.get("event_names") and v.get("filter_by_event_names"):
-            # For virtual properties, we can't check event properties
-            # They should always be included in the results
-            pass
 
         return True
 
