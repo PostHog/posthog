@@ -244,8 +244,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         if (mode === 'draw') {
             setCurrentPath((prevPath) => [...prevPath, { x: offsetX, y: offsetY }])
         } else if (mode === 'moveText' && selectedTextIndex !== null && dragStartOffset) {
-            const newX = offsetX - (dragStartOffset as Point).x
-            const newY = offsetY - (dragStartOffset as Point).y
+            const newX = offsetX - dragStartOffset.x
+            const newY = offsetY - dragStartOffset.y
             setTexts((prevTexts) =>
                 prevTexts.map((item, index) => (index === selectedTextIndex ? { ...item, x: newX, y: newY } : item))
             )
@@ -349,7 +349,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
 
         // Assume imageFile is a File object if it exists, to satisfy TypeScript for now.
         // Ideally, this type comes from the Kea logic.
-        const currentImageFile = imageFile as File | null
+        const currentImageFile = imageFile
 
         const finalFilename = currentImageFile ? `edited-${currentImageFile.name}` : 'edited-screenshot.png'
         const editedFile = await dataURLtoFile(dataURL, finalFilename)
