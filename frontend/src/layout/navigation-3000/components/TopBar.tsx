@@ -9,11 +9,9 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -25,15 +23,11 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
-import { navigation3000Logic } from '../navigationLogic'
-
 /** Sync with --breadcrumbs-height-compact. */
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
 export function TopBar(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { showNavOnMobile } = useActions(navigation3000Logic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
@@ -87,7 +81,7 @@ export function TopBar(): JSX.Element | null {
         return () => main.removeEventListener('scroll', handleScroll)
     }, [hasRenameState])
 
-    return breadcrumbs.length || (featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry) ? (
+    return breadcrumbs.length || projectTreeRefEntry ? (
         <div
             className={clsx(
                 'TopBar3000',
@@ -99,24 +93,12 @@ export function TopBar(): JSX.Element | null {
         >
             <div className="TopBar3000__content">
                 {mobileLayout && (
-                    <FlaggedFeature
-                        flag={FEATURE_FLAGS.TREE_VIEW}
-                        fallback={
-                            <LemonButton
-                                size="small"
-                                onClick={() => showNavOnMobile()}
-                                icon={<IconMenu />}
-                                className="TopBar3000__hamburger"
-                            />
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
-                            icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
-                            className="TopBar3000__hamburger"
-                        />
-                    </FlaggedFeature>
+                    <LemonButton
+                        size="small"
+                        onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                        icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
+                        className="TopBar3000__hamburger"
+                    />
                 )}
                 <div className="TopBar3000__breadcrumbs">
                     {breadcrumbs.length > 1 && (
@@ -129,7 +111,7 @@ export function TopBar(): JSX.Element | null {
                                     </div>
                                 </React.Fragment>
                             ))}
-                            {featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry && (
+                            {projectTreeRefEntry && (
                                 <>
                                     <LemonButton
                                         size="xsmall"
