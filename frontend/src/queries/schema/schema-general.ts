@@ -2067,8 +2067,6 @@ export interface FileSystemEntry {
     _loading?: boolean
     /** Tag for the product 'beta' / 'alpha' */
     tags?: ('alpha' | 'beta')[]
-    /** Order of object in tree */
-    visualOrder?: number
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
