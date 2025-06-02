@@ -1181,7 +1181,7 @@ exports[`segment templates template segment-acoustic-campaign matches expected r
       "type": "string",
     },
     {
-      "default": "Version 3.1   (nodeJS: v18.12.1)",
+      "default": "Version 3.1   (nodeJS: v18.20.6)",
       "description": "
 Last-Modified: 06.28.2023 16.15.37
 ",
