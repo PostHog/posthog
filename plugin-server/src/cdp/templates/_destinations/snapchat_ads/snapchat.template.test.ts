@@ -73,7 +73,7 @@ describe('snapchat template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"VIEW_CONTENT","action_source":"WEB","event_time":1735689600000,"event_source_url":"https://posthog.com/merch?product=tactical-black-t-shirt","user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":30,"currency":"usd","content_ids":"43431-18","content_category":"merch","contents":[{"item_price":30,"id":"43431-18","quantity":1,"delivery_category":"normal"}],"num_items":1,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"VIEW_CONTENT","action_source":"WEB","event_time":1735689600,"event_source_url":"https://posthog.com/merch?product=tactical-black-t-shirt","user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":30,"currency":"usd","content_ids":"43431-18","content_category":"merch","contents":[{"item_price":30,"id":"43431-18","quantity":1,"delivery_category":"normal"}],"num_items":1,"event_id":"event-id"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },
@@ -169,7 +169,7 @@ describe('snapchat template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600000,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":90,"currency":"USD","content_ids":["18499-12","94839-23"],"content_category":["merch","merch"],"contents":[{"item_price":30,"id":"18499-12","quantity":1,"delivery_category":"normal"},{"item_price":30,"id":"94839-23","quantity":2,"delivery_category":"normal"}],"num_items":3,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":90,"currency":"USD","content_ids":["18499-12","94839-23"],"content_category":["merch","merch"],"contents":[{"item_price":30,"id":"18499-12","quantity":1,"delivery_category":"normal"},{"item_price":30,"id":"94839-23","quantity":2,"delivery_category":"normal"}],"num_items":3,"event_id":"event-id"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },
@@ -223,7 +223,7 @@ describe('snapchat template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600000,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },
@@ -277,7 +277,7 @@ describe('snapchat template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600000,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },
@@ -334,7 +334,7 @@ describe('snapchat template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600000,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","sc_click_id":"snapchat-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },
@@ -399,7 +399,7 @@ describe('snapchat template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600000,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","client_user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","ct":"1a6bd4d9d79dc0a79b53795c70d3349fa9e38968a3fbefbfe8783efb1d2b6aac","st":"6959097001d10501ac7d54c0bdb8db61420f658f2922cc26e46d536119a31126","country":"79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621","zp":"3d3425336a5d645d5e09199eabe0b9d5af817bbd35671a5cd42974483cd8c772","client_ip_address":"123.123.123.123","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"PURCHASE","action_source":"WEB","event_time":1735689600,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","client_user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","ct":"1a6bd4d9d79dc0a79b53795c70d3349fa9e38968a3fbefbfe8783efb1d2b6aac","st":"6959097001d10501ac7d54c0bdb8db61420f658f2922cc26e46d536119a31126","country":"79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621","zp":"3d3425336a5d645d5e09199eabe0b9d5af817bbd35671a5cd42974483cd8c772","client_ip_address":"123.123.123.123","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"num_items":0,"event_id":"event-id"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },
