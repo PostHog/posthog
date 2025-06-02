@@ -194,6 +194,10 @@ export const RecordingsUniversalFilters = ({
                                 ]}
                                 dropdownPlacement="bottom-start"
                                 size="small"
+                                // we always want to include the time in the date when setting it
+                                allowTimePrecision={true}
+                                // we always want to present the time control
+                                forceGranularity="minute"
                             />
                             <DurationFilter
                                 onChange={(newRecordingDurationFilter, newDurationType) => {

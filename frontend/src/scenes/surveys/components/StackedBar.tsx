@@ -23,8 +23,10 @@ export interface StackedBarSegment {
 export function StackedBarSkeleton({ className }: { className?: string }): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2', className)}>
-            <div className="relative w-full mx-auto h-10">
-                <LemonSkeleton className="w-full h-10" />
+            <div className="relative w-full flex mx-auto h-10">
+                <LemonSkeleton className="w-1/4 h-10 rounded-r-none opacity-60" />
+                <LemonSkeleton className="w-1/2 h-10 rounded-none opacity-80" />
+                <LemonSkeleton className="w-1/4 h-10 rounded-l-none opacity-100" />
             </div>
             <div className="flex items-center gap-4 justify-center">
                 {Array.from({ length: 3 }).map((_, index) => (

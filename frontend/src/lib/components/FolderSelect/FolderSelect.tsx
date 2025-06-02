@@ -131,6 +131,17 @@ export function FolderSelect({
                 onChange={(search) => setSearchTerm(search)}
                 value={searchTerm}
                 data-attr="folder-select-search-input"
+                autoFocus
+                onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault() // Prevent scrolling
+                        const visibleItems = treeRef?.current?.getVisibleItems()
+                        if (visibleItems && visibleItems.length > 0) {
+                            e.currentTarget.blur() // Remove focus from input
+                            treeRef?.current?.focusItem(visibleItems[0].id)
+                        }
+                    }
+                }}
             />
             <ScrollableShadows direction="vertical" className={cn('bg-surface-primary border rounded', className)}>
                 <LemonTree
