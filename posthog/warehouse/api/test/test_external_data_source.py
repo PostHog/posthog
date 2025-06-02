@@ -10,17 +10,10 @@ from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.project import Project
+from posthog.temporal.data_imports.pipelines.bigquery import BigQuerySourceConfig
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-)
-
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -29,6 +22,13 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_interval_to_sync_frequency,
 )
 
 
@@ -465,66 +465,6 @@ class TestExternalDataSource(APIBaseTest):
         assert response.json()["detail"].startswith("Missing required BigQuery inputs")
         assert "'private_key'" in response.json()["detail"]
         assert "'private_key_id'" in response.json()["detail"]
-
-    def test_partial_update_of_bigquery_external_data_source(self):
-        """Test we can partially update a BigQuery source."""
-        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
-
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "BigQuery",
-                    "payload": {
-                        "schemas": [
-                            {
-                                "name": "my_schema",
-                                "should_sync": True,
-                                "sync_type": "incremental",
-                                "incremental_field": "id",
-                                "incremental_field_type": "integer",
-                            },
-                        ],
-                        "dataset_id": "my_old_dataset",
-                        "key_file": {
-                            "project_id": "my_project",
-                            "private_key": "my_private_key",
-                            "private_key_id": "my_private_key_id",
-                            "token_uri": "https://google.com",
-                            "client_email": "test@posthog.com",
-                        },
-                    },
-                },
-            )
-        assert response.status_code == 201
-        assert len(ExternalDataSource.objects.all()) == 1
-
-        source = response.json()
-        source_model = ExternalDataSource.objects.get(id=source["id"])
-        source_model.refresh_from_db()
-        assert source_model.job_inputs["dataset_id"] == "my_old_dataset"
-        assert source_model.job_inputs["private_key"] == "my_private_key"
-        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{str(source_model.pk)}/",
-            data={
-                "job_inputs": {
-                    "dataset_id": "my_new_dataset",
-                    "key_file": {
-                        "project_id": "my_project",
-                        "token_uri": "https://google.com",
-                    },
-                },
-            },
-        )
-
-        assert response.status_code == 200
-        assert len(ExternalDataSource.objects.all()) == 1
-        source_model.refresh_from_db()
-        assert source_model.job_inputs["dataset_id"] == "my_new_dataset"
-        assert source_model.job_inputs["private_key"] == "my_private_key"
-        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
 
     def test_list_external_data_source(self):
         self._create_external_data_source()
@@ -1179,3 +1119,107 @@ class TestExternalDataSource(APIBaseTest):
         assert job_inputs["private_key"] == "my_private_key"
         assert job_inputs["role"] == "my_role"
         assert job_inputs["schema"] == "my_schema"
+
+    def test_bigquery_create_and_update(self):
+        """Test that we can create and update the config for a BigQuery source"""
+        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
+            mocked_get_bigquery_schemas.return_value = {"my_table": "something"}
+
+            # Create a BigQuery source
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "prefix": "",
+                    "payload": {
+                        "source_type": "BigQuery",
+                        "key_file": {
+                            "type": "service_account",
+                            "project_id": "dummy_project_id",
+                            "private_key_id": "dummy_private_key_id",
+                            "private_key": "dummy_private_key",
+                            "client_email": "dummy_client_email",
+                            "client_id": "dummy_client_id",
+                            "auth_uri": "dummy_auth_uri",
+                            "token_uri": "dummy_token_uri",
+                            "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                            "client_x509_cert_url": "dummy_client_x509_cert_url",
+                            "universe_domain": "dummy_universe_domain",
+                        },
+                        "dataset_id": "dummy_dataset_id",
+                        "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                        "schemas": [
+                            {
+                                "name": "my_table",
+                                "should_sync": True,
+                                "sync_type": "full_refresh",
+                                "incremental_field": None,
+                                "incremental_field_type": None,
+                            },
+                        ],
+                    },
+                    "source_type": "BigQuery",
+                },
+            )
+        assert response.status_code == 201, response.json()
+        assert len(ExternalDataSource.objects.all()) == 1
+
+        source = response.json()
+        source_model = ExternalDataSource.objects.get(id=source["id"])
+
+        assert source_model.job_inputs is not None
+        job_inputs: dict[str, t.Any] = source_model.job_inputs
+
+        # validate against the actual class we use in the Temporal activity
+        bq_config = BigQuerySourceConfig.from_dict(job_inputs)
+
+        assert bq_config.project_id == "dummy_project_id"
+        assert bq_config.dataset_id == "dummy_dataset_id"
+        assert bq_config.private_key == "dummy_private_key"
+        assert bq_config.private_key_id == "dummy_private_key_id"
+        assert bq_config.client_email == "dummy_client_email"
+        assert bq_config.token_uri == "dummy_token_uri"
+        assert bq_config.using_temporary_dataset is False
+        assert bq_config.temporary_dataset_id == ""
+
+        # # Update the source by adding a temporary dataset
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+            data={
+                "job_inputs": {
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "dataset_id": "dummy_dataset_id",
+                    "project_id": "dummy_project_id",
+                    "client_email": "dummy_client_email",
+                    "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
+                    "key_file": {
+                        "type": "service_account",
+                        "project_id": "dummy_project_id",
+                        "private_key_id": "dummy_private_key_id",
+                        "private_key": "dummy_private_key",
+                        "client_email": "dummy_client_email",
+                        "client_id": "dummy_client_id",
+                        "auth_uri": "dummy_auth_uri",
+                        "token_uri": "dummy_token_uri",
+                        "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                        "client_x509_cert_url": "dummy_client_x509_cert_url",
+                        "universe_domain": "dummy_universe_domain",
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+
+        source_model.refresh_from_db()
+
+        # validate against the actual class we use in the Temporal activity
+        bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
+
+        assert bq_config.project_id == "dummy_project_id"
+        assert bq_config.dataset_id == "dummy_dataset_id"
+        assert bq_config.private_key == "dummy_private_key"
+        assert bq_config.private_key_id == "dummy_private_key_id"
+        assert bq_config.client_email == "dummy_client_email"
+        assert bq_config.token_uri == "dummy_token_uri"
+        assert bq_config.using_temporary_dataset is True
+        assert bq_config.temporary_dataset_id == "dummy_temporary_dataset_id"

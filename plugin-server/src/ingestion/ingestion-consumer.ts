@@ -14,6 +14,8 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import {
     Hub,
+    IncomingEvent,
+    IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
     PipelineEvent,
@@ -27,6 +29,7 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
+import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populateTeamDataStep'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
@@ -42,12 +45,10 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
-type IncomingEvent = { message: Message; event: PipelineEvent }
-
 type EventsForDistinctId = {
     token: string
     distinctId: string
-    events: IncomingEvent[]
+    events: IncomingEventWithTeam[]
 }
 
 type IncomingEventsByDistinctId = {
@@ -81,7 +82,6 @@ export class IngestionConsumer {
     protected testingTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
-
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
@@ -243,22 +243,28 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
-    public async handleKafkaBatch(messages: Message[]) {
+    public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
+            return this.resolveTeams(parsedMessages)
+        })
+
+        const groupedMessages = this.groupEventsByDistinctId(eventsWithTeams)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
         // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
         if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(parsedMessages)
+            await this.fetchAndCacheHogFunctionStates(groupedMessages)
         }
 
         const personsStoreForBatch = this.personStore.forBatch()
 
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
-                Object.values(parsedMessages).map(async (events) => {
+                Object.values(groupedMessages).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
                     const personsStoreForDistinctId = personsStoreForBatch.forDistinctID(
@@ -283,12 +289,11 @@ export class IngestionConsumer {
             }
         }
 
-        // TODO: Return this for the consumer to wait for in the background
-        logger.debug('🔁', `Waiting for promises`, { promises: this.promiseScheduler.promises.size })
-        await this.runInstrumented('awaitScheduledWork', () => {
-            return Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.promiseScheduler.waitForAll()])
-        })
-        logger.debug('🔁', `Processed batch`)
+        return {
+            backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
+                await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
+            }),
+        }
     }
 
     /**
@@ -406,10 +411,10 @@ export class IngestionConsumer {
     }
 
     private async runEventRunnerV1(
-        incomingEvent: IncomingEvent,
+        incomingEvent: IncomingEventWithTeam,
         personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
     ): Promise<EventPipelineResult | undefined> {
-        const { event, message } = incomingEvent
+        const { event, message, team } = incomingEvent
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
         const currentBreadcrumb = this.createBreadcrumb(message)
@@ -419,7 +424,7 @@ export class IngestionConsumer {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
                     const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs, personsStoreForDistinctId)
-                    return await runner.runEventPipeline(event)
+                    return await runner.runEventPipeline(event, team)
                 })
             )
 
@@ -493,8 +498,8 @@ export class IngestionConsumer {
         return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
-        const batches: IncomingEventsByDistinctId = {}
+    private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {
+        const batch: IncomingEvent[] = []
 
         for (const message of messages) {
             let distinctId: string | undefined
@@ -528,8 +533,6 @@ export class IngestionConsumer {
                 continue
             }
 
-            const eventKey = `${event.token}:${event.distinct_id}`
-
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
                 event.properties = {
                     ...(event.properties ?? {}),
@@ -537,20 +540,48 @@ export class IngestionConsumer {
                 }
             }
 
+            batch.push({ message, event })
+        }
+
+        return Promise.resolve(batch)
+    }
+
+    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
+        const batches: IncomingEventsByDistinctId = {}
+        for (const { event, message, team } of messages) {
+            const token = event.token ?? ''
+            const distinctId = event.distinct_id ?? ''
+            const eventKey = `${token}:${distinctId}`
+
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
             if (!batches[eventKey]) {
                 batches[eventKey] = {
-                    token: event.token ?? '',
-                    distinctId: event.distinct_id ?? '',
+                    token: token,
+                    distinctId,
                     events: [],
                 }
             }
 
-            batches[eventKey].events.push({ message, event })
+            batches[eventKey].events.push({ message, event, team })
         }
+        return batches
+    }
 
-        return Promise.resolve(batches)
+    private async resolveTeams(messages: IncomingEvent[]): Promise<IncomingEventWithTeam[]> {
+        const resolvedMessages: IncomingEventWithTeam[] = []
+        for (const { event, message } of messages) {
+            const result = await populateTeamDataStep(this.hub, event)
+            if (!result) {
+                continue
+            }
+            resolvedMessages.push({
+                event: result.event,
+                team: result.team,
+                message,
+            })
+        }
+        return resolvedMessages
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {

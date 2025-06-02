@@ -20,9 +20,12 @@ const readFileContents = (path: string): string => {
     return readFileSync(path, 'utf-8')
 }
 
+const keyZero = readFileContents(pathForKeyZero)
+const keyOne = readFileContents(pathForKeyOne)
+
 jest.setTimeout(120_000)
 
-describe('sessionRecordingDataLogic', () => {
+describe('sessionRecordingDataLogic performance', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
     beforeEach(() => {
@@ -40,8 +43,7 @@ describe('sessionRecordingDataLogic', () => {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
-                        const contents =
-                            key === '0' ? readFileContents(pathForKeyZero) : readFileContents(pathForKeyOne)
+                        const contents = key === '0' ? keyZero : keyOne
                         return res(ctx.text(contents))
                     }
 
@@ -90,7 +92,7 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
     })
 
-    describe('loading session core', () => {
+    describe('loading snapshots', () => {
         const setupLogic = (): void => {
             logic = sessionRecordingDataLogic({
                 sessionRecordingId: uuid(),
@@ -130,8 +132,6 @@ describe('sessionRecordingDataLogic', () => {
                 const end = performance.now()
                 const duration = end - start
                 durations.push(duration)
-                // eslint-disable-next-line no-console
-                console.log(`Iteration ${i + 1} duration: ${duration}ms`)
 
                 logic.unmount()
             }
@@ -144,8 +144,8 @@ describe('sessionRecordingDataLogic', () => {
             // eslint-disable-next-line no-console
             console.log(`Standard deviation: ${stdDev}ms`)
 
-            expect(averageDuration).toBeLessThan(1500)
-            expect(stdDev).toBeLessThan(2000)
+            expect(averageDuration).toBeLessThan(100)
+            expect(stdDev).toBeLessThan(100)
         })
     })
 })

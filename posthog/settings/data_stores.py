@@ -25,8 +25,6 @@ SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-JOB_QUEUE_GRAPHILE_URL: str = os.getenv("JOB_QUEUE_GRAPHILE_URL")
-
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -134,8 +132,6 @@ if os.getenv("PERSONS_DB_WRITER_URL"):
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
-if JOB_QUEUE_GRAPHILE_URL:
-    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
@@ -187,6 +183,11 @@ CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
 )
 
 CLICKHOUSE_USE_HTTP: str = get_from_env("CLICKHOUSE_USE_HTTP", False, type_cast=str_to_bool)
+CLICKHOUSE_USE_HTTP_PER_TEAM = set[int]([])
+with suppress(Exception):
+    as_json = json.loads(os.getenv("CLICKHOUSE_USE_HTTP_PER_TEAM", "[]"))
+    CLICKHOUSE_USE_HTTP_PER_TEAM = {int(v) for v in as_json}
+
 QUERYSERVICE_HOST: str = get_from_env("QUERYSERVICE_HOST", CLICKHOUSE_HOST)
 QUERYSERVICE_SECURE: bool = get_from_env("QUERYSERVICE_SECURE", CLICKHOUSE_SECURE, type_cast=str_to_bool)
 QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIFY, type_cast=str_to_bool)
@@ -222,11 +223,16 @@ try:
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
+# Per-team API /query concurrent limits, e.g. {"2": 7}
 API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
 
+API_QUERIES_ON_ONLINE_CLUSTER = set[int]([])
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
+    API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

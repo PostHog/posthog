@@ -1,3 +1,4 @@
+import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
@@ -10,14 +11,19 @@ export function MoveToModal(): JSX.Element {
     const { isOpen, form, movingItems } = useValues(moveToLogic)
     const { closeMoveToModal, submitForm } = useActions(moveToLogic)
 
+    const destinationFolder = form.folder || 'Project root'
+
     return (
         <LemonModal
             onClose={closeMoveToModal}
             isOpen={isOpen}
             title="Select a folder to move to"
-            description={`You are moving ${movingItems.length} item${movingItems.length === 1 ? '' : 's'} to ${
-                form.folder || 'Project root'
-            }`}
+            description={
+                <>
+                    You are moving {movingItems.length} item{movingItems.length === 1 ? '' : 's'} to{' '}
+                    <LemonSnack>{destinationFolder}</LemonSnack>`
+                </>
+            }
             // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->
             // "new dashboard template picker modal" -> "save dashboard to modal" wouldn't work.
             // Since MoveToModal is added to the DOM earlier as part of global modals, it's below it in hierarchy.
@@ -25,8 +31,8 @@ export function MoveToModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton type="primary" onClick={submitForm}>
-                        Move
+                    <LemonButton type="primary" onClick={submitForm} data-attr="move-to-modal-move-button">
+                        Move to {destinationFolder}
                     </LemonButton>
                 </>
             }
