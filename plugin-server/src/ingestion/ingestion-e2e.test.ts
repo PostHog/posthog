@@ -176,6 +176,11 @@ describe('Event Pipeline E2E tests', () => {
         process.env.SITE_URL = 'https://example.com'
     })
 
+    afterAll(async () => {
+        await resetTestDatabase()
+        await resetTestDatabaseClickhouse()
+    })
+
     testWithTeamIngester('should handle $$client_ingestion_warning events', async (ingester, hub, team) => {
         const events = [
             new EventBuilder(team)
