@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
-    pub repo_name: String,
+    pub repo_name: Option<String>,
     pub branch: String,
     pub commit_id: String,
 }
@@ -18,11 +18,6 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
     };
 
     let repo_name = get_repo_name(&git_dir);
-    // If we fail to get remote repo, return
-    let Some(repo_name) = repo_name else {
-        return Ok(None);
-    };
-
     let branch = get_current_branch(&git_dir).context("Failed to determine current branch")?;
     let commit = get_head_commit(&git_dir, &branch).context("Failed to determine commit ID")?;
 
