@@ -150,7 +150,7 @@ export function BillingUsage(): JSX.Element {
                             <LemonCheckbox
                                 label="Hide results with no usage"
                                 checked={excludeEmptySeries}
-                                onChange={setExcludeEmptySeries}
+                                onChange={(value) => setExcludeEmptySeries(value)}
                             />
                         </div>
                     </div>
