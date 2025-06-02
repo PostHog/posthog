@@ -3677,6 +3677,11 @@
             "description": "Google Click Source Data from the first event in this session.",
             "label": "Entry gclsrc"
         },
+        "$entry_host": {
+            "description": "The hostname of the entry URL.",
+            "examples": ["example.com", "localhost:8000"],
+            "label": "Entry host"
+        },
         "$entry_igshid": {
             "description": "Instagram Share ID Data from the first event in this session.",
             "label": "Entry igshid"
