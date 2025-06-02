@@ -476,6 +476,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.TEMPORALIO:
+            new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -624,6 +626,41 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={"api_key": api_key, "site_name": site_name},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_temporalio_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        host = payload.get("host", "")
+        port = payload.get("port", "")
+        namespace = payload.get("namespace", "")
+        encryption_key = payload.get("encryption_key", None)
+        server_client_root_ca = payload.get("server_client_root_ca", "")
+        client_certificate = payload.get("client_certificate", "")
+        client_private_key = payload.get("client_private_key", "")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "host": host,
+                "port": port,
+                "namespace": namespace,
+                "encryption_key": encryption_key,
+                "server_client_root_ca": server_client_root_ca,
+                "client_certificate": client_certificate,
+                "client_private_key": client_private_key,
+            },
             prefix=prefix,
         )
 
@@ -826,7 +863,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type = request.data["source_type"]
 
         customer_id = payload.get("customer_id", "")
-        resource_name = payload.get("resource_name", "")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -836,11 +872,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={"customer_id": customer_id, "resource_name": resource_name},
+            job_inputs={"customer_id": customer_id},
             prefix=prefix,
         )
 
-        schemas = get_google_ads_schemas(GoogleAdsServiceAccountSourceConfig.from_dict(new_source_model.job_inputs))
+        config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
+        schemas = get_google_ads_schemas(config)
 
         return new_source_model, list(schemas.keys())
 
@@ -1034,18 +1071,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             customer_id = request.data.get("customer_id")
-            resource_name = request.data.get("resource_name")
+            resource_name = request.data.get("resource_name", "")
 
             if not customer_id:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Missing required input: 'customer_id'"},
-                )
-
-            if not resource_name:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required input: 'resource_name'"},
                 )
 
             google_ads_config = GoogleAdsServiceAccountSourceConfig(

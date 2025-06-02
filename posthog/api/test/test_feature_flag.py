@@ -5469,6 +5469,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Special Folder/Flags" in fs_entry.path
         ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_updates_super_groups(self, mock_capture):
+        # Create a feature flag with super_groups
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="old-key",
+            name="Test Flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 0}],
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/old-key",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+
+        # Update the feature flag key
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag.id}",
+            {"key": "new-key"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Refresh the feature flag from the database
+        feature_flag.refresh_from_db()
+
+        # Verify the super_groups were updated
+        self.assertEqual(feature_flag.filters["super_groups"][0]["properties"][0]["key"], "$feature_enrollment/new-key")
+
+        # Verify the old key is not present
+        self.assertNotIn("$feature_enrollment/old-key", str(feature_flag.filters))
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):

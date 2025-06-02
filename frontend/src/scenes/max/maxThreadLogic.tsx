@@ -35,13 +35,7 @@ import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import {
-    isAssistantMessage,
-    isAssistantToolCallMessage,
-    isHumanMessage,
-    isReasoningMessage,
-    isVisualizationMessage,
-} from './utils'
+import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -106,7 +100,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'prependOrReplaceConversation as updateGlobalConversationCache',
                 'setActiveStreamingThreads',
                 'setConversationId',
-                'scrollThreadToBottom',
                 'setAutoRun',
             ],
         ],
@@ -360,18 +353,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
-            }
-        },
-
-        addMessage: (payload) => {
-            if (isHumanMessage(payload.message) || isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
-            }
-        },
-
-        replaceMessage: (payload) => {
-            if (isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
             }
         },
 
