@@ -251,6 +251,7 @@ def get_latest_backup(
 @dagster.op
 def check_latest_backup_status(
     context: dagster.OpExecutionContext,
+    config: BackupConfig,
     latest_backup: Optional[Backup],
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> Optional[Backup]:
@@ -333,6 +334,7 @@ def run_backup(
 @dagster.op
 def wait_for_backup(
     context: dagster.OpExecutionContext,
+    config: BackupConfig,
     backup: Optional[Backup],
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
@@ -416,8 +418,8 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         run_key=f"{timestamp}-{table}",
         run_config={
             "ops": {
-                "get_latest_backup": {"config": config.model_dump()},
-                "run_backup": {"config": config.model_dump()},
+                op.name: {"config": config.model_dump()}
+                for op in [get_latest_backup, run_backup, check_latest_backup_status, wait_for_backup]
             }
         },
         tags={
