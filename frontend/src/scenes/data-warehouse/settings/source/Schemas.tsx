@@ -286,6 +286,10 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 return <div>No rows to query</div>
                             }
 
+                            if (schema.status === 'Running') {
+                                return <div>Syncing...</div>
+                            }
+
                             return <div>Not yet synced</div>
                         },
                     },

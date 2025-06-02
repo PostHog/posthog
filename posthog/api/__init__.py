@@ -223,7 +223,9 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["project_id"])
+register_grandfathered_environment_nested_viewset(
+    r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
+)
 
 register_grandfathered_environment_nested_viewset(
     r"file_system_shortcut",
@@ -571,6 +573,13 @@ projects_router.register(
     notebook.NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+environments_router.register(
+    r"error_tracking/releases",
+    error_tracking.ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["team_id"],
 )
 
 environments_router.register(

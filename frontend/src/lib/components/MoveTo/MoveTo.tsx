@@ -31,7 +31,7 @@ export function MoveToModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton type="primary" onClick={submitForm}>
+                    <LemonButton type="primary" onClick={submitForm} data-attr="move-to-modal-move-button">
                         Move to {destinationFolder}
                     </LemonButton>
                 </>

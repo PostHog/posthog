@@ -1,5 +1,5 @@
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -893,6 +893,17 @@ LIMIT 1000000
             },
         ],
 
+        isLikelyPastTTL: [
+            (s) => [s.start, s.snapshotSources],
+            (start, snapshotSources) => {
+                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
+                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
+                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
+                const hasNoSources = snapshotSources?.length === 0
+                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
+            },
+        ],
+
         bufferedToTime: [
             (s) => [s.segments],
             (segments): number | null => {
@@ -960,4 +971,16 @@ LIMIT 1000000
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        // Clear the cache
+
+        if (cache.realTimePollingTimeoutID) {
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = undefined
+        }
+
+        cache.windowIdForTimestamp = undefined
+        cache.viewportForTimestamp = undefined
+        cache.snapshotsBySource = undefined
+    }),
 ])
