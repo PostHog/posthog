@@ -1,12 +1,4 @@
-import {
-    IconCheckbox,
-    IconChevronDown,
-    IconChevronRight,
-    IconFolder,
-    IconFolderPlus,
-    IconPlusSmall,
-    IconX,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -37,6 +29,7 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -118,9 +111,12 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, showLayoutNavBar } =
+        useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned, isLayoutPanelVisible, isLayoutNavbarVisible } =
+        useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -146,6 +142,14 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
+    function handleNodeClick(): void {
+        if (isMobileLayout && (isLayoutNavbarVisible || isLayoutPanelVisible)) {
+            showLayoutPanel(false)
+            showLayoutNavBar(false)
+            clearActivePanelIdentifier()
+        }
+    }
+
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         // Determine the separator component based on MenuItem type
@@ -163,7 +167,10 @@ export function ProjectTree({
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
                 <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
-                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                <>
+                    <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
             ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
                 <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : null
@@ -390,6 +397,7 @@ export function ProjectTree({
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     )
+                    handleNodeClick()
                 }
                 if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                     clearActivePanelIdentifier()
@@ -480,20 +488,28 @@ export function ProjectTree({
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                return (
+                    <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'context')}
+                    </ContextMenuGroup>
+                )
             }}
             itemSideAction={(item) => {
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                return (
+                    <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'dropdown')}
+                    </DropdownMenuGroup>
+                )
             }}
             itemSideActionIcon={(item) => {
                 if (item.record?.protocol === 'products://') {
                     if (item.name === 'Product analytics') {
                         return <IconPlusSmall className="text-tertiary" />
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return <IconChevronDown className="text-tertiary" />
+                        return <IconChevronRight className="size-3 text-tertiary rotate-90" />
                     }
                 }
             }}
@@ -701,12 +717,7 @@ export function ProjectTree({
             }
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField
-                        root={root}
-                        placeholder={searchPlaceholder}
-                        logicKey={logicKey}
-                        uniqueKey={uniqueKey}
-                    />
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
                 </BindLogic>
             }
             panelActions={

@@ -3054,6 +3054,12 @@ export enum SurveyType {
 }
 
 export enum SurveyPosition {
+    TopLeft = 'top_left',
+    TopCenter = 'top_center',
+    TopRight = 'top_right',
+    MiddleLeft = 'middle_left',
+    MiddleCenter = 'middle_center',
+    MiddleRight = 'middle_right',
     Left = 'left',
     Center = 'center',
     Right = 'right',
@@ -4238,6 +4244,8 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+    | 'warehouse_view'
+    | 'warehouse_table'
 
 export enum AccessControlLevel {
     None = 'none',

@@ -249,7 +249,8 @@ def get_decide(request: HttpRequest) -> HttpResponse:
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
     except RequestParsingError as error:
-        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        # do not capture for now to allow error tracking to catch up
+        # capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
         return cors_response(
             request,
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),

@@ -197,7 +197,10 @@ def sync_execute(
         except Exception as e:
             exception_type = ch_error_type(e)
             QUERY_ERROR_COUNTER.labels(
-                exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+                exception_type=exception_type,
+                query_type=query_type,
+                workload=workload.value if workload else "None",
+                chargeable=chargeable,
             ).inc()
             err = wrap_query_error(e)
             if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
