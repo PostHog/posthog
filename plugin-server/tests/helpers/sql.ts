@@ -75,7 +75,6 @@ BEGIN
             'posthog_action',
             'posthog_user',
             'posthog_group',
-            'posthog_person',
             'posthog_team')
     ) LOOP
         EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';

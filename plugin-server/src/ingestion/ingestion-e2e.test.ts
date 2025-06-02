@@ -804,7 +804,7 @@ describe('Event Pipeline E2E tests', () => {
 
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
         const queryResult = (await hub.db.clickhouse.querying(`
-            SELECT *,
+            SELECT *
             FROM ingestion_warnings
             WHERE team_id = ${teamId}
             ORDER BY timestamp ASC
