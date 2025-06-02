@@ -22,7 +22,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const showPassword = !ssoEnforcement && user?.has_password
 
     const extraQueryParams = {
-        next: encodeURI(location.href.replace(location.origin, '')),
+        next: window.location.pathname,
     }
 
     return (
