@@ -23,6 +23,7 @@ const mjxDocument = mathjax.document(document, { InputJax: tex, OutputJax: svg }
 export const NotebookNodeLatex = Node.create({
     name: 'latexBlock',
     group: 'block',
+    atom: true,
     selectable: true,
     content: 'text*',
     parseHTML() {
