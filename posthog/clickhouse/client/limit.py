@@ -95,7 +95,6 @@ class RateLimit:
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
-        current_time = self.get_time()
 
         max_concurrency = self.max_concurrency
         in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
@@ -109,7 +108,9 @@ class RateLimit:
         count = 1
         # Atomically check, remove expired if limit hit, and add the new task
         while (
-            self.redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrency, self.ttl)
+            self.redis_client.eval(
+                lua_script, 1, running_tasks_key, self.get_time(), task_id, max_concurrency, self.ttl
+            )
             == 0
         ):
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
@@ -205,6 +206,7 @@ def get_app_org_rate_limiter():
     if __APP_CONCURRENT_QUERY_PER_ORG is None:
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
             max_concurrency=10,
+            applicable=lambda *args, **kwargs: not TEST and kwargs.get("org_id") and not kwargs.get("personal_api_key"),
             limit_name="app_per_org",
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),

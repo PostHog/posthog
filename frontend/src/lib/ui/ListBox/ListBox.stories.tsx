@@ -1,7 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { useState } from 'react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
@@ -22,22 +21,26 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-                <p className="m-0">ListBox</p>
+                <p className="m-0">Listbox</p>
+                <p className="m-0">Wrap any set of elements in a Listbox to enable keyboard navigation.</p>
                 <p>
-                    all elements inside (button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])) gain
-                    focus when clicked or focused with keyboard.
+                    (button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])) gain focus when clicked
+                    or focused with keyboard, disabled elements are not focusable and skipped.
                 </p>
+                <ul className="list-disc list-inside">
+                    <li>Default (all elements gain 'real' focus)</li>
+                    <li>
+                        OR virtual focus = true (where local state keeps track of focus allowing you to navigate with
+                        keyboard but keep let's say an input focused).
+                    </li>
+                </ul>
             </div>
             <ListBox
                 className="flex flex-col gap-px max-h-[400px] overflow-y-auto border-1 border-dashed border-darkgray p-2"
                 {...props}
             >
-                <ListBox.Item asChild className="mb-4" virtualFocusIgnore>
-                    <LemonInput
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                        value="This is virtually ignored in the keyboard navigation"
-                    />
+                <ListBox.Item asChild className="mb-4">
+                    <input type="text" className="h-9 border border-primary rounded-md p-2" />
                 </ListBox.Item>
                 <ListBox.Item asChild>
                     <Link
@@ -105,9 +108,12 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
 }
 
 export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+Default.args = {
+    title: 'List Box',
+}
 
 export const VirtualFocus: Story = BasicTemplate.bind({})
 VirtualFocus.args = {
+    title: 'List Box - Virtual Focus, the input is always focused when navigating with keyboard',
     virtualFocus: true,
 }

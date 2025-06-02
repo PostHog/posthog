@@ -45,14 +45,15 @@ const StripeCaption = (): JSX.Element => (
         Currently, <strong>read permissions are required</strong> for the following resources:
         <ul className="list-disc list-inside">
             <li>
-                Under the <b>Core</b> resource type, read for <b>Balance transaction sources</b>, <b>Charges</b>,{' '}
-                <b>Customer</b>, and <b>Product</b>
+                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>,{' '}
+                <b>Charges</b>, <b>Customer</b>, and <b>Product</b>
             </li>
             <li>
-                Under the <b>Billing</b> resource type, read for <b>Invoice</b>, <b>Price</b>, and <b>Subscription</b>
+                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and{' '}
+                <b>Subscription</b>
             </li>
             <li>
-                Under the <b>Connected</b> resource type, read for the <b>entire resource</b>
+                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
             </li>
         </ul>
     </>
@@ -748,12 +749,75 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         caption: '',
     },
+    TemporalIO: {
+        name: 'TemporalIO',
+        label: 'Temporal.io',
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'namespace',
+                label: 'Namespace',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'encryption_key',
+                label: 'Encryption key',
+                type: 'text',
+                required: false,
+                placeholder: '',
+            },
+            {
+                name: 'server_client_root_ca',
+                label: 'Server client root CA',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_certificate',
+                label: 'Client certificate',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_private_key',
+                label: 'Client private key',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        caption: '',
+    },
     GoogleAds: {
         name: 'GoogleAds',
         label: 'Google Ads',
         caption: '',
-        fields: [],
-        unreleasedSource: true,
+        fields: [
+            {
+                name: 'customer_id',
+                label: 'Customer ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
     },
     MetaAds: {
         name: 'MetaAds',

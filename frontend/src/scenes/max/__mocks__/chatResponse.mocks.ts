@@ -93,3 +93,16 @@ const formMessage: AssistantMessage = {
 }
 
 export const formChunk = generateChunk(['event: message', `data: ${JSON.stringify(formMessage)}`])
+
+export const longMessage: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: 'This\n\nis\n\na\n\nlong\n\nmessage\n\nthat\n\nshould\n\nbe\n\nsplit\n\ninto\n\nmultiple\n\nlines',
+    id: 'assistant-2',
+}
+
+export const longResponseChunk = generateChunk([
+    'event: message',
+    `data: ${JSON.stringify(humanMessage)}`,
+    'event: message',
+    `data: ${JSON.stringify(longMessage)}`,
+])
