@@ -13,6 +13,7 @@ import {
     formChunk,
     generationFailureChunk,
     humanMessage,
+    longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
@@ -363,6 +364,46 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     return <Template sidePanel />
 }
 ThreadWithOpenedSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(ctx.delay(100), ctx.text(longResponseChunk)),
+        },
+    })
+
+    const { conversation } = useValues(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const logic = maxThreadLogic({ conversationId: 'poem', conversation })
+    const { threadRaw } = useValues(logic)
+    const { askMax } = useActions(logic)
+
+    useEffect(() => {
+        setConversationId('poem')
+    }, [setConversationId])
+
+    const messagesSet = threadRaw.length > 0
+    useEffect(() => {
+        if (messagesSet) {
+            askMax('This message must be on the top of the container')
+        }
+    }, [messagesSet, askMax])
+
+    return (
+        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+            <Template />
+        </div>
+    )
+}
+ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

@@ -27,7 +27,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
-from rest_framework.exceptions import Throttled
+from rest_framework.exceptions import Throttled, NotFound
 
 from ee.api.conversation import ServerSentEventRenderer
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
@@ -425,7 +425,8 @@ def clean_referer_url(current_url: str | None) -> str:
 
         path = re.sub(r"^/?project/\d+", "", path)
 
-        path = re.sub(r"^/?person/.*$", "person-page", path)
+        # matches person or persons
+        path = re.sub(r"^/?persons?/.*$", "person-page", path)
 
         path = re.sub(r"^/?insights/[^/]+/edit$", "insight-edit", path)
 
@@ -725,30 +726,47 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
-        response: Response | HttpResponse
-        if not source:
-            response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
-        elif source == "realtime":
-            with timer("send_realtime_snapshots_to_client"):
-                response = self._send_realtime_snapshots_to_client(recording)
-        elif source == "blob":
-            with timer("stream_blob_to_client"):
-                response = self._stream_blob_to_client(
-                    recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
-                )
-        elif source == "blob_v2":
-            if "min_blob_key" in validated_data:
-                response = self._stream_blob_v2_to_client(
-                    recording,
-                    timer,
-                    min_blob_key=validated_data["min_blob_key"],
-                    max_blob_key=validated_data["max_blob_key"],
-                )
-            else:
+        try:
+            response: Response | HttpResponse
+            if not source:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
+            elif source == "realtime":
+                with timer("send_realtime_snapshots_to_client"):
+                    response = self._send_realtime_snapshots_to_client(recording)
+            elif source == "blob":
+                with timer("stream_blob_to_client"):
+                    response = self._stream_blob_to_client(
+                        recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
+                    )
+            elif source == "blob_v2":
+                if "min_blob_key" in validated_data:
+                    response = self._stream_blob_v2_to_client(
+                        recording,
+                        timer,
+                        min_blob_key=validated_data["min_blob_key"],
+                        max_blob_key=validated_data["max_blob_key"],
+                    )
+                else:
+                    response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
 
-        response.headers["Server-Timing"] = timer.to_header_string()
-        return response
+            response.headers["Server-Timing"] = timer.to_header_string()
+            return response
+        except NotFound:
+            raise
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e,
+                distinct_id=self._distinct_id_from_request(request),
+                properties={
+                    "location": "session_recording_api.snapshots",
+                    "session_id": str(recording.session_id) if recording else None,
+                },
+            )
+            breakpoint()
+            return Response(
+                {"error": "An unexpected error has occurred. Please try again later."},
+                status=500,
+            )
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -840,6 +858,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                     if might_have_realtime:
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+
                 if might_have_realtime:
                     sources.append(
                         {
@@ -874,12 +893,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     @staticmethod
     def _distinct_id_from_request(request):
-        if isinstance(request.user, AnonymousUser):
-            return request.GET.get("sharing_access_token") or "anonymous"
-        elif isinstance(request.user, User):
-            return str(request.user.distinct_id)
-        else:
-            return "anonymous"
+        try:
+            if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+                return cast(
+                    PersonalAPIKeyAuthentication, request.successful_authenticator
+                ).personal_api_key.secure_value
+            if isinstance(request.user, AnonymousUser):
+                return request.GET.get("sharing_access_token") or "anonymous"
+            elif isinstance(request.user, User):
+                return str(request.user.distinct_id)
+            else:
+                return "anonymous"
+        except:
+            return "unknown"
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
