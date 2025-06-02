@@ -25,6 +25,14 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
+/**
+ * seen hashes has to survive outside of the context of any one call to processAllSnapshots
+ * but also not grow unbounded
+ * the amount of ram it uses should be relatively small since it's a set of strings
+ */
+let hashId: string | null = null
+const seenHashes: Set<string> = new Set()
+
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
@@ -35,7 +43,11 @@ export function processAllSnapshots(
         return []
     }
 
-    const seenHashes: Set<string> = new Set()
+    if (hashId !== sessionRecordingId) {
+        hashId = sessionRecordingId
+        seenHashes.clear()
+    }
+
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
 
