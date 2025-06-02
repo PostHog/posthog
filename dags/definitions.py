@@ -5,7 +5,7 @@ from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 from django.conf import settings
 
-from dags.common import ClickhouseClusterResource
+from dags.common import ClickhouseClusterResource, job_status_metrics_sensors
 from dags import (
     backups,
     ch_examples,
@@ -15,6 +15,7 @@ from dags import (
     materialized_columns,
     orm_examples,
     person_overrides,
+    property_definitions,
     slack_alerts,
     web_preaggregated_internal,
 )
@@ -54,8 +55,8 @@ defs = dagster.Definitions(
         orm_examples.pending_deletions,
         orm_examples.process_pending_deletions,
         web_preaggregated_internal.web_analytics_preaggregated_tables,
-        web_preaggregated_internal.web_overview_daily,
         web_preaggregated_internal.web_stats_daily,
+        web_preaggregated_internal.web_bounces_daily,
     ],
     jobs=[
         deletes.deletes_job,
@@ -65,6 +66,7 @@ defs = dagster.Definitions(
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
+        property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
         web_preaggregated_internal.recreate_web_pre_aggregated_data_job,
@@ -74,6 +76,7 @@ defs = dagster.Definitions(
         exchange_rate.hourly_exchange_rates_schedule,
         export_query_logs_to_s3.query_logs_export_schedule,
         person_overrides.squash_schedule,
+        property_definitions.property_definitions_hourly_schedule,
         backups.full_sharded_backup_schedule,
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
@@ -83,6 +86,7 @@ defs = dagster.Definitions(
     sensors=[
         deletes.run_deletes_after_squash,
         slack_alerts.notify_slack_on_failure,
+        *job_status_metrics_sensors,
     ],
     resources=resources,
 )

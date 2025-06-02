@@ -21,8 +21,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         dashboard: {
+            name: 'Dashboard',
             icon: <IconDashboard />,
             href: (ref: string) => urls.dashboard(ref),
+            iconColor: ['var(--product-dashboards-light)'],
+            filterKey: 'dashboard',
         },
     },
     treeItemsNew: [
@@ -32,7 +35,4 @@ export const manifest: ProductManifest = {
             href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
-    fileSystemFilterTypes: {
-        dashboard: { name: 'Dashboards' },
-    },
 }
