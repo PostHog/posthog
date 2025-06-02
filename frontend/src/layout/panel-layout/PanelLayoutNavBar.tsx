@@ -143,7 +143,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.projectHomepage(), true)
             },
-            tooltip: 'Home',
+            tooltip: isLayoutNavCollapsed ? 'Home' : null,
         },
         {
             identifier: 'Project',
@@ -155,10 +155,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Project'
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Project'
                     ? 'Close project tree'
-                    : 'Open project tree',
+                    : 'Open project tree'
+                : null,
         },
         {
             identifier: 'Recent',
@@ -170,19 +171,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Recent' ? 'Close recent' : 'Open recent',
-        },
-        {
-            identifier: 'Products',
-            id: 'Products',
-            icon: <IconCdCase />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Recent'
+                    ? 'Close recent'
+                    : 'Open recent'
+                : null,
         },
         {
             identifier: 'Shortcuts',
@@ -194,36 +187,60 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts'
+                    ? 'Close shortcuts'
+                    : 'Open shortcuts'
+                : null,
         },
         {
-            identifier: 'Data management',
-            id: 'Data management',
+            identifier: 'Data',
+            id: 'Data',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Data management')
+                    handlePanelTriggerClick('Data')
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Data management'
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Data'
                     ? 'Close data management'
-                    : 'Open data management',
+                    : 'Open data management'
+                : null,
         },
         {
-            identifier: 'Persons',
-            id: 'Persons',
+            identifier: 'People',
+            id: 'People',
             icon: <IconPeople />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Persons')
+                    handlePanelTriggerClick('People')
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close persons' : 'Open persons',
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'People'
+                    ? 'Close persons'
+                    : 'Open persons'
+                : null,
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
+        },
+        {
+            identifier: 'Products',
+            id: 'Products',
+            icon: <IconCdCase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Products')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Products'
+                    ? 'Close products'
+                    : 'Open products'
+                : null,
         },
         {
             identifier: 'Activity',
@@ -233,7 +250,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.activity(), true)
             },
-            tooltip: 'Activity',
+            tooltip: isLayoutNavCollapsed ? 'Activity' : null,
             tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
     ]
