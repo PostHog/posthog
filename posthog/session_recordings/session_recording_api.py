@@ -840,6 +840,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                     if might_have_realtime:
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+
                 if might_have_realtime:
                     sources.append(
                         {
