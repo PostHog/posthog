@@ -318,13 +318,13 @@ def run_backup(
         cluster.map_any_host_in_shards_by_role(
             {backup.shard: backup.create},
             node_role=NodeRole.DATA,
-            workload=Workload.ONLINE,
+            workload=Workload.OFFLINE,
         ).result()
     else:
         cluster.any_host_by_role(
             backup.create,
             node_role=NodeRole.DATA,
-            workload=Workload.ONLINE,
+            workload=Workload.OFFLINE,
         ).result()
 
     return backup
@@ -343,9 +343,9 @@ def wait_for_backup(
     def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
             return cluster.map_hosts_in_shard_by_role(
-                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.OFFLINE
             )
-        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.OFFLINE)
 
     if backup:
         map_hosts(backup.wait).result().values()
