@@ -12,10 +12,6 @@
  * you can do:
  *
  * const [error, result] = await tryCatch(fn)
- *
- *
- *
- *
  */
 
 export async function tryCatch<T>(fn: () => Promise<T>): Promise<[Error | null, T | null]> {
