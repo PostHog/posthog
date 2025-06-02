@@ -328,7 +328,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
     database.events.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
-        join_table=PersonDistinctIdOverridesTable(),
+        join_table=database.person_distinct_id_overrides,
         join_function=join_with_person_distinct_id_overrides_table,
     )
     database.events.fields["person_id"] = ExpressionField(
@@ -416,7 +416,7 @@ def create_hogql_database(
             _use_person_id_from_person_overrides(database)
             database.events.fields["person"] = LazyJoin(
                 from_field=["person_id"],
-                join_table=PersonsTable(),
+                join_table=database.persons,
                 join_function=join_with_persons_table,
             )
 

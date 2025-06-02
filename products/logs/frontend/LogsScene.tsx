@@ -1,5 +1,6 @@
 import './sparkline-loading.scss'
 
+import { IconFilter, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
@@ -12,7 +13,9 @@ import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { AttributeBreakdowns } from './AttributeBreakdowns'
 import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
@@ -116,14 +119,52 @@ export function LogsScene(): JSX.Element {
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
+    const { filterGroup, expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { setFilterGroup, toggleAttributeBreakdown } = useActions(logsLogic)
+
     const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
+
+    const addFilter = (key: string, value: string): void => {
+        const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
+
+        newGroup.values.push({
+            key,
+            value: [value],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Log,
+        })
+
+        setFilterGroup({ ...filterGroup, values: [newGroup] }, false)
+    }
 
     return (
         <LemonTable
             embedded
             showHeader={false}
             columns={[
+                {
+                    key: 'actions',
+                    width: 0,
+                    render: (_, record) => (
+                        <div className="flex gap-x-1">
+                            <LemonButton
+                                tooltip="Add as filter"
+                                size="xsmall"
+                                onClick={() => addFilter(record.key, record.value)}
+                            >
+                                <IconPlusSquare />
+                            </LemonButton>
+                            <LemonButton
+                                tooltip="Show breakdown"
+                                size="xsmall"
+                                onClick={() => toggleAttributeBreakdown(record.key)}
+                            >
+                                <IconFilter />
+                            </LemonButton>
+                        </div>
+                    ),
+                },
                 {
                     title: 'Key',
                     key: 'key',
@@ -137,6 +178,12 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 },
             ]}
             dataSource={rows}
+            expandable={{
+                noIndent: true,
+                showRowExpansionToggle: false,
+                isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
+                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} />,
+            }}
         />
     )
 }

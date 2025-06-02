@@ -79,7 +79,6 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
-    functional_tests = 'functional-tests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(

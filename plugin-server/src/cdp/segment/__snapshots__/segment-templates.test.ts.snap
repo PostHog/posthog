@@ -36,6 +36,13 @@ exports[`segment templates template segment-absmartly matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -357,6 +364,13 @@ exports[`segment templates template segment-accoil-analytics matches expected re
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -449,7 +463,7 @@ exports[`segment templates template segment-accoil-analytics matches expected re
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "The name of the page",
           "key": "name",
           "label": "Page Name",
@@ -509,7 +523,7 @@ exports[`segment templates template segment-accoil-analytics matches expected re
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "The name of the screen",
           "key": "name",
           "label": "Screen Name",
@@ -841,6 +855,13 @@ Last-Modified: 02.01.2024 10.30.43
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -1014,7 +1035,7 @@ Last-Modified: 02.01.2024 10.30.43
           "type": "dictionary",
         },
         {
-          "default": "{event.properties.email ?? person.properties.email}",
+          "default": "{person.properties.email ?? person.properties.email}",
           "description": "The field to be used to uniquely identify the Recipient in Acoustic. This field is required with Email preferred but not required.",
           "key": "uniqueRecipientId",
           "label": "UniqueRecipientId",
@@ -1170,6 +1191,13 @@ Last-Modified: 06.28.2023 16.15.37
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -1193,7 +1221,7 @@ Last-Modified: 06.28.2023 16.15.37
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.email}",
+          "default": "{event.properties.email ?? person.properties.email}",
           "description": "At a minimum Email is required, see mapping presets for more info.",
           "key": "email",
           "label": "Email",
@@ -1298,7 +1326,7 @@ Last-Modified: 06.28.2023 16.15.37
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.email}",
+          "default": "{person.properties.email ?? person.properties.email}",
           "description": "At a minimum Email is required, see mapping presets for more info.",
           "key": "email",
           "label": "Email",
@@ -1434,6 +1462,13 @@ exports[`segment templates template segment-airship matches expected result 1`] 
       "required": true,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -1624,6 +1659,13 @@ exports[`segment templates template segment-algolia-insights matches expected re
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -1794,19 +1836,13 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "type": "choice",
         },
         {
-          "default": {
-            "discount": undefined,
-            "price": undefined,
-            "product_id": undefined,
-            "quantity": undefined,
-            "queryID": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Populates the ObjectIDs field in the Algolia Insights API. An array of objects representing the purchased items. Each object must contain a product_id field.",
           "key": "products",
           "label": "Product Details",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.search_index}",
@@ -1947,7 +1983,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
               "value": "addToCart",
             },
           ],
-          "default": "purchase",
+          "default": "addToCart",
           "description": "Sub-type of the event, "purchase" or "addToCart".",
           "key": "eventSubtype",
           "label": "Event Subtype",
@@ -1956,19 +1992,13 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "type": "choice",
         },
         {
-          "default": {
-            "discount": undefined,
-            "price": undefined,
-            "product_id": undefined,
-            "quantity": undefined,
-            "queryID": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Populates the ObjectIDs field in the Algolia Insights API. An array of objects representing the purchased items. Each object must contain a product_id field.",
           "key": "products",
           "label": "Product Details",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.search_index}",
@@ -2218,16 +2248,13 @@ exports[`segment templates template segment-algolia-insights matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": {
-            "attribute": undefined,
-            "value": undefined,
-          },
+          "default": "event.properties.filters",
           "description": "Populates the filters field in the Algolia Insights API, a list of up to 10 facet filters. Field should be an array of strings with format \${attribute}:\${value}.",
           "key": "filters",
           "label": "Filters",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.search_index}",
@@ -2358,6 +2385,13 @@ exports[`segment templates template segment-amazon-amc matches expected result 1
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Amazon Ads DSP and AMC",
@@ -2411,6 +2445,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -2759,19 +2800,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "price": undefined,
-            "productId": undefined,
-            "quantity": undefined,
-            "revenue": undefined,
-            "revenueType": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -2824,22 +2859,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field.",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -2896,13 +2931,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": false,
+          "default": "false",
           "description": "When enabled, track revenue with each product within the event. When disabled, track total revenue once for the event.",
           "key": "trackRevenuePerProduct",
           "label": "Track Revenue Per Product",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{person.id}",
@@ -3229,19 +3264,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "price": undefined,
-            "productId": undefined,
-            "quantity": undefined,
-            "revenue": undefined,
-            "revenueType": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$raw_user_agent}",
@@ -3253,22 +3282,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -3673,19 +3702,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "price": undefined,
-            "productId": undefined,
-            "quantity": undefined,
-            "revenue": undefined,
-            "revenueType": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -3738,22 +3761,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field.",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -4134,19 +4157,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "price": undefined,
-            "productId": undefined,
-            "quantity": undefined,
-            "revenue": undefined,
-            "revenueType": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4199,22 +4216,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field.",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -4430,7 +4447,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Is Paying",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -4460,22 +4477,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -4578,6 +4595,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -4634,25 +4658,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "address1": undefined,
-            "address2": undefined,
-            "city": undefined,
-            "country": undefined,
-            "country_code": undefined,
-            "first_name": undefined,
-            "last_name": undefined,
-            "phone": undefined,
-            "province": undefined,
-            "province_code": undefined,
-            "zip": undefined,
-          },
+          "default": "person.properties.addresses",
           "description": "A list of the ten most recently updated addresses for the customer.",
           "key": "addresses",
           "label": "Addresses",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4676,45 +4688,31 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "consent_updated_at": undefined,
-            "opt_in_level": undefined,
-            "state": undefined,
-          },
+          "default": "person.properties.email_marketing_consent",
           "description": "The marketing consent information when the customer consented to receiving marketing material by email.",
           "key": "email_marketing_consent",
           "label": "Email Marketing Consent",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
-          "default": {
-            "key": undefined,
-            "namespace": undefined,
-            "type": undefined,
-            "value": undefined,
-          },
+          "default": "person.properties.metafield",
           "description": "Attaches additional metadata to a shop's resources.",
           "key": "metafield",
           "label": "Metafield",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
-          "default": {
-            "consent_collected_from": undefined,
-            "consent_updated_at": undefined,
-            "opt_in_level": undefined,
-            "state": undefined,
-          },
+          "default": "person.properties.sms_marketing_consent",
           "description": "The marketing consent information when the customer consented to receiving marketing material by SMS.",
           "key": "sms_marketing_consent",
           "label": "SMS Marketing Consent",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "saveUser",
@@ -4851,25 +4849,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -5025,25 +5011,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -5202,27 +5176,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "discountTitle": undefined,
-            "discountValue": undefined,
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -5293,7 +5253,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "payment_info_submitted",
             },
           ],
-          "default": undefined,
+          "default": "checkout_address_info_submitted",
           "description": "The name of the Checkout Event to track.",
           "key": "eventName",
           "label": "Checkout Event Name",
@@ -5439,27 +5399,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "discountTitle": undefined,
-            "discountValue": undefined,
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -5530,7 +5476,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "payment_info_submitted",
             },
           ],
-          "default": undefined,
+          "default": "checkout_completed",
           "description": "The name of the Checkout Event to track.",
           "key": "eventName",
           "label": "Checkout Event Name",
@@ -5676,27 +5622,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "discountTitle": undefined,
-            "discountValue": undefined,
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -5767,7 +5699,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "payment_info_submitted",
             },
           ],
-          "default": undefined,
+          "default": "checkout_contact_info_submitted",
           "description": "The name of the Checkout Event to track.",
           "key": "eventName",
           "label": "Checkout Event Name",
@@ -5913,27 +5845,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "discountTitle": undefined,
-            "discountValue": undefined,
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6004,7 +5922,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "payment_info_submitted",
             },
           ],
-          "default": undefined,
+          "default": "checkout_shipping_info_submitted",
           "description": "The name of the Checkout Event to track.",
           "key": "eventName",
           "label": "Checkout Event Name",
@@ -6150,27 +6068,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "discountTitle": undefined,
-            "discountValue": undefined,
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6241,7 +6145,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "payment_info_submitted",
             },
           ],
-          "default": undefined,
+          "default": "checkout_started",
           "description": "The name of the Checkout Event to track.",
           "key": "eventName",
           "label": "Checkout Event Name",
@@ -6387,27 +6291,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "discountTitle": undefined,
-            "discountValue": undefined,
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6478,7 +6368,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "payment_info_submitted",
             },
           ],
-          "default": undefined,
+          "default": "checkout_payment_info_submitted",
           "description": "The name of the Checkout Event to track.",
           "key": "eventName",
           "label": "Checkout Event Name",
@@ -6621,25 +6511,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6654,24 +6532,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "A list of product variants associated with the collection.",
           "key": "collectionProductVariants",
           "label": "Collection Product Variants",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -6823,45 +6690,22 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Search results details",
           "key": "searchResults",
           "label": "Search Results",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.query}",
@@ -7009,25 +6853,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line details",
           "key": "cartLine",
           "label": "Cart Line",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -7040,7 +6872,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "product_removed_from_cart",
             },
           ],
-          "default": undefined,
+          "default": "product_added_to_cart",
           "description": "The name of the Cart Event to track.",
           "key": "eventName",
           "label": "Cart Event Name",
@@ -7170,25 +7002,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line details",
           "key": "cartLine",
           "label": "Cart Line",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -7201,7 +7021,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
               "value": "product_removed_from_cart",
             },
           ],
-          "default": undefined,
+          "default": "product_removed_from_cart",
           "description": "The name of the Cart Event to track.",
           "key": "eventName",
           "label": "Cart Event Name",
@@ -7344,25 +7164,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -7534,25 +7342,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -7573,19 +7369,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "id": undefined,
-            "name": undefined,
-            "tagName": undefined,
-            "type": undefined,
-            "value": undefined,
-          },
+          "default": "event.properties.form.elements",
           "description": "A list of elements associated with the form.",
           "key": "elements",
           "label": "Form Elements",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -7636,25 +7426,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": {
-            "id": undefined,
-            "imageSrc": undefined,
-            "priceAmount": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "title": undefined,
-            "type": undefined,
-            "untranslatedTitle": undefined,
-            "url": undefined,
-            "variantId": undefined,
-            "vendor": undefined,
-          },
+          "default": "event.properties.products",
           "description": "list of line items associated with the order.",
           "key": "line_items",
           "label": "Line items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -7693,7 +7471,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Buyer Accepts Marketing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{event.properties.checkout_id}",
@@ -7798,34 +7576,22 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "allocation_method": undefined,
-            "code": undefined,
-            "target_selection": undefined,
-            "target_type": undefined,
-            "type": undefined,
-            "value": undefined,
-            "value_type": undefined,
-          },
+          "default": "event.properties.discount_applications",
           "description": "An ordered list of stacked discount applications. The discount_applications property includes 3 types: discount_code, manual, and script. All 3 types share a common structure and have some type specific attributes.",
           "key": "discount_applications",
           "label": "Discount Applications",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
-          "default": {
-            "amount": undefined,
-            "code": undefined,
-            "type": undefined,
-          },
+          "default": "event.properties.discount_codes",
           "description": "A list of discounts applied to the order.",
           "key": "discount_codes",
           "label": "Discount Codes",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.email ?? person.properties.email}",
@@ -8110,16 +7876,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": {
-            "name": undefined,
-            "value": undefined,
-          },
+          "default": "event.properties.additional_fields",
           "description": "Extra properties.",
           "key": "additional_fields",
           "label": "Additional Fields",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "saveOrder",
@@ -8158,6 +7921,13 @@ exports[`segment templates template segment-attentive matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -8268,6 +8038,13 @@ exports[`segment templates template segment-blend-ai matches expected result 1`]
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -8291,7 +8068,7 @@ exports[`segment templates template segment-blend-ai matches expected result 1`]
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The name of event, page or screen",
           "key": "eventName",
           "label": "Event Name",
@@ -8384,6 +8161,13 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -8880,6 +8664,13 @@ exports[`segment templates template segment-canny matches expected result 1`] = 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -9042,6 +8833,13 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -9399,7 +9197,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "Page name",
           "key": "name",
           "label": "Name",
@@ -9513,7 +9311,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "Screen name",
           "key": "name",
           "label": "Name",
@@ -9671,6 +9469,13 @@ exports[`segment templates template segment-clevertap matches expected result 1`
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -9799,6 +9604,13 @@ exports[`segment templates template segment-cloud-gwen matches expected result 1
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -9955,6 +9767,13 @@ exports[`segment templates template segment-drip matches expected result 1`] = `
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -10156,6 +9975,13 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -10865,6 +10691,13 @@ exports[`segment templates template segment-equals matches expected result 1`] =
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -10934,6 +10767,13 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -10999,7 +10839,7 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
           "label": "Use Recent Session",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -11148,6 +10988,13 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
       "required": true,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -11353,6 +11200,13 @@ exports[`segment templates template segment-gameball matches expected result 1`]
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -11544,26 +11398,13 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "type": "string",
         },
         {
-          "default": {
-            "category": undefined,
-            "collection": undefined,
-            "discount": undefined,
-            "price": undefined,
-            "productId": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "tags": undefined,
-            "taxes": undefined,
-            "title": undefined,
-            "vendor": undefined,
-            "weight": undefined,
-          },
+          "default": "event.properties.products",
           "description": "A list of line items, each containing information about an item in the order.",
           "key": "lineItems",
           "label": "Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{[event.properties.coupon]}",
@@ -11599,7 +11440,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Guest",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{event.properties.extra}",
@@ -11803,35 +11644,25 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Guest",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": {
-            "campaign": undefined,
-            "content": undefined,
-            "medium": undefined,
-            "source": undefined,
-            "term": undefined,
-          },
+          "default": "event.context.campaign",
           "description": "Player's utms",
           "key": "utms",
           "label": "UTMs",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
-          "default": {
-            "device": undefined,
-            "os": undefined,
-            "userAgent": undefined,
-          },
+          "default": "event.context",
           "description": "Player's used devices",
           "key": "devices",
           "label": "Devices",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{person.properties.totalSpent}",
@@ -11952,6 +11783,13 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -12038,7 +11876,7 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "The name of the page or screen being viewed. This only exists for page and screen events.",
           "key": "name",
           "label": "Page or Screen Name",
@@ -12153,6 +11991,13 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -12263,7 +12108,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "Page name",
           "key": "name",
           "label": "Name",
@@ -12341,7 +12186,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "Mobile screen name",
           "key": "name",
           "label": "Name",
@@ -12569,6 +12414,13 @@ exports[`segment templates template segment-hyperengage matches expected result 
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -13284,6 +13136,13 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -13956,6 +13815,13 @@ exports[`segment templates template segment-insider-cloud matches expected resul
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -13979,31 +13845,31 @@ exports[`segment templates template segment-insider-cloud matches expected resul
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": true,
+          "default": "true",
           "description": "If true, Email will be sent as identifier to Insider.",
           "key": "email_as_identifier",
           "label": "Treat Email as Identifier",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "If true, Phone Number will be sent as identifier to Insider",
           "key": "phone_number_as_identifier",
           "label": "Treat Phone Number as Identifier",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "If enabled, new data for array fields will be appended to the existing values in Insider.",
           "key": "append_arrays",
           "label": "Append Array Fields",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{person.properties.age}",
@@ -14120,7 +13986,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "GDPR Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14129,7 +13995,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "Email Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14138,7 +14004,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "SMS Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14147,7 +14013,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "Whatsapp Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14204,6 +14070,13 @@ exports[`segment templates template segment-iqm matches expected result 1`] = `
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -14292,6 +14165,13 @@ exports[`segment templates template segment-iterable matches expected result 1`]
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -14457,13 +14337,13 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "If you'd like to merge (rather than overwrite) a user profile's top-level objects with the values provided for them in the request body, set mergeNestedObjects to true.",
           "key": "mergeNestedObjects",
           "label": "Merge Nested Objects",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "updateUser",
@@ -14502,7 +14382,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "default": {
             "dataFields": "{person.properties}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "mergeNestedObjects": false,
+            "mergeNestedObjects": "false",
             "phoneNumber": "{person.properties.phone}",
             "userId": "{person.id}",
           },
@@ -14514,23 +14394,13 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "type": "dictionary",
         },
         {
-          "default": {
-            "categories": undefined,
-            "description": undefined,
-            "id": undefined,
-            "imageUrl": undefined,
-            "name": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "url": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Individual items in the cart. Each item must contain \`id\`, \`name\`, \`price\`, and \`quantity\`. Extra values are added to dataFields.",
           "key": "items",
           "label": "Cart items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "updateCart",
@@ -14578,7 +14448,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "default": {
             "dataFields": "{person.properties}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "mergeNestedObjects": false,
+            "mergeNestedObjects": "false",
             "phoneNumber": "{person.properties.phone}",
             "userId": "{person.id}",
           },
@@ -14599,23 +14469,13 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "type": "string",
         },
         {
-          "default": {
-            "categories": undefined,
-            "description": undefined,
-            "id": undefined,
-            "imageUrl": undefined,
-            "name": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "url": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Individual items in the cart. Each item must contain \`id\`, \`name\`, \`price\`, and \`quantity\`. Extra values are added to dataFields.",
           "key": "items",
           "label": "Cart items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.total}",
@@ -14691,6 +14551,13 @@ exports[`segment templates template segment-iterable-lists matches expected resu
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Iterable Lists",
@@ -14725,6 +14592,13 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -14767,7 +14641,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The event name",
           "key": "event",
           "label": "Event Name",
@@ -14908,7 +14782,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "The name of the page",
           "key": "name",
           "label": "Page Name",
@@ -15182,6 +15056,13 @@ exports[`segment templates template segment-koala-cloud matches expected result 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -15410,6 +15291,13 @@ exports[`segment templates template segment-launchdarkly matches expected result
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -15620,6 +15508,13 @@ exports[`segment templates template segment-launchpad matches expected result 1`
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -16146,6 +16041,13 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -16274,7 +16176,7 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.event}",
+          "default": "{event.event ?? event.properties.title}",
           "description": "The name of the event being performed. For example, \`User Registration\` could be an event_name referring the event that is being sent to LiveLike.",
           "key": "event_name",
           "label": "Event Name",
@@ -16379,7 +16281,7 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.event}",
+          "default": "{event.event ?? event.properties.title}",
           "description": "The name of the event being performed. For example, \`User Registration\` could be an event_name referring the event that is being sent to LiveLike.",
           "key": "event_name",
           "label": "Event Name",
@@ -16505,6 +16407,13 @@ exports[`segment templates template segment-m3ter matches expected result 1`] = 
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -16710,6 +16619,13 @@ exports[`segment templates template segment-marketo-static-lists matches expecte
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Marketo Static Lists",
@@ -16735,6 +16651,13 @@ exports[`segment templates template segment-metronome-actions matches expected r
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -16900,6 +16823,13 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -17275,7 +17205,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -17368,13 +17298,13 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": true,
+          "default": "true",
           "description": "When enabled, send "Product Purchased" with each product within the event.",
           "key": "generatePurchaseEventPerProduct",
           "label": "Generate Purchase Event Per Product",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{person.id ?? event.distinct_id}",
@@ -17719,7 +17649,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -17779,26 +17709,13 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "type": "dictionary",
         },
         {
-          "default": {
-            "brand": undefined,
-            "category": undefined,
-            "coupon": undefined,
-            "image_url": undefined,
-            "name": undefined,
-            "position": undefined,
-            "price": undefined,
-            "product_id": undefined,
-            "quantity": undefined,
-            "sku": undefined,
-            "url": undefined,
-            "variant": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Products in the order.",
           "key": "products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.event}",
@@ -18194,7 +18111,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -18638,7 +18555,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The Event Original Name, if applicable",
           "key": "name",
           "label": "Event Original Name",
@@ -18901,6 +18818,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -19085,19 +19009,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.query}",
@@ -19330,19 +19248,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -19581,19 +19493,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -19817,19 +19723,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20053,19 +19953,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20280,19 +20174,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20507,19 +20395,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -20746,19 +20628,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": {
-            "currency": undefined,
-            "id": undefined,
-            "price": undefined,
-            "quantity": undefined,
-            "seller_id": undefined,
-          },
+          "default": "event.properties",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20833,6 +20709,13 @@ exports[`segment templates template segment-movable-ink matches expected result 
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -20935,6 +20818,13 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -20974,7 +20864,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": "{event.event}",
+          "default": "product",
           "description": "The Optimizely Event Type. Defaults to "custom" if not provided",
           "key": "event_type",
           "label": "Optimizely Event Type",
@@ -20983,7 +20873,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": undefined,
+          "default": "detail",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -20992,16 +20882,13 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": {
-            "product_id": undefined,
-            "qty": undefined,
-          },
+          "default": "event.properties",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21080,7 +20967,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": "{event.event}",
+          "default": "product",
           "description": "The Optimizely Event Type. Defaults to "custom" if not provided",
           "key": "event_type",
           "label": "Optimizely Event Type",
@@ -21089,7 +20976,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": undefined,
+          "default": "add_to_cart",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21098,16 +20985,13 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": {
-            "product_id": undefined,
-            "qty": undefined,
-          },
+          "default": "event.properties",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21186,7 +21070,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": "{event.event}",
+          "default": "product",
           "description": "The Optimizely Event Type. Defaults to "custom" if not provided",
           "key": "event_type",
           "label": "Optimizely Event Type",
@@ -21195,7 +21079,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": undefined,
+          "default": "remove_from_cart",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21204,16 +21088,13 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": {
-            "product_id": undefined,
-            "qty": undefined,
-          },
+          "default": "event.properties",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21292,7 +21173,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": "{event.event}",
+          "default": "order",
           "description": "The Optimizely Event Type. Defaults to "custom" if not provided",
           "key": "event_type",
           "label": "Optimizely Event Type",
@@ -21301,7 +21182,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": undefined,
+          "default": "purchase",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21310,16 +21191,13 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": {
-            "product_id": undefined,
-            "qty": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21398,7 +21276,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": undefined,
+          "default": "sent",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21492,7 +21370,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": undefined,
+          "default": "click",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21586,7 +21464,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": undefined,
+          "default": "open",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21680,7 +21558,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": undefined,
+          "default": "unsubscribe",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21774,7 +21652,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "dictionary",
         },
         {
-          "default": undefined,
+          "default": "spam_report",
           "description": "The name of the Optimizely Event Action.",
           "key": "event_action",
           "label": "Optimizely Event Action",
@@ -21864,6 +21742,13 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -22216,6 +22101,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -22277,7 +22169,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "add_to_cart",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -22340,13 +22232,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -22554,7 +22446,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "checkout",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -22617,13 +22509,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -22831,7 +22723,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "lead",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -22894,13 +22786,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23108,7 +23000,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "page_visit",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -23171,13 +23063,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23385,7 +23277,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "search",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -23448,13 +23340,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23662,7 +23554,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "signup",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -23725,13 +23617,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23939,7 +23831,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "view_category",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -24002,13 +23894,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -24216,7 +24108,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
               "value": "custom",
             },
           ],
-          "default": undefined,
+          "default": "watch_video",
           "description": "The conversion event type. For custom events, you must use the predefined event name "custom". Please refer to the possible event types in [Pinterest API docs](https://developers.pinterest.com/docs/api/v5/#operation/events/create).",
           "key": "event_name",
           "label": "Event Name",
@@ -24279,13 +24171,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -24494,6 +24386,13 @@ exports[`segment templates template segment-pipedrive matches expected result 1`
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -24918,6 +24817,13 @@ exports[`segment templates template segment-playerzero-cloud matches expected re
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -25019,6 +24925,13 @@ exports[`segment templates template segment-podscribe matches expected result 1`
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -25132,7 +25045,7 @@ exports[`segment templates template segment-podscribe matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "{event.properties.podscribeEvent}",
+          "default": "purchase",
           "description": "Podscribe type of event to send",
           "key": "podscribeEvent",
           "label": "Podscribe event type",
@@ -25263,7 +25176,7 @@ exports[`segment templates template segment-podscribe matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "{event.properties.podscribeEvent}",
+          "default": "signup",
           "description": "Podscribe type of event to send",
           "key": "podscribeEvent",
           "label": "Podscribe event type",
@@ -25404,6 +25317,13 @@ exports[`segment templates template segment-prodeology matches expected result 1
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -25798,6 +25718,13 @@ exports[`segment templates template segment-pushwoosh matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -25848,7 +25775,7 @@ exports[`segment templates template segment-pushwoosh matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "Event Name",
           "key": "name",
           "label": "Name",
@@ -26132,6 +26059,13 @@ exports[`segment templates template segment-recombee matches expected result 1`]
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -26164,7 +26098,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.event}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -26251,7 +26185,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.product_id ?? event.properties.sku}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -26420,7 +26354,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.product_id ?? event.properties.sku}",
           "description": "The item that was added to the cart.",
           "key": "itemId",
           "label": "Item ID",
@@ -26480,18 +26414,13 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": {
-            "amount": undefined,
-            "itemId": undefined,
-            "price": undefined,
-            "profit": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The items that were purchased.",
           "key": "items",
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.timestamp}",
@@ -26563,7 +26492,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.product_id ?? event.properties.sku}",
           "description": "The bookmarked item.",
           "key": "itemId",
           "label": "Item ID",
@@ -26641,7 +26570,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.product_id ?? event.properties.sku}",
           "description": "The item that was bookmarked.",
           "key": "itemId",
           "label": "Item ID",
@@ -26701,7 +26630,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.product_id ?? event.properties.sku}",
           "description": "The bookmarked item.",
           "key": "itemId",
           "label": "Item ID",
@@ -26779,7 +26708,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.content_asset_id ?? event.properties.content_asset_ids[0]}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -26797,7 +26726,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.portion}",
+          "default": "0",
           "description": "The viewed portion of the item as a number in the interval [0.0,1.0], where 0.0 means the user viewed nothing and 1.0 means the full item was viewed. It should be the actual viewed part of the item, no matter the seeking. For example, if the user seeked immediately to half of the item and then viewed 10% of the item, the \`portion\` should still be \`0.1\`.",
           "key": "portion",
           "label": "Portion",
@@ -26875,7 +26804,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.content_asset_id ?? event.properties.content_asset_ids[0]}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -26974,7 +26903,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.content_asset_id}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -27073,7 +27002,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.properties.content_asset_id ?? event.properties.content_asset_ids[0]}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -27091,7 +27020,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.portion}",
+          "default": "1",
           "description": "The viewed portion of the item as a number in the interval [0.0,1.0], where 0.0 means the user viewed nothing and 1.0 means the full item was viewed. It should be the actual viewed part of the item, no matter the seeking. For example, if the user seeked immediately to half of the item and then viewed 10% of the item, the \`portion\` should still be \`0.1\`.",
           "key": "portion",
           "label": "Portion",
@@ -27169,7 +27098,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "{event.properties.product_id ?? event.properties.asset_id}",
+          "default": "{event.event}",
           "description": "The viewed item.",
           "key": "itemId",
           "label": "Item ID",
@@ -27302,6 +27231,13 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -27343,7 +27279,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.name ?? event.event}",
+          "default": "{event.event ?? event.event}",
           "description": "A unique identifier for your event.",
           "key": "event_name",
           "label": "Event name",
@@ -27518,17 +27454,13 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
           "type": "dictionary",
         },
         {
-          "default": {
-            "price": undefined,
-            "productId": undefined,
-            "quantity": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$geoip_latitude}",
@@ -27603,6 +27535,13 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -28078,6 +28017,13 @@ exports[`segment templates template segment-s3-csv matches expected result 1`] =
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "AWS S3 CSV",
@@ -28122,6 +28068,13 @@ exports[`segment templates template segment-saleswings matches expected result 1
       "required": true,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -28488,7 +28441,7 @@ exports[`segment templates template segment-saleswings matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.name}",
+          "default": "{event.event}",
           "description": "String description of the SalesWings custom event payload (a custom event is visualized in SalesWings cockpit and SalesForce Lead Intent View as "[[Kind]] Data").",
           "key": "data",
           "label": "Custom Event Data",
@@ -28605,6 +28558,13 @@ exports[`segment templates template segment-schematic matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -28809,6 +28769,13 @@ exports[`segment templates template segment-sprig matches expected result 1`] = 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -29007,6 +28974,13 @@ exports[`segment templates template segment-stackadapt-cloud matches expected re
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -29164,19 +29138,13 @@ exports[`segment templates template segment-stackadapt-cloud matches expected re
           "type": "dictionary",
         },
         {
-          "default": {
-            "product_category": undefined,
-            "product_id": undefined,
-            "product_name": undefined,
-            "product_price": undefined,
-            "product_quantity": undefined,
-          },
+          "default": "event.properties.products",
           "description": "The list of products associated with the event (for events with multiple products, such as Order Completed)",
           "key": "ecommerce_products",
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "forwardEvent",
@@ -29244,6 +29212,13 @@ exports[`segment templates template segment-taboola-actions matches expected res
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Taboola",
@@ -29269,6 +29244,13 @@ exports[`segment templates template segment-toplyne-cloud matches expected resul
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -29513,6 +29495,13 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -29719,18 +29708,13 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "type": "string",
         },
         {
-          "default": {
-            "productId": undefined,
-            "quantity": undefined,
-            "unitPrice": undefined,
-            "vendorId": undefined,
-          },
+          "default": "event.properties.products",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "purchase",
@@ -29934,6 +29918,13 @@ exports[`segment templates template segment-usermaven matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -30854,6 +30845,13 @@ exports[`segment templates template segment-usermotion matches expected result 1
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -31106,6 +31104,13 @@ exports[`segment templates template segment-userpilot-cloud matches expected res
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -31331,6 +31336,13 @@ exports[`segment templates template segment-voucherify-actions matches expected 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -31398,7 +31410,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The name of the event that will be saved as a [custom event](https://docs.voucherify.io/reference/the-custom-event-object) in Voucherify.",
           "key": "event",
           "label": "Event Name",
@@ -31493,7 +31505,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The name of the event that will be saved as a [custom event](https://docs.voucherify.io/reference/the-custom-event-object) in Voucherify.",
           "key": "event",
           "label": "Event Name",
@@ -31588,7 +31600,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "string",
         },
         {
-          "default": "{event.event ?? event.name}",
+          "default": "{event.event ?? event.event}",
           "description": "The name of the event that will be saved as a [custom event](https://docs.voucherify.io/reference/the-custom-event-object) in Voucherify.",
           "key": "event",
           "label": "Event Name",
@@ -31853,6 +31865,13 @@ exports[`segment templates template segment-voyage matches expected result 1`] =
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -32097,6 +32116,13 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -32472,6 +32498,13 @@ exports[`segment templates template segment-xtremepush matches expected result 1
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
