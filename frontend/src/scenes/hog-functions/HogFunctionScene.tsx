@@ -167,7 +167,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id, templateId }, hashParams }): (typeof hogFunctionSceneLogic)['props'] => ({
         id,
         templateId,
-        logicKey: hashParams.configuration.logicKey,
+        logicKey: hashParams?.configuration?.logicKey,
     }),
 }
 
