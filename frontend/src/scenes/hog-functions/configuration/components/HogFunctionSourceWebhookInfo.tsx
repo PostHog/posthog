@@ -16,7 +16,6 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
                     : window.location.origin + '/public/webhooks/' + id}
             </CodeSnippet>
 
-            <LemonLabel>Usage</LemonLabel>
             <p className="text-sm">
                 Use this URL in your external system to send events to PostHog. The webhook can be called with a POST
                 request and any JSON payload. You can then use the configuration options to parse the{' '}
