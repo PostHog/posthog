@@ -48,7 +48,6 @@ common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
 common/tailwind/dist
-common/workflows/dist
 coverage-*.xml
 cypress/**/*.diff.png
 cypress/downloads/
