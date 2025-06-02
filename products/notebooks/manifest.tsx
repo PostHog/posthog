@@ -12,15 +12,18 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         notebook: {
+            name: 'Notebook',
             icon: <IconNotebook />,
             href: (ref: string) => urls.notebook(ref),
+            iconColor: ['var(--product-notebooks-light)'],
+            filterKey: 'notebook',
         },
     },
     treeItemsNew: [
         {
             path: `Notebook`,
             type: 'notebook',
-            href: () => urls.notebook('new'),
+            href: urls.notebook('new'),
         },
     ],
 }

@@ -2,7 +2,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -27,6 +29,7 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { InsightCalendarHeatMapContainer } from 'scenes/web-analytics/CalendarHeatMap/InsightCalendarHeatMapContainer'
 
 import { QueryContext } from '~/queries/types'
 import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
@@ -60,6 +63,7 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
@@ -148,6 +152,11 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
+            case InsightType.CALENDAR_HEATMAP:
+                if (featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]) {
+                    return <InsightCalendarHeatMapContainer context={context} />
+                }
+                return null
             case InsightType.FUNNELS:
                 return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:

@@ -96,6 +96,7 @@ class EventPropFilter(BaseModel, extra="forbid"):
 class HogQLFilter(BaseModel, extra="forbid"):
     type: Literal["hogql"]
     key: str
+    value: Any | None = None
 
 
 class BehavioralFilter(BaseModel, extra="forbid"):
@@ -110,7 +111,7 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     operator_value: int | None = None
     seq_time_interval: str | None = None
     seq_time_value: int | None = None
-    seq_event: str | None = None
+    seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
     seq_event_type: str | None = None
     total_periods: int | None = None
     min_periods: int | None = None
@@ -156,10 +157,12 @@ PropertyFilter = Annotated[
     Field(discriminator="type"),
 ]
 
+FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+
 
 class Group(BaseModel, extra="forbid"):
     type: Literal["AND", "OR"]
-    values: list[Union[PropertyFilter, "Group"]]
+    values: list[FilterOrGroup]
 
 
 Group.model_rebuild()

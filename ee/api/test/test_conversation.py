@@ -1,6 +1,8 @@
+import datetime
 import uuid
 from unittest.mock import patch
 
+from django.utils import timezone
 from rest_framework import status
 
 from ee.hogai.assistant import Assistant
@@ -320,3 +322,36 @@ class TestConversation(APIBaseTest):
 
                 # Should return empty messages array when validation fails
                 self.assertEqual(response.json()["messages"], [])
+
+    def test_list_conversations_ordered_by_updated_at(self):
+        """Verify conversations are listed with most recently updated first"""
+        # Create conversations with different update times
+        conversation1 = Conversation.objects.create(
+            user=self.user, team=self.team, title="Older conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        conversation2 = Conversation.objects.create(
+            user=self.user, team=self.team, title="Newer conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        # Set updated_at explicitly to ensure order
+        conversation1.updated_at = timezone.now() - datetime.timedelta(hours=1)
+        conversation1.save()
+
+        conversation2.updated_at = timezone.now()
+        conversation2.save()
+
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            results = response.json()["results"]
+            self.assertEqual(len(results), 2)
+
+            # First result should be the newer conversation
+            self.assertEqual(results[0]["id"], str(conversation2.id))
+            self.assertEqual(results[0]["title"], "Newer conversation")
+
+            # Second result should be the older conversation
+            self.assertEqual(results[1]["id"], str(conversation1.id))
+            self.assertEqual(results[1]["title"], "Older conversation")
