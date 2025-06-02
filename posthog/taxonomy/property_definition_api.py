@@ -524,6 +524,24 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
     queryset = PropertyDefinition.objects.all()
 
+    # TODO get these from CORE_FILTER_DEFINITIONS_BY_GROUP
+    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = [
+        {
+            "id": "builtin_virt_initial_channel_type",
+            "name": "$virt_initial_channel_type",
+            "is_numerical": False,
+            "property_type": "String",
+            "tags": [],
+        },
+        {
+            "id": "builtin_virt_initial_referring_domain_type",
+            "name": "$virt_initial_referring_domain_type",
+            "is_numerical": False,
+            "property_type": "String",
+            "tags": [],
+        },
+    ]
+
     def dangerously_get_queryset(self):
         queryset: Union[QuerySet[PropertyDefinition], Manager[PropertyDefinition]] = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
@@ -676,7 +694,88 @@ class PropertyDefinitionViewSet(
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
+        response = super().list(request, *args, **kwargs)
+
+        # Inject virtual person properties to the end of the results
+        if request.query_params.get("type", "event") == "person":
+            paginator = self.paginator
+            assert isinstance(paginator, NotCountingLimitOffsetPaginator)
+
+            query = PropertyDefinitionQuerySerializer(data=request.query_params)
+            query.is_valid(raise_exception=True)
+
+            matching_virtual_props = [
+                p for p in self._BUILTIN_VIRTUAL_PERSON_PROPERTIES if self._filter_virtual_property(p, query)
+            ]
+
+            db_count = response.data["count"]
+            page_end_index = (paginator.offset or 0) + len(response.data["results"])
+            is_last_page = page_end_index >= db_count
+
+            if is_last_page:
+                # Add virtual properties to the end of the results
+                # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable
+                response.data["results"].extend(matching_virtual_props)
+
+            response.data["count"] = db_count + len(matching_virtual_props)
+
+        return response
+
+    def _filter_virtual_property(self, prop: dict, q: PropertyDefinitionQuerySerializer) -> bool:
+        # Reimplement filtering logic in python for virtual properties
+        v = q.validated_data
+
+        # Virtual properties only exist for person type
+        if v.get("type") != "person":
+            return False
+
+        # 1) explicit name filter  (?properties=a,b,c)
+        names = set(v.get("properties", "").split(",")) if v.get("properties") else None
+        if names and prop["name"] not in names:
+            return False
+
+        # 2) is_numerical flag
+        is_num = v.get("is_numerical")
+        if is_num is True and not prop["is_numerical"]:
+            return False
+        if is_num is False and prop["is_numerical"]:
+            return False
+
+        # 3) feature flag filter
+        is_feature_flag = v.get("is_feature_flag")
+        if is_feature_flag is True and not prop["name"].startswith("$feature/"):
+            return False
+        if is_feature_flag is False and prop["name"].startswith("$feature/"):
+            return False
+
+        # 4) exclusion lists
+        excluded = set(json.loads(v["excluded_properties"])) if v.get("excluded_properties") else set()
+        if v.get("exclude_core_properties", False):
+            excluded |= set(EXCLUDED_EVENT_CORE_PROPERTIES)
+        if prop["name"] in excluded:
+            return False
+
+        # 5) text search / aliases
+        search = (v.get("search") or "").strip().lower()
+        if search:
+            words = search.split()
+            if not all(w in prop["name"].lower() for w in words):
+                # fall back to alias match
+                alias = PROPERTY_NAME_ALIASES.get(prop["name"])
+                if not (alias and all(w in alias.lower() for w in words)):
+                    return False
+
+        # 6) hidden filter
+        if v.get("exclude_hidden", False) and prop.get("hidden", False):
+            return False
+
+        # 7) event property filter
+        if v.get("event_names") and v.get("filter_by_event_names"):
+            # For virtual properties, we can't check event properties
+            # They should always be included in the results
+            pass
+
+        return True
 
     @action(methods=["GET"], detail=False, required_scopes=["property_definition:read"])
     def seen_together(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

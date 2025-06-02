@@ -12,7 +12,7 @@ from posthog.models import (
     PropertyDefinition,
     Team,
 )
-from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer
+from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -329,7 +329,13 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             [row["name"] for row in response.json()["results"]],
-            ["$initial_referrer", "another", "person property"],
+            [
+                "$initial_referrer",
+                "another",
+                "person property",
+                "$virt_initial_channel_type",
+                "$virt_initial_referring_domain_type",
+            ],
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
@@ -526,6 +532,166 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # Test retrieving other team's property should fail
         response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{other_team_prop.id}")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_virtual_property_numerical_filter(self):
+        # Mock virtual properties to include some numerical ones
+        with patch.object(
+            PropertyDefinitionViewSet,
+            "_BUILTIN_VIRTUAL_PERSON_PROPERTIES",
+            [
+                {
+                    "id": "builtin_virt_initial_channel_type",
+                    "name": "$virt_initial_channel_type",
+                    "is_numerical": False,
+                    "property_type": "String",
+                    "tags": [],
+                },
+                {
+                    "id": "builtin_virt_initial_referring_domain_type",
+                    "name": "$virt_initial_referring_domain_type",
+                    "is_numerical": False,
+                    "property_type": "String",
+                    "tags": [],
+                },
+                {
+                    "id": "builtin_virt_session_count",
+                    "name": "$virt_session_count",
+                    "is_numerical": True,
+                    "property_type": "Numeric",
+                    "tags": [],
+                },
+                {
+                    "id": "builtin_virt_pageview_count",
+                    "name": "$virt_pageview_count",
+                    "is_numerical": True,
+                    "property_type": "Numeric",
+                    "tags": [],
+                },
+            ],
+        ):
+            # Test numerical=true filter
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_numerical=true"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+            assert len(virtual_props) == 2
+            assert all(prop["is_numerical"] for prop in virtual_props)
+            assert all(prop["name"] in ["$virt_session_count", "$virt_pageview_count"] for prop in virtual_props)
+
+            # Test numerical=false filter
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_numerical=false"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+            assert len(virtual_props) == 2
+            assert all(not prop["is_numerical"] for prop in virtual_props)
+            assert all(
+                prop["name"] in ["$virt_initial_channel_type", "$virt_initial_referring_domain_type"]
+                for prop in virtual_props
+            )
+
+    def test_virtual_property_feature_flag_filter(self):
+        # Mock virtual properties to include some feature flag ones
+        with patch.object(
+            PropertyDefinitionViewSet,
+            "_BUILTIN_VIRTUAL_PERSON_PROPERTIES",
+            [
+                {
+                    "id": "builtin_virt_initial_channel_type",
+                    "name": "$virt_initial_channel_type",
+                    "is_numerical": False,
+                    "property_type": "String",
+                    "tags": [],
+                },
+                {
+                    "id": "builtin_virt_feature_flag",
+                    "name": "$feature/virt_flag",
+                    "is_numerical": False,
+                    "property_type": "String",
+                    "tags": [],
+                },
+            ],
+        ):
+            # Test feature_flag=true filter
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_feature_flag=true"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            virtual_props = [
+                prop
+                for prop in response.json()["results"]
+                if prop["name"].startswith("$virt_") or prop["name"].startswith("$feature/")
+            ]
+            assert len(virtual_props) == 1
+            assert virtual_props[0]["name"] == "$feature/virt_flag"
+
+            # Test feature_flag=false filter
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_feature_flag=false"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            virtual_props = [
+                prop
+                for prop in response.json()["results"]
+                if prop["name"].startswith("$virt_") or prop["name"].startswith("$feature/")
+            ]
+            assert len(virtual_props) == 1
+            assert virtual_props[0]["name"] == "$virt_initial_channel_type"
+
+    def test_virtual_property_hidden_filter(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=person&exclude_hidden=true"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Virtual properties should still be included when excluding hidden
+        virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+        assert len(virtual_props) > 0
+
+    def test_virtual_property_search_by_name(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=initial_channel"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Should find the virtual property by exact name
+        assert any(prop["name"] == "$virt_initial_channel_type" for prop in response.json()["results"])
+
+    def test_virtual_property_search_by_alias(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=channel")
+        assert response.status_code == status.HTTP_200_OK
+        # Should find the virtual property by alias
+        assert any(prop["name"] == "$virt_initial_channel_type" for prop in response.json()["results"])
+
+    def test_virtual_property_excluded_by_name(self):
+        response = self.client.get(
+            f'/api/projects/{self.team.pk}/property_definitions/?type=person&excluded_properties=["$virt_initial_channel_type"]'
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Should exclude the specified virtual property
+        assert not any(prop["name"] == "$virt_initial_channel_type" for prop in response.json()["results"])
+
+    def test_virtual_property_excluded_by_core(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=person&exclude_core_properties=true"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Virtual properties should still be included when excluding core properties
+        virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+        assert len(virtual_props) > 0
+
+    def test_virtual_property_type_filter(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
+        assert response.status_code == status.HTTP_200_OK
+        # Should include virtual properties when type=person
+        virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+        assert len(virtual_props) > 0
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
+        assert response.status_code == status.HTTP_200_OK
+        # Should not include virtual properties when type=event
+        virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+        assert len(virtual_props) == 0
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):
