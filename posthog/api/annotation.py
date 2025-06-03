@@ -86,6 +86,15 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             # That's becasue annotations are restored with a PATCH request setting `deleted` to `False`
             queryset = queryset.filter(deleted=False)
 
+        scope = self.request.query_params.get("scope")
+        if scope:
+            # let's allow the more recently used "insight" scope to be used as "dashboard_item"
+            scope = "dashboard_item" if scope == "insight" else scope
+            if scope not in [scope.value for scope in Annotation.Scope]:
+                raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+            queryset = queryset.filter(scope=scope)
+
         return queryset
 
     def _filter_queryset_by_parents_lookups(self, queryset):
