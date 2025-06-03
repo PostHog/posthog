@@ -1,5 +1,5 @@
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
-import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
+import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/_experiment_with_mean_metric.json'
 import { Experiment } from '~/types'
 
 import { getEventPropertiesForExperiment } from './eventUsageLogic'
@@ -47,7 +47,7 @@ describe('getEventPropertiesForExperiment', () => {
 
     it('returns the correct event properties for a v3 experiment with one metric', () => {
         const experiment = {
-            ...EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+            ...EXPERIMENT_WITH_MEAN_METRIC,
             description: undefined,
         } as Experiment
         expect(getEventPropertiesForExperiment(experiment)).toEqual({
