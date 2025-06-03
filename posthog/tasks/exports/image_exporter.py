@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
@@ -56,6 +57,10 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
+
+    # add a unique user data dir to avoid shared profile conflicts
+    user_data_dir = tempfile.mkdtemp()
+    options.add_argument(f"--user-data-dir={user_data_dir}")
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])

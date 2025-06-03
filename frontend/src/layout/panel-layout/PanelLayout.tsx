@@ -151,17 +151,9 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Project' && (
                         <ProjectTree
                             root="project://"
-                            sortMethod="folder"
                             logicKey={PROJECT_TREE_KEY}
                             searchPlaceholder="Search by user, type, or name"
-                        />
-                    )}
-                    {activePanelIdentifier === 'Recent' && (
-                        <ProjectTree
-                            root="project://"
-                            sortMethod="recent"
-                            logicKey={PROJECT_TREE_KEY}
-                            searchPlaceholder="Search by user, type, or name"
+                            showRecents
                         />
                     )}
                     {activePanelIdentifier === 'Products' && (
