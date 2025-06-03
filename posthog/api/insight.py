@@ -26,6 +26,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog import schema
+from posthog.schema import QueryStatus
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
@@ -36,6 +37,7 @@ from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
@@ -716,6 +718,31 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
+            except ConcurrencyLimitExceeded as e:
+                logger.warn(
+                    "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
+                )
+
+                return InsightResult(
+                    result=None,
+                    last_refresh=now(),
+                    is_cached=False,
+                    query_status=dict(
+                        QueryStatus(
+                            id=self.context["request"].query_params.get("client_query_id"),
+                            team_id=insight.team_id,
+                            insight_id=str(insight.id),
+                            dashboard_id=str(dashboard.id) if dashboard else None,
+                            error_message="concurrency_limit_exceeded",
+                            error=True,
+                        )
+                    ),
+                    cache_key=None,
+                    hogql=None,
+                    columns=None,
+                    has_more=None,
+                    timezone=self.context["get_team"]().timezone,
+                )
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
