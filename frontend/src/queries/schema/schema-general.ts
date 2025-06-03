@@ -2114,13 +2114,6 @@ export interface ExperimentVariantFunnelsBaseStats {
     failure_count: number
 }
 
-export interface ExperimentResultStats {
-    key: string
-    number_of_samples: integer
-    sum: number
-    sum_squares: number
-}
-
 export enum ExperimentSignificanceCode {
     Significant = 'significant',
     NotEnoughExposure = 'not_enough_exposure',
@@ -2272,29 +2265,30 @@ export interface ExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
-export interface ExperimentMeanMetricVariantResultBase {
-    variant: string
-    significant: boolean
-    number_of_samples: number
+export interface ExperimentStatsBase {
+    key: string
+    number_of_samples: integer
     sum: number
     sum_squares: number
 }
 
-export interface ExperimentMeanMetricVariantResultFrequentist extends ExperimentMeanMetricVariantResultBase {
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
     method: 'frequentist'
+    significant: boolean
     p_value: number
     confidence_interval: [number, number]
 }
 
-export interface ExperimentMeanMetricVariantResultBayesian extends ExperimentMeanMetricVariantResultBase {
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
     method: 'bayesian'
+    significant: boolean
     chance_to_win: number
     credible_interval: [number, number]
 }
 
-export interface ExperimentMeanMetricResult {
-    baseline: ExperimentResultStats
-    variants: ExperimentMeanMetricVariantResultFrequentist[] | ExperimentMeanMetricVariantResultBayesian[]
+export interface ExperimentMetricResult {
+    baseline: ExperimentStatsBase
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {

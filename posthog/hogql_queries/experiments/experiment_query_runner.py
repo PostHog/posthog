@@ -56,7 +56,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQueryResponse,
-    ExperimentResultStats,
+    ExperimentStatsBase,
     ExperimentSignificanceCode,
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
@@ -647,9 +647,9 @@ class ExperimentQueryRunner(QueryRunner):
             for result in sorted_results
         ]
 
-    def _get_new_variant_results(self, sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentResultStats]:
+    def _get_new_variant_results(self, sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
         return [
-            ExperimentResultStats(
+            ExperimentStatsBase(
                 key=result[0],
                 number_of_samples=result[1],
                 sum=result[2],
@@ -756,7 +756,7 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         variants: list[ExperimentVariantTrendsBaseStats]
         | list[ExperimentVariantFunnelsBaseStats]
-        | list[ExperimentResultStats],
+        | list[ExperimentStatsBase],
     ):
         errors = {
             ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,

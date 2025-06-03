@@ -1023,45 +1023,6 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
-class ExperimentMeanMetricVariantResultBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    number_of_samples: float
-    significant: bool
-    sum: float
-    sum_squares: float
-    variant: str
-
-
-class ExperimentMeanMetricVariantResultBayesian(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chance_to_win: float
-    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
-    method: Literal["bayesian"] = "bayesian"
-    number_of_samples: float
-    significant: bool
-    sum: float
-    sum_squares: float
-    variant: str
-
-
-class ExperimentMeanMetricVariantResultFrequentist(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
-    method: Literal["frequentist"] = "frequentist"
-    number_of_samples: float
-    p_value: float
-    significant: bool
-    sum: float
-    sum_squares: float
-    variant: str
-
-
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -2875,12 +2836,40 @@ class ExperimentMetricBaseProperties(BaseModel):
     name: Optional[str] = None
 
 
-class ExperimentResultStats(BaseModel):
+class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     key: str
     number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: int
+    significant: bool
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: int
+    p_value: float
+    significant: bool
     sum: float
     sum_squares: float
 
@@ -5937,12 +5926,12 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class ExperimentMeanMetricResult(BaseModel):
+class ExperimentMetricResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: ExperimentResultStats
-    variants: Union[list[ExperimentMeanMetricVariantResultFrequentist], list[ExperimentMeanMetricVariantResultBayesian]]
+    baseline: ExperimentStatsBase
+    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class FeaturePropertyFilter(BaseModel):

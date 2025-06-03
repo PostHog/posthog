@@ -2,10 +2,10 @@ from typing import TypeVar
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentMeanMetricResult,
-    ExperimentMeanMetricVariantResultFrequentist,
+    ExperimentMetricResult,
+    ExperimentVariantResultFrequentist,
     ExperimentQueryResponse,
-    ExperimentResultStats,
+    ExperimentStatsBase,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
@@ -19,7 +19,7 @@ from products.experiments.stats.frequentist.statistics import (
 )
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
-V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentResultStats)
+V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
 
 def split_baseline_and_test_variants(
@@ -32,7 +32,7 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def convert_new_to_legacy_trends_variant_results(variant: ExperimentResultStats) -> ExperimentVariantTrendsBaseStats:
+def convert_new_to_legacy_trends_variant_results(variant: ExperimentStatsBase) -> ExperimentVariantTrendsBaseStats:
     return ExperimentVariantTrendsBaseStats(
         key=variant.key,
         count=variant.sum,
@@ -41,7 +41,7 @@ def convert_new_to_legacy_trends_variant_results(variant: ExperimentResultStats)
     )
 
 
-def convert_new_to_legacy_funnels_variant_results(variant: ExperimentResultStats) -> ExperimentVariantFunnelsBaseStats:
+def convert_new_to_legacy_funnels_variant_results(variant: ExperimentStatsBase) -> ExperimentVariantFunnelsBaseStats:
     return ExperimentVariantFunnelsBaseStats(
         key=variant.key,
         success_count=variant.sum,
@@ -50,7 +50,7 @@ def convert_new_to_legacy_funnels_variant_results(variant: ExperimentResultStats
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric, variant: ExperimentResultStats
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric, variant: ExperimentStatsBase
 ) -> SampleMeanStatistic | ProportionStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
@@ -67,8 +67,8 @@ def metric_variant_to_statistic(
 
 def get_frequentist_experiment_result_legacy_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
-    control_variant: ExperimentResultStats,
-    test_variants: list[ExperimentResultStats],
+    control_variant: ExperimentStatsBase,
+    test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
     # For now, we default to 0.05 as the alpha level and a two sided t test.
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
@@ -129,22 +129,22 @@ def get_frequentist_experiment_result_legacy_format(
 
 def get_frequentist_experiment_result_new_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
-    control_variant: ExperimentResultStats,
-    test_variants: list[ExperimentResultStats],
-) -> ExperimentMeanMetricResult:
+    control_variant: ExperimentStatsBase,
+    test_variants: list[ExperimentStatsBase],
+) -> ExperimentMetricResult:
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
     method = FrequentistMethod(config)
 
     control_stat = metric_variant_to_statistic(metric, control_variant)
 
-    variants: list[ExperimentMeanMetricVariantResultFrequentist] = []
+    variants: list[ExperimentVariantResultFrequentist] = []
 
     for test_variant in test_variants:
         test_stat = metric_variant_to_statistic(metric, test_variant)
         result = method.run_test(test_stat, control_stat)
         variants.append(
-            ExperimentMeanMetricVariantResultFrequentist(
-                variant=test_variant.key,
+            ExperimentVariantResultFrequentist(
+                key=test_variant.key,
                 p_value=result.p_value,
                 confidence_interval=[result.confidence_interval[0], result.confidence_interval[1]],
                 number_of_samples=test_variant.number_of_samples,
@@ -154,7 +154,7 @@ def get_frequentist_experiment_result_new_format(
             )
         )
 
-    return ExperimentMeanMetricResult(
+    return ExperimentMetricResult(
         baseline=control_variant,
         variants=variants,
     )
