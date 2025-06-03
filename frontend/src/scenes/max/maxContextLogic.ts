@@ -307,9 +307,6 @@ export const maxContextLogic = kea<maxContextLogicType>({
 
                 if (allInsights && Object.keys(allInsights).length > 0) {
                     context.insights = allInsights
-                    if (Object.keys(context.insights).length === 0) {
-                        delete context.insights
-                    }
                 }
 
                 if (navigation) {
