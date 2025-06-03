@@ -47,21 +47,14 @@
     margin: var(--scene-padding);
     margin-bottom: var(--scene-padding-bottom);
 
-    &.Navigation3000__scene--raw {
+    &.Navigation3000__scene--raw,
+    .Navigation3000__scene--raw-no-header {
         --scene-padding: 0px;
         --scene-padding-bottom: 0px;
 
         display: flex;
         flex-direction: column;
-    }
-
-    &.Navigation3000__scene--raw-no-header {
-        --scene-padding: 0px;
-        --scene-padding-bottom: 0px;
-
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
+        padding-bottom: 0;
     }
 }
 
