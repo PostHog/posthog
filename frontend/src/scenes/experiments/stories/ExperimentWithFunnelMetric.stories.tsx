@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import EXPERIMENT_WITH_FUNNELS_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_funnel_metric.json'
+import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_funnel_metric.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -20,7 +20,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/experiments/15/': EXPERIMENT_WITH_FUNNELS_METRIC,
+                '/api/projects/:team_id/experiments/15/': EXPERIMENT_WITH_FUNNEL_METRIC,
                 '/api/projects/:team_id/experiment_holdouts': [],
                 '/api/projects/:team_id/experiment_saved_metrics/': [],
                 '/api/projects/:team_id/feature_flags/140/': {},
@@ -44,7 +44,7 @@ export default meta
 
 export const ExperimentWithFunnelMetric: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.experiment(EXPERIMENT_WITH_FUNNELS_METRIC.id))
+        router.actions.push(urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id))
     }, [])
     return <App />
 }
