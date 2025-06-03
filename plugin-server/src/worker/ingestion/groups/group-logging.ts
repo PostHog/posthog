@@ -8,7 +8,7 @@ export function logVersionMismatch(
     groupKey: string,
     versionDisparity: number
 ): void {
-    logger.info('👥', 'Group update version mismatch', {
+    logger.warn('👥', 'Group update version mismatch', {
         team_id: teamId,
         group_type_index: groupTypeIndex,
         group_key: groupKey,
@@ -18,7 +18,7 @@ export function logVersionMismatch(
 }
 
 export function logMissingRow(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): void {
-    logger.info('👥', 'Group update row missing', {
+    logger.warn('👥', 'Group update row missing', {
         team_id: teamId,
         group_type_index: groupTypeIndex,
         group_key: groupKey,

@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { GroupTypeIndex, TeamId } from '../../../../src/types'
+import { GroupTypeIndex, ProjectId, TeamId } from '../../../../src/types'
 
 export interface CacheMetrics {
     cacheHits: number
@@ -12,7 +12,7 @@ export interface CacheMetrics {
 export interface GroupStoreForDistinctIdBatch {
     upsertGroup(
         teamId: TeamId,
-        projectId: TeamId,
+        projectId: ProjectId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,

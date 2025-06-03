@@ -17,7 +17,7 @@ import { CacheMetrics, GroupStoreForDistinctIdBatch } from './group-store-for-di
 import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
 import {
     groupCacheOperationsCounter,
-    groupCacheSizeCounter,
+    groupCacheSizeGauge,
     groupDatabaseOperationsPerBatchHistogram,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
@@ -175,7 +175,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             const cacheMetrics = store.getCacheMetrics()
             groupCacheOperationsCounter.inc({ operation: 'hit' }, cacheMetrics.cacheHits)
             groupCacheOperationsCounter.inc({ operation: 'miss' }, cacheMetrics.cacheMisses)
-            groupCacheSizeCounter.inc(cacheMetrics.cacheSize)
+            groupCacheSizeGauge.observe(cacheMetrics.cacheSize)
         }
         for (const [operation, count] of this.databaseOperationCounts.entries()) {
             groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
