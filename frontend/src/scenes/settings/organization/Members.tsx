@@ -337,17 +337,6 @@ export function Members(): JSX.Element | null {
                     disabledReason={twoFactorRestrictionReason}
                 />
             </PayGateMini>
-
-            <h3 className="mt-4">Invite settings</h3>
-            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
-                <p>Control who can send organization invites.</p>
-                <LemonSwitch
-                    label="Members can invite other people"
-                    bordered
-                    checked={!!currentOrganization?.members_can_invite}
-                    onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
-                />
-            </PayGateMini>
         </>
     )
 }

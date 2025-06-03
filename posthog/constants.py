@@ -40,7 +40,6 @@ class AvailableFeature(StrEnum):
     ALERTS = "alerts"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
-    ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
