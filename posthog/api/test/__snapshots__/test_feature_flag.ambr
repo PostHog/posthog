@@ -2724,8 +2724,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_featureflag"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_featureflag"."last_modified_by_id" = T5."id")
-  WHERE (NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+  WHERE ("posthog_team"."project_id" = 99999
          AND "posthog_featureflag"."id" = 99999)
   LIMIT 21
   '''
