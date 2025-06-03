@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -138,10 +139,14 @@ export const loginLogic = kea<loginLogicType>([
         },
     }),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, email }) => {
+        '/login': (_, { error_code, error_detail, email, message }) => {
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
+            }
+
+            if (message) {
+                lemonToast.info(message)
             }
 
             // This allows us to give a quick login link in the `generate_demo_data` command

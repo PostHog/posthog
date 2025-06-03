@@ -664,7 +664,7 @@ class SessionAgeMiddleware:
                     from django.contrib.auth import logout
 
                     logout(request)
-                    return redirect("/login")
+                    return redirect("/login?message=Your session has expired. Please log in again.")
 
         response = self.get_response(request)
         return response
