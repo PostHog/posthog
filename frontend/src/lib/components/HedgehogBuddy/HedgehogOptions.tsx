@@ -17,7 +17,7 @@ export function HedgehogOptions(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-start gap-2">
+            <div className="flex gap-2 items-start">
                 <HedgehogBuddyProfile {...hedgehogConfig} size={100} />
                 <div className="flex-1">
                     <h3>Hi, I'm Max!</h3>
@@ -45,7 +45,7 @@ export function HedgehogOptions(): JSX.Element {
 
             <div className="deprecated-space-y-2">
                 <h4>Options</h4>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-2 items-center">
                     <LemonSwitch
                         bordered
                         label="Walk around freely"
@@ -127,7 +127,7 @@ function HedgehogAccessories(): JSX.Element {
                 <React.Fragment key={group}>
                     <h4>{capitalizeFirstLetter(group)}</h4>
 
-                    <div className="flex gap-2 pb-2 pt-px overflow-y-auto flex-wrap">
+                    <div className="flex overflow-y-auto flex-wrap gap-2 pt-px pb-2">
                         {Object.keys(standardAccessories)
                             .filter((acc) => standardAccessories[acc].group === group)
                             .map((acc) => (
@@ -156,14 +156,23 @@ function HedgehogColor(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
     const skinSpiderHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_SPIDERHOG')
+    const skinRoboHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_ROBOHOG')
 
-    const skins: HedgehogSkin[] = skinSpiderHogEnabled ? ['default', 'spiderhog'] : ['default']
+    const skins: HedgehogSkin[] = ['default']
+
+    if (skinSpiderHogEnabled) {
+        skins.push('spiderhog')
+    }
+
+    if (skinRoboHogEnabled) {
+        skins.push('robohog')
+    }
 
     return (
         <>
             <h4>Skins and colors</h4>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap gap-2 items-center">
                 {skins.map((option) => (
                     <LemonButton
                         key={option}
