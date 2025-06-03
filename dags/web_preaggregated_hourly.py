@@ -55,7 +55,7 @@ def pre_aggregate_web_analytics_hourly_data(
     # so this is just to make sure we get complete hours
     now = datetime.now(UTC)
     current_hour = now.replace(minute=0, second=0, microsecond=0)
-    date_end = current_hour.strftime("%Y-%m-%d %H:%M:%S")
+    date_end = (current_hour + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
     date_start = (current_hour - timedelta(hours=hours_back)).strftime("%Y-%m-%d %H:%M:%S")
 
     insert_query = sql_generator(
@@ -137,20 +137,23 @@ def web_stats_hourly(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-recreate_web_pre_aggregated_hourly_data_job = dagster.define_asset_job(
-    name="recreate_web_pre_aggregated_hourly_data",
-    selection=dagster.AssetSelection.groups("web_analytics_hourly"),
+web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
+    name="web_pre_aggregate_current_day_hourly_job",
+    selection=dagster.AssetSelection.assets(
+        "web_analytics_bounces_hourly",
+        "web_analytics_stats_table_hourly",
+    ),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 
 
 @dagster.schedule(
-    cron_schedule="*/5 * * * *",  # Run every 5 minutes
-    job=recreate_web_pre_aggregated_hourly_data_job,
+    cron_schedule="*/10 * * * *",
+    job=web_pre_aggregate_current_day_hourly_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def recreate_web_analytics_preaggregated_hourly_data(context: dagster.ScheduleEvaluationContext):
+def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvaluationContext):
     """
     Creates real-time web analytics pre-aggregated data with 24h TTL for real-time analytics.
     Runs every 5 minutes and processes the last hour to handle late-arriving data.
