@@ -34,67 +34,9 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         today = datetime.now(UTC).date()
         return datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC)
 
-    def _get_filters(self, table_name: str, granularity: str = "daily"):
-        bucket_column = "hour_bucket" if granularity == "hourly" else "day_bucket"
-        
-        filter_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=[table_name, bucket_column]),
-                right=ast.Constant(
-                    value=(
-                        self.runner.query_compare_to_date_range.date_from()
-                        if self.runner.query_compare_to_date_range
-                        else self.runner.query_date_range.date_from()
-                    )
-                ),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=[table_name, bucket_column]),
-                right=ast.Constant(value=self.runner.query_date_range.date_to()),
-            ),
-        ]
-
-        if self.runner.query.properties:
-            supported_properties = [
-                prop
-                for prop in self.runner.query.properties
-                if hasattr(prop, "key") and prop.key in self.supported_props_filters
-            ]
-
-            if supported_properties:
-                property_expr = property_to_expr(supported_properties, self.runner.team)
-
-                transformer = PreAggregatedPropertyTransformer(table_name, self.supported_props_filters)
-                transformed_expr = transformer.visit(property_expr)
-
-                filter_exprs.append(transformed_expr)
-
-        return ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
-
-    def _get_filters_for_daily_part(self, table_name: str):
-        """Get filters for the daily table part of UNION ALL - excludes current day."""
-        current_day_start = self._get_current_day_start()
-        
-        filter_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=[table_name, "day_bucket"]),
-                right=ast.Constant(
-                    value=(
-                        self.runner.query_compare_to_date_range.date_from()
-                        if self.runner.query_compare_to_date_range
-                        else self.runner.query_date_range.date_from()
-                    )
-                ),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=[table_name, "day_bucket"]),
-                right=ast.Constant(value=current_day_start),
-            ),
-        ]
+    def _get_base_filters(self, table_name: str):
+        """Get base filters that are applied to both daily and hourly queries (team_id, properties)."""
+        filter_exprs: list[ast.Expr] = []
 
         # Add team filter
         filter_exprs.append(
@@ -118,50 +60,108 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 transformed_expr = transformer.visit(property_expr)
                 filter_exprs.append(transformed_expr)
 
+        return filter_exprs
+
+    def _get_filters(self, table_name: str, period_filter: Optional[ast.Expr] = None):
+        """Get all filters including base filters and optional period filter."""
+        filter_exprs = self._get_base_filters(table_name)
+
+        if period_filter is None:
+            # Use default date range filters for single table queries
+            filter_exprs.extend(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=[table_name, "period_bucket"]),
+                        right=ast.Constant(
+                            value=(
+                                self.runner.query_compare_to_date_range.date_from()
+                                if self.runner.query_compare_to_date_range
+                                else self.runner.query_date_range.date_from()
+                            )
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=[table_name, "period_bucket"]),
+                        right=ast.Constant(value=self.runner.query_date_range.date_to()),
+                    ),
+                ]
+            )
+        else:
+            # Use the provided period filter for UNION ALL parts
+            filter_exprs.append(period_filter)
+
         return ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
-    def _get_filters_for_hourly_part(self, table_name: str):
-        """Get filters for the hourly table part of UNION ALL - only current day."""
-        current_day_start = self._get_current_day_start()
-        
-        filter_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=[table_name, "hour_bucket"]),
-                right=ast.Constant(value=current_day_start),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=[table_name, "hour_bucket"]),
-                right=ast.Constant(value=self.runner.query_date_range.date_to()),
-            ),
-        ]
+    def _get_daily_period_filter(self, table_name: str, exclude_current_day: bool = False):
+        """Get period filter for daily data."""
+        current_date_from = self.runner.query_date_range.date_from()
+        current_date_to = self.runner.query_date_range.date_to()
 
-        # Add team filter  
-        filter_exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[table_name, "team_id"]),
-                right=ast.Constant(value=self.runner.team.pk),
-            )
+        if exclude_current_day:
+            current_date_to = self._get_current_day_start()
+            comparison_op = ast.CompareOperationOp.Lt
+        else:
+            comparison_op = ast.CompareOperationOp.LtEq
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=[table_name, "period_bucket"]),
+                    right=ast.Constant(value=current_date_from),
+                ),
+                ast.CompareOperation(
+                    op=comparison_op,
+                    left=ast.Field(chain=[table_name, "period_bucket"]),
+                    right=ast.Constant(value=current_date_to),
+                ),
+            ]
         )
 
-        if self.runner.query.properties:
-            supported_properties = [
-                prop
-                for prop in self.runner.query.properties
-                if hasattr(prop, "key") and prop.key in self.supported_props_filters
-            ]
+    def _get_hourly_period_filter(self, table_name: str, current_day_only: bool = False):
+        """Get period filter for hourly data."""
+        if current_day_only:
+            current_day_start = self._get_current_day_start()
+            current_date_to = self.runner.query_date_range.date_to()
 
-            if supported_properties:
-                property_expr = property_to_expr(supported_properties, self.runner.team)
-                transformer = PreAggregatedPropertyTransformer(table_name, self.supported_props_filters)
-                transformed_expr = transformer.visit(property_expr)
-                filter_exprs.append(transformed_expr)
+            return ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=[table_name, "period_bucket"]),
+                        right=ast.Constant(value=current_day_start),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=[table_name, "period_bucket"]),
+                        right=ast.Constant(value=current_date_to),
+                    ),
+                ]
+            )
+        else:
+            # Full range for hourly data
+            current_date_from = self.runner.query_date_range.date_from()
+            current_date_to = self.runner.query_date_range.date_to()
 
-        return ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
+            return ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=[table_name, "period_bucket"]),
+                        right=ast.Constant(value=current_date_from),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=[table_name, "period_bucket"]),
+                        right=ast.Constant(value=current_date_to),
+                    ),
+                ]
+            )
 
-    def get_date_ranges(self, table_name: Optional[str] = None, granularity: str = "daily") -> tuple[ast.Expr, ast.Expr]:
+    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[ast.Expr, ast.Expr]:
+        """Get date range filters for period comparison queries."""
         current_date_from = self.runner.query_date_range.date_from()
         current_date_to = self.runner.query_date_range.date_to()
 
@@ -169,14 +169,10 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             previous_date_from = self.runner.query_compare_to_date_range.date_from()
             previous_date_to = self.runner.query_compare_to_date_range.date_to()
         else:
-            # If we don't have a previous period, we can just use the same data as the values won't be used
-            # and our query stays simpler.
             previous_date_from = current_date_from
             previous_date_to = current_date_to
 
-        # Create the field reference for the appropriate bucket
-        bucket_column = "hour_bucket" if granularity == "hourly" else "day_bucket"
-        bucket_field = ast.Field(chain=[table_name, bucket_column] if table_name else [bucket_column])
+        bucket_field = ast.Field(chain=[table_name, "period_bucket"] if table_name else ["period_bucket"])
 
         current_period_filter = ast.And(
             exprs=[
@@ -210,7 +206,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return (previous_period_filter, current_period_filter)
 
-    def get_date_ranges_for_union(self, table_name: Optional[str] = None, granularity: str = "daily") -> tuple[ast.Expr, ast.Expr]:
+    def get_date_ranges_for_union(self, granularity: str = "daily") -> tuple[ast.Expr, ast.Expr]:
         """Get date ranges for UNION ALL parts - handles splitting current day logic."""
         current_date_from = self.runner.query_date_range.date_from()
         current_date_to = self.runner.query_date_range.date_to()
@@ -223,8 +219,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             previous_date_from = current_date_from
             previous_date_to = current_date_to
 
-        bucket_column = "hour_bucket" if granularity == "hourly" else "day_bucket"
-        bucket_field = ast.Field(chain=[table_name, bucket_column] if table_name else [bucket_column])
+        bucket_field = ast.Field(chain=["period_bucket"])
 
         if granularity == "hourly":
             # For hourly part: only current day data
@@ -243,7 +238,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 ]
             )
 
-            # For previous period in hourly: if it includes current day, use current day start, else use original range  
+            # For previous period in hourly: if it includes current day, use current day start, else use original range
             if previous_date_to >= current_day_start:
                 previous_period_filter = ast.And(
                     exprs=[

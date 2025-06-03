@@ -13,14 +13,14 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     (
-        day_bucket DateTime,
+        period_bucket DateTime,
         team_id UInt64,
         host String,
         device_type String,
         updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
-    PARTITION BY toYYYYMM(day_bucket)
+    PARTITION BY toYYYYMM(period_bucket)
     ORDER BY {order_by}
     """
 
@@ -29,12 +29,12 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
     engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
-    ttl_clause = f"TTL hour_bucket + INTERVAL {ttl} DELETE" if ttl else ""
+    ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     (
-        hour_bucket DateTime,
+        period_bucket DateTime,
         team_id UInt64,
         host String,
         device_type String,
@@ -47,12 +47,10 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
 
 
 def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granularity="daily"):
-    bucket_name = "day_bucket" if granularity == "daily" else "hour_bucket"
-
     return f"""
     CREATE TABLE IF NOT EXISTS {dist_table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     (
-        {bucket_name} DateTime,
+        period_bucket DateTime,
         team_id UInt64,
         host String,
         device_type String,
@@ -147,7 +145,7 @@ WEB_BOUNCES_COLUMNS = """
 """
 
 
-def WEB_STATS_ORDER_BY_FUNC(bucket_column="day_bucket"):
+def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return f"""(
     team_id,
     {bucket_column},
@@ -191,7 +189,7 @@ def WEB_STATS_ORDER_BY_FUNC(bucket_column="day_bucket"):
 )"""
 
 
-def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="day_bucket"):
+def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return f"""(
     team_id,
     {bucket_column},
@@ -244,7 +242,7 @@ def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
 
 
 def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=True):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("day_bucket"), on_cluster)
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 
 def DISTRIBUTED_WEB_STATS_DAILY_SQL():
@@ -254,7 +252,7 @@ def DISTRIBUTED_WEB_STATS_DAILY_SQL():
 
 
 def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", on_cluster=True):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("day_bucket"), on_cluster)
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 
 def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
@@ -265,7 +263,7 @@ def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
 
 def WEB_STATS_HOURLY_SQL(on_cluster=True):
     return HOURLY_TABLE_TEMPLATE(
-        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("hour_bucket"), on_cluster, ttl="24 HOUR"
+        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster, ttl="24 HOUR"
     )
 
 
@@ -277,7 +275,7 @@ def DISTRIBUTED_WEB_STATS_HOURLY_SQL():
 
 def WEB_BOUNCES_HOURLY_SQL(on_cluster=True):
     return HOURLY_TABLE_TEMPLATE(
-        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("hour_bucket"), on_cluster, ttl="24 HOUR"
+        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster, ttl="24 HOUR"
     )
 
 
@@ -307,10 +305,10 @@ def get_insert_params(team_ids, granularity="daily"):
 
     if granularity == "hourly":
         time_bucket_func = "toStartOfHour"
-        bucket_column = "hour_bucket"
+        bucket_column = "period_bucket"
     else:
         time_bucket_func = "toStartOfDay"
-        bucket_column = "day_bucket"
+        bucket_column = "period_bucket"
 
     return {
         "team_filter": filters["raw_sessions"],
@@ -329,12 +327,11 @@ def WEB_STATS_INSERT_SQL(
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
-    bucket_column = params["bucket_column"]
 
     return f"""
     INSERT INTO {table_name}
     SELECT
-        {time_bucket_func}(start_timestamp) AS {bucket_column},
+        {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
         host,
         device_type,
@@ -527,7 +524,7 @@ def WEB_STATS_INSERT_SQL(
         SETTINGS {settings}
     )
     GROUP BY
-        {bucket_column},
+        period_bucket,
         team_id,
         host,
         device_type,
@@ -585,12 +582,11 @@ def WEB_BOUNCES_INSERT_SQL(
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
-    bucket_column = params["bucket_column"]
 
     return f"""
     INSERT INTO {table_name}
     SELECT
-        {time_bucket_func}(start_timestamp) AS {bucket_column},
+        {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
         host,
         device_type,
@@ -786,7 +782,7 @@ def WEB_BOUNCES_INSERT_SQL(
             viewport_height
     )
     GROUP BY
-        {bucket_column},
+        period_bucket,
         team_id,
         entry_pathname,
         end_pathname,

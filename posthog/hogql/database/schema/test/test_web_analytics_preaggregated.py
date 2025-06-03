@@ -22,10 +22,18 @@ class TestWebAnalyticsPreAggregatedSchema:
         bounces_hourly_table = WebBouncesHourlyTable()
 
         for field_name in SHARED_SCHEMA_FIELDS.keys():
-            assert field_name in stats_daily_table.fields, f"Shared field '{field_name}' missing from WebStatsDailyTable"
-            assert field_name in bounces_daily_table.fields, f"Shared field '{field_name}' missing from WebBouncesDailyTable"
-            assert field_name in stats_hourly_table.fields, f"Shared field '{field_name}' missing from WebStatsHourlyTable"
-            assert field_name in bounces_hourly_table.fields, f"Shared field '{field_name}' missing from WebBouncesHourlyTable"
+            assert (
+                field_name in stats_daily_table.fields
+            ), f"Shared field '{field_name}' missing from WebStatsDailyTable"
+            assert (
+                field_name in bounces_daily_table.fields
+            ), f"Shared field '{field_name}' missing from WebBouncesDailyTable"
+            assert (
+                field_name in stats_hourly_table.fields
+            ), f"Shared field '{field_name}' missing from WebStatsHourlyTable"
+            assert (
+                field_name in bounces_hourly_table.fields
+            ), f"Shared field '{field_name}' missing from WebBouncesHourlyTable"
 
     def test_table_specific_fields(self):
         stats_daily_table = WebStatsDailyTable()
@@ -77,9 +85,15 @@ class TestWebAnalyticsPreAggregatedSchema:
 
         for field in expected_fields:
             assert field in stats_daily_table.fields, f"Device/browser field '{field}' missing from WebStatsDailyTable"
-            assert field in bounces_daily_table.fields, f"Device/browser field '{field}' missing from WebBouncesDailyTable"
-            assert field in stats_hourly_table.fields, f"Device/browser field '{field}' missing from WebStatsHourlyTable"
-            assert field in bounces_hourly_table.fields, f"Device/browser field '{field}' missing from WebBouncesHourlyTable"
+            assert (
+                field in bounces_daily_table.fields
+            ), f"Device/browser field '{field}' missing from WebBouncesDailyTable"
+            assert (
+                field in stats_hourly_table.fields
+            ), f"Device/browser field '{field}' missing from WebStatsHourlyTable"
+            assert (
+                field in bounces_hourly_table.fields
+            ), f"Device/browser field '{field}' missing from WebBouncesHourlyTable"
 
     def test_geoip_fields(self):
         stats_daily_table = WebStatsDailyTable()
@@ -126,7 +140,9 @@ class TestWebAnalyticsPreAggregatedSchema:
             assert field in stats_daily_table.fields, f"Attribution field '{field}' missing from WebStatsDailyTable"
             assert field in bounces_daily_table.fields, f"Attribution field '{field}' missing from WebBouncesDailyTable"
             assert field in stats_hourly_table.fields, f"Attribution field '{field}' missing from WebStatsHourlyTable"
-            assert field in bounces_hourly_table.fields, f"Attribution field '{field}' missing from WebBouncesHourlyTable"
+            assert (
+                field in bounces_hourly_table.fields
+            ), f"Attribution field '{field}' missing from WebBouncesHourlyTable"
 
     def test_utm_fields(self):
         stats_daily_table = WebStatsDailyTable()
@@ -211,7 +227,9 @@ class TestWebAnalyticsPreAggregatedSchema:
             assert field in stats_daily_table.fields, f"Aggregation field '{field}' missing from WebStatsDailyTable"
             assert field in bounces_daily_table.fields, f"Aggregation field '{field}' missing from WebBouncesDailyTable"
             assert field in stats_hourly_table.fields, f"Aggregation field '{field}' missing from WebStatsHourlyTable"
-            assert field in bounces_hourly_table.fields, f"Aggregation field '{field}' missing from WebBouncesHourlyTable"
+            assert (
+                field in bounces_hourly_table.fields
+            ), f"Aggregation field '{field}' missing from WebBouncesHourlyTable"
 
     def test_updated_at_field_present(self):
         stats_daily_table = WebStatsDailyTable()
@@ -230,18 +248,25 @@ class TestWebAnalyticsPreAggregatedSchema:
         stats_hourly_table = WebStatsHourlyTable()
         bounces_hourly_table = WebBouncesHourlyTable()
 
-        # Daily tables should have day_bucket
-        assert "day_bucket" in stats_daily_table.fields, "day_bucket field missing from WebStatsDailyTable"
-        assert "day_bucket" in bounces_daily_table.fields, "day_bucket field missing from WebBouncesDailyTable"
+        # All tables should have period_bucket
+        assert "period_bucket" in stats_daily_table.fields, "period_bucket field missing from WebStatsDailyTable"
+        assert "period_bucket" in bounces_daily_table.fields, "period_bucket field missing from WebBouncesDailyTable"
+        assert "period_bucket" in stats_hourly_table.fields, "period_bucket field missing from WebStatsHourlyTable"
+        assert "period_bucket" in bounces_hourly_table.fields, "period_bucket field missing from WebBouncesHourlyTable"
 
-        # Hourly tables should have hour_bucket
-        assert "hour_bucket" in stats_hourly_table.fields, "hour_bucket field missing from WebStatsHourlyTable"
-        assert "hour_bucket" in bounces_hourly_table.fields, "hour_bucket field missing from WebBouncesHourlyTable"
-
-        # Daily tables should NOT have hour_bucket
-        assert "hour_bucket" not in stats_daily_table.fields, "hour_bucket field should not be in WebStatsDailyTable"
-        assert "hour_bucket" not in bounces_daily_table.fields, "hour_bucket field should not be in WebBouncesDailyTable"
-
-        # Hourly tables should NOT have day_bucket
+        # No tables should have the old bucket fields
+        assert "day_bucket" not in stats_daily_table.fields, "day_bucket field should not be in WebStatsDailyTable"
+        assert "day_bucket" not in bounces_daily_table.fields, "day_bucket field should not be in WebBouncesDailyTable"
         assert "day_bucket" not in stats_hourly_table.fields, "day_bucket field should not be in WebStatsHourlyTable"
-        assert "day_bucket" not in bounces_hourly_table.fields, "day_bucket field should not be in WebBouncesHourlyTable"
+        assert (
+            "day_bucket" not in bounces_hourly_table.fields
+        ), "day_bucket field should not be in WebBouncesHourlyTable"
+
+        assert "hour_bucket" not in stats_daily_table.fields, "hour_bucket field should not be in WebStatsDailyTable"
+        assert (
+            "hour_bucket" not in bounces_daily_table.fields
+        ), "hour_bucket field should not be in WebBouncesDailyTable"
+        assert "hour_bucket" not in stats_hourly_table.fields, "hour_bucket field should not be in WebStatsHourlyTable"
+        assert (
+            "hour_bucket" not in bounces_hourly_table.fields
+        ), "hour_bucket field should not be in WebBouncesHourlyTable"

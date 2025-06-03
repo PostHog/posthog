@@ -1,4 +1,3 @@
-from typing import Literal
 from posthog.hogql.database.models import (
     DatabaseField,
     IntegerDatabaseField,
@@ -81,16 +80,14 @@ WEB_BOUNCES_SPECIFIC_FIELDS = {
 }
 
 
-def web_preaggregated_base_fields(granularity: Literal["daily", "hourly"]):
-    bucket_name = "day_bucket" if granularity == "daily" else "hour_bucket"
-
-    return {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        bucket_name: DateTimeDatabaseField(name=bucket_name),
-        "host": StringDatabaseField(name="host", nullable=True),
-        "device_type": StringDatabaseField(name="device_type", nullable=True),
-        "updated_at": DateTimeDatabaseField(name="updated_at"),
-    }
+# Base table fields present in all tables
+web_preaggregated_base_fields = {
+    "period_bucket": DateTimeDatabaseField(name="period_bucket"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "host": StringDatabaseField(name="host"),
+    "device_type": StringDatabaseField(name="device_type"),
+    "updated_at": DateTimeDatabaseField(name="updated_at"),
+}
 
 
 web_preaggregated_base_aggregation_fields = {
@@ -102,7 +99,7 @@ web_preaggregated_base_aggregation_fields = {
 
 class WebStatsDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields("daily"),
+        **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
         **WEB_STATS_SPECIFIC_FIELDS,
@@ -117,7 +114,7 @@ class WebStatsDailyTable(Table):
 
 class WebBouncesDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields("daily"),
+        **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
         **WEB_BOUNCES_SPECIFIC_FIELDS,
@@ -132,7 +129,7 @@ class WebBouncesDailyTable(Table):
 
 class WebStatsHourlyTable(Table):
     fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields("hourly"),
+        **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
         **WEB_STATS_SPECIFIC_FIELDS,
@@ -147,7 +144,7 @@ class WebStatsHourlyTable(Table):
 
 class WebBouncesHourlyTable(Table):
     fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields("hourly"),
+        **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
         **WEB_BOUNCES_SPECIFIC_FIELDS,
