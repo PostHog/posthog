@@ -33,7 +33,7 @@ describe('properties-updater', () => {
         team = await getFirstTeam(hub)
         await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
 
-        groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false })
+        groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false, maxConcurrentUpdates: 10 })
             .forBatch()
             .forDistinctID(team.id.toString(), distinctId)
 
