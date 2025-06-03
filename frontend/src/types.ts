@@ -351,7 +351,7 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
-export type HedgehogSkin = 'default' | 'spiderhog'
+export type HedgehogSkin = 'default' | 'spiderhog' | 'robohog'
 
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
@@ -859,6 +859,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    Log = 'log',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -931,10 +932,14 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface LogPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Log
+    operator: PropertyOperator
+}
+
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
-    key: string
 }
 
 export interface HogQLPropertyFilter extends BasePropertyFilter {
@@ -965,6 +970,7 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
+    | LogPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3048,6 +3054,12 @@ export enum SurveyType {
 }
 
 export enum SurveyPosition {
+    TopLeft = 'top_left',
+    TopCenter = 'top_center',
+    TopRight = 'top_right',
+    MiddleLeft = 'middle_left',
+    MiddleCenter = 'middle_center',
+    MiddleRight = 'middle_right',
     Left = 'left',
     Center = 'center',
     Right = 'right',
@@ -3525,6 +3537,7 @@ export enum PropertyDefinitionType {
     LogEntry = 'log_entry',
     Meta = 'meta',
     Resource = 'resource',
+    Log = 'log',
 }
 
 export interface PropertyDefinition {
@@ -4231,6 +4244,8 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+    | 'warehouse_view'
+    | 'warehouse_table'
 
 export enum AccessControlLevel {
     None = 'none',
@@ -4492,6 +4507,7 @@ export const externalDataSources = [
     'Redshift',
     'GoogleSheets',
     'Mongodb',
+    'TemporalIO',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5125,6 +5141,7 @@ export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
 export type HogFunctionTypeType =
     | 'destination'
     | 'internal_destination'
+    | 'source_webhook'
     | 'site_destination'
     | 'site_app'
     | 'transformation'
@@ -5263,6 +5280,12 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
+    // Only applies to sources
+    request?: {
+        body: Record<string, any>
+        headers: Record<string, string>
+        ip?: string
+    }
 }
 
 export type HogFunctionTestInvocationResult = {

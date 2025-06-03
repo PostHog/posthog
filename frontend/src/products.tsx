@@ -7,18 +7,18 @@ import {
     IconCursor,
     IconDashboard,
     IconExternal,
+    IconFlask,
     IconGraph,
     IconMessage,
     IconNotebook,
     IconPeople,
     IconRewindPlay,
     IconRocket,
-    IconTestTube,
     IconToggle,
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -183,11 +183,15 @@ export const productUrls = {
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     experiment: (
         id: string | number,
+        formMode?: string | null,
         options?: {
             metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
             name?: string
         }
-    ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
+    ): string => {
+        const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
+        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+    },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
@@ -311,11 +315,12 @@ export const productUrls = {
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
+    webAnalyticsMarketing: (): string => `/web/marketing`,
 }
 
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
-    action: { name: 'Action', icon: <IconRocket />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
+    action: { name: 'Action', icon: <IconCursor />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
     cohort: { name: 'Cohort', icon: <IconPeople />, href: (ref: string) => urls.cohort(ref), filterKey: 'cohort' },
     dashboard: {
         name: 'Dashboard',
@@ -333,7 +338,7 @@ export const fileSystemTypes = {
     },
     experiment: {
         name: 'Experiment',
-        icon: <IconTestTube />,
+        icon: <IconFlask />,
         href: (ref: string) => urls.experiment(ref),
         iconColor: ['var(--product-experiments-light)'],
         filterKey: 'experiment',
@@ -431,13 +436,51 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Insight/Calendar Heatmap`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+        iconType: 'insightHogQL',
+        visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
     },
-    { path: `Insight/Funnel`, type: 'insight', href: urls.insightNew({ type: InsightType.FUNNELS }) },
-    { path: `Insight/Lifecycle`, type: 'insight', href: urls.insightNew({ type: InsightType.LIFECYCLE }) },
-    { path: `Insight/Retention`, type: 'insight', href: urls.insightNew({ type: InsightType.RETENTION }) },
-    { path: `Insight/Stickiness`, type: 'insight', href: urls.insightNew({ type: InsightType.STICKINESS }) },
-    { path: `Insight/Trends`, type: 'insight', href: urls.insightNew({ type: InsightType.TRENDS }) },
-    { path: `Insight/User paths`, type: 'insight', href: urls.insightNew({ type: InsightType.PATHS }) },
+    {
+        path: `Insight/Funnel`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.FUNNELS }),
+        iconType: 'insightFunnel',
+        visualOrder: INSIGHT_VISUAL_ORDER.funnel,
+    },
+    {
+        path: `Insight/Lifecycle`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+        iconType: 'insightLifecycle',
+        visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
+    },
+    {
+        path: `Insight/Retention`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.RETENTION }),
+        iconType: 'insightRetention',
+        visualOrder: INSIGHT_VISUAL_ORDER.retention,
+    },
+    {
+        path: `Insight/Stickiness`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.STICKINESS }),
+        iconType: 'insightStickiness',
+        visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
+    },
+    {
+        path: `Insight/Trends`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.TRENDS }),
+        iconType: 'insightTrends',
+        visualOrder: INSIGHT_VISUAL_ORDER.trends,
+    },
+    {
+        path: `Insight/User paths`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.PATHS }),
+        iconType: 'insightUserPaths',
+        visualOrder: INSIGHT_VISUAL_ORDER.paths,
+    },
     { path: `Link`, type: 'link', href: urls.link('new'), flag: FEATURE_FLAGS.LINKS },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new') },
     { path: `Replay playlist`, type: 'session_recording_playlist', href: urls.replayPlaylist('new') },
@@ -452,6 +495,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/broadcast',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
         path: 'Campaigns',
@@ -459,8 +503,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
     {
         path: 'Early access features',
         type: 'early_access_feature',
@@ -503,7 +547,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
         tags: ['alpha'],
     },
-    { path: 'Notebooks', type: 'notebook', href: urls.notebooks(), visualOrder: PRODUCT_VISUAL_ORDER.notebooks },
     {
         path: 'Product analytics',
         type: 'insight',

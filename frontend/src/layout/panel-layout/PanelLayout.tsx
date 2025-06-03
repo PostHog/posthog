@@ -151,17 +151,9 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Project' && (
                         <ProjectTree
                             root="project://"
-                            sortMethod="folder"
                             logicKey={PROJECT_TREE_KEY}
                             searchPlaceholder="Search by user, type, or name"
-                        />
-                    )}
-                    {activePanelIdentifier === 'Recent' && (
-                        <ProjectTree
-                            root="project://"
-                            sortMethod="recent"
-                            logicKey={PROJECT_TREE_KEY}
-                            searchPlaceholder="Search by user, type, or name"
+                            showRecents
                         />
                     )}
                     {activePanelIdentifier === 'Products' && (
@@ -170,10 +162,10 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Shortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'Data management' && (
-                        <ProjectTree root="data-management://" searchPlaceholder="Search data management" />
+                    {activePanelIdentifier === 'Data' && (
+                        <ProjectTree root="data-management://" searchPlaceholder="Search data" />
                     )}
-                    {activePanelIdentifier === 'Persons' && (
+                    {activePanelIdentifier === 'People' && (
                         <ProjectTree root="persons://" searchPlaceholder="Search persons" />
                     )}
                 </PanelLayoutNavBar>

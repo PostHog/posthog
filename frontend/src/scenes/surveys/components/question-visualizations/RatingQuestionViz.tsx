@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
+import { StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
     NPS_DETRACTOR_LABEL,
     NPS_DETRACTOR_VALUES,
@@ -100,13 +101,11 @@ const CHART_LABELS: Record<number, string[]> = {
     3: ['1', '2', '3'],
 }
 
-function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
+export function NPSBreakdownSkeleton(): JSX.Element {
     return (
-        <div>
-            <div className="flex gap-2 items-center">
-                <div className="text-4xl font-bold">{npsBreakdown.score}</div>
-            </div>
-            <div className="mb-2 font-semibold text-secondary">
+        <div className="flex flex-col gap-2">
+            <div className="font-semibold text-secondary">
+                <LemonSkeleton className="h-10 w-20" />
                 <Tooltip
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
@@ -115,11 +114,25 @@ function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.
                     Latest NPS Score
                 </Tooltip>
             </div>
-            {npsBreakdown && (
-                <div className="mt-2 mb-4 deprecated-space-y-2">
-                    <NPSStackedBar npsBreakdown={npsBreakdown} />
-                </div>
-            )}
+            <StackedBarSkeleton />
+        </div>
+    )
+}
+
+function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="font-semibold text-secondary">
+                <div className="text-4xl font-bold text-primary">{npsBreakdown.score}</div>
+                <Tooltip
+                    placement="bottom"
+                    title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
+                >
+                    <IconInfo className="text-muted mr-1" />
+                    Latest NPS Score
+                </Tooltip>
+            </div>
+            {npsBreakdown && <NPSStackedBar npsBreakdown={npsBreakdown} />}
         </div>
     )
 }
@@ -365,50 +378,48 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     const barColor = CHART_INSIGHTS_COLORS[0]
 
     const { data } = processedData
-
-    // if scale is not 10, we need to skip the 0
-    const normalizeScaleData = question.scale !== 10 ? data.slice(1) : data
-
     const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="h-50 border rounded pt-8">
-                <div className="relative h-full w-full">
-                    <BindLogic logic={insightLogic} props={insightProps}>
-                        <LineGraph
-                            inSurveyView={true}
-                            hideYAxis={true}
-                            showValuesOnSeries={true}
-                            labelGroupType={1}
-                            data-attr="survey-rating"
-                            type={GraphType.Bar}
-                            hideAnnotations={true}
-                            formula="-"
-                            tooltip={{
-                                showHeader: false,
-                                hideColorCol: true,
-                            }}
-                            datasets={[
-                                {
-                                    id: 1,
-                                    label: 'Number of responses',
-                                    barPercentage: 0.8,
-                                    minBarLength: 2,
-                                    data: normalizeScaleData.map((d) => d.value),
-                                    backgroundColor: barColor,
-                                    borderColor: barColor,
-                                    hoverBackgroundColor: barColor,
-                                },
-                            ]}
-                            labels={CHART_LABELS?.[question.scale] || ['1', '2', '3']}
-                        />
-                    </BindLogic>
+        <>
+            <div className="flex flex-col gap-1">
+                <div className="h-50 border rounded pt-8">
+                    <div className="relative h-full w-full">
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <LineGraph
+                                inSurveyView={true}
+                                hideYAxis={true}
+                                showValuesOnSeries={true}
+                                labelGroupType={1}
+                                data-attr="survey-rating"
+                                type={GraphType.Bar}
+                                hideAnnotations={true}
+                                formula="-"
+                                tooltip={{
+                                    showHeader: false,
+                                    hideColorCol: true,
+                                }}
+                                datasets={[
+                                    {
+                                        id: 1,
+                                        label: 'Number of responses',
+                                        barPercentage: 0.8,
+                                        minBarLength: 2,
+                                        data: data.map((d) => d.value),
+                                        backgroundColor: barColor,
+                                        borderColor: barColor,
+                                        hoverBackgroundColor: barColor,
+                                    },
+                                ]}
+                                labels={CHART_LABELS?.[question.scale] || ['1', '2', '3']}
+                            />
+                        </BindLogic>
+                    </div>
                 </div>
-            </div>
-            <div className="flex flex-row justify-between mt-1">
-                <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
-                <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
+                <div className="flex flex-row justify-between">
+                    <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
+                    <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
+                </div>
             </div>
             {npsBreakdown && <NPSBreakdownViz npsBreakdown={npsBreakdown} />}
             {question.scale === 10 && (
@@ -421,6 +432,6 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                     scale={question.scale as 3 | 5 | 7}
                 />
             )}
-        </div>
+        </>
     )
 }

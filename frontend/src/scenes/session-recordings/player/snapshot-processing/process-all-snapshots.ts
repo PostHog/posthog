@@ -25,6 +25,9 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
+const seenId: string | null = null
+const processSnapshots = new Map<SourceKey, RecordingSnapshot[]>()
+
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
@@ -35,9 +38,13 @@ export function processAllSnapshots(
         return []
     }
 
-    const seenHashes: Set<string> = new Set()
+    if (seenId !== sessionRecordingId) {
+        processSnapshots.clear()
+    }
+
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
+    const seenHashes: Set<string> = new Set()
 
     let metaCount = 0
     let fullSnapshotCount = 0
@@ -47,10 +54,22 @@ export function processAllSnapshots(
     // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
         const sourceKey = keyForSource(source)
+
+        if (processSnapshots.has(sourceKey)) {
+            // If we already processed this source, skip it
+            // doing push.apply to mutate the original array
+            // and avoid a spread on a large array
+            // eslint-disable-next-line prefer-spread
+            result.push.apply(result, processSnapshots.get(sourceKey)!)
+            continue
+        }
+
         // sorting is very cheap for already sorted lists
         const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
             (a, b) => a.timestamp - b.timestamp
         )
+
+        const sourceResult: RecordingSnapshot[] = []
 
         for (const snapshot of sourceSnapshots) {
             const { delay: _delay, ...delayFreeSnapshot } = snapshot
@@ -95,8 +114,14 @@ export function processAllSnapshots(
                 }
             }
 
-            result.push(snapshot)
+            sourceResult.push(snapshot)
         }
+
+        processSnapshots.set(sourceKey, sourceResult)
+        // doing push.apply to mutate the original array
+        // and avoid a spread on a large array
+        // eslint-disable-next-line prefer-spread
+        result.push.apply(result, sourceResult)
     }
 
     // sorting is very cheap for already sorted lists

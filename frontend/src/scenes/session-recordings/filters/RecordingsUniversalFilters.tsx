@@ -16,6 +16,7 @@ import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/types'
@@ -69,20 +70,21 @@ export const RecordingsUniversalFilters = ({
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
-    allowReplayFlagsFilters = false,
+    allowReplayGroupsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     resetFilters?: () => void
     totalFiltersCount?: number
     className?: string
-    allowReplayFlagsFilters?: boolean
     allowReplayHogQLFilters?: boolean
+    allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [savedFilterName, setSavedFilterName] = useState('')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
+    useMountedLogic(groupsModel)
 
     const durationFilter = filters.duration[0]
 
@@ -90,6 +92,7 @@ export const RecordingsUniversalFilters = ({
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -105,8 +108,8 @@ export const RecordingsUniversalFilters = ({
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
     }
 
-    if (allowReplayFlagsFilters) {
-        taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
+    if (allowReplayGroupsFilters) {
+        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
@@ -199,6 +202,10 @@ export const RecordingsUniversalFilters = ({
                                 ]}
                                 dropdownPlacement="bottom-start"
                                 size="small"
+                                // we always want to include the time in the date when setting it
+                                allowTimePrecision={true}
+                                // we always want to present the time control
+                                forceGranularity="minute"
                             />
                             <DurationFilter
                                 onChange={(newRecordingDurationFilter, newDurationType) => {
@@ -337,18 +344,6 @@ export const RecordingsUniversalFilters = ({
                             />
                         </>
                     </LemonModal>
-                    <UniversalFilters
-                        rootKey="session-recordings"
-                        group={filters.filter_group}
-                        taxonomicGroupTypes={taxonomicGroupTypes}
-                        onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                    >
-                        <RecordingsUniversalFilterGroup
-                            size="small"
-                            totalFiltersCount={totalFiltersCount}
-                            showAddFilter={false}
-                        />
-                    </UniversalFilters>
                 </>
             </MaxTool>
             <div className="flex gap-2 mt-2 justify-between">

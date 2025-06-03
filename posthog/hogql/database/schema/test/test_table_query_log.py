@@ -35,7 +35,7 @@ FROM
         clusterAllReplicas(posthog, system.query_log) AS raw_query_log
     WHERE
         and(ifNull(equals({self.team.pk}, JSONExtractInt(raw_query_log.log_comment, %(hogql_val_1)s)), 0), ifNull(equals(%(hogql_val_2)s, JSONExtractString(raw_query_log.log_comment, %(hogql_val_3)s, %(hogql_val_4)s)), 0), in(raw_query_log.type, [%(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s]), raw_query_log.is_initial_query)) AS query_log
-LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295"""
+LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"""
 
         from unittest.mock import ANY
 
