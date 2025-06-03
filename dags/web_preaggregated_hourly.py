@@ -114,7 +114,11 @@ def web_bounces_hourly(
     """
     Hourly bounce rate data for web analytics with 24h TTL. Updates every 5 minutes.
     """
-    cluster.map_all_hosts("TRUNCATE TABLE web_bounces_hourly SYNC")
+
+    def truncate(client: Client):
+        client.execute("TRUNCATE TABLE web_bounces_hourly SYNC")
+
+    cluster.map_all_hosts(truncate).result()
 
     return pre_aggregate_web_analytics_hourly_data(
         context=context, table_name="web_bounces_hourly", sql_generator=WEB_BOUNCES_INSERT_SQL
@@ -136,7 +140,11 @@ def web_stats_hourly(
     """
     Hourly aggregated dimensional data with pageviews and unique user counts with 24h TTL. Updates every 5 minutes.
     """
-    cluster.map_all_hosts("TRUNCATE TABLE web_stats_hourly SYNC")
+
+    def truncate(client: Client):
+        client.execute("TRUNCATE TABLE web_stats_hourly SYNC")
+
+    cluster.map_all_hosts(truncate).result()
 
     return pre_aggregate_web_analytics_hourly_data(
         context=context,
