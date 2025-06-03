@@ -2,10 +2,15 @@ from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
 
 import dagster
-from dagster import Field, Array
+from dagster import Field
 from clickhouse_driver import Client
 from dags.common import JobOwners
-from dags.web_preaggregated_utils import TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
+from dags.web_preaggregated_utils import (
+    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
+    CLICKHOUSE_SETTINGS_HOURLY,
+    merge_clickhouse_settings,
+    WEB_ANALYTICS_CONFIG_SCHEMA,
+)
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
@@ -20,16 +25,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        Array(int),
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to process - if empty we will process for all teams marked on the utils file",
-    ),
-    "clickhouse_settings": Field(
-        str,
-        default_value="max_execution_time=300,max_bytes_before_external_group_by=21474836480,distributed_aggregation_memory_efficient=1",
-        description="ClickHouse execution settings",
-    ),
+    **WEB_ANALYTICS_CONFIG_SCHEMA,
     "hours_back": Field(
         float,
         default_value=1.0,
@@ -45,8 +41,11 @@ def pre_aggregate_web_analytics_hourly_data(
 ) -> None:
     config = context.op_config
     team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
-    clickhouse_settings = config["clickhouse_settings"]
+    extra_settings = config.get("extra_clickhouse_settings", "")
     hours_back = config["hours_back"]
+
+    # Merge hourly settings with any extra settings
+    clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
 
     # Process the last N hours to handle any late-arriving data
     # Align with hour boundaries to match toStartOfHour() used in SQL, where we convert this to UTC,

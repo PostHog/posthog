@@ -1,13 +1,17 @@
 from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
-from typing import Optional
 import structlog
 
 import dagster
-from dagster import Field, Array, DailyPartitionsDefinition, RetryPolicy, Backoff, Jitter, BackfillPolicy
+from dagster import DailyPartitionsDefinition, RetryPolicy, Backoff, Jitter, BackfillPolicy
 from clickhouse_driver import Client
 from dags.common import JobOwners
-from dags.web_preaggreted_utils import TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
+from dags.web_preaggregated_utils import (
+    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
+    CLICKHOUSE_SETTINGS,
+    merge_clickhouse_settings,
+    WEB_ANALYTICS_CONFIG_SCHEMA,
+)
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
@@ -34,44 +38,6 @@ retry_policy_def = RetryPolicy(
 
 backfill_policy_def = BackfillPolicy(max_partitions_per_run=14)
 
-CLICKHOUSE_SETTINGS = {
-    "max_execution_time": "1600",
-    "max_bytes_before_external_group_by": "51474836480",
-    "max_memory_usage": "107374182400",
-    "distributed_aggregation_memory_efficient": "1",
-}
-
-
-def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
-    return ",".join([f"{key}={value}" for key, value in settings_dict.items()])
-
-
-def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Optional[str] = None) -> str:
-    settings = base_settings.copy()
-
-    if extra_settings:
-        # Parse extra settings string and merge
-        for setting in extra_settings.split(","):
-            if "=" in setting:
-                key, value = setting.strip().split("=", 1)
-                settings[key.strip()] = value.strip()
-
-    return format_clickhouse_settings(settings)
-
-
-WEB_ANALYTICS_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        Array(int),
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to process - if empty, processes all teams",
-    ),
-    "extra_clickhouse_settings": Field(
-        str,
-        default_value="",
-        description="Additional ClickHouse execution settings to merge with defaults",
-    ),
-}
-
 
 # Backfill policy to process partitions in groups of 14 days
 web_analytics_backfill_policy = BackfillPolicy.multi_run(max_partitions_per_run=14)
@@ -96,14 +62,14 @@ def pre_aggregate_web_analytics_data(
 
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, extra_settings)
 
-    if context.has_partition_key:
-        # For partitioned runs, use partition time window for range processing
+    context.log.info(f"Getting ready to pre-aggregate {table_name} for {context.partition_time_window}")
+
+    if context.partition_time_window:
         start_datetime, end_datetime = context.partition_time_window
         date_start = start_datetime.strftime("%Y-%m-%d")
         date_end = end_datetime.strftime("%Y-%m-%d")
-
     else:
-        raise dagster.Failure("This asset should only be run with a partition key")
+        raise dagster.Failure("This asset should only be run with a partition_time_window")
 
     try:
         insert_query = sql_generator(
@@ -115,35 +81,11 @@ def pre_aggregate_web_analytics_data(
         )
 
         # Intentionally log query details for debugging
-        logger.info(
-            "executing_web_analytics_pre_aggregation",
-            table_name=table_name,
-            date_start=date_start,
-            date_end=date_end,
-            team_ids=team_ids if team_ids else "all_teams",
-            has_partition_key=context.has_partition_key,
-            settings=ch_settings,
-        )
+        context.log.info(insert_query)
 
         sync_execute(insert_query)
 
-        logger.info(
-            "web_analytics_pre_aggregation_completed",
-            table_name=table_name,
-            date_start=date_start,
-            date_end=date_end,
-        )
-
     except Exception as e:
-        logger.exception(
-            "web_analytics_pre_aggregation_failed",
-            table_name=table_name,
-            date_start=date_start,
-            date_end=date_end,
-            settings=ch_settings,
-            team_ids=team_ids,
-            error=str(e),
-        )
         raise dagster.Failure(f"Failed to pre-aggregate {table_name}: {str(e)}") from e
 
 
