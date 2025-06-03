@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
@@ -65,9 +66,6 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--disable-sync")
 
     # Create a unique prefix for the temporary directory
-    import time
-    import os
-
     pid = os.getpid()
     timestamp = int(time.time() * 1000)
     unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
