@@ -177,6 +177,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
+    ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -412,6 +413,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    members_can_invite: boolean
     is_ai_data_processing_approved?: boolean
     members_can_invite?: boolean
     metadata?: OrganizationMetadata
