@@ -24,6 +24,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconMSSQL from 'public/services/sql-azure.png'
 import IconStripe from 'public/services/stripe.png'
+import IconTemporalIO from 'public/services/temporal.png'
 import IconVitally from 'public/services/vitally.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { getDataWarehouseSourceUrl } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
@@ -92,6 +93,7 @@ export function DataWarehouseSourceIcon({
         Redshift: IconRedshift,
         GoogleSheets: IconGoogleSheets,
         Mongodb: IconMongodb,
+        TemporalIO: IconTemporalIO,
     }[type]
 
     if (disableTooltip) {

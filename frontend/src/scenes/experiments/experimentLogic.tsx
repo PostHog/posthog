@@ -1616,7 +1616,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
 
                 const propertyMathValue = entities.filter((entity) =>
-                    targetValues.includes(entity?.math as PropertyMathType)
+                    (targetValues as readonly PropertyMathType[]).includes(entity?.math as PropertyMathType)
                 )[0]?.math
 
                 return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
@@ -1704,7 +1704,14 @@ export const experimentLogic = kea<experimentLogicType>([
             ): number => {
                 if (getInsightType(firstPrimaryMetric) === InsightType.FUNNELS) {
                     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
-                    const funnelEntrants = funnelResults?.[0]?.count
+                    let funnelEntrants: number | undefined
+                    if (Array.isArray(funnelResults) && funnelResults[0]) {
+                        const firstFunnelEntry = funnelResults[0]
+
+                        funnelEntrants = Array.isArray(firstFunnelEntry)
+                            ? firstFunnelEntry[0].count
+                            : firstFunnelEntry.count
+                    }
 
                     const conversionRate = conversionMetrics.totalRate * 100
                     const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)

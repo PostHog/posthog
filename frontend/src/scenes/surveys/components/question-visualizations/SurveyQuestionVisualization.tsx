@@ -12,7 +12,7 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
-import { RatingQuestionViz } from './RatingQuestionViz'
+import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
 import { SingleChoiceQuestionViz } from './SingleChoiceQuestionViz'
 
 interface Props {
@@ -72,25 +72,29 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
         case SurveyQuestionType.Rating:
             return (
                 <>
-                    <div className="h-50 border rounded p-4 flex flex-col gap-2">
-                        <div className="flex justify-between items-end h-full">
-                            {Array.from({ length: question.scale || 5 }).map((_, i) => {
-                                // Use predefined height classes for variety
-                                const heights = ['h-4', 'h-8', 'h-12', 'h-16', 'h-20', 'h-24', 'h-28', 'h-32']
-                                const randomHeight = heights[Math.floor(Math.random() * heights.length)]
-                                return (
-                                    <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                                        <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
-                                        <span className="text-sm text-secondary font-semibold">{i + 1}</span>
-                                    </div>
-                                )
-                            })}
+                    <div className="flex flex-col gap-1">
+                        <div className="h-50 border rounded p-4 flex flex-col gap-2">
+                            <div className="flex justify-between items-end h-full">
+                                {Array.from({ length: question.scale || 5 }).map((_, i) => {
+                                    // Use predefined height classes for variety
+                                    const heights = ['h-4', 'h-8', 'h-12', 'h-16', 'h-20', 'h-24', 'h-28', 'h-32']
+                                    const randomHeight = heights[Math.floor(Math.random() * heights.length)]
+                                    return (
+                                        <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                                            <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
+                                            <span className="text-sm text-secondary font-semibold">{i + 1}</span>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                        <div className="flex flex-row justify-between">
+                            <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
+                            <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
                         </div>
                     </div>
-                    <div className="flex flex-row justify-between mt-1">
-                        <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
-                        <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
-                    </div>
+                    {question.scale === 10 && <NPSBreakdownSkeleton />}
+                    <LemonSkeleton className="h-9 w-full" />
                 </>
             )
         case SurveyQuestionType.SingleChoice:
@@ -163,7 +167,8 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 }
 
 export function SurveyQuestionVisualization({ question, questionIndex }: Props): JSX.Element | null {
-    const { consolidatedSurveyResults, consolidatedSurveyResultsLoading } = useValues(surveyLogic)
+    const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
+        useValues(surveyLogic)
 
     if (!question.id || question.type === SurveyQuestionType.Link) {
         return null
@@ -172,11 +177,13 @@ export function SurveyQuestionVisualization({ question, questionIndex }: Props):
     const processedData: QuestionProcessedResponses | undefined =
         consolidatedSurveyResults?.responsesByQuestion[question.id]
 
-    if (consolidatedSurveyResultsLoading || !processedData) {
+    if (consolidatedSurveyResultsLoading || surveyBaseStatsLoading || !processedData) {
         return (
             <div className="flex flex-col gap-2">
                 <QuestionTitle question={question} questionIndex={questionIndex} />
-                <QuestionLoadingSkeleton question={question} />
+                <div className="flex flex-col gap-4">
+                    <QuestionLoadingSkeleton question={question} />
+                </div>
             </div>
         )
     }
@@ -197,26 +204,29 @@ export function SurveyQuestionVisualization({ question, questionIndex }: Props):
                 questionIndex={questionIndex}
                 totalResponses={processedData.totalResponses}
             />
-            <ErrorBoundary className="m-0">
-                {question.type === SurveyQuestionType.Rating && processedData.type === SurveyQuestionType.Rating && (
-                    <RatingQuestionViz
-                        question={question}
-                        questionIndex={questionIndex}
-                        processedData={processedData}
-                    />
-                )}
-                {question.type === SurveyQuestionType.SingleChoice &&
-                    processedData.type === SurveyQuestionType.SingleChoice && (
-                        <SingleChoiceQuestionViz question={question} processedData={processedData} />
+            <div className="flex flex-col gap-4">
+                <ErrorBoundary className="m-0">
+                    {question.type === SurveyQuestionType.Rating &&
+                        processedData.type === SurveyQuestionType.Rating && (
+                            <RatingQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
+                                processedData={processedData}
+                            />
+                        )}
+                    {question.type === SurveyQuestionType.SingleChoice &&
+                        processedData.type === SurveyQuestionType.SingleChoice && (
+                            <SingleChoiceQuestionViz question={question} processedData={processedData} />
+                        )}
+                    {question.type === SurveyQuestionType.MultipleChoice &&
+                        processedData.type === SurveyQuestionType.MultipleChoice && (
+                            <MultipleChoiceQuestionViz responseData={processedData.data} />
+                        )}
+                    {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (
+                        <OpenQuestionViz question={question} responseData={processedData.data} />
                     )}
-                {question.type === SurveyQuestionType.MultipleChoice &&
-                    processedData.type === SurveyQuestionType.MultipleChoice && (
-                        <MultipleChoiceQuestionViz responseData={processedData.data} />
-                    )}
-                {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (
-                    <OpenQuestionViz question={question} responseData={processedData.data} />
-                )}
-            </ErrorBoundary>
+                </ErrorBoundary>
+            </div>
         </div>
     )
 }

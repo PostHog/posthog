@@ -109,6 +109,7 @@ export function convertFileSystemEntryToTreeDataItem({
             record: { ...item, user },
             checked: checkedItems[nodeId],
             tags: item.tags,
+            visualOrder: item.visualOrder,
         }
         if (item && disabledReason?.(item)) {
             node.disabledReason = disabledReason(item)
