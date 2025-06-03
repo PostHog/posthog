@@ -60,6 +60,7 @@ from .views import (
 from posthog.api.query import progress
 
 from posthog.api.slack import slack_interactivity_callback
+from .views.message_preferences import preferences_page, update_preferences
 
 logger = structlog.get_logger(__name__)
 
@@ -240,6 +241,9 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    # Message preferences
+    path("preferences/<str:token>/", preferences_page, name="message_preferences"),
+    path("preferences/update/", update_preferences, name="message_preferences_update"),
 ]
 
 if settings.DEBUG:

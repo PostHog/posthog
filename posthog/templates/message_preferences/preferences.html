@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-lg mx-auto py-8 px-4">
+    <h1 class="text-2xl font-bold mb-4">Message Preferences</h1>
+    <p class="mb-6">
+        Manage message preferences for {{ recipient.identifier }}
+    </p>
+
+    <form id="preferences-form" class="space-y-6">
+        {% csrf_token %}
+        <input type="hidden" name="token" value="{{ token }}">
+        
+        {% for category in categories %}
+        <div class="bg-white shadow rounded-lg p-4">
+            <div class="flex items-start space-x-4">
+                <div class="flex-1">
+                    <h3 class="font-medium">{{ category.name }}</h3>
+                    {% if category.description %}
+                    <p class="text-sm text-gray-500">{{ category.description }}</p>
+                    {% endif %}
+                </div>
+                <div class="flex items-center">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" 
+                               name="preferences[]"
+                               value="{{ category.id }}:{% if category.opted_in %}true{% else %}false{% endif %}"
+                               class="preference-toggle sr-only peer"
+                               {% if category.opted_in %}checked{% endif %}>
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer 
+                                  peer-checked:after:translate-x-full peer-checked:after:border-white 
+                                  after:content-[''] after:absolute after:top-[2px] after:left-[2px] 
+                                  after:bg-white after:border-gray-300 after:border after:rounded-full 
+                                  after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="mt-6">
+            <button type="submit" 
+                    class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 
+                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                Save Preferences
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('preferences-form');
+    const toggles = document.querySelectorAll('.preference-toggle');
+
+    // Update hidden value when toggle changes
+    toggles.forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const [categoryId] = this.value.split(':');
+            this.value = `${categoryId}:${this.checked}`;
+        });
+    });
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const submitButton = form.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        
+        try {
+            const response = await fetch('{% url "message_preferences_update" %}', {
+                method: 'POST',
+                body: new FormData(form),
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            });
+            
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg';
+            successMsg.textContent = 'Preferences updated successfully';
+            document.body.appendChild(successMsg);
+            setTimeout(() => successMsg.remove(), 3000);
+            
+        } catch (error) {
+            // Show error message
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg';
+            errorMsg.textContent = error.message || 'Failed to update preferences';
+            document.body.appendChild(errorMsg);
+            setTimeout(() => errorMsg.remove(), 3000);
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %} 
