@@ -159,11 +159,9 @@ function HedgehogColor(): JSX.Element {
     const skinRoboHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_ROBOHOG')
 
     const skins: HedgehogSkin[] = ['default']
-
     if (skinSpiderHogEnabled) {
         skins.push('spiderhog')
     }
-
     if (skinRoboHogEnabled) {
         skins.push('robohog')
     }
@@ -185,7 +183,7 @@ function HedgehogColor(): JSX.Element {
                         size="small"
                         onClick={() => patchHedgehogConfig({ skin: option as any, color: null })}
                         noPadding
-                        tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
+                        tooltip={<>{capitalizeFirstLetter(option ?? 'default').replace('hog', 'Hog')}</>}
                     >
                         <HedgehogBuddyStatic skin={option} />
                     </LemonButton>
