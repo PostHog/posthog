@@ -894,6 +894,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=s3_default_fields(),
         )
+
+        # rolling out pre-export stage to select teams for now
         is_sessions_model = inputs.batch_export_model and inputs.batch_export_model.name == "sessions"
         if not is_sessions_model and str(inputs.team_id) in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
             await execute_batch_export_insert_activity_using_s3_stage(
