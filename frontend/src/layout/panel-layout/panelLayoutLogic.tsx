@@ -4,7 +4,7 @@ import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'Data'
+export type PanelLayoutNavIdentifier = 'Project' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'DataWarehouse'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
@@ -69,7 +69,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         isLayoutPanelPinned: [
-            true,
+            false,
             { persist: true },
             {
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,

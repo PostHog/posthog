@@ -7,8 +7,8 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     UTM_FIELDS,
     ATTRIBUTION_TRACKING_FIELDS,
     PATH_FIELDS,
-    WEB_STATS_DAILY_SPECIFIC_FIELDS,
-    WEB_BOUNCES_DAILY_SPECIFIC_FIELDS,
+    WEB_STATS_SPECIFIC_FIELDS,
+    WEB_BOUNCES_SPECIFIC_FIELDS,
 )
 
 
@@ -26,13 +26,13 @@ class TestWebAnalyticsPreAggregatedSchema:
         bounces_table = WebBouncesDailyTable()
 
         # Stats table specific fields
-        for field_name in WEB_STATS_DAILY_SPECIFIC_FIELDS.keys():
+        for field_name in WEB_STATS_SPECIFIC_FIELDS.keys():
             assert (
                 field_name in stats_table.fields
             ), f"Stats-specific field '{field_name}' missing from WebStatsDailyTable"
 
         # Bounces table specific fields
-        for field_name in WEB_BOUNCES_DAILY_SPECIFIC_FIELDS.keys():
+        for field_name in WEB_BOUNCES_SPECIFIC_FIELDS.keys():
             assert (
                 field_name in bounces_table.fields
             ), f"Bounces-specific field '{field_name}' missing from WebBouncesDailyTable"
