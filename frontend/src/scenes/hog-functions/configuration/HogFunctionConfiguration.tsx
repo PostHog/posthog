@@ -36,6 +36,8 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
+import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
@@ -54,7 +56,6 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
-        hideTestingConfiguration?: boolean
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
@@ -78,7 +79,7 @@ export function HogFunctionConfiguration({
         hogFunction,
         willReEnableOnSave,
         willChangeEnabledOnSave,
-        globalsWithInputs,
+        sampleGlobalsWithInputs,
         showPaygate,
         hasAddon,
         personsCount,
@@ -207,7 +208,7 @@ export function HogFunctionConfiguration({
         // Never allow editing for legacy plugins
         (!isLegacyPlugin &&
             !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
+            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
@@ -350,6 +351,8 @@ export function HogFunctionConfiguration({
                                         </LemonDropdown>
                                     ) : null}
                                 </div>
+
+                                {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
                                 {showFilters && <HogFunctionFilters />}
 
@@ -501,8 +504,8 @@ export function HogFunctionConfiguration({
                                                 <>
                                                     {!type.startsWith('site_') ? (
                                                         <span className="text-xs text-secondary">
-                                                            This is the underlying Hog code that will run whenever the
-                                                            filters match.{' '}
+                                                            This is the underlying Hog code that will run whenever this
+                                                            triggers.{' '}
                                                             <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
                                                             for more info
                                                         </span>
@@ -518,7 +521,7 @@ export function HogFunctionConfiguration({
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
                                                         onChange={(v) => onChange(v ?? '')}
-                                                        globals={globalsWithInputs}
+                                                        globals={sampleGlobalsWithInputs}
                                                         options={{
                                                             minimap: {
                                                                 enabled: false,
@@ -539,9 +542,8 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? (
-                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
-                            ) : null}
+                            {showTesting ? <HogFunctionTest /> : null}
+                            {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
                             {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>

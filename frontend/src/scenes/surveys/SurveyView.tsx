@@ -306,7 +306,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <div>
                                         <p>Get notified whenever a survey result is submitted</p>
                                         <LinkedHogFunctions
-                                            logicKey="survey"
                                             type="destination"
                                             subTemplateIds={['survey-response']}
                                             filters={{

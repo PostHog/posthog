@@ -1062,13 +1062,12 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         report.event_count_in_period > 0
         or report.enhanced_persons_event_count_in_period > 0
         or report.recording_count_in_period > 0
-        # explicitly not including mobile_recording_count_in_period for now
+        or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
-        # explicitly not including issues_created or exceptions_captured
-        # for now given we do not charge for error tracking yet
+        or report.exceptions_captured_in_period > 0
     )
 
 
