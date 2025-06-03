@@ -672,6 +672,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 matchingEventUUIDs,
                 windowNumberForID,
                 allContextItems,
+                featureFlags,
                 annotationItems
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
