@@ -145,7 +145,7 @@ class RemoteConfig(UUIDModel):
         # MARK: Error tracking
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
-            "suppressionRules": get_suppression_rules(team),
+            "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
         }
 
         # MARK: Session recording

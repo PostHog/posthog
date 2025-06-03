@@ -172,7 +172,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
     response["errorTracking"] = {
         "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
-        "suppressionRules": get_suppression_rules(team),
+        "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
     }
 
     site_apps = []

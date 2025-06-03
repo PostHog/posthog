@@ -633,10 +633,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
@@ -764,7 +761,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
-        response = self._post_decide(assert_num_queries=3)
+        response = self._post_decide(assert_num_queries=2)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
@@ -787,7 +784,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 5)
+        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 4)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
@@ -3155,7 +3152,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "inject_web_apps": True,
             "recording_domains": ["https://*.example.com"],
             "capture_performance_opt_in": True,
-            "autocapture_exceptions_opt_in": True,
+            # "autocapture_exceptions_opt_in": True,
+            "surveys_opt_in": True,
         }
         self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
 
@@ -3177,10 +3175,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
         self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], False)
 
         response = self._post_decide(
             api_version=2, origin="https://random.example.com", simulate_database_timeout=True
@@ -3201,10 +3196,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["capturePerformance"],
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], False)
         self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
