@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0751_errortrackingsuppressionrule"),
+        ("posthog", "0752_organization_members_can_invite"),
     ]
 
     operations = [
