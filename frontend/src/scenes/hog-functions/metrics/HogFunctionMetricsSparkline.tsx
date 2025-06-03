@@ -32,6 +32,12 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
         },
     ]
 
+    const isInStorybook = document.body.classList.contains('storybook-test-runner')
+
+    if (isInStorybook) {
+        return <div className="h-8 max-w-24 bg-surface-secondary" />
+    }
+
     return (
         <div ref={inViewRef}>
             {!inView || !appMetrics || appMetricsLoading ? (
