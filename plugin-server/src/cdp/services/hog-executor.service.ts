@@ -26,7 +26,7 @@ import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { LiquidRenderer } from '../utils/liquid'
+import { liquidRenderer } from '../utils/liquid'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -94,32 +94,29 @@ export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlob
     }
 }
 
-export const formatLiquidInput = (
-    liquid: LiquidRenderer,
-    value: unknown,
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
-): any => {
+const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
     if (value === null || value === undefined) {
         return value
     }
 
     if (typeof value === 'string') {
-        return liquid.renderWithHogFunctionGlobals(value, globals)
+        return liquidRenderer.renderWithHogFunctionGlobals(value, globals)
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => formatLiquidInput(liquid, item, globals, key))
-    } else if (typeof value === 'object' && value !== null) {
+        return value.map((item) => formatLiquidInput(item, globals, key))
+    }
+
+    if (typeof value === 'object' && value !== null) {
         return Object.fromEntries(
             Object.entries(value).map(([key2, value]) => [
                 key2,
-                formatLiquidInput(liquid, value, globals, key ? `${key}.${key2}` : key2),
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2),
             ])
         )
-    } else {
-        return value
     }
+
+    return value
 }
 
 export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
@@ -138,7 +135,6 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): str
 }
 
 export const buildGlobalsWithInputs = (
-    liquidRenderer: LiquidRenderer,
     globals: HogFunctionInvocationGlobals,
     inputs: HogFunctionType['inputs']
 ): HogFunctionInvocationGlobalsWithInputs => {
@@ -161,7 +157,7 @@ export const buildGlobalsWithInputs = (
         const templating = input.templating ?? 'hog'
 
         if (templating === 'liquid') {
-            newGlobals.inputs[key] = formatLiquidInput(liquidRenderer, input.value, newGlobals, key)
+            newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
         } else if (templating === 'hog' && input?.bytecode) {
             newGlobals.inputs[key] = formatHogInput(input.bytecode, newGlobals, key)
         }
@@ -172,11 +168,9 @@ export const buildGlobalsWithInputs = (
 
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
-    private liquidRenderer: LiquidRenderer
 
     constructor(private config: PluginsServerConfig) {
         this.telemetryMatcher = buildIntegerMatcher(this.config.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
-        this.liquidRenderer = new LiquidRenderer()
     }
 
     buildHogFunctionInvocations(
@@ -227,7 +221,7 @@ export class HogExecutorService {
                     },
                 }
 
-                const globalsWithInputs = buildGlobalsWithInputs(this.liquidRenderer, globalsWithSource, inputs)
+                const globalsWithInputs = buildGlobalsWithInputs(globalsWithSource, inputs)
 
                 return createInvocation(globalsWithInputs, hogFunction)
             } catch (error) {
@@ -400,7 +394,7 @@ export class HogExecutorService {
                         ...(invocation.hogFunction.inputs ?? {}),
                         ...(invocation.hogFunction.encrypted_inputs ?? {}),
                     }
-                    globals = buildGlobalsWithInputs(this.liquidRenderer, invocation.state.globals, inputs)
+                    globals = buildGlobalsWithInputs(invocation.state.globals, inputs)
                 }
             } catch (e) {
                 result.logs.push({

@@ -84,3 +84,5 @@ export class LiquidRenderer {
         return await this.render(template, context)
     }
 }
+
+export const liquidRenderer = new LiquidRenderer()
