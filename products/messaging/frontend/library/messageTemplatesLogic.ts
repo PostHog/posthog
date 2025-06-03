@@ -13,6 +13,7 @@ export interface MessageTemplate {
     name: string
     description: string
     content: {
+        templating: 'liquid' | 'hog'
         email: {
             from: string
             subject: string

@@ -26,7 +26,7 @@ export interface EmailTemplaterLogicProps {
     formLogicProps: any
     formKey: string
     formFieldsPrefix?: string
-    globals?: Record<string, any>
+    variables?: Record<string, any>
     emailMetaFields?: ('from' | 'to' | 'subject')[]
 }
 

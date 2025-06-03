@@ -21,23 +21,10 @@ function EmailTemplaterForm({
         emailTemplaterLogic(props)
     )
     const logic = emailTemplaterLogic(props)
-    const { appliedTemplate, templates, templatesLoading } = useValues(logic)
-    // @ts-expect-error - mergeTags will be available after kea-typegen runs
-    const mergeTags = logic.values.mergeTags || {}
+    const { appliedTemplate, templates, templatesLoading, mergeTags } = useValues(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
-
-    // Configure Unlayer editor options with merge tags
-    const editorOptions = {
-        mergeTags,
-        displayMode: 'email' as const,
-        features: {
-            preview: true,
-            imageEditor: true,
-            stockImages: false,
-        },
-    }
 
     return (
         <>
@@ -61,7 +48,7 @@ function EmailTemplaterForm({
                 />
             )}
             <Form
-                className="flex flex-col border rounded overflow-hidden flex-1"
+                className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={props.formLogic}
                 props={props.formLogicProps}
                 formKey={props.formKey}
@@ -70,7 +57,7 @@ function EmailTemplaterForm({
                     <LemonField
                         key={field}
                         name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}${field}`}
-                        className="border-b shrink-0 gap-1 pl-2"
+                        className="gap-1 pl-2 border-b shrink-0"
                         // We will handle the error display ourselves
                         renderError={() => null}
                     >
@@ -82,7 +69,7 @@ function EmailTemplaterForm({
                                 <CodeEditorInline
                                     embedded
                                     className="flex-1"
-                                    globals={props.globals}
+                                    globals={props.variables}
                                     value={value}
                                     onChange={onChange}
                                 />
@@ -95,17 +82,25 @@ function EmailTemplaterForm({
                     <EmailEditor
                         ref={(r) => setEmailEditorRef(r)}
                         onReady={() => emailEditorReady()}
-                        options={editorOptions}
+                        options={{
+                            mergeTags,
+                            displayMode: 'email',
+                            features: {
+                                preview: true,
+                                imageEditor: true,
+                                stockImages: false,
+                            },
+                        }}
                     />
                 ) : (
                     <LemonField
                         name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}html`}
-                        className="relative flex flex-col"
+                        className="flex relative flex-col"
                     >
                         {({ value }) => (
                             <>
-                                <div className="absolute inset-0 p-2 flex items-end justify-center transition-opacity opacity-0 hover:opacity-100">
-                                    <div className="opacity-50 bg-surface-primary absolute inset-0" />
+                                <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
+                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>
@@ -133,7 +128,7 @@ export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX
                         <h2>Editing email template</h2>
                     </div>
                     <EmailTemplaterForm {...props} mode="full" />
-                    <div className="flex items-center mt-2 gap-2">
+                    <div className="flex gap-2 items-center mt-2">
                         <div className="flex-1" />
                         <LemonButton onClick={() => setIsModalOpen(false)}>Cancel</LemonButton>
                         <LemonButton type="primary" onClick={() => onSave()}>
