@@ -4,7 +4,7 @@
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
-    --scene-padding-bottom: var(--scene-padding);
+    --scene-padding-bottom: 4rem;
 
     display: flex;
     width: 100%;
@@ -43,18 +43,24 @@
     // `relative` is for positioning of the scene-level spinner
     position: relative;
     min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
-    padding-bottom: 20rem; // Breathing room for our products so they're not hugging the bottom of the screen
     margin: var(--scene-padding);
     margin-bottom: var(--scene-padding-bottom);
 
-    &.Navigation3000__scene--raw,
-    .Navigation3000__scene--raw-no-header {
+    &.Navigation3000__scene--raw {
         --scene-padding: 0px;
         --scene-padding-bottom: 0px;
 
         display: flex;
         flex-direction: column;
-        padding-bottom: 0;
+    }
+
+    &.Navigation3000__scene--raw-no-header {
+        --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
+
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
     }
 }
 
