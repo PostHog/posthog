@@ -40,7 +40,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
-        setAppliedTemplate: (template: MessageTemplate) => ({ template }),
         cancelChanges: true,
     }),
     reducers({
@@ -66,7 +65,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         appliedTemplate: [
             null as MessageTemplate | null,
             {
-                setAppliedTemplate: (_, { template }) => template,
+                applyTemplate: (_, { template }) => template,
             },
         ],
     }),
@@ -172,28 +171,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
-
             actions.setEmailTemplateValues(emailTemplateContent)
-
-            // if (emailTemplateContent) {
-            //     if (emailTemplateContent.html) {
-            //         setFormValue(pathParts.concat('html'), escapeHTMLStringCurlies(emailTemplateContent.html))
-            //     }
-
-            //     if (emailTemplateContent.design) {
-            //         setFormValue(pathParts.concat('design'), emailTemplateContent.design)
-            //     }
-
-            //     if (emailTemplateContent.from) {
-            //         setFormValue(pathParts.concat('from'), emailTemplateContent.from)
-            //     }
-
-            //     if (emailTemplateContent.subject) {
-            //         setFormValue(pathParts.concat('subject'), emailTemplateContent.subject)
-            //     }
-            // }
-
-            actions.setAppliedTemplate(template)
         },
 
         cancelChanges: () => {
