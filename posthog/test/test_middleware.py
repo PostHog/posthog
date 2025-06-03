@@ -1,11 +1,13 @@
 import json
 from datetime import datetime, timedelta
 from urllib.parse import quote
+from unittest.mock import patch
 
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
+from django.conf import settings
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -142,7 +144,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 50
+        cls.base_app_num_queries = 54
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -618,3 +620,199 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
+
+
+@override_settings(SESSION_COOKIE_AGE=100)
+@override_settings(SESSION_IDLE_TIMEOUT_SECONDS=20)
+class TestSessionAgeMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Patch time.time before login to ensure session creation time is correct
+        self.time_patcher = patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+        self.time_patcher.start()
+        self.client.force_login(self.user)
+        self.time_patcher.stop()
+
+    def tearDown(self):
+        super().tearDown()
+        # Ensure any remaining patches are stopped
+        self.time_patcher.stop()
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_continues_when_active(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward 15 seconds (still active)
+        mock_time.return_value = 1704110415.0  # 2024-01-01 12:00:15
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Force session to be saved and reloaded
+        self.client.session.save()
+        self.client.session.load()
+
+        # Session should continue, last_activity should now be updated
+        self.assertEqual(self.client.session.get("last_activity"), 1704110415.0)
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_continues_when_idle_but_not_expired(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward 30 seconds (idle but not expired)
+        mock_time.return_value = 1704110430.0  # 2024-01-01 12:00:30
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Force session to be saved and reloaded
+        self.client.session.save()
+        self.client.session.load()
+
+        # Session should continue even though idle, but last_activity should not be updated
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_expires_after_total_time(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward past total session age (101 seconds)
+        mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/login")
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_org_specific_session_timeout(self, mock_time):
+        # Set org-specific timeout
+        self.organization.session_cookie_age = 50
+        self.organization.save()
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward past org timeout (51 seconds)
+        mock_time.return_value = 1704110451.0  # 2024-01-01 12:00:51
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/login")
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_shortest_org_timeout_used(self, mock_time):
+        # Create another org with shorter timeout
+        other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
+        self.user.organizations.add(other_org)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward past shorter timeout (31 seconds)
+        mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/login")
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_org_specific_idle_timeout(self, mock_time):
+        # Set org-specific idle timeout
+        self.organization.session_idle_timeout_seconds = 10
+        self.organization.save()
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward 9 seconds (still active)
+        mock_time.return_value = 1704110409.0  # 2024-01-01 12:00:09
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Force session to be saved and reloaded
+        self.client.session.save()
+        self.client.session.load()
+
+        # Session should continue, last_activity should be updated
+        self.assertEqual(self.client.session.get("last_activity"), 1704110409.0)
+
+        # Move forward 11 seconds (past idle timeout)
+        mock_time.return_value = 1704110420.0  # 2024-01-01 12:00:20
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Force session to be saved and reloaded
+        self.client.session.save()
+        self.client.session.load()
+
+        # Session should continue but last_activity should not be updated
+        self.assertEqual(self.client.session.get("last_activity"), 1704110409.0)
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_shortest_org_idle_timeout_used(self, mock_time):
+        # Create another org with shorter idle timeout
+        other_org = Organization.objects.create(name="Other Org", session_idle_timeout_seconds=5)
+        self.user.organizations.add(other_org)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        # last_activity should initially be the same as session_created_at
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Move forward 4 seconds (still active)
+        mock_time.return_value = 1704110404.0  # 2024-01-01 12:00:04
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Force session to be saved and reloaded
+        self.client.session.save()
+        self.client.session.load()
+
+        # Session should continue, last_activity should be updated
+        self.assertEqual(self.client.session.get("last_activity"), 1704110404.0)
+
+        # Move forward 6 seconds (past shorter idle timeout)
+        mock_time.return_value = 1704110410.0  # 2024-01-01 12:00:10
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Force session to be saved and reloaded
+        self.client.session.save()
+        self.client.session.load()
+
+        # Session should continue but last_activity should not be updated
+        self.assertEqual(self.client.session.get("last_activity"), 1704110404.0)
