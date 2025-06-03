@@ -23,7 +23,8 @@ export async function processPersonsStep(
         processPerson,
         runner.hub.db.kafkaProducer,
         distinctIdBatchStore,
-        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE
+        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+        runner.hub.PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION
     ).update()
 
     return [event, person, kafkaAck]

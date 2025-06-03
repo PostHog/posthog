@@ -40,6 +40,7 @@ import {
     ResultCustomizationBy,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
@@ -151,6 +152,12 @@ export function isRevenueAnalyticsOverviewQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsOverviewQuery {
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsInsightsQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsInsightsQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
@@ -344,21 +351,33 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
+        return (
+            query.trendsFilter?.formulaNodes?.[0]?.formula ||
+            query.trendsFilter?.formulas?.[0] ||
+            query.trendsFilter?.formula
+        )
     }
     return undefined
 }
 
 export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        return (
+            query.trendsFilter?.formulaNodes?.map((node) => node.formula) ||
+            query.trendsFilter?.formulas ||
+            (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        )
     }
     return undefined
 }
 
 export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulaNodes
+        return (
+            query.trendsFilter?.formulaNodes ||
+            query.trendsFilter?.formulas?.map((formula) => ({ formula })) ||
+            (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
+        )
     }
     return undefined
 }
@@ -472,7 +491,7 @@ export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty
 
 export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
     const filterProperty = nodeKindToFilterProperty[node.kind]
-    return node[filterProperty]
+    return node[filterProperty as keyof InsightQueryNode] as InsightFilter | undefined
 }
 
 export function isQuoted(identifier: string): boolean {

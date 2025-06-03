@@ -9,14 +9,14 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,13 +27,15 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
-import { QuestionSuggestions } from './QuestionSuggestions'
+import { QuestionInputWithSuggestions } from './QuestionInputWithSuggestions'
 import { Thread } from './Thread'
 
 export const scene: SceneExport = {
@@ -75,9 +77,16 @@ export interface MaxInstanceProps {
     sidePanel?: boolean
 }
 
-export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled } = useValues(maxLogic)
+export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
+    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
+        useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+
+    const threadProps: MaxThreadLogicProps = {
+        conversationId: threadLogicKey,
+        conversation,
+    }
+
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -168,47 +177,49 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
-            {conversationHistoryVisible ? (
-                <ConversationHistory sidePanel={sidePanel} />
-            ) : !threadVisible ? (
-                // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
-                // is at the same viewport height as the QuestionInput text that appear after going into a thread.
-                // This makes the transition from one view into another just that bit smoother visually.
-                <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
-                    {wasUserAutoEnrolled && (
-                        <LemonBanner
-                            type="info"
-                            className="mt-3"
-                            hideIcon={false}
-                            onClose={() => setWasUserAutoEnrolled(false)}
-                        >
-                            PostHog AI feature preview{' '}
-                            <Link
-                                to={
-                                    combineUrl(currentLocation.pathname, currentLocation.search, {
-                                        ...currentLocation.hashParams,
-                                        panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
-                                    }).url
-                                }
+            <BindLogic logic={maxThreadLogic} props={threadProps}>
+                {conversationHistoryVisible ? (
+                    <ConversationHistory sidePanel={sidePanel} />
+                ) : !threadVisible ? (
+                    // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
+                    // is at the same viewport height as the QuestionInput text that appear after going into a thread.
+                    // This makes the transition from one view into another just that bit smoother visually.
+                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                        {wasUserAutoEnrolled && (
+                            <LemonBanner
+                                type="info"
+                                className="mt-3"
+                                hideIcon={false}
+                                onClose={() => setWasUserAutoEnrolled(false)}
                             >
-                                activated
-                            </Link>
-                            !
-                        </LemonBanner>
-                    )}
-                    <div className="flex-1 items-center justify-center flex flex-col gap-3">
-                        <Intro />
-                        <QuestionInput />
-                        <QuestionSuggestions />
+                                PostHog AI feature preview{' '}
+                                <Link
+                                    to={
+                                        combineUrl(currentLocation.pathname, currentLocation.search, {
+                                            ...currentLocation.hashParams,
+                                            panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
+                                        }).url
+                                    }
+                                >
+                                    activated
+                                </Link>
+                                !
+                            </LemonBanner>
+                        )}
+                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                            <Intro />
+                            <QuestionInputWithSuggestions />
+                        </div>
+                        <HistoryPreview sidePanel={sidePanel} />
                     </div>
-                    <HistoryPreview sidePanel={sidePanel} />
-                </div>
-            ) : (
-                <>
-                    <Thread />
-                    <QuestionInput isFloating />
-                </>
-            )}
+                ) : (
+                    /** Must be the last child and be a direct descendant of the scrollable element */
+                    <ThreadAutoScroller>
+                        <Thread />
+                        <QuestionInput isFloating />
+                    </ThreadAutoScroller>
+                )}
+            </BindLogic>
         </>
     )
-}
+})

@@ -4,6 +4,7 @@
     position: sticky;
     top: 0;
     z-index: var(--z-top-navigation);
+    z-index: 1000;
     display: flex;
     align-items: start;
     height: var(--breadcrumbs-height-full);

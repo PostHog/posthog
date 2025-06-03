@@ -334,6 +334,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
 
 class MappingsSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False)
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
     filters = HogFunctionFiltersSerializer(required=False)

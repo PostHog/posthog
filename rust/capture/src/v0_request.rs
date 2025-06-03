@@ -1,8 +1,7 @@
-use std::collections::HashSet;
 use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
-use common_types::{CapturedEvent, RawEvent};
+use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
@@ -12,13 +11,8 @@ use tracing::{debug, error, instrument, warn, Span};
 use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
-    token::validate_token,
     utils::{
-        decode_base64,
-        decompress_lz64,
-        is_likely_base64,
-        Base64Option,
-        //MAX_PAYLOAD_SNIPPET_SIZE,
+        decode_base64, decompress_lz64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE,
     },
 };
 
@@ -109,6 +103,8 @@ pub enum RawRequest {
     Batch(BatchedRequest),
     /// Single event (/capture)
     One(Box<RawEvent>),
+    /// Single person-props update event w/o name (/engage)
+    Engage(Box<RawEngageEvent>),
 }
 
 #[derive(Deserialize)]
@@ -264,8 +260,7 @@ impl RawRequest {
         if is_mirror_deploy {
             let truncate_at: usize = payload
                 .char_indices()
-                //.nth(MAX_PAYLOAD_SNIPPET_SIZE)
-                .nth(1024) // TODO(eli): temporary for odd /engage payload inspection
+                .nth(MAX_PAYLOAD_SNIPPET_SIZE)
                 .map(|(n, _)| n)
                 .unwrap_or(0);
             let payload_snippet = &payload[0..truncate_at];
@@ -279,22 +274,38 @@ impl RawRequest {
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
 
-    pub fn events(self) -> Vec<RawEvent> {
-        match self {
-            RawRequest::Array(events) => events,
-            RawRequest::One(event) => vec![*event],
-            RawRequest::Batch(req) => req.batch,
+    pub fn get_batch_token(&self) -> Option<String> {
+        if let RawRequest::Batch(req) = self {
+            return Some(req.token.clone());
         }
+        None
     }
 
-    pub fn extract_and_verify_token(&self) -> Result<String, CaptureError> {
-        let token = match self {
-            RawRequest::Batch(req) => req.token.to_string(),
-            RawRequest::One(event) => event.extract_token().ok_or(CaptureError::NoTokenError)?,
-            RawRequest::Array(events) => extract_token(events)?,
-        };
-        validate_token(&token)?;
-        Ok(token)
+    pub fn events(self, path: &str) -> Result<Vec<RawEvent>, CaptureError> {
+        match self {
+            RawRequest::Array(events) => Ok(events),
+            RawRequest::One(event) => Ok(vec![*event]),
+            RawRequest::Batch(req) => Ok(req.batch),
+            RawRequest::Engage(engage_event) => {
+                if path.starts_with("/engage") {
+                    Ok(vec![RawEvent {
+                        event: String::from("$identify"),
+                        token: engage_event.token,
+                        distinct_id: engage_event.distinct_id,
+                        uuid: engage_event.uuid,
+                        timestamp: engage_event.timestamp,
+                        offset: engage_event.offset,
+                        set: engage_event.set,
+                        set_once: engage_event.set_once,
+                        properties: engage_event.properties,
+                    }])
+                } else {
+                    Err(CaptureError::RequestParsingError(String::from(
+                        "non-engage event submitted without name",
+                    )))
+                }
+            }
+        }
     }
 
     pub fn historical_migration(&self) -> bool {
@@ -314,25 +325,6 @@ impl RawRequest {
         }
         None
     }
-}
-
-#[instrument(skip_all, fields(events = events.len()))]
-pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
-    let distinct_tokens: HashSet<Option<String>> = HashSet::from_iter(
-        events
-            .iter()
-            .map(RawEvent::extract_token)
-            .filter(Option::is_some),
-    );
-
-    return match distinct_tokens.len() {
-        0 => Err(CaptureError::NoTokenError),
-        1 => match distinct_tokens.iter().last() {
-            Some(Some(token)) => Ok(token.clone()),
-            _ => Err(CaptureError::NoTokenError),
-        },
-        _ => Err(CaptureError::MultipleTokensError),
-    };
 }
 
 #[derive(Debug)]
@@ -373,28 +365,15 @@ pub struct ProcessedEventMetadata {
 #[cfg(test)]
 mod tests {
     use crate::token::InvalidTokenReason;
+    use crate::utils::extract_and_verify_token;
     use base64::Engine as _;
     use bytes::Bytes;
-    use common_types::util::empty_string_is_none;
+    use common_types::RawEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
-    use serde::Deserialize;
     use serde_json::json;
-    use serde_json::Value;
-    use uuid::Uuid;
 
     use super::{CaptureError, Compression, RawRequest};
-
-    fn test_deserialize(json: Value) -> Result<Option<Uuid>, serde_json::Error> {
-        #[derive(Deserialize)]
-        struct TestStruct {
-            #[serde(deserialize_with = "empty_string_is_none")]
-            uuid: Option<Uuid>,
-        }
-
-        let result: TestStruct = serde_json::from_value(json)?;
-        Ok(result.uuid)
-    }
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -413,7 +392,8 @@ mod tests {
             false,
         )
         .expect("failed to parse")
-        .events();
+        .events("/i/v0/e")
+        .unwrap();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token1".to_string()), events[0].extract_token());
         assert_eq!("my_event1".to_string(), events[0].event);
@@ -441,7 +421,8 @@ mod tests {
             false,
         )
         .expect("failed to parse")
-        .events();
+        .events("/i/v0/e")
+        .unwrap();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token2".to_string()), events[0].extract_token());
         assert_eq!("my_event2".to_string(), events[0].event);
@@ -451,6 +432,54 @@ mod tests {
                 .extract_distinct_id()
                 .expect("cannot find distinct_id")
         );
+    }
+
+    #[test]
+    fn extract_non_engage_event_without_name_fails() {
+        let parse_and_extract_events =
+            |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
+                RawRequest::from_bytes(
+                    input.into(),
+                    Compression::Unsupported,
+                    "extract_distinct_id",
+                    2048,
+                    false,
+                )
+                .expect("failed to parse")
+                .events("/e/?ip=192.0.0.1&ver=2.3.4")
+            };
+
+        // since we're not extracting events against the /engage endpoint path,
+        // an event with a missing "event" (name) attribute is invalid
+        assert!(matches!(
+            parse_and_extract_events(
+                r#"{"token": "token", "distinct_id": "distinct_id", "properties":{"foo": 42, "bar": true}}"#
+            ),
+            Err(CaptureError::RequestParsingError(_))
+        ));
+    }
+
+    #[test]
+    fn extract_engage_event_without_name_is_resolved() {
+        let parse_and_extract_events =
+            |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
+                RawRequest::from_bytes(
+                    input.into(),
+                    Compression::Unsupported,
+                    "extract_distinct_id",
+                    2048,
+                    false,
+                )
+                .expect("failed to parse")
+                .events("/engage/?ip=10.0.0.1&ver=1.2.3")
+            };
+
+        let got = parse_and_extract_events(
+            r#"{"token": "token", "distinct_id": "distinct_id", "$set":{"foo": 42, "bar": true}}"#,
+        )
+        .expect("engage event hydrated");
+        assert!(got.len() == 1);
+        assert!(&got[0].event == "$identify");
     }
 
     #[test]
@@ -464,7 +493,8 @@ mod tests {
                 false,
             )
             .expect("failed to parse")
-            .events();
+            .events("/i/v0/e")
+            .unwrap();
             parsed[0]
                 .extract_distinct_id()
                 .ok_or(CaptureError::MissingDistinctId)
@@ -540,7 +570,8 @@ mod tests {
             false,
         )
         .expect("failed to parse")
-        .events();
+        .events("/i/v0/e")
+        .unwrap();
         assert_eq!(
             parsed[0].extract_distinct_id().expect("failed to extract"),
             expected_distinct_id
@@ -548,17 +579,24 @@ mod tests {
     }
 
     #[test]
-    fn extract_and_verify_token() {
+    fn test_extract_and_verify_token() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            RawRequest::from_bytes(
+            let raw_req = RawRequest::from_bytes(
                 input.into(),
                 Compression::Unsupported,
                 "extract_and_verify_token",
                 2048,
                 false,
             )
-            .expect("failed to parse")
-            .extract_and_verify_token()
+            .expect("failed to parse");
+
+            let maybe_batch_token = raw_req.get_batch_token();
+
+            let events = raw_req
+                .events("/i/v0/e")
+                .expect("failed to hydrate Vec<RawEvent>");
+
+            extract_and_verify_token(&events, maybe_batch_token)
         };
 
         let assert_extracted_token = |input: &'static str, expected: &str| {
@@ -611,30 +649,5 @@ mod tests {
         // Return token from single event if present
         assert_extracted_token(r#"{"event":"e","$token":"single_token"}"#, "single_token");
         assert_extracted_token(r#"{"event":"e","api_key":"single_token"}"#, "single_token");
-    }
-
-    #[test]
-    fn test_empty_uuid_string_is_none() {
-        let json = serde_json::json!({"uuid": ""});
-        let result = test_deserialize(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
-    }
-
-    #[test]
-    fn test_valid_uuid_is_some() {
-        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
-        let json = serde_json::json!({"uuid": valid_uuid});
-        let result = test_deserialize(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some(Uuid::parse_str(valid_uuid).unwrap()));
-    }
-
-    #[test]
-    fn test_invalid_uuid_is_error() {
-        let invalid_uuid = "not-a-uuid";
-        let json = serde_json::json!({"uuid": invalid_uuid});
-        let result = test_deserialize(json);
-        assert!(result.is_err());
     }
 }

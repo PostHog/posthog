@@ -15,6 +15,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentHoldoutType,
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
@@ -110,8 +111,9 @@ export enum NodeKind {
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
 
     // Revenue analytics queries
-    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsInsightsQuery = 'RevenueAnalyticsInsightsQuery',
+    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
@@ -149,8 +151,9 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -190,6 +193,7 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -209,8 +213,9 @@ export type QuerySchema =
     | WebPageURLSearchQuery
 
     // Revenue analytics
-    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
@@ -302,6 +307,8 @@ export interface HogQLQueryModifiers {
     customChannelTypeRules?: CustomChannelRule[]
     usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
+    formatCsvAllowDoubleQuotes?: boolean
+    convertToProjectTimezone?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -715,8 +722,9 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
-                    | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsInsightsQuery
+                    | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -744,8 +752,9 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
-        | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsInsightsQuery
+        | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -762,8 +771,9 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
-    displayLabel?: boolean
     borderColor?: string
+    displayLabel?: boolean
+    displayIfCrossed?: boolean
 }
 
 export interface ChartAxis {
@@ -1668,6 +1678,7 @@ export interface WebOverviewItem {
     kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
+    usedPreAggregatedTables?: boolean
 }
 
 export interface SamplingRate {
@@ -1724,6 +1735,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    usedPreAggregatedTables?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -1878,6 +1890,20 @@ export interface RevenueSources {
     events: string[]
 }
 
+export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
+
+export interface RevenueAnalyticsInsightsQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsInsightsQuery
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsInsightsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsInsightsQueryResponse = CachedQueryResponse<RevenueAnalyticsInsightsQueryResponse>
+
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
     kind: NodeKind.RevenueAnalyticsOverviewQuery
@@ -1928,6 +1954,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterTestAccounts?: boolean
     searchQuery?: string
     volumeResolution: integer
+    withAggregations?: boolean
+    withFirstEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -1941,7 +1969,6 @@ export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
-    volumeDay: number[]
     volumeRange: number[]
 }
 
@@ -1958,8 +1985,12 @@ export interface ErrorTrackingRelationalIssue {
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
-    earliest?: string
-    aggregations: ErrorTrackingIssueAggregations
+    first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
 
@@ -1971,17 +2002,18 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
-export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy: 'latest' | 'earliest'
+    orderBy?: 'latest' | 'earliest'
     searchTerm?: string
     resource?: string
     severityLevels: LogSeverityLevel[]
+    filterGroup: PropertyGroupFilter
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -2033,12 +2065,31 @@ export interface FileSystemEntry {
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
+    /** Order of object in tree */
+    visualOrder?: number
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: string
     flag?: string
+    /** Order of object in tree */
+    visualOrder?: number
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
+    /** Protocol of the item, defaults to "project://" */
+    protocol?: string
+}
+
+export interface PersistedFolder {
+    id: string
+    type: string
+    protocol: string
+    path: string
+    created_at: string
+    updated_at: string
 }
 
 export type InsightQueryNode =
@@ -2192,6 +2243,13 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
     kind: NodeKind.ExperimentExposureQuery
     experiment_id?: integer
+    experiment_name: string
+    exposure_criteria?: ExperimentExposureCriteria
+    // Generic type as FeatureFlagBasicType is recursive and the schema:build breaks
+    feature_flag: Record<string, any>
+    start_date: string | null
+    end_date: string | null
+    holdout?: ExperimentHoldoutType
 }
 
 export interface ExperimentQueryResponse {
@@ -2442,6 +2500,8 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
 export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
+    REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
+    REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
 }
 
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
@@ -2981,6 +3041,12 @@ export interface RevenueAnalyticsEventItem {
     currencyAwareDecimal: boolean
 }
 
+export interface RevenueAnalyticsGoal {
+    name: string
+    due_date: string
+    goal: number
+}
+
 export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
@@ -2991,6 +3057,11 @@ export interface RevenueAnalyticsConfig {
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
+
+    /**
+     * @default []
+     */
+    goals: RevenueAnalyticsGoal[]
 }
 
 export interface PageURL {

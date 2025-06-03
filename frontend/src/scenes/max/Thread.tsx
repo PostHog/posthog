@@ -50,6 +50,7 @@ import { ProductKey } from '~/types'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -61,7 +62,8 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { threadGrouped, conversationLoading, conversationId } = useValues(maxLogic)
+    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
@@ -78,9 +80,9 @@ export function Thread(): JSX.Element | null {
             ) : threadGrouped.length > 0 ? (
                 threadGrouped.map((group, index) => (
                     <MessageGroup
-                        key={index}
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
                         messages={group}
-                        index={index}
                         isFinal={index === threadGrouped.length - 1}
                     />
                 ))
@@ -128,7 +130,6 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
-    index: number
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
@@ -258,7 +259,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words',
+                'flex flex-col gap-px w-full break-words scroll-mt-12',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
@@ -337,7 +338,7 @@ interface AssistantMessageFormProps {
 }
 
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     return (
         <div className="flex flex-wrap gap-2 mt-1">
             {form.options.map((option) => (
@@ -358,7 +359,7 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
     )
 }
 
-function VisualizationAnswer({
+const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
@@ -456,10 +457,10 @@ function VisualizationAnswer({
                   </MessageTemplate>
               </>
           )
-}
+})
 
 function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     return (
         <LemonButton
@@ -476,8 +477,8 @@ function RetriableFailureActions(): JSX.Element {
 }
 
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
-    const { traceId } = useValues(maxLogic)
-    const { retryLastMessage } = useActions(maxLogic)
+    const { traceId } = useValues(maxThreadLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')

@@ -43,7 +43,12 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from .experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
@@ -54,12 +59,12 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
-from .link import Link
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .link import Link
 from .message_template import MessageTemplate
 from .messaging import MessagingRecord
 from .notebook import Notebook
@@ -93,7 +98,10 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+
+# Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
+from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
     "AlertConfiguration",
@@ -133,6 +141,7 @@ __all__ = [
     "Experiment",
     "ExperimentHoldout",
     "ExperimentSavedMetric",
+    "ExperimentToSavedMetric",
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
@@ -159,6 +168,11 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OAuthAccessToken",
+    "OAuthApplication",
+    "OAuthGrant",
+    "OAuthIDToken",
+    "OAuthRefreshToken",
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",

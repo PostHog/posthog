@@ -19,6 +19,8 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.test.base import APIBaseTest
 
 
@@ -237,6 +239,27 @@ class TestUserAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_user_can_cancel_own_email_change_request(self, _mock_capture, _mock_identify_task):
+        self.user.pending_email = "another@email.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/cancel_email_change_request")
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["pending_email"] is None
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_user_cannot_cancel_email_change_request_if_it_doesnt_exist(self, _mock_capture, _mock_identify_task):
+        # Fire a call to the endpoint without priming the User with a pending_email field
+
+        response = self.client.patch("/api/users/cancel_email_change_request")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
@@ -908,6 +931,25 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/{user_with_org_memberships.uuid}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert User.objects.filter(uuid=user_with_org_memberships.uuid).exists()
+
+    def test_cannot_delete_own_user_account_with_personal_api_key(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Delete User Account Key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+
+        OrganizationMembership.objects.filter(user=self.user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=self.user).exists()
+
+        self.client.logout()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):

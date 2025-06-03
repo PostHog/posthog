@@ -12,6 +12,7 @@ SubTemplateId = Literal[
     "activity-log",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "insight-alert-firing",
 ]
 
 
@@ -36,6 +37,7 @@ HogFunctionTemplateKind = Literal["messaging_campaign"]
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionMapping:
+    name: Optional[str] = None
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
     inputs_schema: Optional[list[dict]] = None
@@ -52,7 +54,7 @@ class HogFunctionMappingTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "deprecated"]
+    status: Literal["alpha", "beta", "stable", "deprecated", "coming_soon"]
     free: bool
     type: HogFunctionTemplateType
     id: str
