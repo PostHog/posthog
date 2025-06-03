@@ -29,7 +29,7 @@ export const manifest: ProductManifest = {
             tags: ['beta'],
         },
     ],
-    treeItemsDataManagement: [
+    treeItemsMetadata: [
         {
             path: 'Revenue settings',
             iconType: 'handMoney',

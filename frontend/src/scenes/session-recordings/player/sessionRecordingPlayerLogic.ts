@@ -839,12 +839,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
 
-            cache.debug?.('tryInitReplayer', {
-                windowId,
-                rootFrame: values.rootFrame,
-                snapshots: values.sessionPlayerData.snapshotsByWindowId[windowId],
-            })
-
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
@@ -1036,11 +1030,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
-
-            cache.debug?.('pause', {
-                currentTimestamp: values.currentTimestamp,
-                currentSegment: values.currentSegment,
-            })
         },
         setEndReached: async ({ reached }) => {
             if (reached) {
@@ -1156,7 +1145,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // This can happen if the player is not loaded due to us being in a "gap" segment
                 // In this case, we should progress time forward manually
                 if (values.currentSegment?.kind === 'gap') {
-                    cache.debug?.('gap segment: skipping forward')
                     newTimestamp = values.currentTimestamp + values.roughAnimationFPS
                 }
             }
@@ -1168,7 +1156,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.clearPlayerError()
-                cache.debug('buffering')
                 return
             }
 
@@ -1185,13 +1172,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
                     actions.setCurrentSegment(nextSegment)
                 } else {
-                    cache.debug('end of recording reached', {
-                        newTimestamp,
-                        segments: values.sessionPlayerData.segments,
-                        currentSegment: values.currentSegment,
-                        nextSegment,
-                        segmentIndex: values.sessionPlayerData.segments.indexOf(values.currentSegment),
-                    })
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()
                 }
@@ -1439,8 +1419,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             return
         }
 
-        delete (window as any).__debug_player
-
         actions.stopAnimation()
 
         cache.hasInitialized = false
@@ -1471,20 +1449,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         )
     }),
 
-    afterMount(({ props, actions, cache, values }) => {
-        cache.debugging = localStorage.getItem('ph_debug_player') === 'true'
-        cache.debug = (...args: any[]) => {
-            if (cache.debugging) {
-                // eslint-disable-next-line no-console
-                console.log('[⏯️ PostHog Replayer]', ...args)
-            }
-        }
-        ;(window as any).__debug_player = () => {
-            cache.debugging = !cache.debugging
-            localStorage.setItem('ph_debug_player', JSON.stringify(cache.debugging))
-            cache.debug('player data', values.sessionPlayerData)
-        }
-
+    afterMount(({ props, actions, cache }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview) {
             return
         }
