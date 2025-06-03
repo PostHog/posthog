@@ -37,6 +37,15 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
+
+                    setInterval(() => {
+                        const memory = (window.performance as any).memory
+                        if (memory) {
+                            loadedInstance.capture('memory_usage', {
+                                memory,
+                            })
+                        }
+                    }, 60000)
                 }
 
                 const Cypress = (window as WindowWithCypressCaptures).Cypress
@@ -56,15 +65,6 @@ export function loadPostHogJS(): void {
                 if (shouldResetSessionOnLoad) {
                     loadedInstance.sessionManager?.resetSessionId()
                 }
-
-                setInterval(() => {
-                    const memory = (window.performance as any).memory
-                    if (memory) {
-                        loadedInstance.capture('memory_usage', {
-                            memory,
-                        })
-                    }
-                }, 60000)
 
                 // Make sure we have access to the object in window for debugging
                 window.posthog = loadedInstance
