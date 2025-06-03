@@ -64,4 +64,4 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 }
 
 #[cfg(test)]
-pub mod tests;
+mod tests;
