@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template_new_campaign: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="hidden",
     free=True,
     type="destination",
     id="template-new-campaign",
