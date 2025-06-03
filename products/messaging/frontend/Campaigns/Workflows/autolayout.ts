@@ -74,6 +74,13 @@ export const getFormattedNodes = async (
 
     const layoutedGraph = await elk.layout(graph)
 
+    /**
+     * NB: ELK adjusts the positions of the nodes without taking into account the trigger node.
+     * needing a consistent position. This causes jerky movement each time the graph is updated.
+     * To combat that, we always give the trigger node a fixed 0,0 position and adjust the other nodes
+     * relative to it.
+     */
+
     // Find the trigger node and use its position as the offset
     const triggerNode = layoutedGraph.children?.find((node) => node.id === 'trigger_node')
     const offsetX = triggerNode?.x || 0
