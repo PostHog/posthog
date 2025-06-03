@@ -138,10 +138,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
 
                 props.onChange(finalValues)
-
-                // Load the logic and set the property...
                 actions.setIsModalOpen(false)
-                return finalValues
             },
         },
     })),
