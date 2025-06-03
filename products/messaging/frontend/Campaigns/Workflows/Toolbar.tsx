@@ -9,7 +9,6 @@ const TOOLBAR_NODES = [
 ] as const
 export type ToolbarNode = (typeof TOOLBAR_NODES)[number]
 
-// Draggable node component
 function ToolbarNode({
     node,
     setNewNode,
