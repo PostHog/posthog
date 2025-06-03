@@ -17,10 +17,8 @@ function EmailTemplaterForm({
 }: EmailTemplaterLogicProps & {
     mode: 'full' | 'preview'
 }): JSX.Element {
-    const { setEmailEditorRef, emailEditorReady, setIsModalOpen, applyTemplate } = useActions(
-        emailTemplaterLogic(props)
-    )
     const logic = emailTemplaterLogic(props)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(logic)
     const { appliedTemplate, templates, templatesLoading, mergeTags } = useValues(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -49,14 +47,14 @@ function EmailTemplaterForm({
             )}
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
-                logic={props.formLogic}
-                props={props.formLogicProps}
-                formKey={props.formKey}
+                logic={emailTemplaterLogic}
+                props={props}
+                formKey="emailTemplate"
             >
                 {(emailMetaFields || ['from', 'to', 'subject']).map((field) => (
                     <LemonField
                         key={field}
-                        name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}${field}`}
+                        name={field}
                         className="gap-1 pl-2 border-b shrink-0"
                         // We will handle the error display ourselves
                         renderError={() => null}
@@ -81,7 +79,7 @@ function EmailTemplaterForm({
                 {mode === 'full' ? (
                     <EmailEditor
                         ref={(r) => setEmailEditorRef(r)}
-                        onReady={() => emailEditorReady()}
+                        onReady={() => onEmailEditorReady()}
                         options={{
                             mergeTags,
                             displayMode: 'email',
@@ -93,10 +91,7 @@ function EmailTemplaterForm({
                         }}
                     />
                 ) : (
-                    <LemonField
-                        name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}html`}
-                        className="flex relative flex-col"
-                    >
+                    <LemonField name="html" className="flex relative flex-col">
                         {({ value }) => (
                             <>
                                 <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
@@ -118,7 +113,7 @@ function EmailTemplaterForm({
 
 export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX.Element {
     const { isModalOpen } = useValues(emailTemplaterLogic(props))
-    const { setIsModalOpen, onSave } = useActions(emailTemplaterLogic(props))
+    const { setIsModalOpen, submitEmailTemplate } = useActions(emailTemplaterLogic(props))
 
     return (
         <LemonModal isOpen={isModalOpen} width="90vw" onClose={() => setIsModalOpen(false)}>
@@ -131,7 +126,7 @@ export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX
                     <div className="flex gap-2 items-center mt-2">
                         <div className="flex-1" />
                         <LemonButton onClick={() => setIsModalOpen(false)}>Cancel</LemonButton>
-                        <LemonButton type="primary" onClick={() => onSave()}>
+                        <LemonButton type="primary" onClick={() => submitEmailTemplate()}>
                             Save
                         </LemonButton>
                     </div>

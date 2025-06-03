@@ -1,9 +1,9 @@
-import { actions, afterMount, kea, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
-import { EditorRef as _EditorRef } from 'react-email-editor'
+import { Editor, EditorRef as _EditorRef } from 'react-email-editor'
 
 import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
@@ -12,8 +12,10 @@ import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 // Helping kea-typegen navigate the exported type
 export interface EditorRef extends _EditorRef {}
 
+type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+
 export type EmailTemplate = {
-    design: any
+    design: JSONTemplate | null
     html: string
     subject: string
     text: string
@@ -22,10 +24,8 @@ export type EmailTemplate = {
 }
 
 export interface EmailTemplaterLogicProps {
-    formLogic: LogicWrapper
-    formLogicProps: any
-    formKey: string
-    formFieldsPrefix?: string
+    value: EmailTemplate | null
+    onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
     emailMetaFields?: ('from' | 'to' | 'subject')[]
 }
@@ -34,7 +34,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
     actions({
-        onSave: true,
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         emailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
@@ -46,6 +45,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as EditorRef | null,
             {
                 setEmailEditorRef: (_, { emailEditorRef }) => emailEditorRef,
+            },
+        ],
+        emailEditorReady: [
+            false,
+            {
+                emailEditorReady: true,
+                setEmailEditorRef: false,
             },
         ],
         isModalOpen: [
@@ -106,73 +112,87 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
+    forms(({ actions, values, props }) => ({
+        emailTemplate: {
+            defaults: {
+                from: '',
+                subject: '',
+                to: '',
+                html: '',
+                design: null as object | null,
+                text: '',
+            } as EmailTemplate,
+            submit: async (value) => {
+                const editor = values.emailEditorRef?.editor
+                if (!editor || !values.emailEditorReady) {
+                    return
+                }
+                const data = await new Promise<any>((res) => editor.exportHtml(res))
+
+                actions.setEmailTemplateValues({
+                    ...value,
+                    html: escapeHTMLStringCurlies(data.html),
+                    design: data.design,
+                })
+
+                props.onChange({
+                    ...value,
+                    html: escapeHTMLStringCurlies(data.html),
+                    design: data.design,
+                })
+
+                // Load the logic and set the property...
+                actions.setIsModalOpen(false)
+            },
+        },
+    })),
+
     listeners(({ props, values, actions }) => ({
-        onSave: async () => {
-            const editor = values.emailEditorRef?.editor
-            if (!editor) {
-                return
+        emailEditorReady: () => {
+            if (props.value?.design) {
+                values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
-            const data = await new Promise<any>((res) => editor.exportHtml(res))
-
-            // TRICKY: We have to build the action we need in order to nicely callback to the form field
-            const setFormValue = props.formLogic.findMounted(props.formLogicProps)?.actions?.[
-                `set${capitalizeFirstLetter(props.formKey)}Value`
-            ]
-
-            const pathParts = props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []
-
-            setFormValue(pathParts.concat('design'), data.design)
-            setFormValue(pathParts.concat('html'), escapeHTMLStringCurlies(data.html))
-
-            // Load the logic and set the property...
-            actions.setIsModalOpen(false)
         },
 
-        emailEditorReady: () => {
-            const pathParts = (props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []).concat('design')
+        setEmailTemplateValue: ({ name, value }) => {
+            // For all values other than the html we want to set as soon as something is modified
 
-            let value = props.formLogic.findMounted(props.formLogicProps)?.values?.[props.formKey]
+            console.log('setEmailTemplateValue', name, value)
 
-            // Get the value from the form and set it in the editor
-            while (pathParts.length && value) {
-                value = value[pathParts.shift()!]
+            if (name === 'html') {
+                return
             }
 
-            if (value) {
-                values.emailEditorRef?.editor?.loadDesign(value)
-            }
+            console.log('TO DO: set the value', name, value)
         },
 
         applyTemplate: ({ template }) => {
-            const setFormValue = props.formLogic.findMounted(props.formLogicProps)?.actions?.[
-                `set${capitalizeFirstLetter(props.formKey)}Value`
-            ]
-
-            const pathParts = props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []
-
             const emailTemplateContent = template.content.email
 
-            if (emailTemplateContent) {
-                if (emailTemplateContent.html) {
-                    setFormValue(pathParts.concat('html'), escapeHTMLStringCurlies(emailTemplateContent.html))
-                }
+            actions.setEmailTemplateValues(emailTemplateContent)
 
-                if (emailTemplateContent.design) {
-                    setFormValue(pathParts.concat('design'), emailTemplateContent.design)
-                }
+            // if (emailTemplateContent) {
+            //     if (emailTemplateContent.html) {
+            //         setFormValue(pathParts.concat('html'), escapeHTMLStringCurlies(emailTemplateContent.html))
+            //     }
 
-                if (emailTemplateContent.from) {
-                    setFormValue(pathParts.concat('from'), emailTemplateContent.from)
-                }
+            //     if (emailTemplateContent.design) {
+            //         setFormValue(pathParts.concat('design'), emailTemplateContent.design)
+            //     }
 
-                if (emailTemplateContent.subject) {
-                    setFormValue(pathParts.concat('subject'), emailTemplateContent.subject)
-                }
-            }
+            //     if (emailTemplateContent.from) {
+            //         setFormValue(pathParts.concat('from'), emailTemplateContent.from)
+            //     }
+
+            //     if (emailTemplateContent.subject) {
+            //         setFormValue(pathParts.concat('subject'), emailTemplateContent.subject)
+            //     }
+            // }
 
             actions.setAppliedTemplate(template)
         },
     })),
+
     afterMount(({ actions }) => {
         actions.loadTemplates()
         actions.loadPersonPropertyDefinitions()

@@ -7,6 +7,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { UserBasicType } from '~/types'
 
 import type { messageTemplatesLogicType } from './messageTemplatesLogicType'
+import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 export interface MessageTemplate {
     id: string
@@ -14,13 +15,7 @@ export interface MessageTemplate {
     description: string
     content: {
         templating: 'liquid' | 'hog'
-        email: {
-            from: string
-            subject: string
-            html: string
-            design: any
-            text: string
-        }
+        email: EmailTemplate
     }
     created_at: string | null
     updated_at: string | null

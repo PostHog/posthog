@@ -109,19 +109,26 @@ function JsonConfigField(props: {
     return <LemonCollapse embedded={false} panels={panels} size="xsmall" />
 }
 
-function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {
-    const { globalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
+function EmailTemplateField({
+    schema,
+    value,
+    onChange: _onChange,
+}: {
+    schema: HogFunctionInputSchemaType
+    value: any
+    onChange: (value: any) => void
+}): JSX.Element {
+    const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+
+    const onChange = (value: any) => {
+        console.log('onChange', value)
+        _onChange(value)
+    }
 
     return (
-        <>
-            <EmailTemplater
-                formLogic={hogFunctionConfigurationLogic}
-                formLogicProps={logicProps}
-                formKey="configuration"
-                formFieldsPrefix={`inputs.${schema.key}.value`}
-                globals={globalsWithInputs}
-            />
-        </>
+        <LemonField name={`inputs.${schema.key}`} help={schema.description}>
+            <EmailTemplater variables={globalsWithInputs} value={value} onChange={onChange} />
+        </LemonField>
     )
 }
 
@@ -258,7 +265,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
         case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         case 'email':
-            return <EmailTemplateField schema={schema} />
+            return <EmailTemplateField schema={schema} value={value} onChange={onChange} />
         default:
             return (
                 <strong className="text-danger">
