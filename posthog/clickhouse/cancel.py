@@ -21,7 +21,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
             """,
             {"client_query_id": f"{team_id}_{client_query_id}%"},
         )
-        initiator_host, query_id = result[0] if result else (None, None)
+        initiator_host, query_id = result[0] if (result and len(result[0]) == 2) else (None, None)
     except Exception as e:
         logger.info("Failed to find initiator host for query %s: %s", client_query_id, e)
         statsd.incr("clickhouse.query.cancellation.no_initiator_host", tags={"team_id": team_id})
