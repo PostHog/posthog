@@ -344,7 +344,6 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 s.activeDashboard,
                 s.contextEvents,
                 s.contextActions,
-                s.dashboardInsightIds,
             ],
             (
                 hasData: boolean,
