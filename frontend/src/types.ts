@@ -4628,6 +4628,7 @@ export type BatchExportServiceS3 = {
         endpoint_url: string | null
         file_format: string
         max_file_size_mb: number | null
+        use_virtual_style_addressing: boolean
     }
 }
 
