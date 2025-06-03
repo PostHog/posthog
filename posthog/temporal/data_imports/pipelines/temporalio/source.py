@@ -187,7 +187,7 @@ def temporalio_source(
         return SourceResponse(
             name=resource.value,
             items=workflows,
-            primary_keys=["id"],
+            primary_keys=["id", "run_id"],
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning
             partition_mode="datetime",
