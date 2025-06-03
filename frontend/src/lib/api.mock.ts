@@ -185,6 +185,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     membership_level: OrganizationMembershipLevel.Admin,
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
+    members_can_invite: true,
     teams: [MOCK_DEFAULT_TEAM],
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
