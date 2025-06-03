@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -415,9 +416,6 @@ function processResultsForSurveyQuestions(
 
     return responsesByQuestion
 }
-
-// Sync with posthog/hogql/constants.py
-export const MAX_SELECT_RETURNED_ROWS = 50000
 
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
