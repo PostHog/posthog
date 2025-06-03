@@ -1,19 +1,27 @@
-import { useValues, useActions } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { AnnotationScope } from '~/types'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { AnnotationScope } from '~/types'
+
 import { playerAnnotationOverlayLogic } from './playerFrameAnnotationOverlayLogic'
 
 const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
-    const { isAnnotating, sessionPlayerData: { durationMs, sessionRecordingId }, logicProps, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
-    const { submitRecordingAnnotation } = useActions(playerAnnotationOverlayLogic({ recordingId: sessionRecordingId, ...logicProps }))
+    const {
+        isAnnotating,
+        sessionPlayerData: { sessionRecordingId },
+        logicProps,
+    } = useValues(sessionRecordingPlayerLogic)
+    const { submitRecordingAnnotation } = useActions(
+        playerAnnotationOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
+    )
 
     return isAnnotating ? (
-        <div className="absolute bottom-4 left-4 z-20 w-200">
+        <div className="absolute bottom-4 left-4 z-20 w-60">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerAnnotationOverlayLogic}
@@ -22,7 +30,7 @@ const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
                     enableFormOnSubmit
                     className="gap-y-2"
                 >
-<div className="flex flex-row gap-2">
+                    <div className="flex flex-row gap-2">
                         <LemonField name="timeInRecording" label={<span>Comment at</span>} className="flex-1">
                             <LemonInput disabled={true} />
                         </LemonField>
@@ -45,7 +53,7 @@ const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
                                 fullWidth
                             />
                         </LemonField>
-</div>
+                    </div>
                     <LemonField name="content" label="Content">
                         <LemonTextArea
                             placeholder="Comment on this recording?"
@@ -54,7 +62,13 @@ const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
                         />
                     </LemonField>
                     <div className="flex gap-2 mt-2 justify-end">
-                        <LemonButton form="recording-annotation-form" type="primary" onClick={submitRecordingAnnotation} data-attr="create-recording-annotation-submit" size="small">
+                        <LemonButton
+                            form="recording-annotation-form"
+                            type="primary"
+                            onClick={submitRecordingAnnotation}
+                            data-attr="create-recording-annotation-submit"
+                            size="small"
+                        >
                             Create
                         </LemonButton>
                     </div>
@@ -66,9 +80,5 @@ const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
 
 export function PlayerFrameAnnotationOverlay(): JSX.Element {
     const { isAnnotating } = useValues(sessionRecordingPlayerLogic)
-    return (
-        <div className="absolute inset-0 z-11">
-            {isAnnotating ? <PlayerFrameAnnotationOverlayContent /> : null}
-        </div>
-    )
+    return <div className="absolute inset-0 z-11">{isAnnotating ? <PlayerFrameAnnotationOverlayContent /> : null}</div>
 }

@@ -1,5 +1,6 @@
 import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -67,7 +68,17 @@ function AnnotateRecording(): JSX.Element {
         <LemonButton
             size="xsmall"
             onClick={() => setIsAnnotating(!isAnnotating)}
-            tooltip={isAnnotating ? <>Stop commenting  <KeyboardShortcut c /></> : <>Comment on this recording <KeyboardShortcut c /></>}
+            tooltip={
+                isAnnotating ? (
+                    <>
+                        Stop commenting <KeyboardShortcut c />
+                    </>
+                ) : (
+                    <>
+                        Comment on this recording <KeyboardShortcut c />
+                    </>
+                )
+            }
             data-attr={isAnnotating ? 'stop-annotating-recording' : 'annotate-recording'}
             active={isAnnotating}
             icon={<IconComment className="text-xl" />}
@@ -98,7 +109,9 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="absolute right-2 flex justify-end items-center">
-                    <AnnotateRecording />
+                    <FlaggedFeature flag="annotations-recording-scope" match={true}>
+                        <AnnotateRecording />
+                    </FlaggedFeature>
                     {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                     <FullScreen />
                 </div>
