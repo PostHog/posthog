@@ -91,6 +91,7 @@ function SurveyIterationOptions(): JSX.Element {
                 label={<h3 className="mb-0">How often should we show this survey to a person?</h3>}
             >
                 <LemonRadio
+                    className="w-fit"
                     value={survey.schedule ?? SurveySchedule.Once}
                     onChange={(newValue) => {
                         setSurveyValue('schedule', newValue)
@@ -110,7 +111,16 @@ function SurveyIterationOptions(): JSX.Element {
                         },
                         {
                             value: SurveySchedule.Recurring,
-                            label: 'Repeat on a schedule',
+                            label: (
+                                <div className="flex items-center gap-1">
+                                    Repeat on a schedule
+                                    {!surveysRecurringScheduleAvailable && (
+                                        <Link to="/organization/billing" target="_blank" targetBlankIcon>
+                                            Upgrade
+                                        </Link>
+                                    )}
+                                </div>
+                            ),
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason: surveysRecurringScheduleDisabledReason,
                             description: showSurveyRepeatSchedule ? (

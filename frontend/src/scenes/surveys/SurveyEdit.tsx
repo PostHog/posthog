@@ -980,11 +980,11 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
-                                            {surveysEventsAvailable && (
-                                                <LemonField.Pure
-                                                    label="User sends events"
-                                                    info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
-                                                >
+                                            <LemonField.Pure
+                                                label="User sends events"
+                                                info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
+                                            >
+                                                {surveysEventsAvailable ? (
                                                     <>
                                                         <EventSelect
                                                             filterGroupTypes={[
@@ -1052,45 +1052,88 @@ export default function SurveyEdit(): JSX.Element {
                                                             </div>
                                                         )}
                                                     </>
-                                                </LemonField.Pure>
-                                            )}
-                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && surveysActionsAvailable && (
+                                                ) : (
+                                                    <div className="flex items-center gap-2 mt-2">
+                                                        <LemonButton
+                                                            size="small"
+                                                            type="secondary"
+                                                            icon={<IconLock className="text-base text-secondary" />}
+                                                            sideIcon={null}
+                                                            disabledReason="Upgrade your plan to use event-based surveys"
+                                                        >
+                                                            Add event
+                                                        </LemonButton>
+                                                        <Link
+                                                            to="/organization/billing"
+                                                            target="_blank"
+                                                            targetBlankIcon
+                                                        >
+                                                            Upgrade
+                                                        </Link>
+                                                    </div>
+                                                )}
+                                            </LemonField.Pure>
+
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
                                                 <LemonField.Pure
                                                     label="User performs actions"
                                                     info="Note that these actions are only observed, and activate this survey, in the current user session."
                                                 >
-                                                    <EventSelect
-                                                        filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
-                                                        onItemChange={(items: ActionType[]) => {
-                                                            setSurveyValue('conditions', {
-                                                                ...survey.conditions,
-                                                                actions: {
-                                                                    values: items.map((e) => {
-                                                                        return { id: e.id, name: e.name }
-                                                                    }),
-                                                                },
-                                                            })
-                                                        }}
-                                                        selectedItems={
-                                                            survey.conditions?.actions?.values &&
-                                                            survey.conditions?.actions?.values.length > 0
-                                                                ? survey.conditions?.actions?.values
-                                                                : []
-                                                        }
-                                                        selectedEvents={
-                                                            survey.conditions?.actions?.values?.map((v) => v.name) ?? []
-                                                        }
-                                                        addElement={
+                                                    {surveysActionsAvailable ? (
+                                                        <EventSelect
+                                                            filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
+                                                            onItemChange={(items: ActionType[]) => {
+                                                                setSurveyValue('conditions', {
+                                                                    ...survey.conditions,
+                                                                    actions: {
+                                                                        values: items.map((e) => {
+                                                                            return { id: e.id, name: e.name }
+                                                                        }),
+                                                                    },
+                                                                })
+                                                            }}
+                                                            selectedItems={
+                                                                survey.conditions?.actions?.values &&
+                                                                survey.conditions?.actions?.values.length > 0
+                                                                    ? survey.conditions?.actions?.values
+                                                                    : []
+                                                            }
+                                                            selectedEvents={
+                                                                survey.conditions?.actions?.values?.map(
+                                                                    (v) => v.name
+                                                                ) ?? []
+                                                            }
+                                                            addElement={
+                                                                <LemonButton
+                                                                    size="small"
+                                                                    type="secondary"
+                                                                    icon={<IconPlus />}
+                                                                    sideIcon={null}
+                                                                >
+                                                                    Add action
+                                                                </LemonButton>
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <div className="flex items-center gap-2 mt-2">
                                                             <LemonButton
                                                                 size="small"
                                                                 type="secondary"
-                                                                icon={<IconPlus />}
+                                                                icon={<IconLock className="text-base text-secondary" />}
                                                                 sideIcon={null}
+                                                                disabledReason="Upgrade your plan to use action-based surveys"
                                                             >
                                                                 Add action
                                                             </LemonButton>
-                                                        }
-                                                    />
+                                                            <Link
+                                                                to="/organization/billing"
+                                                                target="_blank"
+                                                                targetBlankIcon
+                                                            >
+                                                                Upgrade
+                                                            </Link>
+                                                        </div>
+                                                    )}
                                                 </LemonField.Pure>
                                             )}
                                         </>
