@@ -70,6 +70,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "Address not in tenant allow_list",
         "FATAL: no such database",
         "does not exist",
+        "timestamp too small",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
@@ -264,7 +265,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             if hit_billing_limit:
-                update_inputs.status = ExternalDataJob.Status.CANCELLED
+                update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
 
             await workflow.execute_activity(

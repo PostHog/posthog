@@ -178,7 +178,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 // otherwise we can't use a url with parameters as a landing page
                 return
             }
-            return tabUrl
+            return [tabUrl, router.values.searchParams, router.values.hashParams]
         },
     })),
     urlToAction(({ actions, values }) => {

@@ -7,7 +7,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
-import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
+import { ErrorTrackingRule, ErrorTrackingRuleType } from 'scenes/error-tracking/configuration/rules/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -913,12 +913,12 @@ class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
-    public errorTrackingAssignmentRules(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('assignment_rules')
+    public errorTrackingRules(rule: string, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(rule)
     }
 
-    public errorTrackingAssignmentRule(id: ErrorTrackingAssignmentRule['id']): ApiRequest {
-        return this.errorTrackingAssignmentRules().addPathComponent(id)
+    public errorTrackingRule(rule: string, id: ErrorTrackingRule['id']): ApiRequest {
+        return this.errorTrackingRules(rule).addPathComponent(id)
     }
 
     // # Warehouse
@@ -2505,23 +2505,23 @@ const api = {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
 
-        async assignmentRules(): Promise<{ results: ErrorTrackingAssignmentRule[] }> {
-            return await new ApiRequest().errorTrackingAssignmentRules().get()
+        async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {
+            return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
-        async createAssignmentRule({
-            id: _,
-            ...data
-        }: ErrorTrackingAssignmentRule): Promise<ErrorTrackingAssignmentRule> {
-            return await new ApiRequest().errorTrackingAssignmentRules().create({ data })
+        async createRule(
+            ruleType: ErrorTrackingRuleType,
+            { id: _, ...data }: ErrorTrackingRule
+        ): Promise<ErrorTrackingRule> {
+            return await new ApiRequest().errorTrackingRules(ruleType).create({ data })
         },
 
-        async updateAssignmentRule({ id, ...data }: ErrorTrackingAssignmentRule): Promise<void> {
-            return await new ApiRequest().errorTrackingAssignmentRule(id).update({ data })
+        async updateRule(ruleType: ErrorTrackingRuleType, { id, ...data }: ErrorTrackingRule): Promise<void> {
+            return await new ApiRequest().errorTrackingRule(ruleType, id).update({ data })
         },
 
-        async deleteAssignmentRule(id: ErrorTrackingAssignmentRule['id']): Promise<void> {
-            return await new ApiRequest().errorTrackingAssignmentRule(id).delete()
+        async deleteRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
         },
     },
 

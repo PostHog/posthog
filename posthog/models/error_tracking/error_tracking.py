@@ -206,6 +206,25 @@ class ErrorTrackingGroupingRule(UUIDModel):
         # ]
 
 
+class ErrorTrackingSuppressionRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Grouping rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
