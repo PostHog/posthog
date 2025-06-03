@@ -1,7 +1,7 @@
 import './LemonTabs.scss'
 
 import { IconInfo } from '@posthog/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { useSliderPositioning } from '../hooks'
 import { Link } from '../Link'
@@ -60,7 +60,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
+            className={cn('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -70,7 +70,7 @@ export function LemonTabs<T extends string | number>({
             }
             data-attr={dataAttr}
         >
-            <ul className={clsx('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
+            <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
                 {realTabs.map((tab) => {
                     const content = (
                         <>
@@ -87,7 +87,7 @@ export function LemonTabs<T extends string | number>({
                             docLink={tab.tooltipDocLink}
                         >
                             <li
-                                className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
+                                className={cn('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
                                 onClick={onChange ? () => onChange(tab.key) : undefined}
                                 role="tab"
                                 aria-selected={tab.key === activeKey}
