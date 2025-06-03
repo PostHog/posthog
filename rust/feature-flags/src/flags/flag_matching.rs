@@ -275,7 +275,7 @@ impl FeatureFlagMatcher {
                 || flags_response.errors_while_computing_flags,
             flags: flags_response.flags,
             quota_limited: None,
-            request_id: request_id,
+            request_id,
             config: ConfigResponse::default(),
         }
     }
@@ -537,7 +537,7 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags,
                     flags: flag_details_map,
                     quota_limited: None,
-                    request_id: request_id,
+                    request_id,
                     config: ConfigResponse::default(),
                 };
             }
@@ -602,7 +602,7 @@ impl FeatureFlagMatcher {
             errors_while_computing_flags,
             flags: flag_details_map,
             quota_limited: None,
-            request_id: request_id,
+            request_id,
             config: ConfigResponse::default(),
         }
     }

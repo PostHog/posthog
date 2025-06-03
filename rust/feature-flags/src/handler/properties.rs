@@ -9,9 +9,9 @@ pub fn prepare_overrides(
     context: &RequestContext,
     request: &FlagRequest,
 ) -> Result<RequestPropertyOverrides, FlagError> {
-    let geoip_enabled = !request.geoip_disable.unwrap_or(false);
+    let geoip_disabled = request.geoip_disable.unwrap_or(false);
     let person_property_overrides = get_person_property_overrides(
-        geoip_enabled,
+        geoip_disabled,
         request.person_properties.clone(),
         &context.ip,
         &context.state.geoip,
@@ -32,12 +32,12 @@ pub fn prepare_overrides(
 }
 
 pub fn get_person_property_overrides(
-    geoip_enabled: bool,
+    geoip_disabled: bool,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
-    match (geoip_enabled, person_properties) {
+    match (!geoip_disabled, person_properties) {
         (true, Some(mut props)) => {
             if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
                 props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));

@@ -1872,26 +1872,6 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
     let client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
 
-    // Test case 1: Both disabled
-    {
-        let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-        let mut pg_team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-            .await
-            .unwrap();
-
-        // Set performance options to false
-        pg_team.capture_performance_opt_in = Some(false);
-        pg_team.autocapture_web_vitals_opt_in = Some(false);
-
-        insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .unwrap();
-
-        // Update team in postgres to reflect our changes
-        // We can't easily update the team in PG from the test utils, so we'll test with a fresh team
-    }
-
-    // For now, let's test with default team settings (both None, which default to false)
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
@@ -2162,8 +2142,6 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     .await
     .unwrap();
 
-    println!("Created plugin with ID: {}", plugin_id);
-
     // Insert plugin source file (site.ts with TRANSPILED status)
     let source_uuid = uuid::Uuid::new_v4().to_string();
     sqlx::query(
@@ -2177,43 +2155,17 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     .await
     .unwrap();
 
-    println!("Created plugin source file for plugin {}", plugin_id);
-
-    // Insert enabled plugin config
-    let config_id: i32 = sqlx::query_scalar(
+    // Insert plugin config to connect the plugin to the team
+    sqlx::query(
         r#"INSERT INTO posthog_pluginconfig 
            (plugin_id, team_id, enabled, "order", config, web_token, updated_at, created_at)
-           VALUES ($1, $2, true, 1, '{}', $3, NOW(), NOW())
-           RETURNING id"#,
+           VALUES ($1, $2, true, 1, '{}', 'test_site_app_token', NOW(), NOW())"#,
     )
     .bind(plugin_id)
     .bind(team.id)
-    .bind("test_site_app_token")
-    .fetch_one(&mut *conn)
+    .execute(&mut *conn)
     .await
     .unwrap();
-
-    println!(
-        "Created plugin config with ID: {} for team {}",
-        config_id, team.id
-    );
-
-    // Verify the data was inserted correctly
-    let site_apps_count: i64 = sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM posthog_pluginconfig pc
-           JOIN posthog_plugin p ON p.id = pc.plugin_id
-           JOIN posthog_pluginsourcefile psf ON psf.plugin_id = p.id
-           WHERE pc.team_id = $1 AND pc.enabled = true AND psf.filename = 'site.ts' AND psf.status = 'TRANSPILED'"#
-    )
-    .bind(team.id)
-    .fetch_one(&mut *conn)
-    .await
-    .unwrap();
-
-    println!(
-        "Found {} matching site apps in database for team {}",
-        site_apps_count, team.id
-    );
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2228,22 +2180,11 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
-    println!(
-        "Response JSON: {}",
-        serde_json::to_string_pretty(&json_data)?
-    );
 
     // Site apps should be populated
     assert!(json_data["siteApps"].is_array());
     let site_apps = json_data["siteApps"].as_array().unwrap();
 
-    if site_apps.len() != 1 {
-        println!(
-            "Expected 1 site app, got {}. Full siteApps: {:?}",
-            site_apps.len(),
-            site_apps
-        );
-    }
     assert_eq!(site_apps.len(), 1);
 
     let site_app = &site_apps[0];
@@ -2263,7 +2204,7 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
     // Configure rrweb script for all teams
     config.session_replay_rrweb_script =
         "console.log('Custom session recording script')".to_string();
-    config.session_replay_rrweb_script_allowed_teams = "*".to_string();
+    config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -2338,7 +2279,7 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
     let mut config = DEFAULT_TEST_CONFIG.clone();
     // Configure rrweb script only for specific teams (not including our test team)
     config.session_replay_rrweb_script = "console.log('Restricted script')".to_string();
-    config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".to_string(); // Our team won't be in this list
+    config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".parse().unwrap(); // Our team won't be in this list
 
     let distinct_id = "user_distinct_id".to_string();
 

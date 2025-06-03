@@ -10,8 +10,8 @@ pub async fn parse_and_authenticate(
     flag_service: &FlagService,
 ) -> Result<(String, String, FlagRequest), FlagError> {
     let request = decoding::decode_request(&context.headers, context.body.clone(), &context.meta)?;
-    let distinct_id = request.extract_distinct_id()?;
     let token = request.extract_token()?;
+    let distinct_id = request.extract_distinct_id()?;
     let verified_token = flag_service.verify_token(&token).await?;
     Ok((distinct_id, verified_token, request))
 }

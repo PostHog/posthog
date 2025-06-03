@@ -21,7 +21,7 @@ use crate::{
 /// 2) Fetches the team and feature flags,
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
-/// 5) Returns a [`FlagsPlusConfigResponse`] or an error.
+/// 5) Returns a [`FlagsResponse`] or an error.
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 

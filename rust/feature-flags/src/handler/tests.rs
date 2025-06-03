@@ -51,7 +51,7 @@ mod tests {
         person_props.insert("name".to_string(), Value::String("John".to_string()));
 
         let result = properties::get_person_property_overrides(
-            true,
+            false,
             Some(person_props),
             &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
             &geoip_service,
@@ -69,7 +69,7 @@ mod tests {
         let geoip_service = create_test_geoip_service();
 
         let result = properties::get_person_property_overrides(
-            true,
+            false,
             None,
             &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
             &geoip_service,
@@ -89,7 +89,7 @@ mod tests {
         person_props.insert("name".to_string(), Value::String("John".to_string()));
 
         let result = properties::get_person_property_overrides(
-            false,
+            true,
             Some(person_props),
             &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
             &geoip_service,
@@ -106,7 +106,7 @@ mod tests {
         let geoip_service = create_test_geoip_service();
 
         let result = properties::get_person_property_overrides(
-            false,
+            true,
             None,
             &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
             &geoip_service,
@@ -347,7 +347,7 @@ mod tests {
     fn test_get_person_property_overrides_ipv4() {
         let geoip_service = create_test_geoip_service();
         let result = properties::get_person_property_overrides(
-            true,
+            false,
             Some(HashMap::new()),
             &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
             &geoip_service,
@@ -361,7 +361,7 @@ mod tests {
     fn test_get_person_property_overrides_ipv6() {
         let geoip_service = create_test_geoip_service();
         let result = properties::get_person_property_overrides(
-            true,
+            false,
             Some(HashMap::new()),
             &IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)),
             &geoip_service,
@@ -978,11 +978,8 @@ mod tests {
         let request_id = Uuid::new_v4();
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
-        println!("result: {:?}", result);
-
         let legacy_response = LegacyFlagsResponse::from_response(result);
 
-        println!("legacy_response: {:?}", legacy_response);
         assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
             legacy_response.feature_flags["test_flag"],

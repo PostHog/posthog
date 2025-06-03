@@ -761,11 +761,11 @@ mod tests {
     fn test_session_recording_rrweb_script_wildcard_allowed() {
         let mut config = Config::default_test_config();
         config.session_replay_rrweb_script = "console.log('custom script')".to_string();
-        config.session_replay_rrweb_script_allowed_teams = "*".to_string(); // Wildcard - all teams allowed
+        config.session_replay_rrweb_script_allowed_teams = "all".parse().unwrap(); // All teams allowed
 
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
-        team.id = 123; // Any team ID should work with wildcard
+        team.id = 123; // Any team ID should work with "all"
 
         let headers = axum::http::HeaderMap::new();
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
@@ -783,7 +783,7 @@ mod tests {
     fn test_session_recording_rrweb_script_specific_team_allowed() {
         let mut config = Config::default_test_config();
         config.session_replay_rrweb_script = "console.log('team script')".to_string();
-        config.session_replay_rrweb_script_allowed_teams = "1,5,10".to_string(); // Team 1 is allowed
+        config.session_replay_rrweb_script_allowed_teams = "1,5,10".parse().unwrap(); // Team 1 is allowed
 
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
@@ -805,7 +805,7 @@ mod tests {
     fn test_session_recording_rrweb_script_team_not_allowed() {
         let mut config = Config::default_test_config();
         config.session_replay_rrweb_script = "console.log('restricted script')".to_string();
-        config.session_replay_rrweb_script_allowed_teams = "5,10,15".to_string(); // Team 1 is NOT in list
+        config.session_replay_rrweb_script_allowed_teams = "5,10,15".parse().unwrap(); // Team 1 is NOT in list
 
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
@@ -825,7 +825,7 @@ mod tests {
     fn test_session_recording_rrweb_script_empty_string() {
         let mut config = Config::default_test_config();
         config.session_replay_rrweb_script = "".to_string(); // Empty script
-        config.session_replay_rrweb_script_allowed_teams = "*".to_string();
+        config.session_replay_rrweb_script_allowed_teams = "all".parse().unwrap();
 
         let mut team = create_base_team();
         team.session_recording_opt_in = true;

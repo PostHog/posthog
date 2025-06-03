@@ -27,7 +27,7 @@ pub struct LinkedFlag {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteApp {
-    pub id: f64,
+    pub id: i64,
     pub url: String,
 }
 

@@ -56,7 +56,7 @@ impl FromStr for TeamIdCollection {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        if s.eq_ignore_ascii_case("all") {
+        if s.eq_ignore_ascii_case("all") || s == "*" {
             Ok(TeamIdCollection::All)
         } else if s.eq_ignore_ascii_case("none") {
             Ok(TeamIdCollection::None)
@@ -158,8 +158,8 @@ pub struct Config {
     #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT", default = "")]
     pub session_replay_rrweb_script: String,
 
-    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "")]
-    pub session_replay_rrweb_script_allowed_teams: String,
+    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "none")]
+    pub session_replay_rrweb_script_allowed_teams: TeamIdCollection,
 }
 
 impl Config {
@@ -187,7 +187,7 @@ impl Config {
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: FlexBool(false),
             session_replay_rrweb_script: "".to_string(),
-            session_replay_rrweb_script_allowed_teams: "".to_string(),
+            session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
         }
     }
 
@@ -314,6 +314,12 @@ mod tests {
     #[test]
     fn test_team_ids_to_track_all() {
         let team_ids: TeamIdCollection = "all".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::All);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_wildcard() {
+        let team_ids: TeamIdCollection = "*".parse().unwrap();
         assert_eq!(team_ids, TeamIdCollection::All);
     }
 

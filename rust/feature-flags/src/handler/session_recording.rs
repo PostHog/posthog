@@ -1,11 +1,24 @@
 use crate::{
     api::types::{SessionRecordingConfig, SessionRecordingField},
-    config::Config,
+    config::{Config, TeamIdCollection},
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
 use regex;
 use serde_json::{json, Value};
+
+const AUTHORIZED_MOBILE_CLIENTS: &[&str] = &[
+    "posthog-android",
+    "posthog-ios",
+    "posthog-react-native",
+    "posthog-flutter",
+];
+
+// Hard-coded values set for the session recording beta, still haven't come up with more sensible
+// defaults so these are what they are for now.
+const SAMPLE_RATE_FULL: &str = "1.00";
+const CANVAS_FPS_DEFAULT: u8 = 3;
+const CANVAS_QUALITY_DEFAULT: &str = "0.4";
 
 pub fn session_recording_config_response(
     team: &Team,
@@ -19,7 +32,7 @@ pub fn session_recording_config_response(
     let capture_console_logs = team.capture_console_log_opt_in.unwrap_or(false);
     let sample_rate = team.session_recording_sample_rate.as_ref().and_then(|sr| {
         let sr_str = sr.to_string();
-        if sr_str == "1.00" {
+        if sr_str == SAMPLE_RATE_FULL {
             None
         } else {
             Some(sr_str)
@@ -42,11 +55,13 @@ pub fn session_recording_config_response(
     };
 
     let rrweb_script_config = if !config.session_replay_rrweb_script.is_empty() {
-        let allowed_teams = &config.session_replay_rrweb_script_allowed_teams;
-        let team_id_str = team.id.to_string();
+        let is_team_allowed = match &config.session_replay_rrweb_script_allowed_teams {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team.id),
+        };
 
-        if allowed_teams.contains('*') || allowed_teams.split(',').any(|t| t.trim() == team_id_str)
-        {
+        if is_team_allowed {
             Some(serde_json::json!({
                 "script": config.session_replay_rrweb_script
             }))
@@ -62,9 +77,13 @@ pub fn session_recording_config_response(
     {
         if let Some(record_canvas) = cfg.get("record_canvas") {
             let record_canvas_bool = record_canvas.as_bool().unwrap_or(false);
-            let fps = if record_canvas_bool { Some(3) } else { None };
+            let fps = if record_canvas_bool {
+                Some(CANVAS_FPS_DEFAULT)
+            } else {
+                None
+            };
             let quality = if record_canvas_bool {
-                Some("0.4".to_string())
+                Some(CANVAS_QUALITY_DEFAULT.to_string())
             } else {
                 None
             };
@@ -117,10 +136,7 @@ pub fn session_recording_config_response(
 }
 
 fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
-    match &team.recording_domains {
-        Some(domains) if !on_permitted_recording_domain(domains, headers) => true,
-        _ => false,
-    }
+    matches!(&team.recording_domains, Some(domains) if !on_permitted_recording_domain(domains, headers))
 }
 
 fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -> bool {
@@ -132,7 +148,7 @@ fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -
         if domain.contains('*') {
             // crude wildcard: treat '*' as regex '.*'
             let pattern = format!("^{}$", regex::escape(domain).replace("\\*", ".*"));
-            if regex::Regex::new(&pattern).unwrap().is_match(hostname) {
+            if regex::Regex::new(&pattern).map_or(false, |re| re.is_match(hostname)) {
                 return true;
             }
         } else if domain == hostname {
@@ -147,19 +163,11 @@ fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &Head
     let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
     let user_agent = headers.get("User-Agent").and_then(|v| v.to_str().ok());
 
-    let is_authorized_web_client =
-        hostname_in_allowed_url_list(recording_domains, origin.as_deref())
-            || hostname_in_allowed_url_list(recording_domains, referer.as_deref());
+    let is_authorized_web_client = hostname_in_allowed_url_list(recording_domains, origin)
+        || hostname_in_allowed_url_list(recording_domains, referer);
 
     let is_authorized_mobile_client = user_agent.map_or(false, |ua| {
-        [
-            "posthog-android",
-            "posthog-ios",
-            "posthog-react-native",
-            "posthog-flutter",
-        ]
-        .iter()
-        .any(|kw| ua.contains(kw))
+        AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw))
     });
 
     is_authorized_web_client || is_authorized_mobile_client

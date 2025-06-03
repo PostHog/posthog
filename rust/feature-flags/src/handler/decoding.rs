@@ -69,7 +69,7 @@ pub fn decode_form_data(
     body: Bytes,
     compression: Option<Compression>,
 ) -> Result<FlagRequest, FlagError> {
-    // Convert bytes to string first so we can manipluate it
+    // Convert bytes to string first so we can manipulate it
     let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
         tracing::debug!("Invalid UTF-8 in form data: {}", e);
         FlagError::RequestDecodingError("Invalid UTF-8 in form data".into())
