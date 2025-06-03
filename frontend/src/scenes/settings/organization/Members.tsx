@@ -342,7 +342,11 @@ export function Members(): JSX.Element | null {
             <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
                 <p>Control who can send organization invites.</p>
                 <LemonSwitch
-                    label="Members can invite other people"
+                    label={
+                        <span>
+                            Members can invite others to join <i>{currentOrganization?.name}</i>
+                        </span>
+                    }
                     bordered
                     checked={!!currentOrganization?.members_can_invite}
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
