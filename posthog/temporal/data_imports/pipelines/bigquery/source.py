@@ -256,7 +256,7 @@ def has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, p
         query = f"""
             SELECT {", ".join(primary_keys)}
             FROM `{table.dataset_id}`.`{table.table_id}`
-            GROUP BY {", ".join([str(i + 1) for i, _ in enumerate(primary_keys)])}
+            GROUP BY {", ".join(primary_keys)}
             HAVING COUNT(*) > 1
         """
 
