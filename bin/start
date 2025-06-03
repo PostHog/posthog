@@ -19,6 +19,8 @@ export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
 export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 if [[ "$*" == *"--enable-tracing"* ]]; then
     export OTEL_SDK_DISABLED="false"
+    export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
+    export OTEL_TRACES_SAMPLER_ARG="1"
 else
     export OTEL_SDK_DISABLED="true"
 fi
