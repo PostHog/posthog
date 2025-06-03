@@ -23,6 +23,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorkerPlugins: true,
                 cdpCyclotronWorkerSegment: true,
                 cdpCyclotronWorkerFetch: true,
+                cdpCyclotronWorkerHogFlow: true,
                 cdpApi: true,
             }
 
@@ -66,6 +67,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorker: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_hogflow:
+            return {
+                cdpCyclotronWorkerHogFlow: true,
+            }
         case PluginServerMode.cdp_cyclotron_worker_plugins:
             return {
                 cdpCyclotronWorkerPlugins: true,
@@ -87,17 +92,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 mmdb: true,
                 // NOTE: This is temporary until we have removed plugins
-                appManagementSingleton: true,
-            }
-        // This is only for functional tests, which time out if all capabilities are used
-        // ideally we'd run just the specific capability needed per test, but that's not easy to do atm
-        case PluginServerMode.functional_tests:
-            return {
-                mmdb: true,
-                ingestionV2Combined: true,
-                cdpLegacyOnEvent: true,
-                processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
             }
     }
