@@ -532,6 +532,7 @@ class PropertyDefinitionViewSet(
             "is_numerical": False,
             "property_type": "String",
             "tags": [],
+            "virtual": True,
         },
         {
             "id": "builtin_virt_initial_referring_domain_type",
@@ -539,6 +540,7 @@ class PropertyDefinitionViewSet(
             "is_numerical": False,
             "property_type": "String",
             "tags": [],
+            "virtual": True,
         },
     ]
 

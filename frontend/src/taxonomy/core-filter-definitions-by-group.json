@@ -3558,14 +3558,14 @@
             "label": "Latest viewport width"
         },
         "$virt_initial_channel_type": {
-            "description": "What type of acquisition channel this user initially came from. This is a virtual property, calculated from other properties. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
+            "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
             "examples": ["Paid Search", "Organic Video", "Direct"],
             "label": "Initial channel type",
             "type": "String",
             "virtual": true
         },
         "$virt_initial_referring_domain_type": {
-            "description": "What type of referring domain this user initially came from. This is a virtual property, calculated from other properties.",
+            "description": "What type of referring domain this user initially came from.",
             "examples": ["Search", "Video", "Direct"],
             "label": "Initial referring domain type",
             "type": "String",
