@@ -40,6 +40,7 @@ export function TaxonomicFilter({
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     maxContextOptions,
     useVerticalLayout,
+    allowNonCapturedEvents = false,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -70,6 +71,7 @@ export function TaxonomicFilter({
         dataWarehousePopoverFields,
         useVerticalLayout,
         autoSelectItem: true,
+        allowNonCapturedEvents,
         maxContextOptions,
     }
 

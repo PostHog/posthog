@@ -413,6 +413,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    members_can_invite?: boolean
     metadata?: OrganizationMetadata
     member_count: number
 }

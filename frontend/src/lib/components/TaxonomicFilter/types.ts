@@ -55,6 +55,8 @@ export interface TaxonomicFilterProps {
      */
     useVerticalLayout?: boolean
     initialSearchQuery?: string
+    /** Allow users to select events that haven't been captured yet (default: false) */
+    allowNonCapturedEvents?: boolean
 }
 
 export interface DataWarehousePopoverField {
