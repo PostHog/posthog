@@ -31,6 +31,8 @@ import {
     SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+import { PlayerFrameAnnotationOverlay } from 'scenes/session-recordings/player/PlayerFrameAnnotationOverlay'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -90,8 +92,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, isAnnotating } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { setPlayNextAnimationInterrupted, setIsAnnotating } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
 
@@ -125,6 +127,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         {
             f: {
                 action: () => setIsFullScreen(!isFullScreen),
+            },
+            c: {
+                action: () => setIsAnnotating(!isAnnotating),
             },
             space: {
                 action: () => togglePlayPause(),
@@ -255,6 +260,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                             >
                                                 <PlayerFrame />
                                                 <PlayerFrameOverlay />
+                                                <FlaggedFeature flag={"annotations-recording-scope"} match={true}>
+                                                <PlayerFrameAnnotationOverlay />
+                                                    </FlaggedFeature>
                                             </div>
                                             <PlayerController />
                                         </div>

@@ -67,7 +67,7 @@ function AnnotateRecording(): JSX.Element {
         <LemonButton
             size="xsmall"
             onClick={() => setIsAnnotating(!isAnnotating)}
-            tooltip={isAnnotating ? 'Stop commenting' : 'Comment on this recording'}
+            tooltip={isAnnotating ? <>Stop commenting  <KeyboardShortcut c /></> : <>Comment on this recording <KeyboardShortcut c /></>}
             data-attr={isAnnotating ? 'stop-annotating-recording' : 'annotate-recording'}
             active={isAnnotating}
             icon={<IconComment className="text-xl" />}
