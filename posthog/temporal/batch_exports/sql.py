@@ -512,8 +512,6 @@ FROM (
         AND (length({include_events}::Array(String)) = 0 OR event IN {include_events}::Array(String))
         AND (length({exclude_events}::Array(String)) = 0 OR event NOT IN {exclude_events}::Array(String))
         $filters
-    ORDER BY
-        _inserted_at, event
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -611,8 +609,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -658,8 +654,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
 ) as events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -708,8 +702,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -785,8 +777,6 @@ WHERE
         pd._timestamp < {interval_end}::DateTime64
         OR p._timestamp < {interval_end}::DateTime64
     )
-ORDER BY
-    _inserted_at
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
@@ -939,8 +929,6 @@ FROM (
     where
         team_id = {team_id}::Int64
         and (id, version) in all_new_persons
-    ORDER BY
-        _inserted_at
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
