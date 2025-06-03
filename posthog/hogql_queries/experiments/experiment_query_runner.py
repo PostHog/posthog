@@ -30,6 +30,9 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 
 from posthog.hogql_queries.experiments.utils import (
     get_frequentist_experiment_result_legacy_format,
+    get_legacy_funnels_variant_results,
+    get_legacy_trends_variant_results,
+    get_new_variant_results,
     split_baseline_and_test_variants,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -624,49 +627,15 @@ class ExperimentQueryRunner(QueryRunner):
 
         return sorted_results
 
-    def _get_legacy_variant_results(
-        self, sorted_results: list[tuple[str, int, int, int]]
-    ) -> list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]:
-        if isinstance(self.metric, ExperimentFunnelMetric):
-            return [
-                ExperimentVariantFunnelsBaseStats(
-                    failure_count=result[1] - result[2],
-                    key=result[0],
-                    success_count=result[2],
-                )
-                for result in sorted_results
-            ]
-
-        return [
-            ExperimentVariantTrendsBaseStats(
-                absolute_exposure=result[1],
-                count=result[2],
-                exposure=result[1],
-                key=result[0],
-            )
-            for result in sorted_results
-        ]
-
-    def _get_new_variant_results(self, sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
-        return [
-            ExperimentStatsBase(
-                key=result[0],
-                number_of_samples=result[1],
-                sum=result[2],
-                sum_squares=result[3],
-            )
-            for result in sorted_results
-        ]
-
     def calculate(self) -> ExperimentQueryResponse:
         sorted_results = self._evaluate_experiment_query()
 
         if self.stats_method == "frequentist":
-            variants = self._get_new_variant_results(sorted_results)
+            frequentist_variants = get_new_variant_results(sorted_results)
 
-            self._validate_event_variants(variants)
+            self._validate_event_variants(frequentist_variants)
 
-            control_variant, test_variants = split_baseline_and_test_variants(variants)
+            control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
 
             return get_frequentist_experiment_result_legacy_format(
                 metric=self.metric,
@@ -675,76 +644,82 @@ class ExperimentQueryRunner(QueryRunner):
             )
 
         else:
-            variants_legacy = self._get_legacy_variant_results(sorted_results)
-
-            self._validate_event_variants(variants_legacy)
-
-            if isinstance(self.metric, ExperimentFunnelMetric):
-                control_variant, test_variants = split_baseline_and_test_variants(
-                    cast(list[ExperimentVariantFunnelsBaseStats], variants_legacy)
-                )
-            else:
-                control_variant, test_variants = split_baseline_and_test_variants(
-                    cast(list[ExperimentVariantTrendsBaseStats], variants_legacy)
-                )
-
             match self.metric:
                 case ExperimentMeanMetric():
+                    trends_variants = get_legacy_trends_variant_results(sorted_results)
+                    self._validate_event_variants(trends_variants)
+                    trends_control_variant, trends_test_variants = split_baseline_and_test_variants(trends_variants)
                     match self.metric.source.math:
                         case ExperimentMetricMathType.SUM:
                             probabilities = calculate_probabilities_v2_continuous(
-                                control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                                test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                                control_variant=trends_control_variant,
+                                test_variants=trends_test_variants,
                             )
                             significance_code, p_value = are_results_significant_v2_continuous(
-                                control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                                test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                                control_variant=trends_control_variant,
+                                test_variants=trends_test_variants,
                                 probabilities=probabilities,
                             )
                             credible_intervals = calculate_credible_intervals_v2_continuous(
-                                [control_variant, *test_variants]
+                                [trends_control_variant, *trends_test_variants]
                             )
                         # Otherwise, we default to count
                         case _:
                             probabilities = calculate_probabilities_v2_count(
-                                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                                control_variant=trends_control_variant,
+                                test_variants=trends_test_variants,
                             )
                             significance_code, p_value = are_results_significant_v2_count(
-                                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                                probabilities,
+                                control_variant=trends_control_variant,
+                                test_variants=trends_test_variants,
+                                probabilities=probabilities,
                             )
                             credible_intervals = calculate_credible_intervals_v2_count(
-                                [control_variant, *test_variants]
+                                [trends_control_variant, *trends_test_variants]
                             )
 
                 case ExperimentFunnelMetric():
+                    funnel_variants = get_legacy_funnels_variant_results(sorted_results)
+                    self._validate_event_variants(funnel_variants)
+                    funnel_control_variant, funnel_test_variants = split_baseline_and_test_variants(funnel_variants)
                     probabilities = calculate_probabilities_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                        control=funnel_control_variant,
+                        variants=funnel_test_variants,
                     )
                     significance_code, p_value = are_results_significant_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                        probabilities,
+                        control=funnel_control_variant,
+                        variants=funnel_test_variants,
+                        probabilities=probabilities,
                     )
                     credible_intervals = calculate_credible_intervals_v2_funnel(
-                        cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
+                        [funnel_control_variant, *funnel_test_variants]
                     )
 
                 case _:
                     raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
 
+        if trends_variants:
+            probability = {
+                variant.key: probability
+                for variant, probability in zip(
+                    trends_variants,
+                    probabilities,
+                )
+            }
+        else:
+            probability = {
+                variant.key: probability
+                for variant, probability in zip(
+                    funnel_variants,
+                    probabilities,
+                )
+            }
         return ExperimentQueryResponse(
             kind="ExperimentQuery",
             insight=[],
             metric=self.metric,
-            variants=variants_legacy,
-            probability={
-                variant.key: probability
-                for variant, probability in zip([control_variant, *test_variants], probabilities)
-            },
+            variants=trends_variants or funnel_variants,
+            probability=probability,
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
             stats_version=self.stats_version,

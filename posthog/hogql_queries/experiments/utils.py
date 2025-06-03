@@ -32,6 +32,45 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
+def get_legacy_funnels_variant_results(
+    sorted_results: list[tuple[str, int, int, int]],
+) -> list[ExperimentVariantFunnelsBaseStats]:
+    return [
+        ExperimentVariantFunnelsBaseStats(
+            failure_count=result[1] - result[2],
+            key=result[0],
+            success_count=result[2],
+        )
+        for result in sorted_results
+    ]
+
+
+def get_legacy_trends_variant_results(
+    sorted_results: list[tuple[str, int, int, int]],
+) -> list[ExperimentVariantTrendsBaseStats]:
+    return [
+        ExperimentVariantTrendsBaseStats(
+            absolute_exposure=result[1],
+            count=result[2],
+            exposure=result[1],
+            key=result[0],
+        )
+        for result in sorted_results
+    ]
+
+
+def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
+    return [
+        ExperimentStatsBase(
+            key=result[0],
+            number_of_samples=result[1],
+            sum=result[2],
+            sum_squares=result[3],
+        )
+        for result in sorted_results
+    ]
+
+
 def convert_new_to_legacy_trends_variant_results(variant: ExperimentStatsBase) -> ExperimentVariantTrendsBaseStats:
     return ExperimentVariantTrendsBaseStats(
         key=variant.key,
