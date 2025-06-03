@@ -1009,8 +1009,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Also get distinct_id and person properties for open text questions
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING ALL SURVEY RESPONSES IN ONE GO
+                    query: `-- QUERYING ALL SURVEY RESPONSES IN ONE GO
                         SELECT
                             ${questionFields.join(',\n')},
                             person.properties,
@@ -1022,6 +1021,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             ${values.answerFilterHogQLExpression}
                             ${values.partialResponsesFilter}
                             AND {filters}
+                        LIMIT 10000
                     `,
                     filters: {
                         properties: values.propertyFilters,
