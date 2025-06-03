@@ -197,6 +197,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             icon={<IconDownload />}
                             type="tertiary"
                             size="xsmall"
+                            data-attr="sql-editor-save-view-button"
                             id="sql-editor-query-window-save-as-view"
                         >
                             Save as view
@@ -273,6 +274,7 @@ function RunButton(): JSX.Element {
 
     return (
         <LemonButton
+            data-attr="sql-editor-run-button"
             onClick={() => {
                 if (responseLoading) {
                     cancelQuery()
