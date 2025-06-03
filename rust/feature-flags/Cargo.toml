@@ -33,7 +33,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 sha1 = "0.10.6"
 regex.workspace = true
-metrics = { workspace = true }
 sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
 base64.workspace = true

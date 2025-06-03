@@ -2402,7 +2402,6 @@ dependencies = [
  "health",
  "limiters",
  "md5",
- "metrics",
  "moka",
  "once_cell",
  "percent-encoding",
