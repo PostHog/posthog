@@ -184,7 +184,6 @@ export const createNewNode = (
     }
 }
 
-// Nodes that have multiple handles need to have edges created for each handle
 export const createEdgesForNewNode = (
     nodeId: string,
     nodeType: WorkflowNodeType,
@@ -192,7 +191,6 @@ export const createEdgesForNewNode = (
 ): Edge<WorkflowEdgeData>[] => {
     const handles = getNodeHandles(nodeId, nodeType)
 
-    //TODO: change this to just use the incoming edge, and a single outgoing edge
     return handles.map((handle) => {
         // This is an incoming edge
         if (handle.type === 'target') {
@@ -219,7 +217,6 @@ export const createEdgesForNewNode = (
     })
 }
 
-// Initial node setup - just one starting node
 export const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
     {
         id: 'trigger_node',
@@ -242,7 +239,6 @@ export const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
     },
 ]
 
-// Initial edges setup
 export const DEFAULT_EDGES: Edge<WorkflowEdgeData>[] = [
     {
         id: 'trigger_node->exit_node',
