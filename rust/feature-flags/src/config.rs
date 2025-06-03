@@ -7,6 +7,27 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlexBool(pub bool);
+
+impl FromStr for FlexBool {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Ok(FlexBool(true)),
+            "false" | "0" | "no" | "off" | "" => Ok(FlexBool(false)),
+            _ => Err(format!("Invalid boolean value: {}", s)),
+        }
+    }
+}
+
+impl From<FlexBool> for bool {
+    fn from(flex: FlexBool) -> Self {
+        flex.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamIdCollection {
     All,
     None,
@@ -132,7 +153,7 @@ pub struct Config {
     pub element_chain_as_string_excluded_teams: TeamIdCollection,
 
     #[envconfig(from = "DEBUG", default = "false")]
-    pub debug: bool,
+    pub debug: FlexBool,
 
     #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT", default = "")]
     pub session_replay_rrweb_script: String,
@@ -164,7 +185,7 @@ impl Config {
             new_analytics_capture_endpoint: "".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
-            debug: false,
+            debug: FlexBool(false),
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: "".to_string(),
         }

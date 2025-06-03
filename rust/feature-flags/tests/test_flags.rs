@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
-use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::config::{FlexBool, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
     insert_new_team_in_redis, insert_person_for_team_in_pg, setup_pg_reader_client,
@@ -1784,7 +1784,7 @@ async fn test_config_has_feature_flags_when_empty() -> Result<()> {
 #[tokio::test]
 async fn test_config_analytics_enabled() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
-    config.debug = false;
+    config.debug = FlexBool(false);
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     // default config has new_analytics_capture_excluded_team_ids as All (exclude nobody)
 
@@ -1829,7 +1829,7 @@ async fn test_config_analytics_enabled() -> Result<()> {
 #[tokio::test]
 async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
-    config.debug = true; // Debug mode disables analytics
+    config.debug = FlexBool(true); // Debug mode disables analytics
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
     let distinct_id = "user_distinct_id".to_string();

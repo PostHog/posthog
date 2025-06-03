@@ -29,8 +29,6 @@ impl ConfigContext {
         }
     }
 
-    /// Create a ConfigContext for testing or direct use
-    ///
     /// This constructor allows you to create a ConfigContext without going through
     /// the full RequestContext, which is useful for testing config field logic
     /// in isolation.
@@ -49,27 +47,13 @@ impl ConfigContext {
     }
 }
 
-/// Builds the final flags response by conditionally adding config fields
-///
-/// Config fields are only added if explicitly requested via `context.meta.config`.
-///
-/// # Arguments
-/// * `flags_response` - Base response with flag evaluation results
-/// * `context` - Request context with metadata, state, and headers
-/// * `team` - Team configuration and settings
-///
-/// # Returns
-/// * `Ok(FlagsResponse)` - Enriched response with config fields if requested
-/// * `Err(FlagError)` - Database or other errors when applying config fields
 pub async fn build_response(
     flags_response: FlagsResponse,
     context: &RequestContext,
     team: &Team,
 ) -> Result<FlagsResponse, FlagError> {
-    // Start with the flags response that already has core data populated
     let mut response = flags_response;
 
-    // Only add config fields if explicitly requested
     if context.meta.config.unwrap_or(false) {
         let config_context = ConfigContext::from_request_context(context);
         apply_config_fields(&mut response, &config_context, team).await?;
@@ -78,25 +62,6 @@ pub async fn build_response(
     Ok(response)
 }
 
-/// Applies config fields to response based on team settings
-///
-/// Adds analytics config, performance capture settings, feature toggles,
-/// session recording config, and site apps. May query database for site apps.
-///
-/// # Arguments
-/// * `response` - Response to enrich (modified in-place)
-/// * `context` - Config context with database clients and headers
-/// * `team` - Team settings for feature configuration
-///
-/// # Returns
-/// * `Ok(())` - If all config fields were applied successfully
-/// * `Err(FlagError)` - If there was an error (typically from database operations for site_apps)
-///
-/// # Side Effects
-///
-/// - Modifies the response in-place by setting various optional fields
-/// - May perform database queries to fetch site apps if team has `inject_web_apps` enabled
-/// - Evaluates team exclusion lists to determine feature availability
 async fn apply_config_fields(
     response: &mut FlagsResponse,
     context: &ConfigContext,
@@ -111,7 +76,7 @@ async fn apply_config_fields(
     response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
     response.config.autocapture_opt_out = team.autocapture_opt_out;
 
-    response.config.analytics = if !context.config.debug
+    response.config.analytics = if !context.config.debug.0
         && !context.config.is_team_excluded(
             team.id,
             &context.config.new_analytics_capture_excluded_team_ids,
@@ -188,8 +153,11 @@ async fn apply_config_fields(
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::{AnalyticsConfig, ConfigResponse, FlagsResponse},
-        config::{Config, TeamIdCollection},
+        api::types::{
+            AnalyticsConfig, ConfigResponse, FlagDetails, FlagDetailsMetadata,
+            FlagEvaluationReason, FlagsResponse, SessionRecordingField,
+        },
+        config::{Config, FlexBool, TeamIdCollection},
         handler::session_recording,
         team::team_models::Team,
     };
@@ -209,7 +177,7 @@ mod tests {
         response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
         response.config.autocapture_opt_out = team.autocapture_opt_out;
 
-        response.config.analytics = if !config.debug
+        response.config.analytics = if !config.debug.0
             && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
         {
             Some(AnalyticsConfig {
@@ -348,16 +316,16 @@ mod tests {
         let mut response = create_base_response();
         response.flags.insert(
             "test_flag".to_string(),
-            crate::api::types::FlagDetails {
+            FlagDetails {
                 key: "test_flag".to_string(),
                 enabled: true,
                 variant: None,
-                reason: crate::api::types::FlagEvaluationReason {
+                reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
                     description: None,
                 },
-                metadata: crate::api::types::FlagDetailsMetadata {
+                metadata: FlagDetailsMetadata {
                     id: 1,
                     version: 1,
                     description: None,
@@ -377,7 +345,7 @@ mod tests {
     #[test]
     fn test_analytics_config_enabled() {
         let mut config = Config::default_test_config();
-        config.debug = false;
+        config.debug = FlexBool(false);
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
 
@@ -396,7 +364,7 @@ mod tests {
     #[test]
     fn test_analytics_config_disabled_debug_mode() {
         let mut config = Config::default_test_config();
-        config.debug = true;
+        config.debug = FlexBool(true);
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
         let mut response = create_base_response();
@@ -410,7 +378,7 @@ mod tests {
     #[test]
     fn test_analytics_config_disabled_excluded_team() {
         let mut config = Config::default_test_config();
-        config.debug = false;
+        config.debug = FlexBool(false);
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // All means exclude all teams
 
@@ -765,7 +733,7 @@ mod tests {
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
 
         // Should return disabled=false when session recording is off
-        if let Some(crate::api::types::SessionRecordingField::Disabled(enabled)) = result {
+        if let Some(SessionRecordingField::Disabled(enabled)) = result {
             assert!(!enabled);
         } else {
             panic!("Expected SessionRecordingField::Disabled(false)");
@@ -782,7 +750,7 @@ mod tests {
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
 
         // Should return config with no script_config since rrweb script is not configured
-        if let Some(crate::api::types::SessionRecordingField::Config(config)) = result {
+        if let Some(SessionRecordingField::Config(config)) = result {
             assert_eq!(config.endpoint, Some("/s/".to_string()));
             assert_eq!(config.recorder_version, Some("v2".to_string()));
             assert!(config.script_config.is_none()); // No script config
@@ -804,7 +772,7 @@ mod tests {
         let headers = axum::http::HeaderMap::new();
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
 
-        if let Some(crate::api::types::SessionRecordingField::Config(config)) = result {
+        if let Some(SessionRecordingField::Config(config)) = result {
             assert!(config.script_config.is_some());
             let script_config = config.script_config.unwrap();
             assert_eq!(script_config["script"], "console.log('custom script')");
@@ -826,7 +794,7 @@ mod tests {
         let headers = axum::http::HeaderMap::new();
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
 
-        if let Some(crate::api::types::SessionRecordingField::Config(config)) = result {
+        if let Some(SessionRecordingField::Config(config)) = result {
             assert!(config.script_config.is_some());
             let script_config = config.script_config.unwrap();
             assert_eq!(script_config["script"], "console.log('team script')");
@@ -848,7 +816,7 @@ mod tests {
         let headers = axum::http::HeaderMap::new();
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
 
-        if let Some(crate::api::types::SessionRecordingField::Config(config)) = result {
+        if let Some(SessionRecordingField::Config(config)) = result {
             assert!(config.script_config.is_none()); // Should not have script config
         } else {
             panic!("Expected SessionRecordingField::Config without script_config");
@@ -867,7 +835,7 @@ mod tests {
         let headers = axum::http::HeaderMap::new();
         let result = session_recording::session_recording_config_response(&team, &headers, &config);
 
-        if let Some(crate::api::types::SessionRecordingField::Config(config)) = result {
+        if let Some(SessionRecordingField::Config(config)) = result {
             assert!(config.script_config.is_none()); // Should not have script config when script is empty
         } else {
             panic!("Expected SessionRecordingField::Config without script_config");
