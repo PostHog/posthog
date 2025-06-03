@@ -250,12 +250,6 @@ export const getDefaultTreeMetadata = (): FileSystemImport[] => [
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Destinations),
     } as FileSystemImport,
-    {
-        path: `Site apps`,
-        type: 'hog_function/site_app',
-        iconType: 'plug',
-        href: urls.pipeline(PipelineTab.SiteApps),
-    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
