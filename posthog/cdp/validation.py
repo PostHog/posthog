@@ -182,13 +182,6 @@ class InputsItemSerializer(serializers.Serializer):
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
-            # Use logging.exception to automatically include traceback
-            logger.exception(
-                f"hog_function_template_validation_failed - error: {str(e)}, "
-                f"item_type: {item_type}, function_type: {function_type}, "
-                f"schema_key: {schema.get('key')}, templating_enabled: {schema.get('templating', True)}, "
-                f"has_liquid_syntax: {has_liquid_syntax(value) if value else False}"
-            )
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs

@@ -100,10 +100,6 @@ export const formatLiquidInput = (
     globals: HogFunctionInvocationGlobalsWithInputs,
     key?: string
 ): any => {
-    // Similar to how we generate the bytecode by iterating over the values,
-    // here we iterate over the object and replace the bytecode with the actual values
-    // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
-
     if (value === null || value === undefined) {
         return value
     }
