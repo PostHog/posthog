@@ -52,8 +52,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         isEmailEditorReady: [
             false,
             {
-                onEmailEditorReady: (_) => true,
-                setEmailEditorRef: (_) => false,
+                setIsModalOpen: () => false,
+                onEmailEditorReady: () => true,
             },
         ],
         isModalOpen: [
@@ -95,6 +95,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     selectors({
+        logicProps: [() => [(_, props) => props], (props) => props],
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
             (personPropertyDefinitions: PropertyDefinition[]): Record<string, any> => {

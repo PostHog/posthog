@@ -1,5 +1,5 @@
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, props, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -10,16 +10,9 @@ import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 
-function EmailTemplaterForm({
-    mode,
-    emailMetaFields,
-    ...props
-}: EmailTemplaterLogicProps & {
-    mode: 'full' | 'preview'
-}): JSX.Element {
-    const logic = emailTemplaterLogic(props)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(logic)
-    const { appliedTemplate, templates, templatesLoading, mergeTags } = useValues(logic)
+function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
+    const { logicProps, appliedTemplate, templates, templatesLoading, mergeTags } = useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
@@ -48,10 +41,10 @@ function EmailTemplaterForm({
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={emailTemplaterLogic}
-                props={props}
+                props={logicProps}
                 formKey="emailTemplate"
             >
-                {(emailMetaFields || ['from', 'to', 'subject']).map((field) => (
+                {(logicProps.emailMetaFields || ['from', 'to', 'subject']).map((field) => (
                     <LemonField
                         key={field}
                         name={field}
@@ -67,7 +60,7 @@ function EmailTemplaterForm({
                                 <CodeEditorInline
                                     embedded
                                     className="flex-1"
-                                    globals={props.variables}
+                                    globals={logicProps.variables}
                                     value={value}
                                     onChange={onChange}
                                 />
@@ -111,9 +104,9 @@ function EmailTemplaterForm({
     )
 }
 
-export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX.Element {
-    const { isModalOpen, isEmailEditorReady } = useValues(emailTemplaterLogic(props))
-    const { cancelChanges, submitEmailTemplate } = useActions(emailTemplaterLogic(props))
+function EmailTemplaterModal(): JSX.Element {
+    const { isModalOpen, isEmailEditorReady } = useValues(emailTemplaterLogic)
+    const { cancelChanges, submitEmailTemplate } = useActions(emailTemplaterLogic)
 
     return (
         <LemonModal isOpen={isModalOpen} width="90vw" onClose={() => cancelChanges()}>
@@ -142,9 +135,11 @@ export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX
 
 export function EmailTemplater(props: EmailTemplaterLogicProps): JSX.Element {
     return (
-        <div className="flex flex-col flex-1">
-            <EmailTemplaterForm {...props} mode="preview" />
-            <EmailTemplaterModal {...props} />
-        </div>
+        <BindLogic logic={emailTemplaterLogic} props={props}>
+            <div className="flex flex-col flex-1">
+                <EmailTemplaterForm mode="preview" />
+                <EmailTemplaterModal />
+            </div>
+        </BindLogic>
     )
 }
