@@ -205,7 +205,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 text="current version text",
             ),
         ]
-        bulk_create_pg_embeddings(vectors_current)
+        bulk_create_pg_embeddings(vectors_current, embedding_version=2)
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
         self.assertEqual(len(response.results), 2)
