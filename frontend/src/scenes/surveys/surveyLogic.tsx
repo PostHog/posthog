@@ -1030,6 +1030,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             ${values.answerFilterHogQLExpression}
                             ${values.partialResponsesFilter}
                             AND {filters}
+                        ORDER BY events.timestamp DESC
                         LIMIT ${limit}
                     `,
                     filters: {
