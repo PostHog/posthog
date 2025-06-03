@@ -50,7 +50,7 @@ export const playlistLogic = kea<playlistLogicType>([
                 const currentSearchParams = new URLSearchParams(window.location.search)
                 currentSearchParams.delete('showFilters')
                 currentSearchParams.delete('filtersTab')
-                window.history.replaceState({}, '', `${window.location.pathname}?${currentSearchParams.toString()}`)
+                window.history.replaceState({}, '', `${window.location.pathname}${currentSearchParams.toString() ? '?' + currentSearchParams.toString() : ''}`)
             }
         },
     })),
