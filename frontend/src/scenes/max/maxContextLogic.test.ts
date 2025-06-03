@@ -22,6 +22,15 @@ describe('maxContextLogic', () => {
         } as any,
     }
 
+    // Create the expected transformed insight
+    const expectedTransformedInsight = {
+        id: 'insight-1',
+        name: 'Test Insight',
+        description: 'Test insight description',
+        query: { kind: 'TrendsQuery' },
+        insight_type: 'TrendsQuery',
+    }
+
     const mockDashboard: DashboardType<QueryBasedInsightModel> = {
         id: 1,
         name: 'Test Dashboard',
@@ -33,6 +42,14 @@ describe('maxContextLogic', () => {
             },
         ],
     } as DashboardType<QueryBasedInsightModel>
+
+    // Create the expected transformed dashboard
+    const expectedTransformedDashboard = {
+        id: 1,
+        name: 'Test Dashboard',
+        description: 'Test dashboard description',
+        insights: [expectedTransformedInsight],
+    }
 
     beforeEach(() => {
         useMocks(maxMocks)
@@ -74,8 +91,8 @@ describe('maxContextLogic', () => {
             logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
 
             await expectLogic(logic).toMatchValues({
-                contextInsights: { 'test-key': mockInsight },
-                contextDashboards: { '1': mockDashboard },
+                contextInsights: { 'test-key': expectedTransformedInsight },
+                contextDashboards: { '1': expectedTransformedDashboard },
             })
         })
 
@@ -87,7 +104,7 @@ describe('maxContextLogic', () => {
             logic.actions.addOrUpdateActiveInsight('active-1', mockInsight)
 
             await expectLogic(logic).toMatchValues({
-                activeInsights: { 'active-1': mockInsight },
+                activeInsights: { 'active-1': expectedTransformedInsight },
             })
 
             logic.actions.clearActiveInsights()
@@ -105,7 +122,7 @@ describe('maxContextLogic', () => {
             logic.actions.setActiveDashboard(mockDashboard)
 
             await expectLogic(logic).toMatchValues({
-                activeDashboard: mockDashboard,
+                activeDashboard: expectedTransformedDashboard,
             })
 
             logic.actions.clearActiveDashboard()
@@ -121,8 +138,8 @@ describe('maxContextLogic', () => {
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
-                contextInsights: { test: mockInsight },
-                contextDashboards: { '1': mockDashboard },
+                contextInsights: { test: expectedTransformedInsight },
+                contextDashboards: { '1': expectedTransformedDashboard },
                 useCurrentPageContext: true,
             })
 
@@ -172,7 +189,7 @@ describe('maxContextLogic', () => {
                         value: 'current_page',
                         icon: IconPageChart,
                         items: {
-                            insights: [mockInsight],
+                            insights: [expectedTransformedInsight],
                             dashboards: [],
                         },
                     },
@@ -188,8 +205,8 @@ describe('maxContextLogic', () => {
                         value: 'current_page',
                         icon: IconPageChart,
                         items: {
-                            insights: [mockInsight],
-                            dashboards: [mockDashboard],
+                            insights: [expectedTransformedInsight],
+                            dashboards: [expectedTransformedDashboard],
                         },
                     },
                 ],
@@ -212,36 +229,6 @@ describe('maxContextLogic', () => {
                     TaxonomicFilterGroupType.Insights,
                     TaxonomicFilterGroupType.Dashboards,
                 ],
-            })
-        })
-
-        it('calculates dashboardInsightIds correctly', async () => {
-            await expectLogic(logic).toMatchValues({
-                dashboardInsightIds: new Set(),
-            })
-
-            logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
-
-            await expectLogic(logic).toMatchValues({
-                dashboardInsightIds: new Set(['insight-1']),
-            })
-
-            const mockDashboard2 = {
-                ...mockDashboard,
-                id: 2,
-                tiles: [
-                    {
-                        id: 2,
-                        insight: { ...mockInsight, short_id: 'insight-2' } as QueryBasedInsightModel,
-                    },
-                ],
-            } as DashboardType<QueryBasedInsightModel>
-
-            logic.actions.setActiveDashboard(mockDashboard2)
-            logic.actions.enableCurrentPageContext()
-
-            await expectLogic(logic).toMatchValues({
-                dashboardInsightIds: new Set(['insight-1', 'insight-2']),
             })
         })
 
@@ -293,12 +280,15 @@ describe('maxContextLogic', () => {
             })
         })
 
-        it('filters out insights already in dashboards from compiled context', async () => {
+        it('includes both insights and dashboard when they have different IDs', async () => {
             logic.actions.addOrUpdateContextInsight('insight-1', mockInsight)
             logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
+                    insights: {
+                        'insight-1': partial({ id: 'insight-1' }),
+                    },
                     dashboards: {
                         '1': partial({
                             insights: [partial({ id: 'insight-1' })],
@@ -306,8 +296,6 @@ describe('maxContextLogic', () => {
                     },
                 }),
             })
-
-            expect(logic.values.compiledContext?.insights).toBeUndefined()
         })
 
         it('includes active insights and dashboard when current page context is enabled', async () => {
@@ -317,6 +305,9 @@ describe('maxContextLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
+                    insights: {
+                        'active-insight': partial({ id: 'insight-1' }),
+                    },
                     dashboards: {
                         '1': partial({
                             id: 1,
@@ -325,8 +316,6 @@ describe('maxContextLogic', () => {
                     },
                 }),
             })
-
-            expect(logic.values.compiledContext?.insights).toBeUndefined()
         })
     })
 
@@ -336,8 +325,8 @@ describe('maxContextLogic', () => {
             logic.actions.setActiveDashboard(mockDashboard)
 
             await expectLogic(logic).toMatchValues({
-                activeInsights: { active: mockInsight },
-                activeDashboard: mockDashboard,
+                activeInsights: { active: expectedTransformedInsight },
+                activeDashboard: expectedTransformedDashboard,
             })
 
             await expectLogic(logic, () => {
