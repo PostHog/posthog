@@ -416,7 +416,7 @@ export const fileSystemTypes = {
 }
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsNew = [
+export const getTreeItemsNew = (): FileSystemImport[] => [
     { type: 'action', path: 'Action', href: urls.createAction() },
     {
         path: `Broadcast`,
