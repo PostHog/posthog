@@ -70,6 +70,10 @@ pub struct FlagsQueryParams {
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 
+    /// Optional boolean indicating whether to include the config field in the response
+    /// This lets us have parity with the legacy /decide endpoint so that we can support
+    /// JS and other mobile clients need more config data than /flags supplied originally.
+    /// e.g. https://us.posthog.com/flags?v=2&config=true
     #[serde(default)]
     pub config: Option<bool>,
 }
@@ -85,53 +89,78 @@ pub enum ServiceResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigResponse {
     // Config fields - only present when config=true
+    /// Supported compression algorithms
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub supported_compression: Vec<String>,
 
+    /// If set, disables autocapture
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autocapture_opt_out: Option<bool>,
 
+    /// Originally capturePerformance was replay only and so boolean true
+    /// is equivalent to { network_timing: true }
+    /// now capture performance can be separately enabled within replay
+    /// and as a standalone web vitals tracker
+    /// people can have them enabled separately
+    /// they work standalone but enhance each other
+    /// TODO: deprecate this so we make a new config that doesn't need this explanation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_performance: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<Value>,
 
+    /// Whether we should use a custom endpoint for analytics
+    ///
+    /// Default: { endpoint: "/e" }
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analytics: Option<AnalyticsConfig>,
 
+    /// Whether the `$elements_chain` property should be sent as a string or as an array
+    ///
+    /// Default: false
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elements_chain_as_string: Option<bool>,
 
+    /// This is currently in development and may have breaking changes without a major version bump
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autocapture_exceptions: Option<Value>,
 
+    /// Session recording configuration options
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_recording: Option<SessionRecordingField>,
 
+    /// Whether surveys are enabled
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surveys: Option<Value>,
 
+    /// Parameters for the toolbar
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub toolbar_params: Option<Value>,
 
+    /// Whether the user is authenticated
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_authenticated: Option<bool>,
 
+    /// List of site apps with their IDs and URLs
     pub site_apps: Vec<WebJsUrl>,
 
+    /// Whether heatmaps are enabled
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heatmaps: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags_persistence_default: Option<bool>,
 
+    /// Whether to only capture identified users by default
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_identified_only: Option<bool>,
 
+    /// Whether to capture dead clicks
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_dead_clicks: Option<bool>,
 
+    /// Indicates if the team has any flags enabled (if not we don't need to load them)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_feature_flags: Option<bool>,
 }
