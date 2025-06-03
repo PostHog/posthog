@@ -416,6 +416,9 @@ function processResultsForSurveyQuestions(
     return responsesByQuestion
 }
 
+// Limit for one query is 10000, source: https://posthog.com/questions/how-do-i-get-the-next-page-of-results-in-a-hog-ql-result-set-from-the-api
+const QUERY_RESPONSES_LIMIT = 10000
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -1000,7 +1003,9 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         consolidatedSurveyResults: {
-            loadConsolidatedSurveyResults: async (limit = 1000): Promise<ConsolidatedSurveyResults> => {
+            loadConsolidatedSurveyResults: async (
+                limit = QUERY_RESPONSES_LIMIT
+            ): Promise<ConsolidatedSurveyResults> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
