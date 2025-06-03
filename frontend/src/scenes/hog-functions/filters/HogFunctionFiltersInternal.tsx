@@ -1,8 +1,8 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
@@ -43,13 +43,6 @@ const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterO
     ]
 }
 
-const getTaxonomicGroupTypes = (contextId: HogFunctionConfigurationContextId): TaxonomicFilterGroupType[] => {
-    if (contextId === 'error-tracking') {
-        return [TaxonomicFilterGroupType.ErrorTrackingIssues]
-    }
-    return []
-}
-
 const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
     return value?.events?.[0]?.id
 }
@@ -73,6 +66,15 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getFilterOptions(contextId), [contextId])
+    const hasAlertRouting = useFeatureFlag('ERROR_TRACKING_ALERT_ROUTING')
+    const showPropertyFilters = (hasAlertRouting && contextId === 'error-tracking') || contextId === 'insight-alerts'
+
+    const taxonomicGroupTypes = useMemo(() => {
+        if (contextId === 'error-tracking') {
+            return [TaxonomicFilterGroupType.ErrorTrackingIssues]
+        }
+        return []
+    }, [contextId])
 
     return (
         <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
@@ -86,35 +88,19 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                             onChange={(value) => onChange(setSimpleFilterValue(options, value))}
                             placeholder="Select a filter"
                         />
-                        <FlaggedFeature flag="error-tracking-alert-routing">
+                        {showPropertyFilters ? (
                             <PropertyFilters
                                 propertyFilters={value?.properties ?? []}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
                                         ...value,
                                         properties,
                                     })
                                 }}
-                                pageKey={`hog-function-internal-property-filters-${id}`}
+                                pageKey="hog-function-internal-property-filters"
                                 buttonSize="small"
                                 disablePopover
-                            />
-                        </FlaggedFeature>
-
-                        {contextId === 'insight-alerts' ? (
-                            <PropertyFilters
-                                propertyFilters={value?.events?.[0]?.properties ?? []}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                                pageKey={`hog-function-internal-property-filters-${id}`}
-                                buttonSize="small"
-                                disablePopover
-                                onChange={(properties: AnyPropertyFilter[]) => {
-                                    onChange({
-                                        ...value,
-                                        properties,
-                                    })
-                                }}
                             />
                         ) : null}
                     </>
