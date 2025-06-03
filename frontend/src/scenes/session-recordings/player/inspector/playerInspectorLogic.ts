@@ -25,6 +25,7 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
+    AnnotationType,
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -93,6 +94,11 @@ export type InspectorListItemComment = InspectorListItemBase & {
     data: RecordingComment
 }
 
+export type InspectorListItemAnnotation = InspectorListItemBase & {
+    type: 'annotation'
+    data: AnnotationType
+}
+
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: FilterableInspectorListItemTypes.CONSOLE
     data: RecordingConsoleLogV2
@@ -130,6 +136,7 @@ export type InspectorListItem =
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
     | InspectorListItemComment
+    | InspectorListItemAnnotation
     | InspectorListItemSummary
     | InspectorListItemInactivity
 
@@ -243,6 +250,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
+                'sessionAnnotations',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -541,6 +549,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.windowNumberForID,
                 s.sessionPlayerMetaData,
                 s.segments,
+                s.sessionAnnotations,
             ],
             (
                 start,
@@ -551,7 +560,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 windowIdForTimestamp,
                 windowNumberForID,
                 sessionPlayerMetaData,
-                segments
+                segments,
+                sessionAnnotations
             ) => {
                 const items: InspectorListItem[] = []
 
@@ -603,6 +613,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
                         })
                     }
+                }
+
+                for (const annotation of sessionAnnotations || []) {
+                    items.push({
+                        ...annotation,
+                        highlightColor: 'primary',
+                        windowId: windowIdForTimestamp(annotation.timestamp.valueOf()),
+                        windowNumber: windowNumberForID(windowIdForTimestamp(annotation.timestamp.valueOf())),
+                    })
                 }
 
                 // now we've calculated everything else
@@ -810,7 +829,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allowMatchingEventsFilter,
                 trackedWindow,
                 hasEventsToDisplay
-            ): (InspectorListItemEvent | InspectorListItemComment)[] => {
+            ): (InspectorListItemEvent | InspectorListItemComment | InspectorListItemAnnotation)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
                     miniFiltersByKey: miniFiltersForTypeByKey(FilterableInspectorListItemTypes.EVENTS),
@@ -820,19 +839,30 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventFilteredItems.filter(
-                    (item): item is InspectorListItemEvent | InspectorListItemComment => {
-                        if (item.type === FilterableInspectorListItemTypes.EVENTS) {
-                            return !(allowMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
-                        }
+                let items: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemAnnotation)[] =
+                    eventFilteredItems.filter(
+                        (
+                            item
+                        ): item is InspectorListItemEvent | InspectorListItemComment | InspectorListItemAnnotation => {
+                            if (item.type === FilterableInspectorListItemTypes.EVENTS) {
+                                return !(
+                                    allowMatchingEventsFilter &&
+                                    showOnlyMatching &&
+                                    item.highlightColor !== 'primary'
+                                )
+                            }
 
-                        if (item.type === 'comment') {
-                            return !allowMatchingEventsFilter
-                        }
+                            if (item.type === 'comment') {
+                                return !allowMatchingEventsFilter
+                            }
 
-                        return false
-                    }
-                )
+                            if (item.type === 'annotation') {
+                                return true
+                            }
+
+                            return false
+                        }
+                    )
 
                 if (items.length > MAX_SEEKBAR_ITEMS) {
                     items = items.filter((item) => {
@@ -840,7 +870,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         const isPageView =
                             item.type === FilterableInspectorListItemTypes.EVENTS && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
-                        return isPrimary || isPageView || isComment
+                        const isAnnotation = item.type === 'annotation'
+                        return isPrimary || isPageView || isComment || isAnnotation
                     })
 
                     items = items.filter((_, i) => {
@@ -997,7 +1028,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             FilterableInspectorListItemTypes.NETWORK,
                             FilterableInspectorListItemTypes.DOCTOR,
                         ].includes(item.type as FilterableInspectorListItemTypes)
-                            ? item.type
+                            ? (item.type as FilterableInspectorListItemTypes | 'context')
                             : 'context'
                     ].push(item)
                 }
