@@ -193,12 +193,10 @@ async def _delete_all_from_bucket_with_prefix(bucket_name: str, key_prefix: str)
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        # TODO - should we use our own set of env vars for this?
-        # TODO - check these are available in production workers
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        region_name=settings.OBJECT_STORAGE_REGION,
+        endpoint_url=settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT,
+        region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
     ) as s3_client:
         response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
         if "Contents" in response:
@@ -560,12 +558,10 @@ class ProducerFromInternalS3Stage:
         session = aioboto3.Session()
         async with session.client(
             "s3",
-            # TODO - should we use our own set of env vars for this?
-            # TODO - check these are available in production workers
             aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            region_name=settings.OBJECT_STORAGE_REGION,
+            endpoint_url=settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT,
+            region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         ) as s3_client:
             response = await s3_client.list_objects_v2(
                 Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder
