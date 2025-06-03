@@ -14,7 +14,7 @@ from temporalio.client import (
 )
 
 from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
-from posthog.hogql_queries.ai.vector_search_query_runner import VECTOR_SEARCH_EMBEDDING_VERSION
+from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
@@ -28,7 +28,7 @@ async def create_sync_vectors_schedule(client: Client):
     sync_vectors_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "ai-sync-vectors",
-            asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=VECTOR_SEARCH_EMBEDDING_VERSION))),
+            asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
             id="ai-sync-vectors-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),

@@ -11,8 +11,8 @@ from posthog.schema import (
     VectorSearchResponseItem,
 )
 
-VECTOR_SEARCH_EMBEDDING_VERSION: int = 2
-"""Bump the version when the embedding model changes."""
+LATEST_ACTIONS_EMBEDDING_VERSION: int = 2
+"""Bump the version when the embedding behavior changes for actions."""
 
 
 class VectorSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):

@@ -334,7 +334,7 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
 class EmbeddingVersion:
     """The version of the embedding model to use per a domain."""
 
-    actions: int | None
+    actions: int
 
 
 @dataclass
