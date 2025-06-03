@@ -112,18 +112,13 @@ function JsonConfigField(props: {
 function EmailTemplateField({
     schema,
     value,
-    onChange: _onChange,
+    onChange,
 }: {
     schema: HogFunctionInputSchemaType
     value: any
     onChange: (value: any) => void
 }): JSX.Element {
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
-
-    const onChange = (value: any) => {
-        console.log('onChange', value)
-        _onChange(value)
-    }
 
     return (
         <LemonField name={`inputs.${schema.key}`} help={schema.description}>
