@@ -314,14 +314,15 @@ export class SegmentDestinationExecutorService {
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof SegmentFetchError) {
-                result.finished = false
-                result.invocation.queue = 'segment'
-                result.invocation.queuePriority = metadata.tries
-                result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
-
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
+                    result.finished = false
+                    result.invocation.queue = 'segment'
+                    result.invocation.queuePriority = metadata.tries
+                    result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result
+                } else {
+                    result.finished = true
                 }
             }
 
