@@ -38,14 +38,16 @@ export function loadPostHogJS(): void {
                 } else {
                     loadedInstance.opt_in_capturing()
 
-                    setInterval(() => {
-                        const memory = (window.performance as any).memory
-                        if (memory) {
-                            loadedInstance.capture('memory_usage', {
-                                memory,
-                            })
-                        }
-                    }, 60000)
+                    if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
+                        setInterval(() => {
+                            const memory = (window.performance as any).memory
+                            if (memory) {
+                                loadedInstance.capture('memory_usage', {
+                                    memory,
+                                })
+                            }
+                        }, 60000)
+                    }
                 }
 
                 const Cypress = (window as WindowWithCypressCaptures).Cypress
