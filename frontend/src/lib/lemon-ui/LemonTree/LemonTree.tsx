@@ -73,6 +73,9 @@ export type TreeDataItem = {
 
     /** Tags for the item */
     tags?: string[]
+
+    /** Order of object in tree */
+    visualOrder?: number
 }
 export type TreeMode = 'tree' | 'table'
 

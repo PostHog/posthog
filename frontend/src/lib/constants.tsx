@@ -214,7 +214,6 @@ export const FEATURE_FLAGS = {
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
-    BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-cdp
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
     INSIGHT_COLORS: 'insight-colors', // owner: @thmsobrmlr #team-product-analytics
@@ -228,6 +227,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     TREE_VIEW: 'tree-view', // owner: @mariusandra #team-devex
+    TREE_VIEW_RELEASE: 'tree-view-release', // owner: @mariusandra #team-devex
     EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
     RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST: 'experiments-new-query-runner-aa-test', // #team-experiments
@@ -260,6 +260,7 @@ export const FEATURE_FLAGS = {
     SHOW_NEW_EXPERIMENTATION_ENGINE_BANNER: 'show-new-experimentation-engine-banner', // owner: @andehen #team-experiments
     WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
     SQL_EDITOR_AI_ERROR_FIXER: 'sql-editor-ai-error-fixer', // owner: @Gilbert09 #team-data-warehouse
+    GOOGLE_ADS_DWH: 'google-ads-dwh', // owner: @tomasfarias #team-data-warehouse
     DASHBOARD_SYNC_INSIGHT_LOADING: 'dashboard-sync-insight-loading', // owner: @anirudhpillai #team-product-analytics
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
@@ -273,9 +274,11 @@ export const FEATURE_FLAGS = {
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-observability @peter-k
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
+    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
     REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
-    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay,
+    SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
+    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN: 'experiments-new-query-runner-for-users-on-free-plan', // owner: #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -284,7 +287,6 @@ export const PRODUCT_VISUAL_ORDER = {
     productAnalytics: 10,
     webAnalytics: 20,
     revenueAnalytics: 30,
-    sqlEditor: 40,
     dashboards: 50,
     notebooks: 52,
     sessionReplay: 60,
@@ -293,8 +295,9 @@ export const PRODUCT_VISUAL_ORDER = {
     surveys: 90,
     aiChat: 100,
     llmObservability: 110,
-    errorTracking: 120,
-    earlyAccessFeatures: 130,
+    earlyAccessFeatures: 120,
+    errorTracking: 130,
+    sqlEditor: 135,
     dataPipeline: 140,
     // alphas
     messaging: 300,
@@ -302,6 +305,18 @@ export const PRODUCT_VISUAL_ORDER = {
     links: 320,
     logs: 330,
     userInterviews: 340,
+}
+
+export const INSIGHT_VISUAL_ORDER = {
+    trends: 10,
+    funnel: 20,
+    retention: 30,
+    paths: 40,
+    stickiness: 50,
+    lifecycle: 60,
+    calendarHeatmap: 70,
+    sql: 80,
+    hog: 90,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

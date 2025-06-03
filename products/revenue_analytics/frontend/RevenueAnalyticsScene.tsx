@@ -46,8 +46,11 @@ export function RevenueAnalyticsScene(): JSX.Element {
                 productName={PRODUCT_NAME}
                 productKey={PRODUCT_KEY}
                 thingName={PRODUCT_THING_NAME}
-                description={PRODUCT_DESCRIPTION}
-                titleOverride="Revenue Analytics is in opt-in beta"
+                description={
+                    PRODUCT_DESCRIPTION +
+                    ". Because we're in open beta, each user will need to enable this feature separately."
+                }
+                titleOverride="Revenue Analytics is in opt-in beta."
                 actionElementOverride={
                     <LemonButton
                         type="primary"

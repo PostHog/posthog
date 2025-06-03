@@ -863,7 +863,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type = request.data["source_type"]
 
         customer_id = payload.get("customer_id", "")
-        resource_name = payload.get("resource_name", "")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -873,11 +872,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={"customer_id": customer_id, "resource_name": resource_name},
+            job_inputs={"customer_id": customer_id},
             prefix=prefix,
         )
 
-        schemas = get_google_ads_schemas(GoogleAdsServiceAccountSourceConfig.from_dict(new_source_model.job_inputs))
+        config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
+        schemas = get_google_ads_schemas(config)
 
         return new_source_model, list(schemas.keys())
 
@@ -1071,18 +1071,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             customer_id = request.data.get("customer_id")
-            resource_name = request.data.get("resource_name")
+            resource_name = request.data.get("resource_name", "")
 
             if not customer_id:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Missing required input: 'customer_id'"},
-                )
-
-            if not resource_name:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required input: 'resource_name'"},
                 )
 
             google_ads_config = GoogleAdsServiceAccountSourceConfig(

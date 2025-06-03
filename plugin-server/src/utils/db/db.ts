@@ -465,9 +465,12 @@ export class DB {
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
-    public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
-    public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
+    public async fetchPersons(database?: Database.Postgres, teamId?: number): Promise<InternalPerson[]>
+    public async fetchPersons(database: Database.ClickHouse, teamId?: number): Promise<ClickHousePerson[]>
+    public async fetchPersons(
+        database: Database = Database.Postgres,
+        teamId?: number
+    ): Promise<InternalPerson[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
             SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
@@ -482,6 +485,7 @@ export class DB {
                     argMax(_offset, _timestamp) as _offset
                 FROM person
                 FINAL
+                ${teamId ? `WHERE team_id = ${teamId}` : ''}
                 GROUP BY team_id, id
                 HAVING max(is_deleted)=0
             )
