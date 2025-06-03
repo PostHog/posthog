@@ -74,20 +74,16 @@ pub struct FlagsQueryParams {
     pub config: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ServiceResponse {
+    Default(LegacyFlagsResponse),
+    V2(FlagsResponse),
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct FlagsResponse {
-    // Core flag data - always present
-    pub errors_while_computing_flags: bool,
-    pub flags: HashMap<String, FlagDetails>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quota_limited: Option<Vec<String>>,
-    pub request_id: Option<Uuid>,
-
-    // Legacy format fields - always present when we have flags
-    pub feature_flags: HashMap<String, FlagValue>,
-    pub feature_flag_payloads: HashMap<String, Value>,
-
+pub struct ConfigResponse {
     // Config fields - only present when config=true
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub supported_compression: Vec<String>,
@@ -116,13 +112,12 @@ pub struct FlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surveys: Option<Value>,
 
-    #[serde(skip_serializing_if = "is_empty_value", default)]
-    pub toolbar_params: Value,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub toolbar_params: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_authenticated: Option<bool>,
 
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub site_apps: Vec<WebJsUrl>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -141,130 +136,34 @@ pub struct FlagsResponse {
     pub has_feature_flags: Option<bool>,
 }
 
-impl FlagsResponse {
-    /// Create a new FlagsResponse with just the core flag data
-    pub fn new(
-        errors_while_computing_flags: bool,
-        flags: HashMap<String, FlagDetails>,
-        quota_limited: Option<Vec<String>>,
-        request_id: Option<Uuid>,
-    ) -> Self {
-        let feature_flags = flags
-            .iter()
-            .map(|(k, v)| (k.clone(), v.to_value()))
-            .collect();
-
-        let feature_flag_payloads = flags
-            .iter()
-            .filter_map(|(k, v)| v.metadata.payload.clone().map(|p| (k.clone(), p)))
-            .collect();
-
-        Self {
-            errors_while_computing_flags,
-            flags,
-            quota_limited,
-            request_id,
-            feature_flags,
-            feature_flag_payloads,
-            ..Default::default()
-        }
-    }
-
-    /// Convert to legacy response format (for backward compatibility)
-    pub fn to_legacy(&self) -> LegacyFlagsResponse {
-        LegacyFlagsResponse {
-            errors_while_computing_flags: self.errors_while_computing_flags,
-            feature_flags: self.feature_flags.clone(),
-            feature_flag_payloads: self.feature_flag_payloads.clone(),
-            quota_limited: self.quota_limited.clone(),
-            request_id: self.request_id.unwrap_or_else(Uuid::nil),
-        }
-    }
-
-    /// Convert to a core flags response (strips config fields) - for API versioning
-    pub fn to_flags_response(&self) -> FlagsResponse {
-        FlagsResponse {
-            errors_while_computing_flags: self.errors_while_computing_flags,
-            flags: self.flags.clone(),
-            quota_limited: self.quota_limited.clone(),
-            request_id: self.request_id,
-            feature_flags: self.feature_flags.clone(),
-            feature_flag_payloads: self.feature_flag_payloads.clone(),
-            // All config fields default to None/empty
-            ..Default::default()
-        }
-    }
-}
-
-// Keep ServiceResponse for API versioning if needed
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum ServiceResponse {
-    Default(LegacyFlagsResponse),
-    V2(FlagsResponse),
-}
-
-fn is_empty_value(val: &serde_json::Value) -> bool {
-    match val {
-        serde_json::Value::Object(map) => map.is_empty(),
-        serde_json::Value::Array(arr) => arr.is_empty(),
-        _ => false,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AnalyticsConfig {
-    pub endpoint: Option<String>,
+pub struct FlagsResponse {
+    pub errors_while_computing_flags: bool,
+    pub flags: HashMap<String, FlagDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
+
+    #[serde(flatten)]
+    pub config: ConfigResponse,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionRecordingConfig {
-    pub endpoint: Option<String>,
-    pub console_log_recording_enabled: Option<bool>,
-    pub recorder_version: Option<String>,
-    pub sample_rate: Option<String>,
-    pub minimum_duration_milliseconds: Option<i32>,
-    pub linked_flag: Option<Value>, // string or object
-    pub network_payload_capture: Option<Value>,
-    pub masking: Option<Value>,
-    pub url_triggers: Option<Value>,
-    pub script_config: Option<Value>,
-    pub url_blocklist: Option<Value>,
-    pub event_triggers: Option<Value>,
-    pub trigger_match_type: Option<Value>,
-    pub record_canvas: Option<bool>,
-    pub canvas_fps: Option<u8>,
-    pub canvas_quality: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SessionRecordingField {
-    Disabled(bool), // NB: this should only ever be false
-    Config(SessionRecordingConfig),
-}
-
-impl Default for SessionRecordingField {
-    fn default() -> Self {
-        SessionRecordingField::Disabled(false)
-    }
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyFlagsResponse {
     pub errors_while_computing_flags: bool,
     pub feature_flags: HashMap<String, FlagValue>,
     pub feature_flag_payloads: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quota_limited: Option<Vec<String>>,
+    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+
+    #[serde(flatten)]
+    pub config: ConfigResponse,
 }
 
 impl LegacyFlagsResponse {
-    /// Create from any FlagsResponse - maintains backward compatibility
     pub fn from_response(response: FlagsResponse) -> Self {
         Self {
             errors_while_computing_flags: response.errors_while_computing_flags,
@@ -283,8 +182,26 @@ impl LegacyFlagsResponse {
                         .map(|payload| (key.clone(), payload))
                 })
                 .collect(),
-            quota_limited: response.quota_limited.clone(),
-            request_id: response.request_id.unwrap_or_else(Uuid::nil),
+            quota_limited: response.quota_limited,
+            request_id: response.request_id,
+            config: response.config,
+        }
+    }
+}
+
+impl FlagsResponse {
+    pub fn new(
+        errors_while_computing_flags: bool,
+        flags: HashMap<String, FlagDetails>,
+        quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
+    ) -> Self {
+        Self {
+            errors_while_computing_flags,
+            flags,
+            quota_limited,
+            request_id,
+            config: ConfigResponse::default(),
         }
     }
 }
@@ -294,7 +211,7 @@ pub struct FlagsOptionsResponse {
     pub status: FlagsResponseCode,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
@@ -313,7 +230,7 @@ impl FlagDetails {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FlagDetailsMetadata {
     pub id: i32,
     pub version: i32,
@@ -392,6 +309,46 @@ impl FromFeatureAndMatch for FlagDetails {
                 Some("Holdout condition value".to_string())
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyticsConfig {
+    pub endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRecordingConfig {
+    pub endpoint: Option<String>,
+    pub console_log_recording_enabled: Option<bool>,
+    pub recorder_version: Option<String>,
+    pub sample_rate: Option<String>,
+    pub minimum_duration_milliseconds: Option<i32>,
+    pub linked_flag: Option<Value>, // string or object
+    pub network_payload_capture: Option<Value>,
+    pub masking: Option<Value>,
+    pub url_triggers: Option<Value>,
+    pub script_config: Option<Value>,
+    pub url_blocklist: Option<Value>,
+    pub event_triggers: Option<Value>,
+    pub trigger_match_type: Option<Value>,
+    pub record_canvas: Option<bool>,
+    pub canvas_fps: Option<u8>,
+    pub canvas_quality: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
+#[serde(untagged)]
+pub enum SessionRecordingField {
+    Disabled(bool), // NB: this should only ever be false
+    Config(SessionRecordingConfig),
+}
+
+impl Default for SessionRecordingField {
+    fn default() -> Self {
+        SessionRecordingField::Disabled(false)
     }
 }
 
@@ -553,8 +510,8 @@ mod tests {
         );
 
         let request_id = Uuid::new_v4();
-        let response = FlagsResponse::new(false, flags, None, Some(request_id));
-        let legacy_response = response.to_legacy();
+        let response = FlagsResponse::new(false, flags, None, request_id);
+        let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
         assert_eq!(legacy_response.feature_flag_payloads.len(), 2);
@@ -586,7 +543,7 @@ mod tests {
 
     #[test]
     fn test_config_fields_are_skipped_when_none() {
-        let response = FlagsResponse::new(false, HashMap::new(), None, Some(Uuid::new_v4()));
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
         let json = serde_json::to_value(&response).unwrap();
         let obj = json.as_object().unwrap();
@@ -595,31 +552,25 @@ mod tests {
         assert!(!obj.contains_key("analytics"));
         assert!(!obj.contains_key("autocaptureExceptions"));
         assert!(!obj.contains_key("sessionRecording"));
-        assert!(!obj.contains_key("supportedCompression")); // empty vec
-        assert!(!obj.contains_key("siteApps")); // empty vec
 
         // Core fields should always be present
         assert!(obj.contains_key("errorsWhileComputingFlags"));
         assert!(obj.contains_key("flags"));
-        assert!(obj.contains_key("featureFlags"));
-        assert!(obj.contains_key("featureFlagPayloads"));
+        assert!(obj.contains_key("requestId"));
     }
 
     #[test]
     fn test_config_fields_are_included_when_set() {
-        let mut response = FlagsResponse::new(false, HashMap::new(), None, Some(Uuid::new_v4()));
-
-        println!("response: {:?}", response);
+        let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
         // Set some config fields
-        response.analytics = Some(AnalyticsConfig {
+        response.config.analytics = Some(AnalyticsConfig {
             endpoint: Some("/analytics".to_string()),
         });
-        response.supported_compression = vec!["gzip".to_string()];
+        response.config.supported_compression = vec!["gzip".to_string()];
 
         let json = serde_json::to_value(&response).unwrap();
 
-        println!("json: {:?}", json);
         let obj = json.as_object().unwrap();
 
         // Config fields should be present when set

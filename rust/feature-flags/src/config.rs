@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TeamIdsToTrack {
+pub enum TeamIdCollection {
     All,
     None,
     TeamIds(Vec<i32>),
@@ -30,15 +30,15 @@ impl std::fmt::Display for ParseTeamIdsError {
 
 impl std::error::Error for ParseTeamIdsError {}
 
-impl FromStr for TeamIdsToTrack {
+impl FromStr for TeamIdCollection {
     type Err = ParseTeamIdsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
         if s.eq_ignore_ascii_case("all") {
-            Ok(TeamIdsToTrack::All)
+            Ok(TeamIdCollection::All)
         } else if s.eq_ignore_ascii_case("none") {
-            Ok(TeamIdsToTrack::None)
+            Ok(TeamIdCollection::None)
         } else {
             let mut team_ids = Vec::new();
             for part in s.split(',').map(|p| p.trim()) {
@@ -66,7 +66,7 @@ impl FromStr for TeamIdsToTrack {
                     team_ids.push(id);
                 }
             }
-            Ok(TeamIdsToTrack::TeamIds(team_ids))
+            Ok(TeamIdCollection::TeamIds(team_ids))
         }
     }
 }
@@ -101,7 +101,7 @@ pub struct Config {
     pub enable_metrics: bool,
 
     #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
-    pub team_ids_to_track: TeamIdsToTrack,
+    pub team_ids_to_track: TeamIdCollection,
 
     #[envconfig(from = "CACHE_MAX_COHORT_ENTRIES", default = "100000")]
     pub cache_max_cohort_entries: u64,
@@ -126,13 +126,19 @@ pub struct Config {
     pub new_analytics_capture_endpoint: String,
 
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", default = "none")]
-    pub new_analytics_capture_excluded_team_ids: TeamIdsToTrack,
+    pub new_analytics_capture_excluded_team_ids: TeamIdCollection,
 
     #[envconfig(from = "ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", default = "none")]
-    pub element_chain_as_string_excluded_teams: TeamIdsToTrack,
+    pub element_chain_as_string_excluded_teams: TeamIdCollection,
 
     #[envconfig(from = "DEBUG", default = "false")]
     pub debug: bool,
+
+    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT", default = "")]
+    pub session_replay_rrweb_script: String,
+
+    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "")]
+    pub session_replay_rrweb_script_allowed_teams: String,
 }
 
 impl Config {
@@ -148,7 +154,7 @@ impl Config {
             acquire_timeout_secs: 5,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
-            team_ids_to_track: TeamIdsToTrack::All,
+            team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
             cookieless_disabled: false,
@@ -156,9 +162,11 @@ impl Config {
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
             new_analytics_capture_endpoint: "".to_string(),
-            new_analytics_capture_excluded_team_ids: TeamIdsToTrack::None,
-            element_chain_as_string_excluded_teams: TeamIdsToTrack::None,
+            new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
+            element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: false,
+            session_replay_rrweb_script: "".to_string(),
+            session_replay_rrweb_script_allowed_teams: "".to_string(),
         }
     }
 
@@ -185,11 +193,11 @@ impl Config {
         }
     }
 
-    pub fn is_team_excluded(&self, team_id: i32, setting: &TeamIdsToTrack) -> bool {
+    pub fn is_team_excluded(&self, team_id: i32, setting: &TeamIdCollection) -> bool {
         match setting {
-            TeamIdsToTrack::All => false,
-            TeamIdsToTrack::None => true,
-            TeamIdsToTrack::TeamIds(ids) => !ids.contains(&team_id),
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
         }
     }
 }
@@ -219,14 +227,14 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
             config.new_analytics_capture_excluded_team_ids,
-            TeamIdsToTrack::None
+            TeamIdCollection::None
         );
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
-            TeamIdsToTrack::None
+            TeamIdCollection::None
         );
     }
 
@@ -245,14 +253,14 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
             config.new_analytics_capture_excluded_team_ids,
-            TeamIdsToTrack::None
+            TeamIdCollection::None
         );
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
-            TeamIdsToTrack::None
+            TeamIdCollection::None
         );
     }
 
@@ -271,56 +279,59 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
             config.new_analytics_capture_excluded_team_ids,
-            TeamIdsToTrack::None
+            TeamIdCollection::None
         );
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
-            TeamIdsToTrack::None
+            TeamIdCollection::None
         );
     }
 
     #[test]
     fn test_team_ids_to_track_all() {
-        let team_ids: TeamIdsToTrack = "all".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::All);
+        let team_ids: TeamIdCollection = "all".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::All);
     }
 
     #[test]
     fn test_team_ids_to_track_none() {
-        let team_ids: TeamIdsToTrack = "none".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::None);
+        let team_ids: TeamIdCollection = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::None);
     }
 
     #[test]
     fn test_team_ids_to_track_single_ids() {
-        let team_ids: TeamIdsToTrack = "1,5,7,13".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 5, 7, 13]));
+        let team_ids: TeamIdCollection = "1,5,7,13".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::TeamIds(vec![1, 5, 7, 13]));
     }
 
     #[test]
     fn test_team_ids_to_track_ranges() {
-        let team_ids: TeamIdsToTrack = "1:3".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 2, 3]));
+        let team_ids: TeamIdCollection = "1:3".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::TeamIds(vec![1, 2, 3]));
     }
 
     #[test]
     fn test_team_ids_to_track_mixed() {
-        let team_ids: TeamIdsToTrack = "1:3,5,7:9".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 2, 3, 5, 7, 8, 9]));
+        let team_ids: TeamIdCollection = "1:3,5,7:9".parse().unwrap();
+        assert_eq!(
+            team_ids,
+            TeamIdCollection::TeamIds(vec![1, 2, 3, 5, 7, 8, 9])
+        );
     }
 
     #[test]
     fn test_invalid_range() {
-        let result: Result<TeamIdsToTrack, _> = "5:3".parse();
+        let result: Result<TeamIdCollection, _> = "5:3".parse();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_number() {
-        let result: Result<TeamIdsToTrack, _> = "abc".parse();
+        let result: Result<TeamIdCollection, _> = "abc".parse();
         assert!(result.is_err());
     }
 }

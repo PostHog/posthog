@@ -67,7 +67,7 @@ pub async fn flags(
     let versioned_response: Result<ServiceResponse, FlagError> = match version {
         Some(v) if v >= 2 => Ok(ServiceResponse::V2(response)),
         _ => Ok(ServiceResponse::Default(
-            LegacyFlagsResponse::from_response(response.to_flags_response()),
+            LegacyFlagsResponse::from_response(response),
         )),
     };
 

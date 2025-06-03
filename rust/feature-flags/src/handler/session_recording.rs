@@ -1,18 +1,18 @@
 use crate::{
     api::types::{SessionRecordingConfig, SessionRecordingField},
+    config::Config,
     team::team_models::Team,
 };
+use axum::http::HeaderMap;
 use regex;
 use serde_json::{json, Value};
 
-use super::types::RequestContext;
-
 pub fn session_recording_config_response(
     team: &Team,
-    request_context: &RequestContext,
+    headers: &HeaderMap,
+    config: &Config,
 ) -> Option<SessionRecordingField> {
-    if !team.session_recording_opt_in || session_recording_domain_not_allowed(team, request_context)
-    {
+    if !team.session_recording_opt_in || session_recording_domain_not_allowed(team, headers) {
         return Some(SessionRecordingField::Disabled(false));
     }
 
@@ -41,8 +41,21 @@ pub fn session_recording_config_response(
         None => None,
     };
 
-    // rrweb_script_config logic (stub, you may want to wire this up to settings)
-    let rrweb_script_config = None::<serde_json::Value>;
+    let rrweb_script_config = if !config.session_replay_rrweb_script.is_empty() {
+        let allowed_teams = &config.session_replay_rrweb_script_allowed_teams;
+        let team_id_str = team.id.to_string();
+
+        if allowed_teams.contains('*') || allowed_teams.split(',').any(|t| t.trim() == team_id_str)
+        {
+            Some(serde_json::json!({
+                "script": config.session_replay_rrweb_script
+            }))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // session_replay_config logic
     let (record_canvas, canvas_fps, canvas_quality) = if let Some(cfg) = &team.session_replay_config
@@ -103,9 +116,9 @@ pub fn session_recording_config_response(
     Some(SessionRecordingField::Config(config))
 }
 
-fn session_recording_domain_not_allowed(team: &Team, request_context: &RequestContext) -> bool {
+fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
     match &team.recording_domains {
-        Some(domains) if !on_permitted_recording_domain(domains, request_context) => true,
+        Some(domains) if !on_permitted_recording_domain(domains, headers) => true,
         _ => false,
     }
 }
@@ -129,22 +142,10 @@ fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -
     false
 }
 
-fn on_permitted_recording_domain(
-    recording_domains: &Vec<String>,
-    request_context: &RequestContext,
-) -> bool {
-    let origin = request_context
-        .headers
-        .get("Origin")
-        .and_then(|v| v.to_str().ok());
-    let referer = request_context
-        .headers
-        .get("Referer")
-        .and_then(|v| v.to_str().ok());
-    let user_agent = request_context
-        .headers
-        .get("User-Agent")
-        .and_then(|v| v.to_str().ok());
+fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &HeaderMap) -> bool {
+    let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
+    let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
+    let user_agent = headers.get("User-Agent").and_then(|v| v.to_str().ok());
 
     let is_authorized_web_client =
         hostname_in_allowed_url_list(recording_domains, origin.as_deref())

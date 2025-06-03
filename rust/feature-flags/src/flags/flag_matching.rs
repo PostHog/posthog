@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
+use crate::api::types::{ConfigResponse, FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -275,8 +275,8 @@ impl FeatureFlagMatcher {
                 || flags_response.errors_while_computing_flags,
             flags: flags_response.flags,
             quota_limited: None,
-            request_id: Some(request_id),
-            ..Default::default()
+            request_id: request_id,
+            config: ConfigResponse::default(),
         }
     }
 
@@ -539,8 +539,8 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags,
                     flags: flag_details_map,
                     quota_limited: None,
-                    request_id: Some(request_id),
-                    ..Default::default()
+                    request_id: request_id,
+                    config: ConfigResponse::default(),
                 };
             }
 
@@ -604,8 +604,8 @@ impl FeatureFlagMatcher {
             errors_while_computing_flags,
             flags: flag_details_map,
             quota_limited: None,
-            request_id: Some(request_id),
-            ..Default::default()
+            request_id: request_id,
+            config: ConfigResponse::default(),
         }
     }
 

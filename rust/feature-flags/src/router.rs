@@ -21,7 +21,7 @@ use tower_http::{
 use crate::{
     api::endpoint,
     cohorts::cohort_cache_manager::CohortCacheManager,
-    config::{Config, TeamIdsToTrack},
+    config::{Config, TeamIdCollection},
     metrics::utils::team_id_label_filter,
 };
 
@@ -32,7 +32,7 @@ pub struct State {
     pub writer: Arc<dyn DatabaseClient + Send + Sync>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
-    pub team_ids_to_track: TeamIdsToTrack,
+    pub team_ids_to_track: TeamIdCollection,
     pub billing_limiter: RedisLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub config: Config,
