@@ -126,16 +126,8 @@ class ErrorTrackingSymbolSet(UUIDModel):
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
     def delete(self, *args, **kwargs):
-        """
-        Custom delete method that only deletes unresolved stack frames.
-        Resolved frames will have their symbol_set set to NULL automatically
-        by the database through the ON DELETE SET NULL constraint.
-        """
-        # Delete the unresolved frames directly
+        # On delete, we want to clean up unresolved stack frames too
         self.errortrackingstackframe_set.filter(resolved=False).delete()
-
-        # Delete the symbol set - this will trigger the FK constraint
-        # which automatically sets symbol_set to NULL for remaining frames
         super().delete(*args, **kwargs)
 
     class Meta:
