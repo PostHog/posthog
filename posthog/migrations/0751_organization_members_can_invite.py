@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0748_update_featureflag_super_groups"),
+        ("posthog", "0750_alter_organization_members_can_invite"),
     ]
 
     operations = [
