@@ -2,9 +2,15 @@ from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
 
 import dagster
-from dagster import Field, Array
+from dagster import Field
 from clickhouse_driver import Client
 from dags.common import JobOwners
+from dags.web_preaggregated_utils import (
+    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
+    CLICKHOUSE_SETTINGS_HOURLY,
+    merge_clickhouse_settings,
+    WEB_ANALYTICS_CONFIG_SCHEMA,
+)
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
@@ -19,25 +25,13 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        Array(int),
-        default_value=[],
-        description="List of team IDs to process - if empty we will process for default teams only",
-    ),
-    "clickhouse_settings": Field(
-        str,
-        default_value="max_execution_time=300,max_bytes_before_external_group_by=21474836480,distributed_aggregation_memory_efficient=1",
-        description="ClickHouse execution settings",
-    ),
+    **WEB_ANALYTICS_CONFIG_SCHEMA,
     "hours_back": Field(
         float,
         default_value=23,
         description="Number of hours back to process data for",
     ),
 }
-
-# TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
-DEFAULT_TEAM_IDS = [2, 55348, 47074]
 
 
 def pre_aggregate_web_analytics_hourly_data(
@@ -46,9 +40,12 @@ def pre_aggregate_web_analytics_hourly_data(
     sql_generator: Callable,
 ) -> None:
     config = context.op_config
-    team_ids = config.get("team_ids", DEFAULT_TEAM_IDS)
-    clickhouse_settings = config["clickhouse_settings"]
+    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+    extra_settings = config.get("extra_clickhouse_settings", "")
     hours_back = config["hours_back"]
+
+    # Merge hourly settings with any extra settings
+    clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
 
     # Process the last N hours to handle any late-arriving data
     # Align with hour boundaries to match toStartOfHour() used in SQL, where we convert this to UTC,
@@ -177,8 +174,8 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     return dagster.RunRequest(
         run_config={
             "ops": {
-                "web_analytics_bounces_hourly": {"config": {"team_ids": DEFAULT_TEAM_IDS}},
-                "web_analytics_stats_table_hourly": {"config": {"team_ids": DEFAULT_TEAM_IDS}},
+                "web_analytics_bounces_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
+                "web_analytics_stats_table_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
             }
         },
     )
