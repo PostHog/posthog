@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="organization",
             name="members_can_invite",
-            field=models.BooleanField(null=False, blank=False),
+            field=models.BooleanField(default=True, null=False, blank=False),
         ),
     ]

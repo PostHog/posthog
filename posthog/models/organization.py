@@ -155,7 +155,7 @@ class Organization(UUIDModel):
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
-    members_can_invite = models.BooleanField(default=False)
+    members_can_invite = models.BooleanField(default=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed = models.BooleanField(default=True)
