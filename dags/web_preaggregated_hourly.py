@@ -5,6 +5,7 @@ import dagster
 from dagster import Field, Array
 from clickhouse_driver import Client
 from dags.common import JobOwners
+from dags.web_preaggregated_utils import TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
@@ -21,8 +22,8 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
-        default_value=[],
-        description="List of team IDs to process - if empty we will process for default teams only",
+        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
+        description="List of team IDs to process - if empty we will process for all teams marked on the utils file",
     ),
     "clickhouse_settings": Field(
         str,
@@ -36,9 +37,6 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     ),
 }
 
-# TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
-DEFAULT_TEAM_IDS = [2, 55348, 47074]
-
 
 def pre_aggregate_web_analytics_hourly_data(
     context: dagster.AssetExecutionContext,
@@ -46,7 +44,7 @@ def pre_aggregate_web_analytics_hourly_data(
     sql_generator: Callable,
 ) -> None:
     config = context.op_config
-    team_ids = config.get("team_ids", DEFAULT_TEAM_IDS)
+    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
     clickhouse_settings = config["clickhouse_settings"]
     hours_back = config["hours_back"]
 
@@ -162,8 +160,8 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     return dagster.RunRequest(
         run_config={
             "ops": {
-                "web_analytics_bounces_hourly": {"config": {"team_ids": DEFAULT_TEAM_IDS}},
-                "web_analytics_stats_table_hourly": {"config": {"team_ids": DEFAULT_TEAM_IDS}},
+                "web_analytics_bounces_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
+                "web_analytics_stats_table_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
             }
         },
     )
