@@ -36,18 +36,18 @@ export function SurveyAppearancePreview({
 
     const { surveysHTMLAvailable } = useValues(surveysLogic)
 
-    const sanitizedSurvey = sanitizeSurvey(survey)
+    const sanitizedSurvey = sanitizeSurvey({
+        ...survey,
+        appearance: {
+            ...survey.appearance,
+            zIndex: '1',
+        },
+    })
 
     useEffect(() => {
         if (surveyPreviewRef.current) {
             renderSurveysPreview({
-                survey: {
-                    ...sanitizedSurvey,
-                    appearance: {
-                        ...sanitizedSurvey.appearance,
-                        zIndex: 1,
-                    },
-                },
+                survey: sanitizedSurvey,
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
                 forceDisableHtml: !surveysHTMLAvailable,
@@ -58,13 +58,7 @@ export function SurveyAppearancePreview({
 
         if (feedbackWidgetPreviewRef.current) {
             renderFeedbackWidgetPreview({
-                survey: {
-                    ...sanitizedSurvey,
-                    appearance: {
-                        ...sanitizedSurvey.appearance,
-                        zIndex: 1,
-                    },
-                },
+                survey: sanitizedSurvey,
                 root: feedbackWidgetPreviewRef.current,
                 forceDisableHtml: !surveysHTMLAvailable,
             })
