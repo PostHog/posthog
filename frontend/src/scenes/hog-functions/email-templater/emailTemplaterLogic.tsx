@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { Editor, EditorRef as _EditorRef } from 'react-email-editor'
+import { MergeTags } from 'unlayer-types'
 
 import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
@@ -98,14 +99,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         logicProps: [() => [(_, props) => props], (props) => props],
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
-            (personPropertyDefinitions: PropertyDefinition[]): Record<string, any> => {
-                const tags: Record<string, any> = {}
+            (personPropertyDefinitions: PropertyDefinition[]): MergeTags => {
+                const tags: MergeTags = {}
 
                 // Add person properties as merge tags
                 personPropertyDefinitions.forEach((property: PropertyDefinition) => {
                     tags[property.name] = {
                         name: property.name,
-                        value: `{{person.properties.${property.name}}}`,
+                        value: `{{person.properties["${property.name}"]}}`,
                         sample: property.example || `Sample ${property.name}`,
                     }
                 })
