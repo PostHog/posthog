@@ -23,6 +23,7 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
+    splitProtocolPath,
 } from './utils'
 
 export type ProjectTreeSortMethod = 'folder' | 'recent'
@@ -69,6 +70,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'loadingPaths',
                 'lastNewFolder',
                 'getStaticTreeItems',
+                'shortcutData',
             ],
         ],
         actions: [
@@ -1063,6 +1065,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         loadFolderIfNotLoaded: ({ folderId }) => {
+            if (folderId.startsWith('shortcuts://')) {
+                const [, path] = splitProtocolPath(folderId)
+                const firstFolder = splitPath(path)[0]
+
+                const shortcut = values.shortcutData.find((s) => s.path === firstFolder && s.type === 'folder')
+                if (shortcut?.ref) {
+                    actions.loadFolderIfNotLoaded('project://' + shortcut.ref)
+                }
+            }
+
             if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
                 const folder = findInProjectTree(folderId, values.projectTree)
                 if (folder) {
