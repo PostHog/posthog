@@ -4681,6 +4681,64 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEntityResponseEqual(event_response, action_response)
 
+    def test_virtual_person_property_breakdown(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"$initial_referring_domain": "https://www.google.com"},
+        )
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"$initial_referring_domain": "$direct"},
+        )
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"$initial_referring_domain": "https://www.someothersite.com"},
+        )
+
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "events": [{"id": "sign up"}],
+                        "breakdown": "$virt_initial_channel_type",
+                        "breakdown_type": "person",
+                    },
+                ),
+                self.team,
+            )
+
+        assert len(response) == 3
+        assert response[0]["label"] == "Direct"
+        assert response[1]["label"] == "Organic Search"
+        assert response[2]["label"] == "Referral"
+        assert response[0]["count"] == 1
+        assert response[1]["count"] == 1
+        assert response[2]["count"] == 1
+
     @also_test_with_materialized_columns(["name"], person_properties=["name"])
     def test_breakdown_by_person_property_for_person_on_events(self):
         person1, person2, person3, person4 = self._create_multiple_people()
