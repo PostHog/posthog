@@ -1,18 +1,14 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/components/Alerts/views/AlertDestinationSelector'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
+import { useMemo } from 'react'
 
-import { AnyPropertyFilter, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, HogFunctionConfigurationContextId, HogFunctionFiltersType } from '~/types'
 
-import {
-    hogFunctionConfigurationLogic,
-    HogFunctionConfigurationLogicProps,
-} from '../configuration/hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 type FilterOption = { value: string; label: string }
 
@@ -22,8 +18,8 @@ type FilterOption = { value: string; label: string }
 /**
  * Options for the 'Trigger' field on the new destination page
  */
-const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKey']): FilterOption[] => {
-    if (logicKey && logicKey === ERROR_TRACKING_LOGIC_KEY) {
+const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
+    if (contextId === 'error-tracking') {
         return [
             {
                 label: 'Error tracking issue created',
@@ -47,17 +43,11 @@ const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKe
     ]
 }
 
-const getTaxonomicGroupTypes = (
-    logicKey?: HogFunctionConfigurationLogicProps['logicKey']
-): TaxonomicFilterGroupType[] => {
-    if (logicKey && logicKey === ERROR_TRACKING_LOGIC_KEY) {
+const getTaxonomicGroupTypes = (contextId: HogFunctionConfigurationContextId): TaxonomicFilterGroupType[] => {
+    if (contextId === 'error-tracking') {
         return [TaxonomicFilterGroupType.ErrorTrackingIssues]
     }
     return []
-}
-
-const isAlertDestination = (value?: HogFunctionFiltersType): boolean => {
-    return value?.events?.[0]?.id === INSIGHT_ALERT_FIRING_EVENT_ID
 }
 
 const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
@@ -79,18 +69,19 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): HogFuncti
 export function HogFunctionFiltersInternal(): JSX.Element {
     const hasAlertRouting = useFeatureFlag('ERROR_TRACKING_ALERT_ROUTING')
     const {
-        logicProps: { id, logicKey },
+        logicProps: { id },
+        contextId,
     } = useValues(hogFunctionConfigurationLogic)
 
-    const options = getFilterOptions(logicKey)
-    const taxonomicGroupTypes = getTaxonomicGroupTypes(logicKey)
+    const taxonomicGroupTypes = useMemo(() => getTaxonomicGroupTypes(contextId), [contextId])
+    const options = useMemo(() => getFilterOptions(contextId), [contextId])
 
     return (
-        <div className="p-3 deprecated-space-y-2 border rounded bg-surface-primary">
+        <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
             <LemonField name="filters" label="Trigger">
                 {({ value, onChange }) => (
                     <>
-                        <div className="text-secondary text-xs">Choose what event should trigger this destination</div>
+                        <div className="text-xs text-secondary">Choose what event should trigger this destination</div>
                         <LemonSelect
                             options={options}
                             value={getSimpleFilterValue(value)}
@@ -112,7 +103,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 disablePopover
                             />
                         ) : null}
-                        {isAlertDestination(value) ? (
+                        {contextId === 'insight-alerts' ? (
                             <PropertyFilters
                                 propertyFilters={value?.events?.[0]?.properties ?? []}
                                 taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
