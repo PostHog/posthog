@@ -18,6 +18,7 @@ export enum Scene {
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     RevenueAnalytics = 'RevenueAnalytics',
     Cohort = 'Cohort',
@@ -88,6 +89,8 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    Links = 'Links',
+    Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     MessagingCampaigns = 'MessagingCampaigns',
     MessagingProviders = 'MessagingProviders',
@@ -96,6 +99,11 @@ export enum Scene {
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
     HogFunction = 'HogFunction',
+    DataPipelines = 'DataPipelines',
+    DataPipelinesNew = 'DataPipelinesNew',
+    UserInterviews = 'UserInterviews',
+    UserInterview = 'UserInterview',
+    Game368 = 'Game368',
 }
 
 export type SceneProps = Record<string, any>

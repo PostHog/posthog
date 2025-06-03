@@ -3,8 +3,11 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/auto-assignment/ErrorTrackingAutoAssignment'
+import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingClientSuppression } from 'scenes/error-tracking/configuration/rules/ErrorTrackingClientSuppression'
+import { ErrorTrackingCustomGrouping } from 'scenes/error-tracking/configuration/rules/ErrorTrackingCustomGrouping'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -29,6 +32,7 @@ import {
     WebVitalsAutocaptureSettings,
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -244,6 +248,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RevenueBaseCurrencySettings />,
             },
             {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
+            },
+            {
                 id: 'revenue-analytics-events',
                 title: 'Revenue events',
                 component: <EventConfiguration />,
@@ -252,6 +262,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
             },
         ],
     },
@@ -381,26 +392,58 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <UserGroups />,
             },
             {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <ErrorTrackingAutoAssignment />,
+                flag: 'ERROR_TRACKING_ALERT_ROUTING',
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <ErrorTrackingCustomGrouping />,
+                flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                component: <ErrorTrackingClientSuppression />,
+                flag: 'ERROR_TRACKING_SUPPRESSION_RULES',
+            },
+            {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
                 flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
-                id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment',
-                component: <ErrorTrackingAutoAssignment />,
-                flag: 'ERROR_TRACKING_ALERT_ROUTING',
-            },
-            {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <ErrorTrackingSymbolSets />,
             },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
             {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                component: <ErrorTrackingAlerting />,
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
             },
         ],
     },

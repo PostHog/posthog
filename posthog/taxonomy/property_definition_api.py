@@ -409,6 +409,13 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
         "$group_set",
     ]
     + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
+    # The $session_entry_X event properties should never be used, the corresponding session property should be used instead.
+    # These were added as a workaround for the CDP not supporting true session properties yet.
+    + [
+        prop
+        for prop in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys()
+        if prop.startswith("$session_entry_")
+    ]
 )
 
 

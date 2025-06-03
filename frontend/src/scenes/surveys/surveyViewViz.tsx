@@ -1,27 +1,18 @@
-import {
-    IconInfo,
-    IconSparkles,
-    IconThumbsDown,
-    IconThumbsDownFilled,
-    IconThumbsUp,
-    IconThumbsUpFilled,
-} from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import {
+    ResponseSummariesButton,
+    ResponseSummariesDisplay,
+} from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 import { getResponseFieldWithId, NPSBreakdown } from 'scenes/surveys/utils'
@@ -533,123 +524,6 @@ export function OpenTextViz({
                         <div>There are no responses for this question.</div>
                     )}
                 </div>
-            )}
-        </div>
-    )
-}
-
-function ResponseSummariesButton({
-    questionIndex,
-    questionId,
-}: {
-    questionIndex: number | undefined
-    questionId: string | undefined
-}): JSX.Element {
-    const { summarize } = useActions(surveyLogic)
-    const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const [showConsentPopover, setShowConsentPopover] = useState(false)
-
-    const summarizeQuestion = (): void => {
-        summarize({ questionIndex, questionId })
-    }
-
-    const handleSummarizeClick = (): void => {
-        if (!dataProcessingAccepted) {
-            setShowConsentPopover(true)
-        } else {
-            summarizeQuestion()
-        }
-    }
-
-    const handleDismissPopover = (): void => {
-        setShowConsentPopover(false)
-    }
-
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {dataProcessingAccepted || !showConsentPopover ? (
-                <LemonButton
-                    type="secondary"
-                    data-attr="summarize-survey"
-                    onClick={handleSummarizeClick}
-                    disabledReason={
-                        responseSummaryLoading ? 'Let me think...' : responseSummary ? 'Already summarized' : undefined
-                    }
-                    icon={<IconSparkles />}
-                    loading={responseSummaryLoading}
-                >
-                    {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
-                </LemonButton>
-            ) : (
-                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
-                    <LemonButton
-                        type="secondary"
-                        data-attr="summarize-survey"
-                        onClick={handleSummarizeClick}
-                        disabledReason={dataProcessingApprovalDisabledReason || 'Data processing not accepted'}
-                        icon={<IconSparkles />}
-                        loading={responseSummaryLoading}
-                    >
-                        {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
-                    </LemonButton>
-                </AIConsentPopoverWrapper>
-            )}
-        </FlaggedFeature>
-    )
-}
-
-function ResponseSummariesDisplay(): JSX.Element {
-    const { survey, responseSummary } = useValues(surveyLogic)
-
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {responseSummary ? (
-                <>
-                    <h1>Responses summary</h1>
-                    <LemonMarkdown>{responseSummary.content}</LemonMarkdown>
-                    <LemonDivider dashed={true} />
-                    <ResponseSummaryFeedback surveyId={survey.id} />
-                </>
-            ) : null}
-        </FlaggedFeature>
-    )
-}
-
-function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Element {
-    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
-            return // Already rated
-        }
-        setRating(newRating)
-        posthog.capture('ai_survey_summary_rated', {
-            survey_id: surveyId,
-            answer_rating: newRating,
-        })
-    }
-
-    return (
-        <div className="flex items-center justify-end">
-            {rating === null ? <>Summaries are generated by AI. What did you think?</> : null}
-            {rating !== 'bad' && (
-                <LemonButton
-                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                    type="tertiary"
-                    size="small"
-                    tooltip="Good summary"
-                    onClick={() => submitRating('good')}
-                />
-            )}
-            {rating !== 'good' && (
-                <LemonButton
-                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                    type="tertiary"
-                    size="small"
-                    tooltip="Bad summary"
-                    onClick={() => submitRating('bad')}
-                />
             )}
         </div>
     )

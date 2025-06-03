@@ -104,7 +104,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# synced with frontend/src/lib/taxonomy.tsx
+# synced with frontend/src/lib/taxonomy.tsx and core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -238,6 +238,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_embedding": {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
+        },
+        "$csp_violation": {
+            "label": "CSP violation",
+            "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
+            "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
         },
         "Application opened": {
             "label": "Application opened",
@@ -393,6 +398,161 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "ignored_in_assistant": True,
         },
+        "$session_entry__kx": {
+            "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry _kx",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_dclid": {
+            "description": "DoubleClick ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry dclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_epik": {
+            "description": "Pinterest Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry epik",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_fbclid": {
+            "description": "Facebook Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry fbclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gad_source": {
+            "description": "Google Ads Source Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gad_source",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gbraid": {
+            "description": "Google Ads, web to app Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gbraid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gclid": {
+            "description": "Google Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gclsrc": {
+            "description": "Google Click Source Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gclsrc",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_host": {
+            "description": "The hostname of the Current URL. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["example.com", "localhost:8000"],
+            "label": "Session entry Host",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_igshid": {
+            "description": "Instagram Share ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry igshid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_irclid": {
+            "description": "Impact Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry irclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_li_fat_id": {
+            "description": "LinkedIn First-Party Ad Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry li_fat_id",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_mc_cid": {
+            "description": "Mailchimp Campaign ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry mc_cid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_msclkid": {
+            "description": "Microsoft Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry msclkid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_pathname": {
+            "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["/pricing", "/about-us/team"],
+            "label": "Session entry Path name",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_qclid": {
+            "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry qclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_rdt_cid": {
+            "description": "Reddit Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry rdt_cid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_referrer": {
+            "description": "URL of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "label": "Session entry Referrer URL",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_referring_domain": {
+            "description": "Domain of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["google.com", "facebook.com"],
+            "label": "Session entry Referring domain",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_sccid": {
+            "description": "Snapchat Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry sccid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_ttclid": {
+            "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry ttclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_twclid": {
+            "description": "Twitter Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry twclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_url": {
+            "description": "The URL visited at the time of the event. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "label": "Session entry Current URL",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_campaign": {
+            "description": "UTM campaign tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["feature launch", "discount"],
+            "label": "Session entry UTM campaign",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_content": {
+            "description": "UTM content tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["bottom link", "second button"],
+            "label": "Session entry UTM content",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_medium": {
+            "description": "UTM medium tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["Social", "Organic", "Paid", "Email"],
+            "label": "Session entry UTM medium",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_source": {
+            "description": "UTM source tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "label": "Session entry UTM source",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_term": {
+            "description": "UTM term tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["free goodies"],
+            "label": "Session entry UTM term",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_wbraid": {
+            "description": "Google Ads, app to web Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry wbraid",
+            "ignored_in_assistant": True,
+        },
         "$session_recording_recorder_version_server_side": {
             "label": "Session recording recorder version server-side",
             "description": "The version of the session recording recorder that is enabled server-side.",
@@ -445,6 +605,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Sentry tags",
             "description": "Tags sent to Sentry along with the exception.",
         },
+        "$exception_types": {
+            "label": "Exception type",
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+        },
+        "$exception_functions": {
+            "label": "Exception function",
+            "description": "A function contained in the exception.",
+        },
+        "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
+        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions.",
@@ -1671,6 +1842,79 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
         },
+        "$csp_document_url": {
+            "label": "Document URL",
+            "description": "The URL of the document where the violation occurred.",
+            "examples": ["https://example.com/page"],
+        },
+        "$csp_violated_directive": {
+            "label": "Violated directive",
+            "description": "The CSP directive that was violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+        },
+        "$csp_effective_directive": {
+            "label": "Effective directive",
+            "description": "The CSP directive that was effectively violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+        },
+        "$csp_original_policy": {
+            "label": "Original policy",
+            "description": "The CSP policy that was active when the violation occurred.",
+            "examples": ["default-src 'self'; script-src 'self' example.com"],
+        },
+        "$csp_disposition": {
+            "label": "Disposition",
+            "description": "The disposition of the CSP policy that was violated (enforce or report).",
+            "examples": ["enforce", "report"],
+        },
+        "$csp_blocked_url": {
+            "label": "Blocked URL",
+            "description": "The URL that was blocked by the CSP policy.",
+            "examples": ["https://malicious-site.com/script.js"],
+        },
+        "$csp_line_number": {
+            "label": "Line number",
+            "description": "The line number in the source file where the violation occurred.",
+            "examples": ["42"],
+        },
+        "$csp_column_number": {
+            "label": "Column number",
+            "description": "The column number in the source file where the violation occurred.",
+            "examples": ["13"],
+        },
+        "$csp_source_file": {
+            "label": "Source file",
+            "description": "The source file where the violation occurred.",
+            "examples": ["script.js"],
+        },
+        "$csp_status_code": {
+            "label": "Status code",
+            "description": "The HTTP status code that was returned when trying to load the blocked resource.",
+            "examples": ["200", "404"],
+        },
+        "$csp_script_sample": {
+            "label": "Script sample",
+            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "examples": ["eval('alert(1)')"],
+        },
+        "$csp_report_type": {
+            "label": "Report type",
+            "description": "The type of CSP report.",
+        },
+        "$csp_raw_report": {
+            "label": "Raw CSP report",
+            "description": "The raw CSP report as received from the browser.",
+        },
+        "$csp_referrer": {
+            "label": "CSP Referrer",
+            "description": "The referrer of the CSP report if available.",
+            "examples": ["https://example.com/referrer"],
+        },
+        "$csp_version": {
+            "label": "CSP Policy version",
+            "description": "The version of the CSP policy. Must be provided in the report URL.",
+            "examples": ["1.0"],
+        },
     },
     "numerical_event_properties": {},
     "person_properties": {},
@@ -1823,15 +2067,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
-    },
-    "error_tracking_issue_properties": {
-        "$exception_types": {"label": "Exception type", "description": "The type of the exception."},
-        "$exception_messages": {"label": "Exception message", "description": "The description of the exception."},
-        "$exception_functions": {
-            "label": "Exception function",
-            "description": "A function contained in the exception.",
-        },
-        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
     },
 }
 

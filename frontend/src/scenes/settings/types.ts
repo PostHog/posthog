@@ -25,6 +25,7 @@ export type SettingSectionId =
     | 'environment-surveys'
     | 'environment-feature-flags'
     | 'environment-error-tracking'
+    | 'environment-csp-reporting'
     | 'environment-integrations'
     | 'environment-access-control'
     | 'environment-role-based-access-control'
@@ -82,6 +83,8 @@ export type SettingId =
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
@@ -122,6 +125,7 @@ export type SettingId =
     | 'session-join-mode'
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
+    | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'session-table-version'
@@ -135,6 +139,7 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'csp-reporting'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

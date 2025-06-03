@@ -24,16 +24,32 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
     if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'openai') {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const difference = bigDecimal.subtract(inputTokens, cacheReadTokens)
-        const cachedCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, difference)
-        return bigDecimal.add(cachedCost, uncachedCost)
+        const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
+
+        // Use actual cache read cost if available, otherwise fall back to 0.5 multiplier
+        const cacheReadCost =
+            cost.cost.cache_read_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
+
+        const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
+        return bigDecimal.add(cacheReadCost, regularCost)
     } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'anthropic') {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const writeCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
-        const cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
+
+        // Use actual cache costs if available, otherwise fall back to multipliers
+        const writeCost =
+            cost.cost.cache_write_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_write_token, cacheWriteTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
+
+        const cacheReadCost =
+            cost.cost.cache_read_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
+
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
         return bigDecimal.add(totalCacheCost, uncachedCost)
@@ -76,6 +92,9 @@ const processCost = (event: PluginEvent) => {
     if (!cost) {
         return event
     }
+
+    // This is used to track the model that was used for the cost calculation
+    event.properties['$ai_model_cost_used'] = cost.model
 
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
