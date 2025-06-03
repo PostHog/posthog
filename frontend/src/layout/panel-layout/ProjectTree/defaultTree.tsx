@@ -33,7 +33,7 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineStage } from '~/types'
+import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 
 const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
@@ -227,6 +227,35 @@ export const getDefaultTreeMetadata = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
+    {
+        path: `SQL editor`,
+        type: 'sql',
+        href: urls.sqlEditor(),
+    } as FileSystemImport,
+    {
+        path: `Sources`,
+        type: 'hog_function/source',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Sources),
+    } as FileSystemImport,
+    {
+        path: `Transformations`,
+        type: 'hog_function/transformation',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Transformations),
+    } as FileSystemImport,
+    {
+        path: `Destinations`,
+        type: 'hog_function/destination',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Destinations),
+    } as FileSystemImport,
+    {
+        path: `Site apps`,
+        type: 'hog_function/site_app',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.SiteApps),
+    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
@@ -238,12 +267,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'plug',
             href: urls.pipeline(),
             visualOrder: PRODUCT_VISUAL_ORDER.dataPipeline,
-        } as FileSystemImport,
-        {
-            path: `SQL editor`,
-            type: 'sql',
-            href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
         } as FileSystemImport,
         {
             path: 'Error tracking',
