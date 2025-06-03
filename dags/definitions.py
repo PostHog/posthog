@@ -18,6 +18,7 @@ from dags import (
     property_definitions,
     slack_alerts,
     web_preaggregated_internal,
+    web_preaggregated_hourly,
 )
 
 # Define resources for different environments
@@ -57,6 +58,9 @@ defs = dagster.Definitions(
         web_preaggregated_internal.web_analytics_preaggregated_tables,
         web_preaggregated_internal.web_stats_daily,
         web_preaggregated_internal.web_bounces_daily,
+        web_preaggregated_hourly.web_analytics_preaggregated_hourly_tables,
+        web_preaggregated_hourly.web_stats_hourly,
+        web_preaggregated_hourly.web_bounces_hourly,
     ],
     jobs=[
         deletes.deletes_job,
@@ -70,6 +74,7 @@ defs = dagster.Definitions(
         backups.sharded_backup,
         backups.non_sharded_backup,
         web_preaggregated_internal.recreate_web_pre_aggregated_data_job,
+        web_preaggregated_hourly.recreate_web_pre_aggregated_hourly_data_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -82,6 +87,7 @@ defs = dagster.Definitions(
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
         web_preaggregated_internal.recreate_web_analytics_preaggregated_internal_data_daily,
+        web_preaggregated_hourly.recreate_web_analytics_preaggregated_hourly_data,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
