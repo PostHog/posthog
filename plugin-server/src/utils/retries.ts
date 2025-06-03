@@ -37,7 +37,7 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
     if (attempt < 1) {
         throw new Error('Attempts are indexed starting with 1')
     }
-    return Math.min(baseMs * multiplier ** (attempt - 1), defaultRetryConfig.MAX_INTERVAL)
+    return baseMs * multiplier ** (attempt - 1)
 }
 
 /**
