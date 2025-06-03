@@ -11255,6 +11255,9 @@
                 "type": {
                     "const": "human",
                     "type": "string"
+                },
+                "ui_context": {
+                    "type": "object"
                 }
             },
             "required": ["type", "content"],
@@ -18523,7 +18526,8 @@
                 "error_tracking_issues",
                 "logs",
                 "replay",
-                "resources"
+                "resources",
+                "max_ai_context"
             ],
             "type": "string"
         },

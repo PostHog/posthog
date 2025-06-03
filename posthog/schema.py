@@ -1331,10 +1331,7 @@ class HumanMessage(BaseModel):
     content: str
     id: Optional[str] = None
     type: Literal["human"] = "human"
-    ui_context: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="UI context data associated with this message, containing events, actions, and navigation state",
-    )
+    ui_context: Optional[dict[str, Any]] = None
 
 
 class Compare(StrEnum):
@@ -1958,6 +1955,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOGS = "logs"
     REPLAY = "replay"
     RESOURCES = "resources"
+    MAX_AI_CONTEXT = "max_ai_context"
 
 
 class TimelineEntry(BaseModel):
