@@ -3,7 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # Based on https://developers.google.com/google-ads/api/reference/rpc/v18/ClickConversion
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="hidden",
     free=False,
     type="destination",
     id="template-google-ads",

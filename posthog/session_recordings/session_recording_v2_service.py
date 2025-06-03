@@ -24,7 +24,9 @@ ONE_DAY_IN_SECONDS = 24 * 60 * 60
 
 def listing_cache_key(recording: SessionRecording) -> str | None:
     try:
-        return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team.id}_{recording.session_id}"
+        # NB this has to be `team_id` and not `team.id` as it's called in an async context
+        # and `team.id` can trigger a database query, and the Django ORM is synchronous
+        return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team_id}_{recording.session_id}"
     except Exception as e:
         posthoganalytics.capture_exception(
             e,
