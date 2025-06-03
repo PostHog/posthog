@@ -262,7 +262,7 @@ export class SegmentDestinationExecutorService {
                     ) {
                         // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         addLog(
-                            'info',
+                            'warn',
                             `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
                         )
                         throw new SegmentRetriableError()
