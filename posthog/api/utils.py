@@ -561,7 +561,7 @@ class ServerTimingsGathered:
                 """
                 capture_exception(
                     Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"timings": timings},
+                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
                 )
                 break
 

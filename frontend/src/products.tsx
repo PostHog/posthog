@@ -7,13 +7,13 @@ import {
     IconCursor,
     IconDashboard,
     IconExternal,
+    IconFlask,
     IconGraph,
     IconMessage,
     IconNotebook,
     IconPeople,
     IconRewindPlay,
     IconRocket,
-    IconTestTube,
     IconToggle,
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
@@ -338,7 +338,7 @@ export const fileSystemTypes = {
     },
     experiment: {
         name: 'Experiment',
-        icon: <IconTestTube />,
+        icon: <IconFlask />,
         href: (ref: string) => urls.experiment(ref),
         iconColor: ['var(--product-experiments-light)'],
         filterKey: 'experiment',
@@ -586,7 +586,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
-export const getTreeItemsDataManagement = (): FileSystemImport[] => [
+export const getTreeItemsMetadata = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]

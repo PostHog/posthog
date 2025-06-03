@@ -48,6 +48,7 @@ def pre_aggregate_web_analytics_data(
         team_ids=team_ids,
         settings=clickhouse_settings,
         table_name=table_name,
+        granularity="daily",
     )
 
     # We intentionally log the query to make it easier to debug using the UI
