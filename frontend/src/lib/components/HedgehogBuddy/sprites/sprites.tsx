@@ -61,10 +61,22 @@ export const spriteAccessoryUrl = (img: string): string => {
     return `${baseSpriteAccessoriesPath()}/${img}.png`
 }
 
-const animationsNames = ['stop', 'fall', 'jump', 'sign', 'walk', 'wave', 'flag', 'inspect', 'phone', 'action'] as const
+const animationsNames = [
+    'stop',
+    'fall',
+    'jump',
+    'sign',
+    'walk',
+    'wave',
+    'flag',
+    'inspect',
+    'phone',
+    'action',
+    'spin',
+] as const
 export type AnimationName = (typeof animationsNames)[number]
 
-const standardAnimations: Record<AnimationName, SpriteInfo> = {
+const standardAnimations: Omit<Record<AnimationName, SpriteInfo>, 'spin'> = {
     stop: {
         img: 'wave',
         frames: 1,
@@ -237,6 +249,16 @@ export const skins: Record<HedgehogSkin, { [key: string]: SpriteInfo }> = {
         fall: standardAnimations.fall,
         jump: standardAnimations.jump,
         walk: standardAnimations.walk,
-        wave: standardAnimations.wave,
+        wave: {
+            ...standardAnimations.wave,
+            frames: 23, // RoboHog has fewer `wave` frames than standard
+        },
+        spin: {
+            // Spin is only on RoboHog
+            img: 'spin',
+            frames: 8,
+            maxIteration: 1,
+            randomChance: 1,
+        },
     },
 }
