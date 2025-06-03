@@ -189,6 +189,9 @@ export function Members(): JSX.Element | null {
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const membersCanInviteRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     useEffect(() => {
         ensureAllMembersLoaded()
@@ -350,6 +353,7 @@ export function Members(): JSX.Element | null {
                     bordered
                     checked={!!currentOrganization?.members_can_invite}
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
+                    disabledReason={membersCanInviteRestrictionReason}
                 />
             </PayGateMini>
         </>
