@@ -57,6 +57,7 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
+    options.add_argument("--incognito")
 
     # add a unique user data dir to avoid shared profile conflicts
     user_data_dir = tempfile.mkdtemp()
@@ -171,14 +172,16 @@ def _screenshot_asset(
                 capture_exception()
 
         # Get the height of the visualization container specifically
-        height = driver.execute_script("""
+        height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # For example funnels use a table that can get very wide, so try to get its width
         width = driver.execute_script(
@@ -201,14 +204,16 @@ def _screenshot_asset(
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
         # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script("""
+        final_height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
