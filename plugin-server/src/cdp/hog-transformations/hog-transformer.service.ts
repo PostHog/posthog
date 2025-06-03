@@ -15,6 +15,7 @@ import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
+import { LiquidRenderer } from '../utils/liquid'
 import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -60,6 +61,7 @@ export class HogTransformerService {
     private redis: CdpRedis
     private cachedStates: Record<string, HogWatcherState> = {}
     private invocationResults: CyclotronJobInvocationResult[] = []
+    private liquidRenderer: LiquidRenderer
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -69,6 +71,7 @@ export class HogTransformerService {
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.liquidRenderer = new LiquidRenderer()
     }
 
     public async start(): Promise<void> {
@@ -326,7 +329,7 @@ export class HogTransformerService {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = buildGlobalsWithInputs(globals, {
+        const globalsWithInputs = buildGlobalsWithInputs(this.liquidRenderer, globals, {
             ...(hogFunction.inputs ?? {}),
             ...(hogFunction.encrypted_inputs ?? {}),
         })

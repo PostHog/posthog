@@ -14,6 +14,7 @@ import {
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
+import { LiquidRenderer } from '../../utils/liquid'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
@@ -155,7 +156,8 @@ export class TemplateTester {
             deleted: false,
         }
 
-        const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const liquidRenderer = new LiquidRenderer()
+        const globalsWithInputs = buildGlobalsWithInputs(liquidRenderer, globals, hogFunction.inputs)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
