@@ -1,5 +1,5 @@
 import { Node } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 export interface InsightContextForMax {
     id: string | number
@@ -40,14 +40,6 @@ export interface MultiDashboardContainer {
     [dashboardKey: string]: DashboardType<QueryBasedInsightModel>
 }
 
-export interface MultiEventContainer {
-    [eventKey: string]: EventDefinition
-}
-
-export interface MultiActionContainer {
-    [actionKey: string]: ActionType
-}
-
 export interface MultiDashboardContextContainer {
     [dashboardKey: string]: DashboardContextForMax
 }
@@ -71,10 +63,10 @@ export interface MaxNavigationContext {
 
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
-    dashboards?: MultiDashboardContextContainer | null
-    insights?: MultiInsightContextContainer | null
-    events?: MultiEventContextContainer | null
-    actions?: MultiActionContextContainer | null
+    dashboards?: MultiDashboardContextContainer
+    insights?: MultiInsightContextContainer
+    events?: MultiEventContextContainer
+    actions?: MultiActionContextContainer
 
     // General information that's always good to have, if available
     global_info?: {
@@ -88,7 +80,7 @@ export interface MaxContextOption {
     name: string
     icon: React.ReactNode
     items?: {
-        insights?: Partial<QueryBasedInsightModel>[]
-        dashboards?: DashboardType<QueryBasedInsightModel>[]
+        insights?: InsightContextForMax[]
+        dashboards?: DashboardContextForMax[]
     }
 }

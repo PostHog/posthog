@@ -25,7 +25,7 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
 class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TrendsTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
+        return super()._run_with_toolkit(state, toolkit, config)
 
 
 TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]

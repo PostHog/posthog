@@ -5,6 +5,8 @@ import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightShortId } from '~/types'
 
 import {
     chatResponseChunk,
@@ -17,6 +19,7 @@ import {
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
+import { maxContextLogic } from './maxContextLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -385,6 +388,61 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     return <Template sidePanel />
 }
 ThreadWithOpenedSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithMultipleContextObjects: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+    })
+
+    const { addOrUpdateContextInsight, enableCurrentPageContext, addOrUpdateActiveInsight } =
+        useActions(maxContextLogic)
+
+    useEffect(() => {
+        // Add multiple context insights
+        addOrUpdateContextInsight('insight-1', {
+            short_id: 'insight-1' as InsightShortId,
+            name: 'Weekly Active Users',
+            description: 'Track weekly active users over time',
+            query: {
+                kind: 'TrendsQuery',
+                series: [{ event: '$pageview' }],
+            } as TrendsQuery,
+        })
+
+        addOrUpdateContextInsight('insight-2', {
+            short_id: 'insight-2' as InsightShortId,
+            name: 'Conversion Funnel',
+            description: 'User signup to activation funnel',
+            query: {
+                kind: 'FunnelsQuery',
+                series: [{ event: 'sign up' }, { event: 'first action' }],
+            } as FunnelsQuery,
+        })
+
+        // Add active insights for current page context
+        addOrUpdateActiveInsight('active-insight-1', {
+            short_id: 'active-insight-1' as InsightShortId,
+            name: 'Current Page Metrics',
+            description: 'Metrics for the current page',
+            query: {
+                kind: 'TrendsQuery',
+                series: [{ event: '$pageview' }],
+            } as TrendsQuery,
+        })
+
+        // Enable current page context to show active insights/dashboard
+        enableCurrentPageContext()
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithMultipleContextObjects.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

@@ -264,7 +264,7 @@ describe('maxContextLogic', () => {
                 ],
             }
 
-            logic.actions.setActiveDashboard(mockDashboard2)
+            logic.actions.setActiveDashboard(mockDashboard2 as DashboardType<QueryBasedInsightModel>)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({

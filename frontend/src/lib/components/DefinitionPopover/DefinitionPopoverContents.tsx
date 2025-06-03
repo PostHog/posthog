@@ -363,49 +363,49 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 {_definition.items?.dashboards && _definition.items.dashboards.length > 0 && (
-                    <>
-                        <DefinitionPopover.Section>
-                            <DefinitionPopover.Card
-                                title="Dashboard"
-                                value={
-                                    <div className="flex flex-wrap gap-1">
-                                        {_definition.items.dashboards.map((dashboard: DashboardContextForMax) => (
-                                            <LemonTag
-                                                key={dashboard.id}
-                                                size="small"
-                                                icon={<IconDashboard />}
-                                                className="text-xs"
-                                            >
-                                                {dashboard.name || `Dashboard ${dashboard.id}`}
-                                            </LemonTag>
-                                        ))}
-                                    </div>
-                                }
-                            />
-                        </DefinitionPopover.Section>
-                        <LemonDivider className="DefinitionPopover my-4" />
-                    </>
-                )}
-                {_definition.items?.insights && _definition.items.insights.length > 0 && (
                     <DefinitionPopover.Section>
                         <DefinitionPopover.Card
-                            title="Insights"
+                            title="Dashboard"
                             value={
                                 <div className="flex flex-wrap gap-1">
-                                    {_definition.items.insights.map((insight: InsightContextForMax) => (
+                                    {_definition.items.dashboards.map((dashboard: DashboardContextForMax) => (
                                         <LemonTag
-                                            key={insight.id}
+                                            key={dashboard.id}
                                             size="small"
-                                            icon={<IconGraph />}
+                                            icon={<IconDashboard />}
                                             className="text-xs"
                                         >
-                                            {insight.name || `Insight ${insight.id}`}
+                                            {dashboard.name || `Dashboard ${dashboard.id}`}
                                         </LemonTag>
                                     ))}
                                 </div>
                             }
                         />
                     </DefinitionPopover.Section>
+                )}
+                {_definition.items?.insights && _definition.items.insights.length > 0 && (
+                    <>
+                        <LemonDivider className="DefinitionPopover my-4" />
+                        <DefinitionPopover.Section>
+                            <DefinitionPopover.Card
+                                title="Insights"
+                                value={
+                                    <div className="flex flex-wrap gap-1">
+                                        {_definition.items.insights.map((insight: InsightContextForMax) => (
+                                            <LemonTag
+                                                key={insight.id}
+                                                size="small"
+                                                icon={<IconGraph />}
+                                                className="text-xs"
+                                            >
+                                                {insight.name || `Insight ${insight.id}`}
+                                            </LemonTag>
+                                        ))}
+                                    </div>
+                                }
+                            />
+                        </DefinitionPopover.Section>
+                    </>
                 )}
             </>
         )
