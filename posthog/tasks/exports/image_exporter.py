@@ -78,14 +78,11 @@ def get_driver() -> webdriver.Chrome:
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-        return webdriver.Chrome(service=service, options=options), temp_dir
+        return webdriver.Chrome(service=service, options=options)
 
-    return (
-        webdriver.Chrome(
-            service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-            options=options,
-        ),
-        temp_dir,
+    return webdriver.Chrome(
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
+        options=options,
     )
 
 
