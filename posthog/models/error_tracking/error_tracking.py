@@ -125,6 +125,19 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # TODO - should we really on_delete: CASCADE here?
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
+    def delete(self, *args, **kwargs):
+        """
+        Custom delete method that only deletes unresolved stack frames.
+        Resolved frames will have their symbol_set set to NULL automatically
+        by the database through the ON DELETE SET NULL constraint.
+        """
+        # Delete the unresolved frames directly
+        self.errortrackingstackframe_set.filter(resolved=False).delete()
+
+        # Delete the symbol set - this will trigger the FK constraint
+        # which automatically sets symbol_set to NULL for remaining frames
+        super().delete(*args, **kwargs)
+
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "ref"]),
@@ -206,7 +219,7 @@ class ErrorTrackingStackFrame(UUIDModel):
     raw_id = models.TextField(null=False, blank=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.CASCADE, null=True)
+    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it
