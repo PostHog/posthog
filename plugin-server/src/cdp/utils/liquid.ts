@@ -18,6 +18,7 @@ export class LiquidRenderer {
             // Handle "now" as current date
             const date = value === 'now' ? new Date() : new Date(value)
 
+            // TODO: This feels like chatgpt wrote this? Its pretty limited to say the least?
             // Simple date formatting - you can expand this
             if (format === '%Y%m%d') {
                 return (
