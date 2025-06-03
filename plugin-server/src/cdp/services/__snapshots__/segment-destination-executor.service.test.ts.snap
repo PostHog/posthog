@@ -432,7 +432,7 @@ exports[`SegmentDestinationExecutorService segment plugins should handle non ret
   },
   {
     "level": "warn",
-    "message": "HTTP request failed with status 403. Scheduling retry...",
+    "message": "HTTP request failed with status 403. ",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
