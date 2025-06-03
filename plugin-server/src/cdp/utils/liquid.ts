@@ -68,7 +68,10 @@ export class LiquidRenderer {
         return await this.liquid.parseAndRender(decodedTemplate, context)
     }
 
-    async renderHogFunctionGlobals(template: string, globals: HogFunctionInvocationGlobalsWithInputs): Promise<string> {
+    async renderWithHogFunctionGlobals(
+        template: string,
+        globals: HogFunctionInvocationGlobalsWithInputs
+    ): Promise<string> {
         const context = {
             event: globals.event,
             person: globals.person,

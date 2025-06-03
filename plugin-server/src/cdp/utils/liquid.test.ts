@@ -70,7 +70,7 @@ describe('LiquidRenderer', () => {
         })
     })
 
-    describe('renderHogFunctionGlobals', () => {
+    describe('renderWithHogFunctionGlobals', () => {
         it('renders with hog function globals', async () => {
             const template = 'Event: {{ event.event }}, Person: {{ person.name }}'
             const globals: HogFunctionInvocationGlobalsWithInputs = {
@@ -109,7 +109,7 @@ describe('LiquidRenderer', () => {
                 },
                 inputs: {},
             }
-            const result = await renderer.renderHogFunctionGlobals(template, globals)
+            const result = await renderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toBe('Event: test_event, Person: test_person')
         })
 
@@ -151,7 +151,7 @@ describe('LiquidRenderer', () => {
                 },
                 inputs: {},
             }
-            const result = await renderer.renderHogFunctionGlobals(template, globals)
+            const result = await renderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
         })
     })

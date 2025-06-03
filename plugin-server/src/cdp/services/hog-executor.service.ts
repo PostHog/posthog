@@ -104,33 +104,25 @@ export const formatLiquidInput = (
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
-    if (typeof value !== 'string') {
+    if (value === null || value === undefined) {
         return value
     }
 
-    if (Array.isArray(value) && (value[0] === '_h' || value[0] === '_H')) {
-        const res = execHog(bytecode, { globals })
-        if (res.error) {
-            throw res.error
-        }
-        if (!res.finished) {
-            // NOT ALLOWED
-            throw new Error(`Could not execute bytecode for input field: ${key}`)
-        }
-        return convertHogToJS(res.result)
+    if (typeof value === 'string') {
+        return liquid.renderWithHogFunctionGlobals(value, globals)
     }
 
-    if (Array.isArray(bytecode)) {
-        return bytecode.map((item) => formatHogInput(item, globals, key))
-    } else if (typeof bytecode === 'object' && bytecode !== null) {
+    if (Array.isArray(value)) {
+        return value.map((item) => formatLiquidInput(liquid, item, globals, key))
+    } else if (typeof value === 'object' && value !== null) {
         return Object.fromEntries(
-            Object.entries(bytecode).map(([key2, value]) => [
+            Object.entries(value).map(([key2, value]) => [
                 key2,
-                formatHogInput(value, globals, key ? `${key}.${key2}` : key2),
+                formatLiquidInput(liquid, value, globals, key ? `${key}.${key2}` : key2),
             ])
         )
     } else {
-        return bytecode
+        return value
     }
 }
 
