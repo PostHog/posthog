@@ -31,7 +31,7 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     ),
     "hours_back": Field(
         float,
-        default_value=1.0,
+        default_value=23,
         description="Number of hours back to process data for",
     ),
 }
@@ -109,10 +109,13 @@ def web_analytics_preaggregated_hourly_tables(
 )
 def web_bounces_hourly(
     context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
     """
     Hourly bounce rate data for web analytics with 24h TTL. Updates every 5 minutes.
     """
+    cluster.map_all_hosts("TRUNCATE TABLE web_bounces_hourly SYNC")
+
     return pre_aggregate_web_analytics_hourly_data(
         context=context, table_name="web_bounces_hourly", sql_generator=WEB_BOUNCES_INSERT_SQL
     )
@@ -126,10 +129,15 @@ def web_bounces_hourly(
     metadata={"table": "web_stats_hourly"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_stats_hourly(context: dagster.AssetExecutionContext) -> None:
+def web_stats_hourly(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
     """
     Hourly aggregated dimensional data with pageviews and unique user counts with 24h TTL. Updates every 5 minutes.
     """
+    cluster.map_all_hosts("TRUNCATE TABLE web_stats_hourly SYNC")
+
     return pre_aggregate_web_analytics_hourly_data(
         context=context,
         table_name="web_stats_hourly",
@@ -156,7 +164,6 @@ web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
 def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvaluationContext):
     """
     Creates real-time web analytics pre-aggregated data with 24h TTL for real-time analytics.
-    Runs every 5 minutes and processes the last hour to handle late-arriving data.
     """
 
     return dagster.RunRequest(
