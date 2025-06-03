@@ -47,6 +47,7 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
+import { ContextTags } from './ContextTags'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -95,7 +96,7 @@ export function Thread(): JSX.Element | null {
                             productKey={ProductKey.MAX}
                             thingName="message"
                             titleOverride="Start chatting with Max"
-                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
                             docsURL="https://posthog.com/docs/data/max-ai"
                         />
                     </div>
@@ -168,6 +169,15 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
+                                {message.ui_context && Object.keys(message.ui_context).length > 0 && (
+                                    <ContextTags
+                                        insights={message.ui_context.insights}
+                                        dashboards={message.ui_context.dashboards}
+                                        events={message.ui_context.events}
+                                        actions={message.ui_context.actions}
+                                        className="flex flex-wrap gap-1 mb-2"
+                                    />
+                                )}
                                 <MarkdownMessage
                                     content={message.content || '*No text.*'}
                                     id={message.id || 'no-text'}

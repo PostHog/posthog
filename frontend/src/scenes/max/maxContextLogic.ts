@@ -1,0 +1,392 @@
+import { IconPageChart } from '@posthog/icons'
+import { BuiltLogic, kea } from 'kea'
+import { router } from 'kea-router'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogicType } from 'scenes/insights/insightLogicType'
+
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { sceneLogic } from '~/scenes/sceneLogic'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+
+import type { maxContextLogicType } from './maxContextLogicType'
+import {
+    DashboardContextForMax,
+    InsightContextForMax,
+    MaxContextOption,
+    MaxContextShape,
+    MaxNavigationContext,
+    MultiDashboardContainer,
+    MultiDashboardContextContainer,
+    MultiInsightContainer,
+} from './maxTypes'
+
+const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): InsightContextForMax => {
+    const source = (insight.query as any).source
+    return {
+        id: insight.short_id!,
+        name: insight.name,
+        description: insight.description,
+        query: source,
+        insight_type: source.kind,
+    }
+}
+
+const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): DashboardContextForMax => {
+    return {
+        id: dashboard.id,
+        name: dashboard.name,
+        description: dashboard.description,
+        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+    }
+}
+
+export const maxContextLogic = kea<maxContextLogicType>({
+    path: ['lib', 'ai', 'maxContextLogic'],
+    connect: () => ({
+        values: [breadcrumbsLogic({ hashParams: {} }), ['documentTitle']],
+        actions: [],
+    }),
+    actions: {
+        enableCurrentPageContext: true,
+        disableCurrentPageContext: true,
+        addOrUpdateContextInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
+        addOrUpdateContextDashboard: (key: string, data: DashboardType<QueryBasedInsightModel>) => ({ key, data }),
+        removeContextInsight: (key: string) => ({ key }),
+        removeContextDashboard: (key: string) => ({ key }),
+        setNavigationContext: (path: string, pageTitle?: string) => ({ path, pageTitle }),
+        clearNavigationContext: true,
+        addOrUpdateActiveInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
+        clearActiveInsights: true,
+        setActiveDashboard: (dashboardContext: DashboardType<QueryBasedInsightModel>) => ({ dashboardContext }),
+        clearActiveDashboard: true,
+        handleTaxonomicFilterChange: (
+            value: string | number,
+            groupType: TaxonomicFilterGroupType,
+            item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | string
+        ) => ({ value, groupType, item }),
+        resetContext: true,
+    },
+    reducers: {
+        useCurrentPageContext: [
+            false,
+            {
+                enableCurrentPageContext: () => true,
+                disableCurrentPageContext: () => false,
+                resetContext: () => false,
+            },
+        ],
+        contextInsights: [
+            {} as MultiInsightContainer,
+            {
+                addOrUpdateContextInsight: (
+                    state: MultiInsightContainer,
+                    { key, data }: { key: string; data: Partial<QueryBasedInsightModel> }
+                ) => ({ ...state, [key]: data }),
+                removeContextInsight: (state: MultiInsightContainer, { key }: { key: string }) => {
+                    const { [key]: _removed, ...rest } = state
+                    return rest
+                },
+                resetContext: () => ({}),
+            },
+        ],
+        contextDashboards: [
+            {} as MultiDashboardContainer,
+            {
+                addOrUpdateContextDashboard: (
+                    state: MultiDashboardContainer,
+                    { key, data }: { key: string; data: DashboardType<QueryBasedInsightModel> }
+                ) => ({ ...state, [key]: data }),
+                removeContextDashboard: (state: MultiDashboardContainer, { key }: { key: string }) => {
+                    const { [key]: _removed, ...rest } = state
+                    return rest
+                },
+                resetContext: () => ({}),
+            },
+        ],
+        activeInsights: [
+            {} as MultiInsightContainer,
+            {
+                addOrUpdateActiveInsight: (
+                    state: MultiInsightContainer,
+                    { key, data }: { key: string; data: Partial<QueryBasedInsightModel> }
+                ) => ({ ...state, [key]: data }),
+                clearActiveInsights: () => ({}),
+            },
+        ],
+        activeDashboard: [
+            null as DashboardType<QueryBasedInsightModel> | null,
+            {
+                setActiveDashboard: (
+                    _: any,
+                    { dashboardContext }: { dashboardContext: DashboardType<QueryBasedInsightModel> }
+                ) => dashboardContext,
+                clearActiveDashboard: () => null,
+            },
+        ],
+        navigation: [
+            null as MaxNavigationContext | null,
+            {
+                setNavigationContext: (_: any, { path, pageTitle }: { path: string; pageTitle?: string }) => ({
+                    path,
+                    page_title: pageTitle,
+                }),
+                clearNavigationContext: () => null,
+            },
+        ],
+    },
+    listeners: ({ actions, values }) => ({
+        [router.actionTypes.locationChanged]: () => {
+            actions.clearActiveInsights()
+            actions.clearActiveDashboard()
+        },
+        [sceneLogic.actionTypes.setScene]: () => {
+            // Scene has been set, now update navigation with proper title
+            setTimeout(() => {
+                actions.setNavigationContext(router.values.location.pathname, values.documentTitle)
+            }, 100)
+        },
+        handleTaxonomicFilterChange: async (
+            {
+                value,
+                groupType,
+                item,
+            }: {
+                value: string | number
+                groupType: TaxonomicFilterGroupType
+                item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | string
+            },
+            breakpoint
+        ) => {
+            let dashboardLogicInstance: BuiltLogic<dashboardLogicType> | null = null
+            let insightLogicInstance: BuiltLogic<insightLogicType> | null = null
+            if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
+                if (value === 'current_page') {
+                    // Set current page context
+                    actions.enableCurrentPageContext()
+                }
+            } else if (groupType === TaxonomicFilterGroupType.Dashboards) {
+                let dashboard = item as DashboardType<QueryBasedInsightModel>
+                if (!dashboard.tiles) {
+                    dashboardLogicInstance = dashboardLogic.build({
+                        id: dashboard.id,
+                    })
+                    dashboardLogicInstance.mount()
+
+                    // Wait for the dashboard to load
+                    dashboardLogicInstance.actions.loadDashboard({
+                        action: 'initial_load',
+                    })
+
+                    // Use breakpoint for proper async handling instead of while loop
+                    await breakpoint(50)
+                    while (!dashboardLogicInstance.values.dashboard) {
+                        await breakpoint(50)
+                    }
+
+                    dashboard = dashboardLogicInstance.values.dashboard!
+                }
+                actions.addOrUpdateContextDashboard(dashboard.id.toString(), dashboard)
+            } else if (groupType === TaxonomicFilterGroupType.Insights) {
+                let insight = item as Partial<QueryBasedInsightModel>
+                if (!insight.query) {
+                    insightLogicInstance = insightLogic.build({
+                        dashboardItemId: undefined,
+                    })
+                    insightLogicInstance.mount()
+                    insightLogicInstance.actions.loadInsight(insight.short_id!)
+
+                    // Use breakpoint for proper async handling
+                    await breakpoint(50)
+                    while (!insightLogicInstance.values.insight.query) {
+                        await breakpoint(50)
+                    }
+                    insight = insightLogicInstance.values.insight!
+                }
+                actions.addOrUpdateContextInsight(insight.short_id!, insight)
+            }
+            if (insightLogicInstance) {
+                insightLogicInstance.unmount()
+            }
+            if (dashboardLogicInstance) {
+                // wait until all dashboard items are refreshed
+                // this allows Max to query cached insights and speed up the response
+                while (
+                    Object.values(dashboardLogicInstance.values.refreshStatus).some(
+                        (status: RefreshStatus) => status.loading
+                    )
+                ) {
+                    await breakpoint(50)
+                }
+                dashboardLogicInstance.unmount()
+            }
+        },
+    }),
+    events: ({ actions, values }) => ({
+        afterMount: () => {
+            actions.setNavigationContext(router.values.location.pathname, values.documentTitle)
+        },
+    }),
+    selectors: {
+        contextOptions: [
+            (s: any) => [s.activeInsights, s.activeDashboard],
+            (
+                activeInsights: MultiInsightContainer,
+                activeDashboard: DashboardType<QueryBasedInsightModel>
+            ): MaxContextOption[] => {
+                if (Object.values(activeInsights).length === 0 && !activeDashboard) {
+                    return []
+                }
+                return [
+                    {
+                        name: 'Current page',
+                        value: 'current_page',
+                        icon: IconPageChart,
+                        items: {
+                            insights: Object.values(activeInsights),
+                            dashboards: activeDashboard ? [activeDashboard] : [],
+                        },
+                    },
+                ]
+            },
+        ],
+        mainTaxonomicGroupType: [
+            (s: any) => [s.contextOptions],
+            (contextOptions: MaxContextOption[]): TaxonomicFilterGroupType => {
+                return contextOptions.length > 0
+                    ? TaxonomicFilterGroupType.MaxAIContext
+                    : TaxonomicFilterGroupType.Insights
+            },
+        ],
+        taxonomicGroupTypes: [
+            (s: any) => [s.contextOptions],
+            (contextOptions: MaxContextOption[]): TaxonomicFilterGroupType[] => {
+                const groupTypes: TaxonomicFilterGroupType[] = []
+                if (contextOptions.length > 0) {
+                    groupTypes.push(TaxonomicFilterGroupType.MaxAIContext)
+                }
+                groupTypes.push(TaxonomicFilterGroupType.Insights, TaxonomicFilterGroupType.Dashboards)
+                return groupTypes
+            },
+        ],
+        compiledContext: [
+            (s: any) => [
+                s.hasData,
+                s.contextInsights,
+                s.navigation,
+                s.contextDashboards,
+                s.useCurrentPageContext,
+                s.activeInsights,
+                s.activeDashboard,
+                s.dashboardInsightIds,
+            ],
+            (
+                hasData: boolean,
+                contextInsights: MultiInsightContainer | null,
+                navigation: MaxNavigationContext | null,
+                contextDashboards: MultiDashboardContainer | null,
+                useCurrentPageContext: boolean,
+                activeInsights: MultiInsightContainer | null,
+                activeDashboard: DashboardType<QueryBasedInsightModel> | null,
+                dashboardInsightIds: Set<string | number>
+            ): MaxContextShape | null => {
+                const context: MaxContextShape = {}
+
+                // Add context dashboards
+                if (contextDashboards && Object.keys(contextDashboards).length > 0) {
+                    context.dashboards = {} as MultiDashboardContextContainer
+                    Object.entries(contextDashboards).forEach(([key, dashboard]) => {
+                        context.dashboards![key] = dashboardToMaxContext(dashboard)
+                    })
+                }
+
+                // Add active dashboard if useCurrentPageContext is true
+                if (useCurrentPageContext && activeDashboard) {
+                    if (!context.dashboards) {
+                        context.dashboards = {} as MultiDashboardContextContainer
+                    }
+                    context.dashboards[activeDashboard.id] = dashboardToMaxContext(activeDashboard)
+                }
+
+                // Add insights, filtering out those already in dashboards
+                const allInsights = useCurrentPageContext ? { ...activeInsights, ...contextInsights } : contextInsights
+
+                if (allInsights && Object.keys(allInsights).length > 0) {
+                    context.insights = {}
+                    Object.entries(allInsights).forEach(([key, insight]) => {
+                        // Only add insight if it's not already in a dashboard
+                        if (!dashboardInsightIds.has(insight.short_id!)) {
+                            context.insights![key] = insightToMaxContext(insight)
+                        }
+                    })
+                    if (Object.keys(context.insights).length === 0) {
+                        delete context.insights
+                    }
+                }
+
+                if (navigation) {
+                    context.global_info = { ...(context.global_info || {}), navigation }
+                }
+
+                return hasData ? context : null
+            },
+        ],
+        dashboardInsightIds: [
+            (s) => [s.contextDashboards, s.activeDashboard, s.useCurrentPageContext],
+            (
+                contextDashboards: MultiDashboardContainer | null,
+                activeDashboard: DashboardType<QueryBasedInsightModel> | null,
+                useCurrentPageContext: boolean
+            ): Set<string | number> => {
+                const insightIds = new Set<string | number>()
+
+                // Add insight IDs from context dashboards
+                if (contextDashboards) {
+                    Object.values(contextDashboards).forEach((dashboard) => {
+                        dashboard.tiles.forEach((tile) => {
+                            if (tile.insight?.short_id) {
+                                insightIds.add(tile.insight.short_id)
+                            }
+                        })
+                    })
+                }
+
+                // Add insight IDs from active dashboard if using current page context
+                if (useCurrentPageContext && activeDashboard) {
+                    activeDashboard.tiles.forEach((tile) => {
+                        if (tile.insight?.short_id) {
+                            insightIds.add(tile.insight.short_id)
+                        }
+                    })
+                }
+
+                return insightIds
+            },
+        ],
+        hasData: [
+            (s: any) => [
+                s.contextInsights,
+                s.contextDashboards,
+                s.useCurrentPageContext,
+                s.activeInsights,
+                s.activeDashboard,
+            ],
+            (
+                contextInsights: MultiInsightContainer | null,
+                contextDashboards: MultiDashboardContainer | null,
+                useCurrentPageContext: boolean,
+                activeInsights: MultiInsightContainer | null,
+                activeDashboard: DashboardType<QueryBasedInsightModel> | null
+            ): boolean => {
+                return (
+                    Object.keys(contextInsights || {}).length > 0 ||
+                    Object.keys(contextDashboards || {}).length > 0 ||
+                    (useCurrentPageContext && Object.keys(activeInsights || {}).length > 0) ||
+                    (useCurrentPageContext && Object.keys(activeDashboard || {}).length > 0)
+                )
+            },
+        ],
+    },
+})

@@ -29,10 +29,14 @@ class MessageSerializer(serializers.Serializer):
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
+    ui_context = serializers.JSONField(required=False)
 
     def validate(self, data):
         try:
-            message = HumanMessage(content=data["content"])
+            message_data = {"content": data["content"]}
+            if "ui_context" in data:
+                message_data["ui_context"] = data["ui_context"]
+            message = HumanMessage(**message_data)
             data["message"] = message
         except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid message content.")
@@ -96,6 +100,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             new_message=serializer.validated_data["message"],
             user=cast(User, request.user),
             contextual_tools=serializer.validated_data.get("contextual_tools"),
+            ui_context=serializer.validated_data.get("ui_context"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,

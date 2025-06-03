@@ -30,6 +30,7 @@ import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -211,7 +212,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic, maxContextLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -1283,6 +1284,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
+            // Clear dashboard context when unmounting
+            maxContextLogic.actions.clearActiveDashboard()
         },
     })),
     sharedListeners(({ values, props }) => ({
@@ -1702,6 +1705,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!values.dashboard) {
                 return // We hit a 404
             }
+
+            // Set dashboard context for Max AI
+            maxContextLogic.actions.setActiveDashboard(values.dashboard)
 
             const { action, dashboardQueryId } = values.dashboardLoadTimerData
             actions.refreshAllDashboardItems({ action, dashboardQueryId })

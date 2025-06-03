@@ -23,6 +23,7 @@ import {
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { MaxContextOption } from 'scenes/max/maxTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -168,6 +169,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
+        maxContextOptions: [
+            () => [(_, props) => props.maxContextOptions],
+            (maxContextOptions) => maxContextOptions ?? [],
+        ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? {},
@@ -197,6 +202,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.excludedProperties,
                 s.propertyAllowList,
                 s.eventMetadataPropertyDefinitions,
+                s.maxContextOptions,
             ],
             (
                 teamId,
@@ -208,7 +214,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource,
                 excludedProperties,
                 propertyAllowList,
-                eventMetadataPropertyDefinitions
+                eventMetadataPropertyDefinitions,
+                maxContextOptions
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -613,6 +620,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                         },
                         getPopoverHeader: () => 'Replay',
+                    },
+                    {
+                        name: 'Max AI',
+                        searchPlaceholder: 'Max AI',
+                        type: TaxonomicFilterGroupType.MaxAIContext,
+                        options: maxContextOptions,
+                        getName: (option: MaxContextOption) => option.name,
+                        getValue: (option: MaxContextOption) => option.value,
+                        getIcon: (option: MaxContextOption) => {
+                            const Icon = option.icon as React.ComponentType
+                            if (Icon) {
+                                return <Icon />
+                            }
+                            return <></>
+                        },
+                        getPopoverHeader: () => 'Max AI',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

@@ -38,6 +38,7 @@ export function TaxonomicFilter({
     hideBehavioralCohorts,
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
+    maxContextOptions,
     useVerticalLayout,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
@@ -69,6 +70,7 @@ export function TaxonomicFilter({
         dataWarehousePopoverFields,
         useVerticalLayout,
         autoSelectItem: true,
+        maxContextOptions,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

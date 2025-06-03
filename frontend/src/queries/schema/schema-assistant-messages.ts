@@ -21,6 +21,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
+    ui_context?: Record<string, any>
 }
 
 export interface AssistantFormOption {

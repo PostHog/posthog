@@ -19,7 +19,7 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
 
 
 class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):

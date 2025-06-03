@@ -16,6 +16,7 @@ import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
+import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
 
@@ -57,6 +58,7 @@ export const maxLogic = kea<maxLogicType>([
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
+        actions: [maxContextLogic, ['resetContext']],
     })),
 
     actions({
@@ -403,6 +405,10 @@ export const maxLogic = kea<maxLogicType>([
             } else {
                 actions.startNewConversation()
             }
+        },
+
+        startNewConversation: () => {
+            actions.resetContext()
         },
     })),
 

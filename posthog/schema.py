@@ -1331,6 +1331,10 @@ class HumanMessage(BaseModel):
     content: str
     id: Optional[str] = None
     type: Literal["human"] = "human"
+    ui_context: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="UI context data associated with this message, containing events, actions, and navigation state",
+    )
 
 
 class Compare(StrEnum):
