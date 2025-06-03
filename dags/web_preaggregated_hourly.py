@@ -137,16 +137,19 @@ def web_stats_hourly(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-recreate_web_pre_aggregated_hourly_data_job = dagster.define_asset_job(
-    name="recreate_web_pre_aggregated_hourly_data",
-    selection=dagster.AssetSelection.groups("web_analytics_hourly"),
+web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
+    name="web_pre_aggregate_current_day_hourly_job",
+    selection=dagster.AssetSelection.assets(
+        "web_analytics_bounces_hourly",
+        "web_analytics_stats_table_hourly",
+    ),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 
 
 @dagster.schedule(
-    cron_schedule="*/5 * * * *",  # Run every 5 minutes
-    job=recreate_web_pre_aggregated_hourly_data_job,
+    cron_schedule="*/10 * * * *",
+    job=web_pre_aggregate_current_day_hourly_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
