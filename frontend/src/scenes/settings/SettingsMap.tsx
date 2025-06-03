@@ -25,6 +25,7 @@ import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/Sessions
 import { urls } from 'scenes/urls'
 import { BaseCurrency } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/BaseCurrency'
 import { NonNativeExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/NonNativeExternalDataSourceConfiguration'
+import { SelfManagedExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/SelfManagedExternalDataSourceConfiguration'
 
 import { Realm } from '~/types'
 
@@ -283,6 +284,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'marketing-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <NonNativeExternalDataSourceConfiguration />,
+            },
+            {
+                id: 'marketing-analytics-self-managed-external-data-sources',
+                title: 'Self-managed external data sources',
+                component: <SelfManagedExternalDataSourceConfiguration />,
             },
         ],
     },

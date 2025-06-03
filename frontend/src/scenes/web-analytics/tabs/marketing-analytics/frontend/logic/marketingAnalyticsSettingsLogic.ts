@@ -30,7 +30,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             preflightLogic,
             ['preflight'],
             dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
+            ['dataWarehouseSources', 'selfManagedTables'],
         ],
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),

@@ -47,6 +47,19 @@ export function mapUrlToProvider(url: string): string {
     return 'BlushingHog'
 }
 
+export function mapUrlToSourceName(url: string): string {
+    if (url.includes('amazonaws.com')) {
+        return 'AWS'
+    } else if (url.startsWith('https://storage.googleapis.com')) {
+        return 'GCS'
+    } else if (url.includes('.blob.')) {
+        return 'Azure'
+    } else if (url.includes('.r2.cloudflarestorage.com')) {
+        return 'Cloudflare'
+    }
+    return 'BlushingHog'
+}
+
 const SIZE_PX_MAP = {
     xsmall: 16,
     small: 30,
