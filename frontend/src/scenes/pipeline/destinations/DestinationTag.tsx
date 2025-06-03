@@ -17,6 +17,8 @@ export function DestinationTag({ status }: DestinationTagProps): JSX.Element | n
             return null
         case 'coming_soon':
             return <LemonTag type="muted">Coming soon</LemonTag>
+        case 'hidden':
+            return <LemonTag type="muted">Hidden</LemonTag>
         default:
             return status ? <LemonTag type="highlight">{capitalizeFirstLetter(status)}</LemonTag> : null
     }

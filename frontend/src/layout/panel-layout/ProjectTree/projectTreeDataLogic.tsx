@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
-    getDefaultTreeDataManagement,
+    getDefaultTreeMetadata,
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
@@ -243,7 +243,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 addShortcutItem: async ({ item }) => {
                     const response = await api.fileSystemShortcuts.create({
-                        path: splitPath(item.path).pop() ?? 'Unnamed',
+                        path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
                         type: item.type,
                         ref: item.ref,
                         href: item.href,
@@ -592,7 +592,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
-                        ['data-management://', getDefaultTreeDataManagement()],
+                        ['metadata://', getDefaultTreeMetadata()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                         ['shortcuts://', shortcutData],

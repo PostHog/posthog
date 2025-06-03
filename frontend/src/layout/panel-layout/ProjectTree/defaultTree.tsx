@@ -3,16 +3,22 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBug,
     IconChevronRight,
     IconDatabase,
+    IconFunnels,
     IconHandMoney,
+    IconHogQL,
+    IconLifecycle,
     IconLive,
     IconNotification,
     IconPieChart,
     IconPiggyBank,
     IconPlug,
+    IconRetention,
     IconServer,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
@@ -21,8 +27,8 @@ import { urls } from 'scenes/urls'
 
 import {
     fileSystemTypes,
-    getTreeItemsDataManagement,
     getTreeItemsGames,
+    getTreeItemsMetadata,
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
@@ -77,10 +83,35 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
     },
     warning: {
         icon: <IconWarning />,
-    },
-    bug: {
-        icon: <IconBug />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
+    },
+    insightFunnel: {
+        icon: <IconFunnels />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightTrends: {
+        icon: <IconTrends />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightRetention: {
+        icon: <IconRetention />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightUserPaths: {
+        icon: <IconUserPaths />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightLifecycle: {
+        icon: <IconLifecycle />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightStickiness: {
+        icon: <IconStickiness />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightHogQL: {
+        icon: <IconHogQL />,
+        iconColor: ['var(--product-product-analytics-light)'],
     },
 }
 
@@ -88,6 +119,7 @@ const getIconColor = (type?: string): FileSystemIconColor => {
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
+
     const iconTypeColor = type && iconTypes[type]?.iconColor
 
     const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
@@ -172,8 +204,8 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
-    ...getTreeItemsDataManagement(),
+export const getDefaultTreeMetadata = (): FileSystemImport[] => [
+    ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
         iconType: 'definitions',
@@ -201,13 +233,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `Max AI`,
-            type: 'aichat',
-            href: urls.max(),
-            flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-            visualOrder: PRODUCT_VISUAL_ORDER.aiChat,
-        } as FileSystemImport,
-        {
             path: `Data pipelines`,
             type: 'hog_function',
             iconType: 'plug',
@@ -222,7 +247,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            iconType: 'bug',
+            iconType: 'warning',
             href: urls.errorTracking(),
             visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,

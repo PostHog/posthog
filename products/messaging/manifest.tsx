@@ -100,6 +100,7 @@ export const manifest: ProductManifest = {
             type: 'hog_function/broadcast',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
+            flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: 'Campaigns',
@@ -107,6 +108,7 @@ export const manifest: ProductManifest = {
             type: 'hog_function/campaign',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
 }

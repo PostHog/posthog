@@ -399,7 +399,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         sortMethod: [
-            'alphabetical' as ProjectTreeSortMethod,
+            'folder' as ProjectTreeSortMethod,
             {
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },

@@ -43,6 +43,7 @@ export const manifest: ProductManifest = {
             path: 'User interviews',
             href: urls.userInterviews(),
             type: 'user_interview',
+            flag: FEATURE_FLAGS.USER_INTERVIEWS,
             visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
             tags: ['alpha'],
         },
