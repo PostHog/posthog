@@ -17,6 +17,7 @@ import {
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
+import { maxContextLogic } from './maxContextLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -385,6 +386,108 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     return <Template sidePanel />
 }
 ThreadWithOpenedSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithMultipleContextObjects: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+    })
+
+    const {
+        addOrUpdateContextInsight,
+        addOrUpdateContextDashboard,
+        enableCurrentPageContext,
+        addOrUpdateActiveInsight,
+        setActiveDashboard,
+    } = useActions(maxContextLogic)
+
+    useEffect(() => {
+        // Add multiple context insights
+        addOrUpdateContextInsight('insight-1', {
+            short_id: 'insight-1',
+            name: 'Weekly Active Users',
+            description: 'Track weekly active users over time',
+            query: {
+                kind: 'TrendsQuery',
+                series: [{ event: '$pageview' }],
+            },
+        })
+
+        addOrUpdateContextInsight('insight-2', {
+            short_id: 'insight-2',
+            name: 'Conversion Funnel',
+            description: 'User signup to activation funnel',
+            query: {
+                kind: 'FunnelsQuery',
+                series: [{ event: 'sign up' }, { event: 'first action' }],
+            },
+        })
+
+        // Add context dashboard
+        addOrUpdateContextDashboard('dashboard-1', {
+            id: 123,
+            name: 'Product Analytics Dashboard',
+            description: 'Key metrics for product performance',
+            tiles: [
+                {
+                    id: 1,
+                    insight: {
+                        short_id: 'dash-insight-1',
+                        name: 'Page Views',
+                        query: { kind: 'TrendsQuery', series: [{ event: '$pageview' }] },
+                    },
+                },
+                {
+                    id: 2,
+                    insight: {
+                        short_id: 'dash-insight-2',
+                        name: 'User Retention',
+                        query: { kind: 'RetentionQuery' },
+                    },
+                },
+            ],
+        })
+
+        // Add active insights for current page context
+        addOrUpdateActiveInsight('active-insight-1', {
+            short_id: 'active-insight-1',
+            name: 'Current Page Metrics',
+            description: 'Metrics for the current page',
+            query: {
+                kind: 'TrendsQuery',
+                series: [{ event: '$pageview' }],
+            },
+        })
+
+        // Set active dashboard for current page context
+        setActiveDashboard({
+            id: 456,
+            name: 'Live Dashboard',
+            description: 'Real-time metrics dashboard',
+            tiles: [
+                {
+                    id: 3,
+                    insight: {
+                        short_id: 'live-insight-1',
+                        name: 'Real-time Events',
+                        query: { kind: 'TrendsQuery', series: [{ event: '$pageview' }] },
+                    },
+                },
+            ],
+        })
+
+        // Enable current page context to show active insights/dashboard
+        enableCurrentPageContext()
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithMultipleContextObjects.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
