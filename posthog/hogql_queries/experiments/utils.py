@@ -19,7 +19,7 @@ from products.experiments.stats.frequentist.statistics import (
 )
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
-V = TypeVar("V", bound=ExperimentVariantTrendsBaseStats | ExperimentVariantFunnelsBaseStats | ExperimentResultStats)
+V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentResultStats)
 
 
 def split_baseline_and_test_variants(
@@ -101,6 +101,7 @@ def get_frequentist_experiment_result_legacy_format(
             significance_code = ExperimentSignificanceCode.SIGNIFICANT
 
     # Convert new variant results to legacy variant results as those are required in the UI still.
+    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
     if isinstance(metric, ExperimentFunnelMetric):
         variants = [
             convert_new_to_legacy_funnels_variant_results(control_variant),
