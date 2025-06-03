@@ -94,15 +94,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (!isLayoutPanelVisible) {
-            showLayoutPanel(true)
-        } else {
-            showLayoutPanel(false)
-            clearActivePanelIdentifier()
-        }
-
         if (activePanelIdentifier !== item) {
             setActivePanelIdentifier(item)
+            showLayoutPanel(true)
+        } else if (activePanelIdentifier === item) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
         }
     }
 
