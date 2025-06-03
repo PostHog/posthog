@@ -23,6 +23,8 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
+    AnnotationScope,
+    FilterableInspectorListItemTypes,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
@@ -36,7 +38,6 @@ import {
     SessionRecordingUsageType,
     SnapshotSourceType,
 } from '~/types'
-import { AnnotationScope } from '~/types'
 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -65,7 +66,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
         actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam'], annotationsModel, ['annotations']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+            annotationsModel,
+            ['annotations', 'annotationsLoading'],
+        ],
     })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -615,7 +623,7 @@ LIMIT 1000000
                     }
 
                     result.push({
-                        type: 'annotation',
+                        type: FilterableInspectorListItemTypes.ANNOTATIONS,
                         data: annotation,
                         timestamp: dayjs(annotation.date_marker),
                         timeInRecording: annotation.date_marker.valueOf() - startValue,

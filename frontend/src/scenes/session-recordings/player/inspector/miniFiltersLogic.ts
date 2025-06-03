@@ -14,7 +14,7 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
-const MiniFilters: SharedListMiniFilter[] = [
+export const MiniFilters: SharedListMiniFilter[] = [
     {
         type: FilterableInspectorListItemTypes.EVENTS,
         key: 'events-posthog',
@@ -103,10 +103,16 @@ const MiniFilters: SharedListMiniFilter[] = [
         tooltip:
             'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
     },
+    {
+        type: FilterableInspectorListItemTypes.ANNOTATIONS,
+        key: 'comments',
+        name: 'Comments',
+        tooltip: 'Comments made on the session, or project and org level annotations that are within this session.',
+    },
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
-const defaulMinifilters = [
+const defaultMinifilters = [
     'events-posthog',
     'events-custom',
     'events-pageview',
@@ -115,6 +121,7 @@ const defaulMinifilters = [
     'console-info',
     'console-warn',
     'console-error',
+    'comments',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
@@ -140,7 +147,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         ],
 
         selectedMiniFilters: [
-            defaulMinifilters,
+            defaultMinifilters,
             { persist: true },
             {
                 setMiniFilter: (state, { key, enabled }) => {
@@ -160,7 +167,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     }
                     return stateWithoutKeys
                 },
-                resetMiniFilters: () => defaulMinifilters,
+                resetMiniFilters: () => defaultMinifilters,
             },
         ],
 

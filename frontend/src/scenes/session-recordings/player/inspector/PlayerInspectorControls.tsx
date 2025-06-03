@@ -11,12 +11,16 @@ import {
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconComment, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
-import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import {
+    MiniFilters,
+    miniFiltersLogic,
+    SharedListMiniFilter,
+} from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     InspectorListItem,
     playerInspectorLogic,
@@ -282,6 +286,17 @@ export function PlayerInspectorControls(): JSX.Element {
                             label="Doctor"
                             active={!!miniFiltersByKey['doctor']?.enabled}
                             onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
+                        />
+                    )}
+                {featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE] &&
+                    mode !== SessionRecordingPlayerMode.Sharing && (
+                        <SettingsToggle
+                            data-attr="player-inspector-comments-toggle"
+                            title={MiniFilters.find((x) => x.key === 'comment')?.tooltip}
+                            icon={<IconComment />}
+                            label="Comments"
+                            active={!!miniFiltersByKey['comments']?.enabled}
+                            onClick={() => setMiniFilter('commnts', !miniFiltersByKey['comments']?.enabled)}
                         />
                     )}
                 <LemonButton

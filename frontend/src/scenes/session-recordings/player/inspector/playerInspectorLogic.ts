@@ -95,7 +95,7 @@ export type InspectorListItemComment = InspectorListItemBase & {
 }
 
 export type InspectorListItemAnnotation = InspectorListItemBase & {
-    type: 'annotation'
+    type: FilterableInspectorListItemTypes.ANNOTATIONS
     data: AnnotationType
 }
 
@@ -251,6 +251,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerMetaData',
                 'segments',
                 'sessionAnnotations',
+                'annotationsLoading',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -490,6 +491,23 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        annotationItems: [
+            (s) => [s.sessionAnnotations, s.windowIdForTimestamp, s.windowNumberForID],
+            (sessionAnnotations, windowIdForTimestamp, windowNumberForID): InspectorListItem[] => {
+                const items: InspectorListItemAnnotation[] = []
+                for (const annotation of sessionAnnotations || []) {
+                    const windowId = windowIdForTimestamp(annotation.timestamp.valueOf())
+                    items.push({
+                        ...annotation,
+                        highlightColor: 'primary',
+                        windowId: windowId,
+                        windowNumber: windowNumberForID(windowId),
+                    })
+                }
+                return items
+            },
+        ],
+
         consoleLogs: [
             (s) => [s.sessionPlayerData, s.windowNumberForID],
             (sessionPlayerData, windowNumberForID): RecordingConsoleLogV2[] => {
@@ -549,7 +567,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.windowNumberForID,
                 s.sessionPlayerMetaData,
                 s.segments,
-                s.sessionAnnotations,
             ],
             (
                 start,
@@ -560,8 +577,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 windowIdForTimestamp,
                 windowNumberForID,
                 sessionPlayerMetaData,
-                segments,
-                sessionAnnotations
+                segments
             ) => {
                 const items: InspectorListItem[] = []
 
@@ -615,15 +631,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
-                for (const annotation of sessionAnnotations || []) {
-                    items.push({
-                        ...annotation,
-                        highlightColor: 'primary',
-                        windowId: windowIdForTimestamp(annotation.timestamp.valueOf()),
-                        windowNumber: windowNumberForID(windowIdForTimestamp(annotation.timestamp.valueOf())),
-                    })
-                }
-
                 // now we've calculated everything else
                 // always start with a context row that has a little summary
                 if (start) {
@@ -654,6 +661,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.matchingEventUUIDs,
                 s.windowNumberForID,
                 s.allContextItems,
+                s.featureFlags,
+                s.annotationItems,
             ],
             (
                 start,
@@ -662,7 +671,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 eventsData,
                 matchingEventUUIDs,
                 windowNumberForID,
-                allContextItems
+                allContextItems,
+                annotationItems
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -748,6 +758,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 for (const event of allContextItems || []) {
                     items.push(event)
+                }
+
+                for (const annotation of annotationItems || []) {
+                    items.push(annotation)
                 }
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
@@ -856,7 +870,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 return !allowMatchingEventsFilter
                             }
 
-                            if (item.type === 'annotation') {
+                            if (item.type === 'annotations') {
                                 return true
                             }
 
@@ -870,7 +884,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         const isPageView =
                             item.type === FilterableInspectorListItemTypes.EVENTS && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
-                        const isAnnotation = item.type === 'annotation'
+                        const isAnnotation = item.type === 'annotations'
                         return isPrimary || isPageView || isComment || isAnnotation
                     })
 
@@ -892,6 +906,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.consoleLogs,
                 s.allPerformanceEvents,
                 s.doctorEvents,
+                s.sessionAnnotations,
+                s.annotationsLoading,
             ],
             (
                 sessionEventsDataLoading,
@@ -900,7 +916,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 events,
                 logs,
                 performanceEvents,
-                doctorEvents
+                doctorEvents,
+                sessionAnnotations,
+                annotationsLoading
             ): Record<FilterableInspectorListItemTypes, 'loading' | 'ready' | 'empty'> => {
                 const dataForEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const dataForConsoleState =
@@ -921,10 +939,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         : doctorEvents.length
                         ? 'ready'
                         : 'empty'
+                const dataForAnnotationsState = annotationsLoading
+                    ? 'loading'
+                    : sessionAnnotations?.length
+                    ? 'ready'
+                    : 'empty'
+
                 return {
                     [FilterableInspectorListItemTypes.EVENTS]: dataForEventsState,
                     [FilterableInspectorListItemTypes.CONSOLE]: dataForConsoleState,
                     [FilterableInspectorListItemTypes.NETWORK]: dataForNetworkState,
+                    [FilterableInspectorListItemTypes.ANNOTATIONS]: dataForAnnotationsState,
                     [FilterableInspectorListItemTypes.DOCTOR]: dataForDoctorState,
                 }
             },
@@ -992,6 +1017,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     'performance-assets-css': [],
                     'performance-assets-img': [],
                     'performance-other': [],
+                    annotations: [],
                     doctor: [],
                 }
 
@@ -1017,6 +1043,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     [FilterableInspectorListItemTypes.CONSOLE]: [],
                     [FilterableInspectorListItemTypes.NETWORK]: [],
                     [FilterableInspectorListItemTypes.DOCTOR]: [],
+                    [FilterableInspectorListItemTypes.ANNOTATIONS]: [],
                     context: [],
                 }
 
@@ -1027,6 +1054,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             FilterableInspectorListItemTypes.CONSOLE,
                             FilterableInspectorListItemTypes.NETWORK,
                             FilterableInspectorListItemTypes.DOCTOR,
+                            FilterableInspectorListItemTypes.ANNOTATIONS,
                         ].includes(item.type as FilterableInspectorListItemTypes)
                             ? (item.type as FilterableInspectorListItemTypes | 'context')
                             : 'context'

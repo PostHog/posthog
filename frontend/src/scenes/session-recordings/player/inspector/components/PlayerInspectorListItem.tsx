@@ -151,7 +151,7 @@ function RowItemTitle({
                 <ItemSummary item={item} />
             ) : item.type === 'inactivity' ? (
                 <ItemInactivity item={item} />
-            ) : item.type === 'annotation' ? (
+            ) : item.type === 'annotations' ? (
                 <ItemAnnotation item={item} />
             ) : null}
         </div>
@@ -180,7 +180,7 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
-            ) : item.type === 'annotation' ? (
+            ) : item.type === 'annotations' ? (
                 <ItemAnnotationDetail item={item} />
             ) : null}
         </div>
