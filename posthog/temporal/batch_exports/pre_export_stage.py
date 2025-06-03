@@ -328,15 +328,14 @@ async def _get_query(
         filters_str, extra_query_parameters = "", extra_query_parameters
 
     is_backfill = backfill_details is not None
+    # The number of partitions controls how many files ClickHouse writes to concurrently.
+    num_partitions = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
 
     if model_name == "persons":
         if is_backfill and full_range[0] is None:
             query_template = EXPORT_TO_S3_FROM_PERSONS_BACKFILL
         else:
             query_template = EXPORT_TO_S3_FROM_PERSONS
-
-        # TODO: Play around with number of partitions to see how it affects performance/memory usage
-        num_partitions = 10
 
         query = query_template.safe_substitute(
             s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -394,9 +393,6 @@ async def _get_query(
 
         if filters_str:
             filters_str = f"AND {filters_str}"
-
-        # TODO - configure this
-        num_partitions = 10
 
         query = query_template.safe_substitute(
             fields=query_fields,
@@ -481,7 +477,6 @@ async def _write_batch_export_record_batches_to_s3(
             if interval_start is not None:
                 query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_id = uuid.uuid4()
 
             if isinstance(query_or_model, RecordBatchModel):
                 query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
@@ -501,16 +496,10 @@ async def _write_batch_export_record_batches_to_s3(
                 await logger.aexception("Unexpected error occurred while deleting existing objects from S3", exc_info=e)
                 raise
 
+            query_id = uuid.uuid4()
+            await logger.ainfo(f"Executing query with ID = {query_id}")
             try:
                 await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id))
-                # TODO - remove this once testing over
-                # need to wait for query info to become available in system.query_log
-                await asyncio.sleep(5)
-                memory_usage = await client.read_query(
-                    f"SELECT formatReadableSize(memory_usage) as memory_used FROM system.query_log WHERE query_id = '{query_id}' AND type='QueryFinish' ORDER BY event_time DESC LIMIT 1",
-                )
-                await logger.ainfo(f"Query memory usage = {memory_usage.decode('utf-8').strip()}")
-
             except Exception as e:
                 await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
                 raise

@@ -74,3 +74,5 @@ BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS", "")
 )
 BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str | None = os.getenv("BATCH_EXPORT_INTERNAL_STAGING_BUCKET", "posthog")
+# The number of partitions controls how many files ClickHouse writes to concurrently
+BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 5, type_cast=int)
