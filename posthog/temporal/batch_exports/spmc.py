@@ -982,16 +982,27 @@ class RetryOOMRecorBatchAsyncIterator:
         self.interval_end = interval_end
         self.team_id = team_id
         self.streamers: list[tuple[collections.abc.AsyncIterator[pa.RecordBatch], dt.datetime, dt.datetime]] = []
+        self.logger = get_internal_logger()
 
     def __aiter__(self) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        """Return async iterable of record batches."""
         return self.stream()
 
     async def stream(self) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        """Stream record batches splitting queries if necessary.
+
+        Whenever a ClickHouse query fails with an OOM error, we split it into
+        two queries and retry them both.
+        """
         if (
             not self.streamers
             and self.interval_start is not None
             and str(self.team_id) in settings.BATCH_EXPORT_SPLIT_QUERIES_TEAM_IDS
         ):
+            self.logger.debug(
+                "Configured team '%s' to retry on ClickHouse OOM errors by splitting queries", self.team_id
+            )
+
             new_streamer = self.start_new_stream(interval_start=self.interval_start, interval_end=self.interval_end)
             self.streamers.append((new_streamer, self.interval_start, self.interval_end))
         else:
@@ -1013,7 +1024,9 @@ class RetryOOMRecorBatchAsyncIterator:
                 try:
                     yield await anext(streamer)
 
-                except ClickHouseMemoryLimitExceededError:
+                except ClickHouseMemoryLimitExceededError as err:
+                    self.logger.warning("ClickHouse OOM detected, will attempt to split queries", exc_info=err)
+
                     interval = interval_end - interval_start
                     half_point = interval_start + interval // 2
                     streamer_left = (
@@ -1026,7 +1039,8 @@ class RetryOOMRecorBatchAsyncIterator:
                         half_point,
                         interval_end,
                     )
-                    # NOTE: The append order in the list is from end to start.
+                    # NOTE: The append order in the list is from end to start
+                    # because we pop from the end.
                     self.streamers.extend((streamer_right, streamer_left))
 
                     break
