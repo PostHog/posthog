@@ -193,12 +193,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
-            identifier: 'DataWarehouse',
-            id: 'Data warehouse',
+            identifier: 'Data',
+            id: 'Data',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('DataWarehouse')
+                    handlePanelTriggerClick('Data')
                 }
             },
             showChevron: true,
