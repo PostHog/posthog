@@ -80,6 +80,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             type="tertiary"
             size="xsmall"
             id="sql-editor-query-window-add-variables"
+            data-attr="sql-editor-query-window-add-variables-button"
         >
             Add SQL variables
         </LemonButton>
@@ -92,6 +93,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             type="tertiary"
             size="xsmall"
             id="sql-editor-query-window-materialize"
+            data-attr="sql-editor-query-window-materialize-button"
         >
             Materialize
         </LemonButton>

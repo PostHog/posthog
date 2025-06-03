@@ -21,7 +21,7 @@ test.describe('SQL Editor', () => {
         await expect(page.getByText('Untitled 2')).toBeVisible()
     })
 
-    test('Add source', async ({ page }) => {
+    test('Add source link', async ({ page }) => {
         await page.locator('button[aria-label="New source"]').first().click()
         await expect(page).toHaveURL(/.*\/pipeline\/new\/source/)
     })
@@ -45,5 +45,15 @@ test.describe('SQL Editor', () => {
         await page.getByText('Submit').click()
 
         await expect(page.getByText('test_view successfully created')).toBeVisible()
+    })
+
+    test('Materialize view pane', async ({ page }) => {
+        await page.locator('[data-attr=sql-editor-query-window-materialize-button]').click()
+        await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
+    })
+
+    test('Query variables pane', async ({ page }) => {
+        await page.locator('[data-attr=sql-editor-query-window-add-variables-button]').click()
+        await expect(page.locator('[data-attr=sql-editor-sidebar-query-variables-pane]')).toBeVisible()
     })
 })

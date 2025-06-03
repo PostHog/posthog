@@ -21,7 +21,10 @@ export function QueryVariables(): JSX.Element {
     const { openExistingVariableModal } = useActions(variableModalLogic)
 
     return (
-        <div className="flex flex-col gap-2 py-2 h-full overflow-auto">
+        <div
+            className="flex flex-col gap-2 py-2 h-full overflow-auto"
+            data-attr="sql-editor-sidebar-query-variables-pane"
+        >
             <div className="flex flex-row items-center justify-between px-2">
                 <h3 className="text-sm font-semibold mb-0">Query variables</h3>
                 <AddVariableButton buttonProps={{ type: 'primary', size: 'xsmall' }} title="" />
