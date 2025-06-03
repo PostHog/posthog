@@ -1,9 +1,11 @@
+import { IconPlus } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -242,12 +244,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
-                    const response = await api.fileSystemShortcuts.create({
-                        path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
-                        type: item.type,
-                        ref: item.ref,
-                        href: item.href,
-                    })
+                    const shortcutItem =
+                        item.type === 'folder'
+                            ? {
+                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  type: 'folder',
+                                  ref: item.path,
+                              }
+                            : {
+                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  type: item.type,
+                                  ref: item.ref,
+                                  href: item.href,
+                              }
+                    const response = await api.fileSystemShortcuts.create(shortcutItem)
                     return [...values.shortcutData, response]
                 },
                 deleteShortcut: async ({ id }) => {
@@ -599,9 +609,26 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             for (let i = 0; i < splitPath(shortcut.ref).length; i++) {
                                 converted = converted[0]?.children || []
                             }
-                            if (converted) {
-                                newShortcutData.push({ ...shortcutTreeItem, children: converted })
+                            if (folderStates[shortcut.ref] === 'has-more') {
+                                converted.push({
+                                    id: `project://-load-more/${shortcut.ref}`,
+                                    name: 'Load more...',
+                                    displayName: <>Load more...</>,
+                                    icon: <IconPlus />,
+                                    disableSelect: true,
+                                })
+                            } else if (folderStates[shortcut.ref] === 'loading') {
+                                converted.push({
+                                    id: `project://-loading/${shortcut.ref}`,
+                                    name: 'Loading...',
+                                    displayName: <>Loading...</>,
+                                    icon: <Spinner />,
+                                    disableSelect: true,
+                                    type: 'loading-indicator',
+                                })
                             }
+
+                            newShortcutData.push({ ...shortcutTreeItem, children: converted })
                         } else {
                             newShortcutData.push(shortcutTreeItem)
                         }

@@ -409,8 +409,8 @@ export function ProjectTree({
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
                 }
-                if (item?.id.startsWith('project-load-more/')) {
-                    const path = item.id.split('/').slice(1).join('/')
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
                     if (path) {
                         loadFolder(path)
                     }

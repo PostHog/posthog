@@ -465,6 +465,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `recent-loading/`,
                         name: 'Loading...',
+                        displayName: <>Loading...</>,
                         icon: <Spinner />,
                         disableSelect: true,
                         type: 'loading-indicator',
@@ -473,6 +474,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `recent-load-more/`,
                         name: 'Load more...',
+                        displayName: <>Load more...</>,
                         icon: <IconPlus />,
                         disableSelect: true,
                         onClick: () => projectTreeLogic.actions.loadRecentResults('end'),
@@ -517,6 +519,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `search-loading/`,
                         name: 'Loading...',
+                        displayName: <>Loading...</>,
                         icon: <Spinner />,
                         disableSelect: true,
                         type: 'loading-indicator',
@@ -525,6 +528,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `search-load-more/${searchResults.searchTerm}`,
                         name: 'Load more...',
+                        displayName: <>Load more...</>,
                         icon: <IconPlus />,
                         disableSelect: true,
                         onClick: () =>
