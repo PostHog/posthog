@@ -4,7 +4,6 @@ import tempfile
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
-
 import structlog
 from django.conf import settings
 from selenium import webdriver
@@ -57,19 +56,36 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
-    options.add_argument("--incognito")
 
-    # add a unique user data dir to avoid shared profile conflicts
-    user_data_dir = tempfile.mkdtemp()
-    options.add_argument(f"--user-data-dir={user_data_dir}")
+    # Ensure completely fresh profile
+    options.add_argument("--incognito")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-sync")
+
+    # Create a unique prefix for the temporary directory
+    import time
+    import os
+
+    pid = os.getpid()
+    timestamp = int(time.time() * 1000)
+    unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
+
+    # Use TemporaryDirectory which will automatically clean up when the context manager exits
+    temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
+    options.add_argument(f"--user-data-dir={temp_dir.name}")
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-        return webdriver.Chrome(service=service, options=options)
+        return webdriver.Chrome(service=service, options=options), temp_dir
 
-    return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-        options=options,
+    return (
+        webdriver.Chrome(
+            service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
+            options=options,
+        ),
+        temp_dir,
     )
 
 
