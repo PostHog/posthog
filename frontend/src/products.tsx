@@ -385,7 +385,6 @@ export const fileSystemTypes = {
         name: 'Notebook',
         icon: <IconNotebook />,
         href: (ref: string) => urls.notebook(ref),
-        iconColor: ['var(--product-notebooks-light)'],
         filterKey: 'notebook',
     },
     session_recording_playlist: {
@@ -587,4 +586,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
-export const getTreeItemsDataManagement = (): FileSystemImport[] => []
+export const getTreeItemsMetadata = (): FileSystemImport[] => [
+    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
+    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+]

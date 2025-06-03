@@ -6,6 +6,7 @@ import {
     IconChevronRight,
     IconDatabase,
     IconFunnels,
+    IconGraph,
     IconHandMoney,
     IconHogQL,
     IconLifecycle,
@@ -22,6 +23,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -32,10 +34,10 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemImport, FilsSystemIconType } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, PipelineStage } from '~/types'
 
-const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+const iconTypes: Record<FilsSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
         icon: <IconAI />,
         iconColor: ['var(--product-max-ai-light)'],
@@ -116,6 +118,13 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
         icon: <IconHogQL />,
         iconColor: ['var(--product-product-analytics-light)'],
     },
+    cohort: {
+        icon: <IconCohort />,
+    },
+    insight: {
+        icon: <IconGraph />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
 }
 
 const getIconColor = (type?: string): FileSystemIconColor => {
@@ -123,7 +132,7 @@ const getIconColor = (type?: string): FileSystemIconColor => {
         type as keyof typeof fileSystemTypes
     ]?.iconColor
 
-    const iconTypeColor = type && iconTypes[type]?.iconColor
+    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
 
     const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
     return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
@@ -162,7 +171,7 @@ export function iconForType(type?: string): JSX.Element {
     }
 
     if (type in iconTypes) {
-        return <ProductIconWrapper type={type}>{iconTypes[type].icon}</ProductIconWrapper>
+        return <ProductIconWrapper type={type}>{iconTypes[type as keyof typeof iconTypes].icon}</ProductIconWrapper>
     }
 
     // Handle hog_function types
@@ -226,7 +235,7 @@ export const getDefaultTreeMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Ingestion warnings',
-        iconType: 'errorTracking',
+        iconType: 'warning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
@@ -250,7 +259,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            iconType: 'warning',
+            iconType: 'errorTracking',
             href: urls.errorTracking(),
             visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,
