@@ -413,8 +413,8 @@ export const supportLogic = kea<supportLogicType>([
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
                 actions.submitZendeskTicket(formValues)
-                actions.closeSupportForm()
-                actions.resetSendSupportRequest()
+                // Form closing and resetting is now handled in submitZendeskTicket listener
+                // based on success/failure of the submission
             },
         },
     })),
@@ -443,7 +443,15 @@ export const supportLogic = kea<supportLogicType>([
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
+        openSupportForm: async ({
+            name,
+            email,
+            isEmailFormOpen,
+            kind,
+            target_area,
+            severity_level,
+            message,
+        }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -473,7 +481,7 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }) => {
+        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -582,6 +590,9 @@ export const supportLogic = kea<supportLogicType>([
                         lemonToast.success(
                             "Got the message! If we have follow-up information for you, we'll reply via email."
                         )
+                        // Only close and reset the form on success
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
                         return
                     }
 
@@ -604,8 +615,10 @@ export const supportLogic = kea<supportLogicType>([
                         ...contexts,
                     })
                     lemonToast.error(
-                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`
+                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                        { hideButton: true }
                     )
+                    // Don't close the form or reset the data so user can try again
                     return
                 }
 
@@ -623,14 +636,19 @@ export const supportLogic = kea<supportLogicType>([
                 }
                 posthog.capture('support_ticket', properties)
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+                // Only close and reset the form on success
+                actions.closeSupportForm()
+                actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
 
                 // More helpful error message
                 // Use the same error message regardless of browser
                 lemonToast.error(
-                    `Oops, the message wasn't sent due to an error. Please try changing your browser's privacy level to the standard or default level and try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`
+                    `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                    { hideButton: true }
                 )
+                // Don't close the form or reset the data so user can try again
             }
         },
 

@@ -26,6 +26,7 @@ interface ToastButton {
 
 interface ToastOptionsWithButton extends ToastOptions {
     button?: ToastButton
+    hideButton?: boolean
 }
 
 export const GET_HELP_BUTTON: ToastButton = {
@@ -96,7 +97,7 @@ export const lemonToast = {
             ...toastOptions,
         })
     },
-    error(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
+    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}): void {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -107,16 +108,13 @@ export const lemonToast = {
             })
         }
 
-        // Check if this is the browser privacy settings error message
-        const isPrivacySettingsError = typeof message === 'string' && message.includes("browser's privacy level")
-
         toastOptions = ensureToastId(toastOptions)
         toast.error(
             <ToastContent
                 type="error"
                 message={message}
-                // Only show the button if it's explicitly provided or if it's not the privacy settings error
-                button={button !== undefined ? button : isPrivacySettingsError ? undefined : GET_HELP_BUTTON}
+                // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
+                button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
                 id={toastOptions.toastId}
             />,
             {
