@@ -1,9 +1,7 @@
-import { Liquid } from 'liquidjs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
@@ -30,97 +28,6 @@ export const RETRIABLE_STATUS_CODES = [
     503, // Service Unavailable
     504, // Gateway Timeout
 ]
-
-const parseLiquidTemplate = (
-    template: string,
-    context: any,
-    inputs?: Record<string, any>,
-    allowLiquid: boolean = false
-): string => {
-    // Early return if liquid processing is disabled
-    if (!allowLiquid) {
-        logger.info('🔍 Liquid parsing disabled', { template, allowLiquid })
-        return template
-    }
-
-    try {
-        const liquid = new Liquid({
-            strictFilters: false,
-            strictVariables: false,
-            outputEscape: 'escape',
-        })
-
-        // Register custom filters
-        liquid.registerFilter('default', (value: any, defaultValue: any) => value ?? defaultValue)
-        liquid.registerFilter('date', (value: any, format: string) => {
-            // Handle "now" as current date
-            const date = value === 'now' ? new Date() : new Date(value)
-
-            // Simple date formatting - you can expand this
-            if (format === '%Y%m%d') {
-                return (
-                    date.getFullYear().toString() +
-                    (date.getMonth() + 1).toString().padStart(2, '0') +
-                    date.getDate().toString().padStart(2, '0')
-                )
-            }
-            if (format === '%B %-d, %Y at %l:%M %p') {
-                return (
-                    date.toLocaleDateString('en-US', {
-                        month: 'long',
-                        day: 'numeric',
-                        year: 'numeric',
-                    }) +
-                    ' at ' +
-                    date.toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                    })
-                )
-            }
-            if (format === '%l:%M %p') {
-                return date.toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true,
-                })
-            }
-            // Fallback to ISO string
-            return date.toISOString()
-        })
-
-        // HTML decode the template before processing. To do maybe we should use a library for better html decoding
-        // $ is not decoded because it is used as a variable in liquid templates, so we need to handle this separately
-        const decodedTemplate = template
-            .replace(/&gt;/g, '>')
-            .replace(/&lt;/g, '<')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&#x27;/g, "'")
-
-        const liquidContext = {
-            event: context.event,
-            person: context.person,
-            groups: context.groups,
-            project: context.project,
-            source: context.source,
-            inputs: inputs || {},
-            now: new Date(),
-        }
-
-        const result = liquid.parseAndRenderSync(decodedTemplate, liquidContext)
-
-        return result
-    } catch (error) {
-        logger.warn('🔍 Liquid template parsing failed', {
-            error: error.message,
-            template,
-            stack: error.stack,
-        })
-        return template
-    }
-}
 
 export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
@@ -260,89 +167,13 @@ export class FetchExecutorService {
         const start = performance.now()
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
         const method = params.method.toUpperCase()
-
-        // Check if this is an email request (Mailjet or other email providers, we can add more later)
-        const isEmailRequest = params.url.includes('mailjet') || params.url.includes('sendgrid')
-
-        let processedBody = params.body
-
-        // If it's an email request, parse liquid templates
-        if (isEmailRequest && params.body) {
-            try {
-                const bodyData = typeof params.body === 'string' ? parseJSON(params.body) : params.body
-
-                // Check for liquid setting in multiple places:
-                // 1. Template-level setting
-                // 2. Input-level setting
-                // 3. Schema-level setting (templating: false means liquid enabled)
-                const templateAllowLiquid = invocation.hogFunction.template?.allowLiquid || false
-                const inputAllowLiquid = invocation.globals.inputs?.allowLiquid || false
-
-                // Check if any email input schema has templating disabled (which means liquid enabled)
-                const emailSchemas = invocation.hogFunction.inputs_schema?.filter((s) => s.type === 'email') || []
-                const schemaAllowLiquid = emailSchemas.some((s) => s.templating === false)
-
-                const allowLiquid = templateAllowLiquid || inputAllowLiquid || schemaAllowLiquid
-
-                logger.info('🐕', `[FetchExecutor] Processing email with liquid templates`, {
-                    hogFunctionId: invocation.hogFunction.id,
-                    allowLiquid,
-                    templateAllowLiquid,
-                    inputAllowLiquid,
-                    schemaAllowLiquid,
-                    emailSchemas: emailSchemas.map((s) => ({ key: s.key, templating: s.templating })),
-                })
-
-                // Process email fields that might contain liquid templates
-                if (bodyData.Messages) {
-                    // Mailjet format
-                    bodyData.Messages = bodyData.Messages.map((message: any) => ({
-                        ...message,
-                        Subject: message.Subject
-                            ? parseLiquidTemplate(
-                                  message.Subject,
-                                  invocation.globals,
-                                  invocation.globals.inputs,
-                                  allowLiquid
-                              )
-                            : message.Subject,
-                        HTMLPart: message.HTMLPart
-                            ? parseLiquidTemplate(
-                                  message.HTMLPart,
-                                  invocation.globals,
-                                  invocation.globals.inputs,
-                                  allowLiquid
-                              )
-                            : message.HTMLPart,
-                        TextPart: message.TextPart
-                            ? parseLiquidTemplate(
-                                  message.TextPart,
-                                  invocation.globals,
-                                  invocation.globals.inputs,
-                                  allowLiquid
-                              )
-                            : message.TextPart,
-                    }))
-                }
-
-                processedBody = JSON.stringify(bodyData)
-            } catch (error) {
-                logger.warn('Failed to process email liquid templates', {
-                    error: error.message,
-                    hogFunctionId: invocation.hogFunction.id,
-                })
-                // Continue with original body if parsing fails
-            }
-        }
-
         const fetchParams: FetchOptions = {
             method,
             headers: params.headers,
             timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
         }
-
-        if (!['GET', 'HEAD'].includes(method) && processedBody) {
-            fetchParams.body = processedBody
+        if (!['GET', 'HEAD'].includes(method) && params.body) {
+            fetchParams.body = params.body
         }
 
         const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))

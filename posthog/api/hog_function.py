@@ -201,27 +201,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                         {"template_id": "The Data Pipelines addon is required for this template."}
                     )
 
-            # Without the addon you can't deviate from the template EXCEPT for templating settings
+            # Without the addon you can't deviate from the template
             data["hog"] = template.hog
-
-            # Preserve templating field changes while keeping the base template schema
-            original_inputs_schema = data.get("inputs_schema", [])
-            template_inputs_schema = template.inputs_schema
-
-            # Merge schemas: use template as base but preserve templating field changes
-            merged_schema = []
-            for template_input in template_inputs_schema:
-                original_input = next(
-                    (s for s in original_inputs_schema if s.get("key") == template_input.get("key")), None
-                )
-                if original_input and "templating" in original_input:
-                    # Preserve the templating setting from the user's input
-                    merged_input = {**template_input, "templating": original_input["templating"]}
-                    merged_schema.append(merged_input)
-                else:
-                    merged_schema.append(template_input)
-
-            data["inputs_schema"] = merged_schema
+            data["inputs_schema"] = template.inputs_schema
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []

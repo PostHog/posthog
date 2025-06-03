@@ -406,6 +406,7 @@ export type HogFunctionType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: HogBytecode | object
     order?: number

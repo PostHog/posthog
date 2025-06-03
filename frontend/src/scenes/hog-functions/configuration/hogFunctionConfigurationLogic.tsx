@@ -103,20 +103,22 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         data: HogFunctionConfigurationType | HogFunctionMappingType
     ): Record<string, HogFunctionInputType> {
         const sanitizedInputs: Record<string, HogFunctionInputType> = {}
-        data.inputs_schema?.forEach((input) => {
-            const secret = data.inputs?.[input.key]?.secret
-            let value = data.inputs?.[input.key]?.value
+        data.inputs_schema?.forEach((inputSchema) => {
+            const templatingEnabled = inputSchema.templating ?? true
+            const input = data.inputs?.[inputSchema.key]
+            const secret = input?.secret
+            let value = input?.value
 
             if (secret) {
                 // If set this means we haven't changed the value
-                sanitizedInputs[input.key] = {
+                sanitizedInputs[inputSchema.key] = {
                     value: '********', // Don't send the actual value
                     secret: true,
                 }
                 return
             }
 
-            if (input.type === 'json' && typeof value === 'string') {
+            if (inputSchema.type === 'json' && typeof value === 'string') {
                 try {
                     value = JSON.parse(value)
                 } catch (e) {
@@ -124,10 +126,12 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
                 }
             }
 
-            sanitizedInputs[input.key] = {
+            sanitizedInputs[inputSchema.key] = {
                 value: value,
+                templating: templatingEnabled ? input?.templating ?? 'hog' : undefined,
             }
         })
+
         return sanitizedInputs
     }
 
@@ -619,24 +623,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 if (!values.hasAddon && values.type !== 'transformation') {
                     // Remove the source field if the user doesn't have the addon (except for transformations)
                     delete payload.hog
-
-                    // Only preserve templating settings in inputs_schema, remove everything else
-                    if (payload.inputs_schema) {
-                        const modifiedSchema = payload.inputs_schema as any[] // Store reference before overwriting
-                        const originalSchema =
-                            values.hogFunction?.template?.inputs_schema || values.template?.inputs_schema || []
-
-                        payload.inputs_schema = originalSchema.map((originalInput) => {
-                            const modifiedInput = modifiedSchema?.find((s) => s.key === originalInput.key)
-                            return {
-                                ...originalInput,
-                                // Preserve only the templating setting if it was modified
-                                ...(modifiedInput?.templating !== undefined
-                                    ? { templating: modifiedInput.templating }
-                                    : {}),
-                            }
-                        })
-                    }
                 }
 
                 if (!props.id || props.id === 'new') {

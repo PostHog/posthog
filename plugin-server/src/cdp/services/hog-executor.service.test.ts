@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { truth } from '~/tests/helpers/truth'
 
-import { formatInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -68,7 +68,7 @@ describe('Hog Executor', () => {
             }
 
             // Call formatInput directly to test that it handles null values
-            const result = formatInput(inputWithNulls, globals)
+            const result = formatHogInput(inputWithNulls, globals)
 
             // Verify that null values are preserved
             expect(result.body.value.person).toBeNull()
@@ -101,7 +101,7 @@ describe('Hog Executor', () => {
                 },
             }
 
-            const result = formatInput(complexInput, globals)
+            const result = formatHogInput(complexInput, globals)
 
             // Verify all null and undefined values are properly preserved
             expect(result.body.value.data.first).toBeNull()

@@ -18,8 +18,9 @@ export const scene: SceneExport = {
 }
 
 export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Element {
-    const { submitTemplate, resetTemplate } = useActions(messageTemplateLogic)
-    const { originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(messageTemplateLogic)
+    const { submitTemplate, resetTemplate, setTemplateValue } = useActions(messageTemplateLogic)
+    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } =
+        useValues(messageTemplateLogic)
 
     return (
         <div className="space-y-4">
@@ -70,10 +71,8 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Ele
                             <Spinner className="text-lg" />
                         ) : (
                             <EmailTemplater
-                                formLogic={messageTemplateLogic}
-                                formLogicProps={{ id }}
-                                formKey="template"
-                                formFieldsPrefix="content.email"
+                                value={template?.content.email}
+                                onChange={(value) => setTemplateValue('content.email', value)}
                                 emailMetaFields={['from', 'subject']}
                             />
                         )}

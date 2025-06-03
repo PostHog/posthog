@@ -26,6 +26,7 @@ import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { liquidRenderer } from '../utils/liquid'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -58,7 +59,7 @@ export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     })
 }
 
-export const formatInput = (bytecode: any, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
@@ -80,17 +81,42 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocationGlobals
     }
 
     if (Array.isArray(bytecode)) {
-        return bytecode.map((item) => formatInput(item, globals, key))
+        return bytecode.map((item) => formatHogInput(item, globals, key))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
         return Object.fromEntries(
             Object.entries(bytecode).map(([key2, value]) => [
                 key2,
-                formatInput(value, globals, key ? `${key}.${key2}` : key2),
+                formatHogInput(value, globals, key ? `${key}.${key2}` : key2),
             ])
         )
     } else {
         return bytecode
     }
+}
+
+const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+    if (value === null || value === undefined) {
+        return value
+    }
+
+    if (typeof value === 'string') {
+        return liquidRenderer.renderWithHogFunctionGlobals(value, globals)
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => formatLiquidInput(item, globals, key))
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        return Object.fromEntries(
+            Object.entries(value).map(([key2, value]) => [
+                key2,
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2),
+            ])
+        )
+    }
+
+    return value
 }
 
 export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
@@ -128,9 +154,12 @@ export const buildGlobalsWithInputs = (
 
         newGlobals.inputs[key] = input.value
 
-        if (input?.bytecode) {
-            // Use the bytecode to compile the field
-            newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+        const templating = input.templating ?? 'hog'
+
+        if (templating === 'liquid') {
+            newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
+        } else if (templating === 'hog' && input?.bytecode) {
+            newGlobals.inputs[key] = formatHogInput(input.bytecode, newGlobals, key)
         }
     }
 
@@ -379,7 +408,6 @@ export class HogExecutorService {
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
-
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 
             try {
