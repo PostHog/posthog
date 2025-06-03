@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { Group, TeamId } from '../../../types'
+import { Group, ProjectId, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
@@ -11,12 +11,12 @@ describe('BatchWritingGroupStore', () => {
     let db: DB
     let groupStore: BatchWritingGroupStore
     let teamId: TeamId
-    let projectId: TeamId
+    let projectId: ProjectId
     let group: Group
 
     beforeEach(() => {
         teamId = 1
-        projectId = 1
+        projectId = 1 as ProjectId
         // Create a mock DB instance with all required methods
         group = {
             id: 1,
