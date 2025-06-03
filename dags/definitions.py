@@ -74,7 +74,7 @@ defs = dagster.Definitions(
         backups.sharded_backup,
         backups.non_sharded_backup,
         web_preaggregated_internal.recreate_web_pre_aggregated_data_job,
-        web_preaggregated_hourly.recreate_web_pre_aggregated_hourly_data_job,
+        web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -87,7 +87,7 @@ defs = dagster.Definitions(
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
         web_preaggregated_internal.recreate_web_analytics_preaggregated_internal_data_daily,
-        web_preaggregated_hourly.recreate_web_analytics_preaggregated_hourly_data,
+        web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
