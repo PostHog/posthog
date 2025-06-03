@@ -644,6 +644,10 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const response = await api.query(query)
                 actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                const numberOfSurveySentEvents = response.results?.find(
+                    (result) => result[0] === SurveyEventName.SENT
+                )?.[1]
+                actions.loadConsolidatedSurveyResults(numberOfSurveySentEvents)
                 return response.results as SurveyBaseStatsResult
             },
         },
@@ -996,7 +1000,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         consolidatedSurveyResults: {
-            loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
+            loadConsolidatedSurveyResults: async (limit = 1000): Promise<ConsolidatedSurveyResults> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
@@ -1021,7 +1025,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             ${values.answerFilterHogQLExpression}
                             ${values.partialResponsesFilter}
                             AND {filters}
-                        LIMIT 10000
+                        LIMIT ${limit}
                     `,
                     filters: {
                         properties: values.propertyFilters,
@@ -1045,9 +1049,9 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveyDismissedAndSentCount()
 
             // No need to reload the other results if the new question viz is enabled, as they are not used
-            // So we early return here
+            // So we early return here, as the consolidated survey results are queried in the surveyBaseStats loader
             if (values.isNewQuestionVizEnabled) {
-                return actions.loadConsolidatedSurveyResults()
+                return
             }
 
             // Load results for each question
@@ -1108,7 +1112,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
-                    actions.loadConsolidatedSurveyResults()
                 }
 
                 if (values.survey.start_date) {
