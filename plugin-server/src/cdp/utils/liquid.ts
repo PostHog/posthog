@@ -1,29 +1,20 @@
 import { Liquid } from 'liquidjs'
 
-import { logger } from '../../utils/logger'
+import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
-export const parseLiquidTemplate = (
-    template: string,
-    context: any,
-    inputs?: Record<string, any>,
-    allowLiquid: boolean = false
-): string => {
-    // Early return if liquid processing is disabled
-    if (!allowLiquid) {
-        logger.info('🔍 Liquid parsing disabled', { template, allowLiquid })
-        return template
-    }
+export class LiquidRenderer {
+    private liquid: Liquid
 
-    try {
-        const liquid = new Liquid({
+    constructor() {
+        this.liquid = new Liquid({
             strictFilters: false,
             strictVariables: false,
             outputEscape: 'escape',
         })
 
         // Register custom filters
-        liquid.registerFilter('default', (value: any, defaultValue: any) => value ?? defaultValue)
-        liquid.registerFilter('date', (value: any, format: string) => {
+        this.liquid.registerFilter('default', (value: any, defaultValue: any) => value ?? defaultValue)
+        this.liquid.registerFilter('date', (value: any, format: string) => {
             // Handle "now" as current date
             const date = value === 'now' ? new Date() : new Date(value)
 
@@ -60,9 +51,13 @@ export const parseLiquidTemplate = (
             // Fallback to ISO string
             return date.toISOString()
         })
+    }
 
+    private async render(template: string, context: any): Promise<string> {
+        // TODO: BW - understand this better.
         // HTML decode the template before processing. To do maybe we should use a library for better html decoding
         // $ is not decoded because it is used as a variable in liquid templates, so we need to handle this separately
+
         const decodedTemplate = template
             .replace(/&gt;/g, '>')
             .replace(/&lt;/g, '<')
@@ -70,25 +65,19 @@ export const parseLiquidTemplate = (
             .replace(/&quot;/g, '"')
             .replace(/&#x27;/g, "'")
 
-        const liquidContext = {
-            event: context.event,
-            person: context.person,
-            groups: context.groups,
-            project: context.project,
-            source: context.source,
-            inputs: inputs || {},
+        return await this.liquid.parseAndRender(decodedTemplate, context)
+    }
+
+    async renderHogFunctionGlobals(template: string, globals: HogFunctionInvocationGlobalsWithInputs): Promise<string> {
+        const context = {
+            event: globals.event,
+            person: globals.person,
+            groups: globals.groups,
+            project: globals.project,
+            source: globals.source,
+            inputs: globals.inputs || {},
             now: new Date(),
         }
-
-        const result = liquid.parseAndRenderSync(decodedTemplate, liquidContext)
-
-        return result
-    } catch (error) {
-        logger.warn('🔍 Liquid template parsing failed', {
-            error: error.message,
-            template,
-            stack: error.stack,
-        })
-        return template
+        return await this.render(template, context)
     }
 }
