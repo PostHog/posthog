@@ -162,8 +162,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Shortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'Metadata' && (
-                        <ProjectTree root="metadata://" searchPlaceholder="Search metadata" />
+                    {activePanelIdentifier === 'DataWarehouse' && (
+                        <ProjectTree root="data-warehouse://" searchPlaceholder="Search products" />
                     )}
                     {activePanelIdentifier === 'People' && (
                         <ProjectTree root="persons://" searchPlaceholder="Search persons" />
