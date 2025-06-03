@@ -228,11 +228,6 @@ export const getDefaultTreeMetadata = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
     {
-        path: `SQL editor`,
-        type: 'sql',
-        href: urls.sqlEditor(),
-    } as FileSystemImport,
-    {
         path: `Sources`,
         type: 'hog_function/source',
         iconType: 'plug',
@@ -261,6 +256,12 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'plug',
             href: urls.pipeline(),
             visualOrder: PRODUCT_VISUAL_ORDER.dataPipeline,
+        } as FileSystemImport,
+        {
+            path: `SQL editor`,
+            type: 'sql',
+            href: urls.sqlEditor(),
+            visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
         } as FileSystemImport,
         {
             path: 'Error tracking',
