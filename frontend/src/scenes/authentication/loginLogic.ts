@@ -147,6 +147,8 @@ export const loginLogic = kea<loginLogicType>([
 
             if (message) {
                 lemonToast.info(message)
+                const { message: _, ...otherParams } = router.values.searchParams
+                router.actions.replace('/login', otherParams)
             }
 
             // This allows us to give a quick login link in the `generate_demo_data` command
