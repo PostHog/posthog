@@ -38,7 +38,7 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
                 <LemonSkeleton className="h-8 max-w-24" />
             ) : (
                 <Sparkline
-                    labels={appMetrics?.labels}
+                    labels={appMetrics.labels}
                     data={displayData}
                     className="h-8 max-w-24"
                     maximumIndicator={false}
