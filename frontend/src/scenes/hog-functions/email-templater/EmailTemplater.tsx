@@ -112,11 +112,11 @@ function EmailTemplaterForm({
 }
 
 export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX.Element {
-    const { isModalOpen } = useValues(emailTemplaterLogic(props))
-    const { setIsModalOpen, submitEmailTemplate } = useActions(emailTemplaterLogic(props))
+    const { isModalOpen, isEmailEditorReady } = useValues(emailTemplaterLogic(props))
+    const { cancelChanges, submitEmailTemplate } = useActions(emailTemplaterLogic(props))
 
     return (
-        <LemonModal isOpen={isModalOpen} width="90vw" onClose={() => setIsModalOpen(false)}>
+        <LemonModal isOpen={isModalOpen} width="90vw" onClose={() => cancelChanges()}>
             <div className="h-[80vh] flex">
                 <div className="flex flex-col flex-1">
                     <div className="shrink-0">
@@ -125,8 +125,12 @@ export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX
                     <EmailTemplaterForm {...props} mode="full" />
                     <div className="flex gap-2 items-center mt-2">
                         <div className="flex-1" />
-                        <LemonButton onClick={() => setIsModalOpen(false)}>Cancel</LemonButton>
-                        <LemonButton type="primary" onClick={() => submitEmailTemplate()}>
+                        <LemonButton onClick={() => cancelChanges()}>Cancel</LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => submitEmailTemplate()}
+                            disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                        >
                             Save
                         </LemonButton>
                     </div>

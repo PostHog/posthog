@@ -1,7 +1,8 @@
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { Editor, EditorRef as _EditorRef } from 'react-email-editor'
 
@@ -35,10 +36,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
     actions({
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
-        emailEditorReady: true,
+        onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         setAppliedTemplate: (template: MessageTemplate) => ({ template }),
+        cancelChanges: true,
     }),
     reducers({
         emailEditorRef: [
@@ -47,11 +49,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setEmailEditorRef: (_, { emailEditorRef }) => emailEditorRef,
             },
         ],
-        emailEditorReady: [
+        isEmailEditorReady: [
             false,
             {
-                emailEditorReady: true,
-                setEmailEditorRef: false,
+                onEmailEditorReady: (_) => true,
+                setEmailEditorRef: (_) => false,
             },
         ],
         isModalOpen: [
@@ -124,46 +126,49 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } as EmailTemplate,
             submit: async (value) => {
                 const editor = values.emailEditorRef?.editor
-                if (!editor || !values.emailEditorReady) {
+                if (!editor || !values.isEmailEditorReady) {
                     return
                 }
                 const data = await new Promise<any>((res) => editor.exportHtml(res))
 
-                actions.setEmailTemplateValues({
+                const finalValues = {
                     ...value,
                     html: escapeHTMLStringCurlies(data.html),
                     design: data.design,
-                })
+                }
 
-                props.onChange({
-                    ...value,
-                    html: escapeHTMLStringCurlies(data.html),
-                    design: data.design,
-                })
+                props.onChange(finalValues)
 
                 // Load the logic and set the property...
                 actions.setIsModalOpen(false)
+                return finalValues
             },
         },
     })),
 
     listeners(({ props, values, actions }) => ({
-        emailEditorReady: () => {
+        onEmailEditorReady: () => {
             if (props.value?.design) {
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
         },
 
         setEmailTemplateValue: ({ name, value }) => {
-            // For all values other than the html we want to set as soon as something is modified
-
-            console.log('setEmailTemplateValue', name, value)
+            if (values.isModalOpen) {
+                // When open we only update on save
+                return
+            }
 
             if (name === 'html') {
                 return
             }
 
-            console.log('TO DO: set the value', name, value)
+            const key = Array.isArray(name) ? name[0] : name
+
+            props.onChange({
+                ...props.value,
+                [key]: value,
+            } as EmailTemplate)
         },
 
         applyTemplate: ({ template }) => {
@@ -191,9 +196,24 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             actions.setAppliedTemplate(template)
         },
+
+        cancelChanges: () => {
+            actions.resetEmailTemplate(props.value ?? undefined)
+            actions.setIsModalOpen(false)
+        },
     })),
 
-    afterMount(({ actions }) => {
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.value && !objectsEqual(props.value, oldProps.value)) {
+            actions.resetEmailTemplate(props.value)
+        }
+    }),
+
+    afterMount(({ actions, props }) => {
+        if (props.value) {
+            actions.resetEmailTemplate(props.value)
+        }
+
         actions.loadTemplates()
         actions.loadPersonPropertyDefinitions()
     }),
