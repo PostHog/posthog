@@ -702,7 +702,7 @@ class ExperimentQueryRunner(QueryRunner):
             probability = {
                 variant.key: probability
                 for variant, probability in zip(
-                    trends_variants,
+                    [trends_control_variant, *trends_test_variants],
                     probabilities,
                 )
             }
@@ -710,7 +710,7 @@ class ExperimentQueryRunner(QueryRunner):
             probability = {
                 variant.key: probability
                 for variant, probability in zip(
-                    funnel_variants,
+                    [funnel_control_variant, *funnel_test_variants],
                     probabilities,
                 )
             }
