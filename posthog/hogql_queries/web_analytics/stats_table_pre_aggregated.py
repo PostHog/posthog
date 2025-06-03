@@ -40,91 +40,19 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
 
-    def _bounce_rate_query(self) -> ast.SelectQuery:
-        # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
-        previous_period_filter, current_period_filter = self.get_date_ranges()
-
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-            SELECT
-                {breakdown_value} as `context.columns.breakdown_value`,
-                {visitors_tuple} AS `context.columns.visitors`,
-                {views_tuple} as `context.columns.views`,
-                {bounce_rate_tuple} as `context.columns.bounce_rate`
-            FROM web_bounces_daily FINAL
-            GROUP BY `context.columns.breakdown_value`
-            """,
-                placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
-                    "visitors_tuple": self._period_comparison_tuple(
-                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
-                    ),
-                    "views_tuple": self._period_comparison_tuple(
-                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
-                    ),
-                    "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
-                        current_period_filter, previous_period_filter
-                    ),
-                },
-            ),
-        )
-
-        return query
-
-    def _path_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_daily")
-
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-            SELECT
-                {breakdown_value} as `context.columns.breakdown_value`,
-                {visitors_tuple} AS `context.columns.visitors`,
-                {views_tuple} as `context.columns.views`,
-                any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
-            FROM
-                web_stats_daily FINAL
-            LEFT JOIN ({bounce_subquery}) bounces
-                ON {join_condition}
-            GROUP BY `context.columns.breakdown_value`
-            """,
-                placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
-                    "visitors_tuple": self._period_comparison_tuple(
-                        "persons_uniq_state",
-                        "uniqMergeIf",
-                        current_period_filter,
-                        previous_period_filter,
-                        table_prefix="web_stats_daily",
-                    ),
-                    "views_tuple": self._period_comparison_tuple(
-                        "pageviews_count_state",
-                        "sumMergeIf",
-                        current_period_filter,
-                        previous_period_filter,
-                        table_prefix="web_stats_daily",
-                    ),
-                    "bounce_subquery": self._bounce_rate_query(),
-                    "join_condition": ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_daily", "pathname"])),
-                        right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
-                    ),
-                },
-            ),
-        )
-
-        return query
-
     def get_query(self) -> ast.SelectQuery:
+        if self._includes_current_day():
+            return self._get_union_query()
+        else:
+            return self._get_daily_only_query()
+
+    def _get_daily_only_query(self) -> ast.SelectQuery:
+        """Query for date ranges that don't include current day - use daily tables only."""
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
-            query = self._bounce_rate_query()
+            query = self._bounce_rate_query(use_union=False)
             table_name = "web_bounces_daily"
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
-            query = self._path_query()
+            query = self._path_query(use_union=False)
             table_name = "web_stats_daily"
         else:
             previous_period_filter, current_period_filter = self.get_date_ranges()
@@ -158,8 +86,419 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             query.where = filters
 
         query.order_by = [self._get_order_by()]
+        return query
+
+    def _get_union_query(self) -> ast.SelectQuery:
+        """Query that combines daily and hourly data using UNION ALL."""
+        if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
+            return self._bounce_rate_query(use_union=True)
+        elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
+            return self._path_query(use_union=True)
+        else:
+            return self._generic_breakdown_union_query()
+
+    def _generic_breakdown_union_query(self) -> ast.SelectQuery:
+        """UNION ALL query for generic breakdowns (not path-specific)."""
+        # Get date ranges for each part of the union
+        daily_previous_filter, daily_current_filter = self.get_date_ranges_for_union(granularity="daily")
+        hourly_previous_filter, hourly_current_filter = self.get_date_ranges_for_union(granularity="hourly")
+
+        # Daily part query
+        daily_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    {breakdown_field} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`
+                FROM web_stats_daily FINAL
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "breakdown_field": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", daily_current_filter, daily_previous_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", daily_current_filter, daily_previous_filter
+                    ),
+                },
+            ),
+        )
+
+        # Hourly part query
+        hourly_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    {breakdown_field} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`
+                FROM web_stats_hourly FINAL
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "breakdown_field": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", hourly_current_filter, hourly_previous_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", hourly_current_filter, hourly_previous_filter
+                    ),
+                },
+            ),
+        )
+
+        # Add filters to both parts
+        daily_filters = self._get_filters_for_daily_part("web_stats_daily")
+        hourly_filters = self._get_filters_for_hourly_part("web_stats_hourly")
+
+        daily_query.where = daily_filters
+        hourly_query.where = hourly_filters
+
+        # Create the UNION ALL and wrap it in an aggregation query
+        union_query = ast.SelectUnionQuery(select_queries=[daily_query, hourly_query])
+
+        # Wrap the union in a final aggregation query to combine results by breakdown value
+        final_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    `context.columns.breakdown_value`,
+                    tuple(
+                        sumMerge(tupleElement(`context.columns.visitors`, 1)),
+                        sumMerge(tupleElement(`context.columns.visitors`, 2))
+                    ) AS `context.columns.visitors`,
+                    tuple(
+                        sumMerge(tupleElement(`context.columns.views`, 1)),
+                        sumMerge(tupleElement(`context.columns.views`, 2))
+                    ) AS `context.columns.views`
+                FROM ({union_subquery})
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "union_subquery": union_query,
+                },
+            ),
+        )
+
+        final_query.order_by = [self._get_order_by()]
+        return final_query
+
+    def _bounce_rate_query(self, use_union: bool = False) -> ast.SelectQuery:
+        if use_union:
+            return self._bounce_rate_union_query()
+
+        # Original daily-only bounce rate query
+        previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_value} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`,
+                {bounce_rate_tuple} as `context.columns.bounce_rate`
+            FROM web_bounces_daily FINAL
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
+                        current_period_filter, previous_period_filter
+                    ),
+                },
+            ),
+        )
 
         return query
+
+    def _bounce_rate_union_query(self) -> ast.SelectQuery:
+        """UNION ALL version of bounce rate query combining daily and hourly data."""
+        # Get date ranges for each part of the union
+        daily_previous_filter, daily_current_filter = self.get_date_ranges_for_union(granularity="daily")
+        hourly_previous_filter, hourly_current_filter = self.get_date_ranges_for_union(granularity="hourly")
+
+        # Daily part
+        daily_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    {breakdown_value} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`,
+                    {bounce_rate_tuple} as `context.columns.bounce_rate`
+                FROM web_bounces_daily FINAL
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", daily_current_filter, daily_previous_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", daily_current_filter, daily_previous_filter
+                    ),
+                    "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
+                        daily_current_filter, daily_previous_filter
+                    ),
+                },
+            ),
+        )
+
+        # Hourly part
+        hourly_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    {breakdown_value} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`,
+                    {bounce_rate_tuple} as `context.columns.bounce_rate`
+                FROM web_bounces_hourly FINAL
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", hourly_current_filter, hourly_previous_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", hourly_current_filter, hourly_previous_filter
+                    ),
+                    "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
+                        hourly_current_filter, hourly_previous_filter
+                    ),
+                },
+            ),
+        )
+
+        # Add filters
+        daily_filters = self._get_filters_for_daily_part("web_bounces_daily")
+        hourly_filters = self._get_filters_for_hourly_part("web_bounces_hourly")
+
+        daily_query.where = daily_filters
+        hourly_query.where = hourly_filters
+
+        # Create UNION ALL and final aggregation
+        union_query = ast.SelectUnionQuery(select_queries=[daily_query, hourly_query])
+
+        final_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    `context.columns.breakdown_value`,
+                    tuple(
+                        sumMerge(tupleElement(`context.columns.visitors`, 1)),
+                        sumMerge(tupleElement(`context.columns.visitors`, 2))
+                    ) AS `context.columns.visitors`,
+                    tuple(
+                        sumMerge(tupleElement(`context.columns.views`, 1)),
+                        sumMerge(tupleElement(`context.columns.views`, 2))
+                    ) AS `context.columns.views`,
+                    tuple(
+                        if(sumMerge(tupleElement(`context.columns.visitors`, 1)) > 0, 
+                           sumMerge(tupleElement(`context.columns.bounce_rate`, 1) * tupleElement(`context.columns.visitors`, 1)) / sumMerge(tupleElement(`context.columns.visitors`, 1)), 
+                           0),
+                        if(sumMerge(tupleElement(`context.columns.visitors`, 2)) > 0, 
+                           sumMerge(tupleElement(`context.columns.bounce_rate`, 2) * tupleElement(`context.columns.visitors`, 2)) / sumMerge(tupleElement(`context.columns.visitors`, 2)), 
+                           0)
+                    ) AS `context.columns.bounce_rate`
+                FROM ({union_subquery})
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "union_subquery": union_query,
+                },
+            ),
+        )
+
+        return final_query
+
+    def _path_query(self, use_union: bool = False) -> ast.SelectQuery:
+        if use_union:
+            return self._path_union_query()
+
+        # Original daily-only path query
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_daily")
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_value} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`,
+                any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
+            FROM
+                web_stats_daily FINAL
+            LEFT JOIN ({bounce_subquery}) bounces
+                ON {join_condition}
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state",
+                        "uniqMergeIf",
+                        current_period_filter,
+                        previous_period_filter,
+                        table_prefix="web_stats_daily",
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state",
+                        "sumMergeIf",
+                        current_period_filter,
+                        previous_period_filter,
+                        table_prefix="web_stats_daily",
+                    ),
+                    "bounce_subquery": self._bounce_rate_query(use_union=False),
+                    "join_condition": ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_daily", "pathname"])),
+                        right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
+                    ),
+                },
+            ),
+        )
+
+        return query
+
+    def _path_union_query(self) -> ast.SelectQuery:
+        """UNION ALL version of path query combining daily and hourly data."""
+        # This is more complex because we need to join stats and bounces data from both daily and hourly tables
+        # For simplicity, we'll create separate UNION queries for stats and bounces, then join them
+
+        # Stats union query
+        stats_union = self._create_stats_union_for_paths()
+        # Bounces union query  
+        bounces_union = self._bounce_rate_union_query()
+
+        # Final query joining the two unions
+        final_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    stats.`context.columns.breakdown_value`,
+                    stats.`context.columns.visitors`,
+                    stats.`context.columns.views`,
+                    bounces.`context.columns.bounce_rate`
+                FROM ({stats_subquery}) stats
+                LEFT JOIN ({bounces_subquery}) bounces
+                    ON stats.`context.columns.breakdown_value` = bounces.`context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "stats_subquery": stats_union,
+                    "bounces_subquery": bounces_union,
+                },
+            ),
+        )
+
+        return final_query
+
+    def _create_stats_union_for_paths(self) -> ast.SelectQuery:
+        """Create a union query for stats data (web_stats_daily + web_stats_hourly) for path breakdown."""
+        daily_previous_filter, daily_current_filter = self.get_date_ranges_for_union(granularity="daily")
+        hourly_previous_filter, hourly_current_filter = self.get_date_ranges_for_union(granularity="hourly")
+
+        # Daily part
+        daily_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    {breakdown_value} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`
+                FROM web_stats_daily FINAL
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", daily_current_filter, daily_previous_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", daily_current_filter, daily_previous_filter
+                    ),
+                },
+            ),
+        )
+
+        # Hourly part
+        hourly_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    {breakdown_value} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`
+                FROM web_stats_hourly FINAL
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", hourly_current_filter, hourly_previous_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", hourly_current_filter, hourly_previous_filter
+                    ),
+                },
+            ),
+        )
+
+        # Add filters
+        daily_filters = self._get_filters_for_daily_part("web_stats_daily")
+        hourly_filters = self._get_filters_for_hourly_part("web_stats_hourly")
+
+        daily_query.where = daily_filters
+        hourly_query.where = hourly_filters
+
+        # Create UNION ALL and final aggregation
+        union_query = ast.SelectUnionQuery(select_queries=[daily_query, hourly_query])
+
+        final_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    `context.columns.breakdown_value`,
+                    tuple(
+                        sumMerge(tupleElement(`context.columns.visitors`, 1)),
+                        sumMerge(tupleElement(`context.columns.visitors`, 2))
+                    ) AS `context.columns.visitors`,
+                    tuple(
+                        sumMerge(tupleElement(`context.columns.views`, 1)),
+                        sumMerge(tupleElement(`context.columns.views`, 2))
+                    ) AS `context.columns.views`
+                FROM ({union_subquery})
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                placeholders={
+                    "union_subquery": union_query,
+                },
+            ),
+        )
+
+        return final_query
 
     def _get_order_by(self):
         if self.runner.query.orderBy:
