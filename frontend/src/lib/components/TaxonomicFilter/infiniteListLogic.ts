@@ -248,7 +248,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
-            (allowNonCapturedEvents: boolean) => allowNonCapturedEvents ?? false,
+            (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [

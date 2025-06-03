@@ -200,13 +200,15 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
 
+    const trimmedSearchQuery = searchQuery.trim()
+
     // Show "Add non-captured event" option for CustomEvents group when searching
     const showNonCapturedEventOption =
         allowNonCapturedEvents &&
         (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
             listGroupType === TaxonomicFilterGroupType.Events) &&
-        searchQuery &&
-        searchQuery.trim().length > 0 &&
+        trimmedSearchQuery &&
+        trimmedSearchQuery.length > 0 &&
         !isLoading &&
         // Only show if no results found at all
         results.length === 0
@@ -230,9 +232,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             const selectNonCapturedEvent = (): void => {
                 selectItem(
                     group,
-                    searchQuery.trim(),
-                    { name: searchQuery.trim(), isNonCaptured: true },
-                    searchQuery.trim()
+                    trimmedSearchQuery,
+                    { name: trimmedSearchQuery, isNonCaptured: true },
+                    trimmedSearchQuery
                 )
             }
 
@@ -257,7 +259,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 >
                     <div className="flex items-center gap-2">
                         <span className="text-muted">Select event:</span>
-                        <span className="font-medium">{searchQuery.trim()}</span>
+                        <span className="font-medium">{trimmedSearchQuery}</span>
                         <LemonTag type="caution" size="small">
                             Not seen yet
                         </LemonTag>
