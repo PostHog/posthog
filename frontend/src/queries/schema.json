@@ -5989,6 +5989,28 @@
             "required": ["customEventName"],
             "type": "object"
         },
+        "DashboardContextForMax": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/InsightContextForMax"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "insights"],
+            "type": "object"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -11257,7 +11279,7 @@
                     "type": "string"
                 },
                 "ui_context": {
-                    "type": "object"
+                    "$ref": "#/definitions/MaxContextShape"
                 }
             },
             "required": ["type", "content"],
@@ -11484,6 +11506,39 @@
                     "type": "array"
                 }
             },
+            "type": "object"
+        },
+        "InsightContextForMax": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "insight_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "additionalProperties": false,
+                    "description": "Node base class, everything else inherits from here.",
+                    "properties": {
+                        "kind": {
+                            "$ref": "#/definitions/NodeKind"
+                        },
+                        "response": {
+                            "type": "object"
+                        }
+                    },
+                    "required": ["kind"],
+                    "type": "object"
+                }
+            },
+            "required": ["id", "query"],
             "type": "object"
         },
         "InsightFilter": {
@@ -12521,6 +12576,41 @@
                 }
             ]
         },
+        "MaxContextShape": {
+            "additionalProperties": false,
+            "properties": {
+                "dashboards": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MultiDashboardContextContainer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "global_info": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "navigation": {
+                            "$ref": "#/definitions/MaxNavigationContext"
+                        }
+                    },
+                    "type": "object"
+                },
+                "insights": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MultiInsightContextContainer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
         "MaxInnerUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -12535,6 +12625,19 @@
                 }
             },
             "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxNavigationContext": {
+            "additionalProperties": false,
+            "properties": {
+                "page_title": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            },
+            "required": ["path"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -12622,6 +12725,18 @@
                 }
             },
             "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
+        },
+        "MultiDashboardContextContainer": {
+            "additionalProperties": {
+                "$ref": "#/definitions/DashboardContextForMax"
+            },
+            "type": "object"
+        },
+        "MultiInsightContextContainer": {
+            "additionalProperties": {
+                "$ref": "#/definitions/InsightContextForMax"
+            },
             "type": "object"
         },
         "MultipleBreakdownOptions": {

@@ -1,3 +1,5 @@
+import { MaxContextShape } from 'scenes/max/maxTypes'
+
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -21,7 +23,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
-    ui_context?: Record<string, any>
+    ui_context?: MaxContextShape
 }
 
 export interface AssistantFormOption {

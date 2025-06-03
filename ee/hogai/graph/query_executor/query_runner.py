@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import cast
 
 from ee.hogai.graph.query_executor.format import (
@@ -6,6 +7,7 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
+from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -46,7 +48,7 @@ class QueryRunner:
         _utc_now_datetime: Current UTC datetime for time-based calculations
     """
 
-    def __init__(self, team, utc_now_datetime):
+    def __init__(self, team: Team, utc_now_datetime: datetime):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
 

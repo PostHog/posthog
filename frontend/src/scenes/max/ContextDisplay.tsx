@@ -4,7 +4,7 @@ import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
 import { ContextTags } from './ContextTags'
 
-export function ContextDisplay(): JSX.Element | null {
+export function ContextDisplay(): JSX.Element {
     const {
         hasData,
         contextInsights,
