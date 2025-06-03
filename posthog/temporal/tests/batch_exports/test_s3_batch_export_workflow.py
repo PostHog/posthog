@@ -25,6 +25,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from types_aiobotocore_s3.client import S3Client
 
 from posthog import constants
 from posthog.batch_exports.service import (
@@ -1969,6 +1970,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
             client = self._session.create_client(*args, **kwargs)
 
             async with client as client:
+                assert isinstance(client, S3Client)
                 original_upload_part = client.upload_part
 
                 async def faulty_upload_part(*args, **kwargs):
@@ -1987,7 +1989,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
                     else:
                         return await original_upload_part(*args, **kwargs)
 
-                client.upload_part = faulty_upload_part
+                client.upload_part = faulty_upload_part  # type: ignore
 
                 yield client
 
@@ -2095,7 +2097,8 @@ async def test_s3_multi_part_upload_raises_retryable_exception(bucket_name, s3_k
         @contextlib.asynccontextmanager
         async def client(self, *args, **kwargs):
             client = self._session.create_client(*args, **kwargs)
-            client.upload_part = faulty_upload_part
+            assert isinstance(client, S3Client)
+            client.upload_part = faulty_upload_part  # type: ignore
 
             yield client
 
@@ -2156,6 +2159,7 @@ async def test_s3_export_workflow_with_request_timeouts(
             client = self._session.create_client(*args, **kwargs)
 
             async with client as client:
+                assert isinstance(client, S3Client)
                 original_upload_part = client.upload_part
 
                 async def faulty_upload_part(*args, **kwargs):
@@ -2173,7 +2177,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                     else:
                         return await original_upload_part(*args, **kwargs)
 
-                client.upload_part = faulty_upload_part
+                client.upload_part = faulty_upload_part  # type: ignore
 
                 yield client
 

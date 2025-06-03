@@ -466,7 +466,7 @@ async def _write_batch_export_record_batches_to_s3(
     end_at = full_range[1]
     await wait_for_delta_past_data_interval_end(end_at, delta)
 
-    done_ranges = []
+    done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
     async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
