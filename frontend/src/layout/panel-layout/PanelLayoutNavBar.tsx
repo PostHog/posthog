@@ -115,6 +115,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
         }
+        if (isMobileLayout && isLayoutNavbarVisible) {
+            showLayoutNavBar(false)
+        }
         if (to) {
             router.actions.push(to)
         }
@@ -193,16 +196,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
-            identifier: 'Data',
-            id: 'Data',
+            identifier: 'Metadata',
+            id: 'Metadata',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Data')
+                    handlePanelTriggerClick('Metadata')
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Data' ? 'Close data' : 'Open data',
         },
         {
             identifier: 'People',
@@ -214,7 +216,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'People' ? 'Close people' : 'Open people',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -227,7 +228,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
         },
         {
             identifier: 'Activity',
@@ -250,8 +250,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
         },
     ]
 
@@ -272,7 +270,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         {!isLayoutNavCollapsed && (
                             <div
-                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
                                 aria-label="Add a new item menu actions"
                             >
                                 <ButtonPrimitive
@@ -554,7 +552,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutNavBar(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-100)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-200)] lg:bg-transparent"
                     />
                 )}
 
@@ -564,7 +562,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutPanel(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-100)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-200)] lg:bg-transparent"
                     />
                 )}
             </div>

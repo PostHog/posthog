@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0748_update_featureflag_super_groups"),
+        ("posthog", "0749_modify_errortrackingstackframe_symbolset_relation"),
     ]
 
     operations = [

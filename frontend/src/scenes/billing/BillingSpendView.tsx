@@ -1,7 +1,7 @@
 import './BillingUsage.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,7 +10,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { currencyFormatter } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
@@ -41,10 +40,17 @@ export function BillingSpendView(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        teamOptions,
     } = useValues(logic)
-    const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleBreakdown } =
-        useActions(logic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const {
+        setFilters,
+        setDateRange,
+        toggleSeries,
+        toggleAllSeries,
+        setExcludeEmptySeries,
+        toggleBreakdown,
+        resetFilters,
+    } = useActions(logic)
 
     if (restrictionReason) {
         return <BillingNoAccess title="Spend" reason={restrictionReason} />
@@ -84,13 +90,8 @@ export function BillingSpendView(): JSX.Element {
                                 setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
                             }
                             placeholder="All projects"
-                            options={
-                                currentOrganization?.teams?.map((team) => ({
-                                    key: String(team.id),
-                                    label: team.name,
-                                })) || []
-                            }
-                            loading={currentOrganizationLoading}
+                            options={teamOptions}
+                            loading={billingSpendResponseLoading}
                             allowCustomValues={false}
                         />
                     </div>
@@ -151,8 +152,18 @@ export function BillingSpendView(): JSX.Element {
                             <LemonCheckbox
                                 label="Hide results with no spend"
                                 checked={excludeEmptySeries}
-                                onChange={setExcludeEmptySeries}
+                                onChange={(value) => setExcludeEmptySeries(value)}
                             />
+                        </div>
+                    </div>
+
+                    {/* Clear Filters */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>&nbsp;</LemonLabel>
+                        <div className="flex items-center">
+                            <LemonButton type="secondary" size="medium" onClick={resetFilters}>
+                                Clear filters
+                            </LemonButton>
                         </div>
                     </div>
                 </div>

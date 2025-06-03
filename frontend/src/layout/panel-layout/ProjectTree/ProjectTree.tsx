@@ -29,6 +29,7 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -39,16 +40,16 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { DashboardsMenu } from './menus/DashboardsMenu'
 import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
 import { SessionReplayMenu } from './menus/SessionReplayMenu'
-import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
-    sortMethod?: ProjectTreeSortMethod // default: "folder"
     root?: string
     onlyTree?: boolean
+    showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
 }
@@ -58,11 +59,11 @@ let counter = 0
 
 export function ProjectTree({
     logicKey,
-    sortMethod,
     root,
     onlyTree = false,
     searchPlaceholder,
     treeSize = 'default',
+    showRecents,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
@@ -86,6 +87,7 @@ export function ProjectTree({
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
+        sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
         createFolder,
@@ -110,9 +112,12 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, showLayoutNavBar } =
+        useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned, isLayoutPanelVisible, isLayoutNavbarVisible } =
+        useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -137,6 +142,14 @@ export function ProjectTree({
             clearScrollTarget()
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
+
+    function handleNodeClick(): void {
+        if (isMobileLayout && (isLayoutNavbarVisible || isLayoutPanelVisible)) {
+            showLayoutPanel(false)
+            showLayoutNavBar(false)
+            clearActivePanelIdentifier()
+        }
+    }
 
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
@@ -385,6 +398,7 @@ export function ProjectTree({
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     )
+                    handleNodeClick()
                 }
                 if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                     clearActivePanelIdentifier()
@@ -603,7 +617,7 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
+                if (root === 'products://' || root === 'metadata://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
                 if (root === 'new://') {
@@ -704,12 +718,7 @@ export function ProjectTree({
             }
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField
-                        root={root}
-                        placeholder={searchPlaceholder}
-                        logicKey={logicKey}
-                        uniqueKey={uniqueKey}
-                    />
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
                 </BindLogic>
             }
             panelActions={
@@ -778,9 +787,36 @@ export function ProjectTree({
                 />
             </ButtonPrimitive>
 
-            <div role="status" aria-live="polite" className="sr-only">
-                Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
-            </div>
+            {showRecents ? (
+                <>
+                    <div role="status" aria-live="polite" className="sr-only">
+                        Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
+                    </div>
+
+                    <div className="flex gap-1 items-center p-1 border-b border-tertiary">
+                        <ButtonPrimitive
+                            variant="default"
+                            size="sm"
+                            onClick={() => setSortMethod('folder')}
+                            aria-label="Sort by alphabetical order"
+                            tooltip="Sort by alphabetical order"
+                            className={cn('border-transparent', { 'text-accent': sortMethod === 'folder' })}
+                        >
+                            Alphabetical
+                        </ButtonPrimitive>
+                        <ButtonPrimitive
+                            variant="default"
+                            size="sm"
+                            onClick={() => setSortMethod('recent')}
+                            aria-label="Sort by creation date"
+                            tooltip="Sort by creation date"
+                            className={cn('border-transparent', { 'text-accent': sortMethod === 'recent' })}
+                        >
+                            Recent
+                        </ButtonPrimitive>
+                    </div>
+                </>
+            ) : null}
 
             {tree}
         </PanelLayoutPanel>

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import json
 from typing import Optional
 from unittest.mock import call, patch
@@ -5512,6 +5512,60 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the old key is not present
         self.assertNotIn("$feature_enrollment/old-key", str(feature_flag.filters))
+
+    def test_feature_flag_experiment_set(self):
+        # Create a feature flag
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            name="Test Flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Initially, experiment_set should be empty
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == []
+
+        # Create an active experiment linked to the flag
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Experiment",
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # experiment_set should now include the experiment ID
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == [experiment.id]
+
+        # Create a deleted experiment - should not be included
+        experiment2 = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Another Experiment",
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC),
+        )
+
+        # experiment_set should include both experiments
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == [experiment.id, experiment2.id]
+
+        # Delete the active experiments
+        experiment.deleted = True
+        experiment.save()
+        experiment2.deleted = True
+        experiment2.save()
+
+        # experiment_set should now be empty again
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == []
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
