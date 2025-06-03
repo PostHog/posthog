@@ -23,7 +23,7 @@ from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, g
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
 from posthog.exceptions import ClickhouseAtCapacity
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -141,7 +141,7 @@ def sync_execute(
         and workload == Workload.OFFLINE
         and chargeable
         and is_cloud()
-        and team_id in settings.API_QUERIES_ON_ONLINE_CLUSTER
+        and team_id in API_QUERIES_ON_ONLINE_CLUSTER
     ):
         workload = Workload.ONLINE
 
@@ -197,7 +197,10 @@ def sync_execute(
         except Exception as e:
             exception_type = ch_error_type(e)
             QUERY_ERROR_COUNTER.labels(
-                exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+                exception_type=exception_type,
+                query_type=query_type,
+                workload=workload.value if workload else "None",
+                chargeable=chargeable,
             ).inc()
             err = wrap_query_error(e)
             if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:

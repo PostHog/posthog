@@ -85,6 +85,8 @@ export const APIScopes: APIScope[] = [
         },
     },
     { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
+    { key: 'warehouse_view' },
+    { key: 'warehouse_table' },
 ]
 
 export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
@@ -103,7 +105,9 @@ export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: stri
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: APIScopes.map(({ key }) => (key === 'feature_flag' ? `${key}:write` : `${key}:read`)),
+        scopes: APIScopes.map(({ key }) =>
+            ['feature_flag', 'insight'].includes(key) ? `${key}:write` : `${key}:read`
+        ),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]

@@ -1,20 +1,28 @@
+from collections.abc import Mapping
+from concurrent.futures import Future
+from dataclasses import dataclass
 from posthog import settings
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 
 # This view is accesed through an endpoint exposed to Prometheus.
 # It's scraped every minute and store the results in VictoriaMetrics.
-def CUSTOM_METRICS_VIEW():
-    return """
+def CUSTOM_METRICS_VIEW(include_counters: bool = False) -> str:
+    statement = """
     CREATE OR REPLACE VIEW custom_metrics
-    AS SELECT *
+    AS SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_test
     UNION ALL
-    SELECT *
+    SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_replication_queue
     UNION ALL
-    SELECT *
+    SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_events_recent_lag
     """
+    if include_counters:
+        statement += "UNION ALL SELECT * FROM custom_metrics_counters"
+    return statement
 
 
 def CUSTOM_METRICS_REPLICATION_QUEUE_VIEW():
@@ -67,3 +75,49 @@ def CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW():
         AND timestamp < now() + toIntervalMinute(3) AND inserted_at > now() - toIntervalHour(3)
     GROUP BY event;
     """ % {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS}
+
+
+CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS custom_metrics_counter_events (
+    name String,
+    timestamp DateTime64(3, 'UTC') DEFAULT now(),
+    labels Map(String, String),
+    increment Float64
+) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
+ORDER BY (name, timestamp)
+PARTITION BY toYYYYMM(timestamp)
+"""
+
+TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = "TRUNCATE TABLE custom_metrics_counter_events"
+
+CREATE_CUSTOM_METRICS_COUNTERS_VIEW = """
+CREATE OR REPLACE VIEW custom_metrics_counters AS
+SELECT
+    name,
+    mapSort(labels) as labels,
+    sum(increment) as value,
+    '' as help,
+    'counter' as type
+FROM custom_metrics_counter_events
+GROUP BY name, type, labels
+ORDER BY name, type, labels
+"""
+
+
+@dataclass
+class MetricsClient:
+    cluster: ClickhouseCluster
+
+    def increment(self, name: str, labels: Mapping[str, str] | None = None, value: float = 1.0) -> Future[None]:
+        if labels is None:
+            labels = {}
+
+        if value < 0:
+            raise ValueError("value must be non-negative")
+
+        return self.cluster.any_host(
+            Query(
+                "INSERT INTO custom_metrics_counter_events (name, labels, increment) VALUES",
+                [(name, labels, value)],
+            )
+        )

@@ -1,5 +1,5 @@
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -971,4 +971,16 @@ LIMIT 1000000
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        // Clear the cache
+
+        if (cache.realTimePollingTimeoutID) {
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = undefined
+        }
+
+        cache.windowIdForTimestamp = undefined
+        cache.viewportForTimestamp = undefined
+        cache.snapshotsBySource = undefined
+    }),
 ])
