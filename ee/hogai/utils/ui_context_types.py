@@ -21,6 +21,22 @@ class DashboardContextForMax(BaseModel):
     insights: list[InsightContextForMax] = []
 
 
+class EventContextForMax(BaseModel):
+    """Context for an event definition"""
+
+    id: Union[str, int]
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ActionContextForMax(BaseModel):
+    """Context for an action definition"""
+
+    id: Union[str, int]
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class MultiDashboardContextContainer(RootModel[dict[str, DashboardContextForMax]]):
     """Container for multiple dashboard contexts"""
 
@@ -29,6 +45,18 @@ class MultiDashboardContextContainer(RootModel[dict[str, DashboardContextForMax]
 
 class MultiInsightContextContainer(RootModel[dict[str, InsightContextForMax]]):
     """Container for multiple insight contexts"""
+
+    pass
+
+
+class MultiEventContextContainer(RootModel[dict[str, EventContextForMax]]):
+    """Container for multiple event contexts"""
+
+    pass
+
+
+class MultiActionContextContainer(RootModel[dict[str, ActionContextForMax]]):
+    """Container for multiple action contexts"""
 
     pass
 
@@ -51,4 +79,6 @@ class MaxContextShape(BaseModel):
 
     dashboards: Optional[dict[str, DashboardContextForMax]] = None
     insights: Optional[dict[str, InsightContextForMax]] = None
+    events: Optional[dict[str, EventContextForMax]] = None
+    actions: Optional[dict[str, ActionContextForMax]] = None
     global_info: Optional[GlobalInfo] = None

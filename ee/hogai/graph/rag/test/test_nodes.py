@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from ee.hogai.graph.rag.nodes import InsightRagContextNode
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.ui_context_types import ActionContextForMax, MaxContextShape
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
@@ -14,7 +15,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 @patch(
     "cohere.ClientV2.embed",
-    return_value=cohere.EmbeddingsByTypeEmbedResponse(embeddings={"float_": [[2, 4]]}, texts=["test"], id="test"),
+    return_value=cohere.EmbeddingsByTypeEmbedResponse(
+        embeddings=cohere.EmbedByTypeResponseEmbeddings(float_=[[2, 4]]), texts=["test"], id="test"
+    ),
 )
 @patch("ee.hogai.graph.rag.nodes.get_cohere_client", return_value=cohere.ClientV2(api_key="test"))
 class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
@@ -57,7 +60,73 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def test_injects_action(self, cohere_mock, embed_mock):
         retriever = InsightRagContextNode(team=self.team)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
+        assert response is not None
+        assert response.rag_context is not None
         self.assertIn("Action", response.rag_context)
         self.assertIn("Description", response.rag_context)
         self.assertIn(str(self.action.id), response.rag_context)
         self.assertEqual(embed_mock.call_count, 1)
+
+    @patch.object(InsightRagContextNode, "_get_ui_context")
+    def test_injects_actions_from_context(self, mock_get_ui_context, cohere_mock, embed_mock):
+        # Create a second action that will come from UI context
+        context_action = Action.objects.create(
+            team=self.team,
+            name="Context Action",
+            description="From UI Context",
+            summary="Context Summary",
+            last_summarized_at=timezone.now(),
+            embedding_last_synced_at=timezone.now(),
+        )
+
+        # Mock UI context with actions
+        mock_ui_context = MaxContextShape(
+            actions={
+                str(context_action.id): ActionContextForMax(
+                    id=context_action.id, name="Context Action", description="From UI Context"
+                )
+            }
+        )
+        mock_get_ui_context.return_value = mock_ui_context
+
+        retriever = InsightRagContextNode(team=self.team)
+        response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
+
+        assert response is not None
+        assert response.rag_context is not None
+        # Should include both the vector-searched action and the context action
+        self.assertIn("Action", response.rag_context)  # Original action from vector search
+        self.assertIn("Context Action", response.rag_context)  # Action from UI context
+        self.assertIn("From UI Context", response.rag_context)
+        self.assertIn(str(context_action.id), response.rag_context)
+        self.assertEqual(embed_mock.call_count, 1)
+
+    @patch.object(InsightRagContextNode, "_get_ui_context")
+    def test_handles_actions_context_when_embedding_fails(self, mock_get_ui_context, cohere_mock, embed_mock):
+        # Make embedding fail
+        embed_mock.side_effect = ValueError("Embedding failed")
+
+        context_action = Action.objects.create(
+            team=self.team,
+            name="Context Only Action",
+            description="Only from context",
+        )
+
+        mock_ui_context = MaxContextShape(
+            actions={
+                str(context_action.pk): ActionContextForMax(
+                    id=context_action.pk, name="Context Only Action", description="Only from context"
+                )
+            }
+        )
+        mock_get_ui_context.return_value = mock_ui_context
+
+        retriever = InsightRagContextNode(team=self.team)
+        response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
+
+        assert response is not None
+        assert response.rag_context is not None
+        # Should still include actions from context even when embedding fails
+        self.assertIn("Context Only Action", response.rag_context)
+        self.assertIn("Only from context", response.rag_context)
+        self.assertIn(str(context_action.id), response.rag_context)

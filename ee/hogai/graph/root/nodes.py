@@ -120,6 +120,8 @@ class RootNodeUIContextMixin(AssistantNode):
             return {
                 "ui_context_dashboard": "",
                 "ui_context_insights": "",
+                "ui_context_events": "",
+                "ui_context_actions": "",
                 "ui_context_navigation": "",
             }
 
@@ -172,6 +174,28 @@ class RootNodeUIContextMixin(AssistantNode):
                 joined_results = "\n\n".join(insights_results)
                 insights_context = f"<standalone_insights_context>Insights the user is looking at:\n{joined_results}\n</standalone_insights_context>"
 
+        # Format events context
+        events_context = ""
+        if ui_context.events:
+            event_names = []
+            for _, event in ui_context.events.items():
+                event_names.append(event.name or f"Event {event.id}")
+
+            if event_names:
+                quoted_event_names = [f'"{name}"' for name in event_names]
+                events_context = f"<events_context>Event names the user is referring to:\n{', '.join(quoted_event_names)}\n</events_context>"
+
+        # Format actions context
+        actions_context = ""
+        if ui_context.actions:
+            action_names = []
+            for _, action in ui_context.actions.items():
+                action_names.append(action.name or f"Action {action.id}")
+
+            if action_names:
+                quoted_action_names = [f'"{name}"' for name in action_names]
+                actions_context = f"<actions_context>Action names the user is referring to:\n{', '.join(quoted_action_names)}\n</actions_context>"
+
         # Format navigation context
         navigation_context = ""
         if ui_context.global_info and ui_context.global_info.navigation:
@@ -184,6 +208,8 @@ class RootNodeUIContextMixin(AssistantNode):
         return {
             "ui_context_dashboard": dashboard_context,
             "ui_context_insights": insights_context,
+            "ui_context_events": events_context,
+            "ui_context_actions": actions_context,
             "ui_context_navigation": navigation_context,
         }
 

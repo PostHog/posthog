@@ -16,6 +16,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from ee.hogai.utils.ui_context_types import EventContextForMax
+
 from .parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -81,6 +83,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             )
         )
 
+        events_in_context = []
+        if ui_context := self._get_ui_context(config):
+            events_in_context = list(ui_context.events.values() if ui_context.events else [])
+
         agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
 
         try:
@@ -94,7 +100,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
-                        "events": self._events_prompt,
+                        "events": self._events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
@@ -153,8 +159,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    @cached_property
-    def _events_prompt(self) -> str:
+    def _events_prompt(self, events_in_context: list[EventContextForMax]) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
@@ -170,6 +175,15 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             if len(response.results) > 25 and item.count <= 3:
                 continue
             events.append(item.event)
+        event_to_description: dict[str, str] = {}
+        for event in events_in_context:
+            if event.name and event.name not in events:
+                events.append(event.name)
+                if event.description:
+                    event_to_description[event.name] = event.description
+
+        # Create a set of event names from context for efficient lookup
+        context_event_names = {event.name for event in events_in_context if event.name}
 
         root = ET.Element("defined_events")
         for event_name in events:
@@ -178,8 +192,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             name_tag.text = event_name
 
             if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
-                if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                    continue  # Skip irrelevant events
+                if event_name not in context_event_names and (
+                    event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
+                ):
+                    continue  # Skip irrelevant events but keep events the user has added to the context
                 if description := event_core_definition.get("description"):
                     desc_tag = ET.SubElement(event_tag, "description")
                     if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
@@ -187,6 +203,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     else:
                         desc_tag.text = description
                     desc_tag.text = remove_line_breaks(desc_tag.text)
+            elif event_name in event_to_description:
+                desc_tag = ET.SubElement(event_tag, "description")
+                desc_tag.text = event_to_description[event_name]
+                desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
     @cached_property

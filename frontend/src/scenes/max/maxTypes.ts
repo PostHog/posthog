@@ -1,5 +1,5 @@
 import { Node } from '~/queries/schema/schema-general'
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 export interface InsightContextForMax {
     id: string | number
@@ -18,6 +18,18 @@ export interface DashboardContextForMax {
     insights: InsightContextForMax[]
 }
 
+export interface EventContextForMax {
+    id: string | number
+    name?: string
+    description?: string
+}
+
+export interface ActionContextForMax {
+    id: string | number
+    name?: string
+    description?: string
+}
+
 // Container for multiple active insights, typically on a dashboard
 // Keyed by a unique identifier for the insight on the dashboard (e.g., dashboard_item_id)
 export interface MultiInsightContainer {
@@ -28,12 +40,28 @@ export interface MultiDashboardContainer {
     [dashboardKey: string]: DashboardType<QueryBasedInsightModel>
 }
 
+export interface MultiEventContainer {
+    [eventKey: string]: EventDefinition
+}
+
+export interface MultiActionContainer {
+    [actionKey: string]: ActionType
+}
+
 export interface MultiDashboardContextContainer {
     [dashboardKey: string]: DashboardContextForMax
 }
 
 export interface MultiInsightContextContainer {
     [insightKey: string]: InsightContextForMax
+}
+
+export interface MultiEventContextContainer {
+    [eventKey: string]: EventContextForMax
+}
+
+export interface MultiActionContextContainer {
+    [actionKey: string]: ActionContextForMax
 }
 
 export interface MaxNavigationContext {
@@ -45,6 +73,8 @@ export interface MaxNavigationContext {
 export interface MaxContextShape {
     dashboards?: MultiDashboardContextContainer | null
     insights?: MultiInsightContextContainer | null
+    events?: MultiEventContextContainer | null
+    actions?: MultiActionContextContainer | null
 
     // General information that's always good to have, if available
     global_info?: {

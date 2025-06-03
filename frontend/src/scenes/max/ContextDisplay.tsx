@@ -9,13 +9,21 @@ export function ContextDisplay(): JSX.Element | null {
         hasData,
         contextInsights,
         contextDashboards,
+        contextEvents,
+        contextActions,
         useCurrentPageContext,
         contextOptions,
         taxonomicGroupTypes,
         mainTaxonomicGroupType,
     } = useValues(maxContextLogic)
-    const { removeContextInsight, removeContextDashboard, disableCurrentPageContext, handleTaxonomicFilterChange } =
-        useActions(maxContextLogic)
+    const {
+        removeContextInsight,
+        removeContextDashboard,
+        removeContextEvent,
+        removeContextAction,
+        disableCurrentPageContext,
+        handleTaxonomicFilterChange,
+    } = useActions(maxContextLogic)
 
     return (
         <div className="w-full mb-2">
@@ -31,9 +39,13 @@ export function ContextDisplay(): JSX.Element | null {
                 <ContextTags
                     insights={contextInsights}
                     dashboards={contextDashboards}
+                    events={contextEvents}
+                    actions={contextActions}
                     useCurrentPageContext={useCurrentPageContext}
                     onRemoveInsight={removeContextInsight}
                     onRemoveDashboard={removeContextDashboard}
+                    onRemoveEvent={removeContextEvent}
+                    onRemoveAction={removeContextAction}
                     onDisableCurrentPageContext={disableCurrentPageContext}
                 />
             </div>

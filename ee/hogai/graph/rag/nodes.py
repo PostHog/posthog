@@ -7,6 +7,7 @@ from cohere.core.api_error import ApiError as BaseCohereApiError
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.embeddings import embed_search_query, get_cohere_client
+from ee.hogai.utils.ui_context_types import ActionContextForMax
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -34,14 +35,23 @@ class InsightRagContextNode(AssistantNode):
         # Kick off retrieval of the event taxonomy.
         self._prewarm_queries()
 
+        actions_in_context = []
+        if ui_context := self._get_ui_context(config):
+            actions_in_context = list(ui_context.actions.values() if ui_context.actions else [])
+
         try:
             client = get_cohere_client()
             vector = embed_search_query(client, plan)
         except (BaseCohereApiError, ValueError) as e:
             posthoganalytics.capture_exception(e, distinct_id, {"tag": "max"})
-            return None
+            if len(actions_in_context) == 0:
+                return None
+            else:
+                vector = None
         return PartialAssistantState(
-            rag_context=self._retrieve_actions(vector, trace_id=trace_id, distinct_id=distinct_id)
+            rag_context=self._retrieve_actions(
+                vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
+            )
         )
 
     def router(self, state: AssistantState) -> NextRagNode:
@@ -51,19 +61,32 @@ class InsightRagContextNode(AssistantNode):
         return next_node
 
     def _retrieve_actions(
-        self, embedding: list[float], trace_id: Any | None = None, distinct_id: Any | None = None
+        self,
+        embedding: list[float] | None,
+        actions_in_context: list[ActionContextForMax] | None,
+        trace_id: Any | None = None,
+        distinct_id: Any | None = None,
     ) -> str:
-        runner = VectorSearchQueryRunner(
-            team=self._team,
-            query=VectorSearchQuery(embedding=embedding),
-        )
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-        if not isinstance(response, CachedVectorSearchQueryResponse) or not response.results:
+        ids = [str(action.id) for action in actions_in_context] if actions_in_context else []
+
+        if embedding:
+            runner = VectorSearchQueryRunner(
+                team=self._team,
+                query=VectorSearchQuery(embedding=embedding),
+            )
+            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            if not isinstance(response, CachedVectorSearchQueryResponse) or not response.results:
+                if len(ids) == 0:
+                    return ""
+            else:
+                ids = list(set([row.id for row in response.results] + ids))
+                distances = [row.distance for row in response.results]
+                self._report_metrics(distances, trace_id, distinct_id)
+
+        if len(ids) == 0:
             return ""
 
-        actions = Action.objects.filter(
-            team__project_id=self._team.project_id, id__in=[row.id for row in response.results]
-        )
+        actions = Action.objects.filter(team__project_id=self._team.project_id, id__in=ids)
 
         root = ET.Element("defined_actions")
         for action in actions:
@@ -76,9 +99,6 @@ class InsightRagContextNode(AssistantNode):
             if description := action.description:
                 desc_tag = ET.SubElement(action_tag, "description")
                 desc_tag.text = description
-
-        distances = [row.distance for row in response.results]
-        self._report_metrics(distances, trace_id, distinct_id)
 
         return ET.tostring(root, encoding="unicode")
 

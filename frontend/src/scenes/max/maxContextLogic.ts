@@ -13,13 +13,17 @@ import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } fr
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import {
+    ActionContextForMax,
     DashboardContextForMax,
+    EventContextForMax,
     InsightContextForMax,
     MaxContextOption,
     MaxContextShape,
     MaxNavigationContext,
+    MultiActionContainer,
     MultiDashboardContainer,
     MultiDashboardContextContainer,
+    MultiEventContainer,
     MultiInsightContainer,
 } from './maxTypes'
 
@@ -43,6 +47,22 @@ const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>)
     }
 }
 
+const eventToMaxContext = (event: EventDefinition): EventContextForMax => {
+    return {
+        id: event.id,
+        name: event.name,
+        description: event.description,
+    }
+}
+
+const actionToMaxContext = (action: ActionType): ActionContextForMax => {
+    return {
+        id: action.id,
+        name: action.name || `Action ${action.id}`,
+        description: action.description || '',
+    }
+}
+
 export const maxContextLogic = kea<maxContextLogicType>({
     path: ['lib', 'ai', 'maxContextLogic'],
     connect: () => ({
@@ -54,8 +74,12 @@ export const maxContextLogic = kea<maxContextLogicType>({
         disableCurrentPageContext: true,
         addOrUpdateContextInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
         addOrUpdateContextDashboard: (key: string, data: DashboardType<QueryBasedInsightModel>) => ({ key, data }),
+        addOrUpdateContextEvent: (key: string, data: EventDefinition) => ({ key, data }),
+        addOrUpdateContextAction: (key: string, data: ActionType) => ({ key, data }),
         removeContextInsight: (key: string) => ({ key }),
         removeContextDashboard: (key: string) => ({ key }),
+        removeContextEvent: (key: string) => ({ key }),
+        removeContextAction: (key: string) => ({ key }),
         setNavigationContext: (path: string, pageTitle?: string) => ({ path, pageTitle }),
         clearNavigationContext: true,
         addOrUpdateActiveInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
@@ -100,6 +124,34 @@ export const maxContextLogic = kea<maxContextLogicType>({
                     { key, data }: { key: string; data: DashboardType<QueryBasedInsightModel> }
                 ) => ({ ...state, [key]: data }),
                 removeContextDashboard: (state: MultiDashboardContainer, { key }: { key: string }) => {
+                    const { [key]: _removed, ...rest } = state
+                    return rest
+                },
+                resetContext: () => ({}),
+            },
+        ],
+        contextEvents: [
+            {} as MultiEventContainer,
+            {
+                addOrUpdateContextEvent: (
+                    state: MultiEventContainer,
+                    { key, data }: { key: string; data: EventDefinition }
+                ) => ({ ...state, [key]: data }),
+                removeContextEvent: (state: MultiEventContainer, { key }: { key: string }) => {
+                    const { [key]: _removed, ...rest } = state
+                    return rest
+                },
+                resetContext: () => ({}),
+            },
+        ],
+        contextActions: [
+            {} as MultiActionContainer,
+            {
+                addOrUpdateContextAction: (
+                    state: MultiActionContainer,
+                    { key, data }: { key: string; data: ActionType }
+                ) => ({ ...state, [key]: data }),
+                removeContextAction: (state: MultiActionContainer, { key }: { key: string }) => {
                     const { [key]: _removed, ...rest } = state
                     return rest
                 },
@@ -206,6 +258,12 @@ export const maxContextLogic = kea<maxContextLogicType>({
                     insight = insightLogicInstance.values.insight!
                 }
                 actions.addOrUpdateContextInsight(insight.short_id!, insight)
+            } else if (groupType === TaxonomicFilterGroupType.Events) {
+                const event = item as EventDefinition
+                actions.addOrUpdateContextEvent(event.id, event)
+            } else if (groupType === TaxonomicFilterGroupType.Actions) {
+                const action = item as ActionType
+                actions.addOrUpdateContextAction(action.id.toString(), action)
             }
             if (insightLogicInstance) {
                 insightLogicInstance.unmount()
@@ -257,7 +315,7 @@ export const maxContextLogic = kea<maxContextLogicType>({
             (contextOptions: MaxContextOption[]): TaxonomicFilterGroupType => {
                 return contextOptions.length > 0
                     ? TaxonomicFilterGroupType.MaxAIContext
-                    : TaxonomicFilterGroupType.Insights
+                    : TaxonomicFilterGroupType.Events
             },
         ],
         taxonomicGroupTypes: [
@@ -267,7 +325,12 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 if (contextOptions.length > 0) {
                     groupTypes.push(TaxonomicFilterGroupType.MaxAIContext)
                 }
-                groupTypes.push(TaxonomicFilterGroupType.Insights, TaxonomicFilterGroupType.Dashboards)
+                groupTypes.push(
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Insights,
+                    TaxonomicFilterGroupType.Dashboards
+                )
                 return groupTypes
             },
         ],
@@ -280,6 +343,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 s.useCurrentPageContext,
                 s.activeInsights,
                 s.activeDashboard,
+                s.contextEvents,
+                s.contextActions,
                 s.dashboardInsightIds,
             ],
             (
@@ -290,6 +355,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 useCurrentPageContext: boolean,
                 activeInsights: MultiInsightContainer | null,
                 activeDashboard: DashboardType<QueryBasedInsightModel> | null,
+                contextEvents: MultiEventContainer | null,
+                contextActions: MultiActionContainer | null,
                 dashboardInsightIds: Set<string | number>
             ): MaxContextShape | null => {
                 const context: MaxContextShape = {}
@@ -324,6 +391,21 @@ export const maxContextLogic = kea<maxContextLogicType>({
                     if (Object.keys(context.insights).length === 0) {
                         delete context.insights
                     }
+                }
+                if (contextEvents && Object.keys(contextEvents).length > 0) {
+                    context.events = {}
+                    Object.entries(contextEvents).forEach(([key, event]) => {
+                        context.events![key] = eventToMaxContext(event)
+                    })
+                    if (Object.keys(context.events).length === 0) {
+                        delete context.events
+                    }
+                }
+                if (contextActions && Object.keys(contextActions).length > 0) {
+                    context.actions = {}
+                    Object.entries(contextActions).forEach(([key, action]) => {
+                        context.actions![key] = actionToMaxContext(action)
+                    })
                 }
 
                 if (navigation) {
@@ -369,6 +451,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
             (s: any) => [
                 s.contextInsights,
                 s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
                 s.useCurrentPageContext,
                 s.activeInsights,
                 s.activeDashboard,
@@ -376,6 +460,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
             (
                 contextInsights: MultiInsightContainer | null,
                 contextDashboards: MultiDashboardContainer | null,
+                contextEvents: MultiEventContainer | null,
+                contextActions: MultiActionContainer | null,
                 useCurrentPageContext: boolean,
                 activeInsights: MultiInsightContainer | null,
                 activeDashboard: DashboardType<QueryBasedInsightModel> | null
@@ -383,6 +469,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 return (
                     Object.keys(contextInsights || {}).length > 0 ||
                     Object.keys(contextDashboards || {}).length > 0 ||
+                    Object.keys(contextEvents || {}).length > 0 ||
+                    Object.keys(contextActions || {}).length > 0 ||
                     (useCurrentPageContext && Object.keys(activeInsights || {}).length > 0) ||
                     (useCurrentPageContext && Object.keys(activeDashboard || {}).length > 0)
                 )
