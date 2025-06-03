@@ -351,6 +351,7 @@ export function Members(): JSX.Element | null {
                         </span>
                     }
                     bordered
+                    data-attr="org-members-can-invite-toggle"
                     checked={!!currentOrganization?.members_can_invite}
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
                     disabledReason={membersCanInviteRestrictionReason}
