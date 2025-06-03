@@ -3,26 +3,32 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
-from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
+from products.user_interviews.backend.api import UserInterviewViewSet
+from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
+import products.logs.backend.api as logs
 from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
+    data_modeling_job,
     external_data_schema,
     external_data_source,
     modeling,
+    query_tab_state,
     saved_query,
     table,
     view_link,
-    query_tab_state,
-    data_modeling_job,
 )
+import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
-from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
+from ..session_recordings.session_recording_playlist_api import (
+    SessionRecordingPlaylistViewSet,
+)
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
@@ -38,7 +44,6 @@ from . import (
     event_definition,
     exports,
     feature_flag,
-    file_system,
     hog,
     hog_function,
     hog_function_template,
@@ -69,6 +74,7 @@ from . import (
     user_group,
     web_vitals,
 )
+from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -180,7 +186,6 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
-
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -218,7 +223,23 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
+register_grandfathered_environment_nested_viewset(
+    r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"file_system_shortcut",
+    file_system_shortcut.FileSystemShortcutViewSet,
+    "environment_file_system_shortcut",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"persisted_folder",
+    persisted_folder.PersistedFolderViewSet,
+    "environment_persisted_folder",
+    ["team_id"],
+)
 
 environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
@@ -555,6 +576,13 @@ projects_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/releases",
+    error_tracking.ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/symbol_sets",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
@@ -565,6 +593,20 @@ environments_router.register(
     r"error_tracking/assignment_rules",
     error_tracking.ErrorTrackingAssignmentRuleViewSet,
     "project_error_tracking_assignment_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/grouping_rules",
+    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    "project_error_tracking_grouping_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/suppression_rules",
+    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    "project_error_tracking_suppression_rule",
     ["team_id"],
 )
 
@@ -602,6 +644,8 @@ register_grandfathered_environment_nested_viewset(
     "environment_hog_functions",
     ["team_id"],
 )
+
+projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
     r"hog_function_templates",
@@ -666,5 +710,22 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+# Logs endpoints
+register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+
+environments_router.register(
+    r"user_interviews",
+    UserInterviewViewSet,
+    "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"csp-reporting",
+    CSPReportingViewSet,
+    "environment_csp_reporting",
     ["team_id"],
 )

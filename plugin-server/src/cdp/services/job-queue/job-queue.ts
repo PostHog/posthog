@@ -9,14 +9,13 @@ import { Counter, Gauge } from 'prom-client'
 import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import {
-    CYCLOTRON_JOB_QUEUE_KINDS,
+    CYCLOTRON_INVOCATION_JOB_QUEUES,
+    CYCLOTRON_JOB_QUEUE_SOURCES,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
-    HOG_FUNCTION_INVOCATION_JOB_QUEUES,
-    HogFunctionInvocation,
-    HogFunctionInvocationJobQueue,
-    HogFunctionInvocationResult,
+    CyclotronJobQueueSource,
 } from '../../types'
-import { HogFunctionManagerService } from '../hog-function-manager.service'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
@@ -34,7 +33,7 @@ const counterJobsProcessed = new Counter({
 
 export type CyclotronJobQueueRouting = {
     [key: string]: {
-        target: CyclotronJobQueueKind
+        target: CyclotronJobQueueSource
         percentage: number
     }
 }
@@ -44,33 +43,28 @@ export type CyclotronJobQueueTeamRouting = {
 }
 
 export class CyclotronJobQueue {
-    private consumerMode: CyclotronJobQueueKind
+    private consumerMode: CyclotronJobQueueSource
     private producerMapping: CyclotronJobQueueRouting
     private producerTeamMapping: CyclotronJobQueueTeamRouting
+    private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: HogFunctionInvocationJobQueue,
-        private hogFunctionManager: HogFunctionManagerService,
-        private _consumeBatch?: (invocations: HogFunctionInvocation[]) => Promise<any>
+        private queue: CyclotronJobQueueKind,
+        private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
         this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
+        this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
 
-        this.jobQueueKafka = new CyclotronJobQueueKafka(
-            this.config,
-            this.queue,
-            this.hogFunctionManager,
-            (invocations) => this.consumeBatch(invocations, 'kafka')
+        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
+            this.consumeBatch(invocations, 'kafka')
         )
-        this.jobQueuePostgres = new CyclotronJobQueuePostgres(
-            this.config,
-            this.queue,
-            this.hogFunctionManager,
-            (invocations) => this.consumeBatch(invocations, 'postgres')
+        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
+            this.consumeBatch(invocations, 'postgres')
         )
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
@@ -80,13 +74,18 @@ export class CyclotronJobQueue {
         })
     }
 
-    private async consumeBatch(invocations: HogFunctionInvocation[], source: CyclotronJobQueueKind) {
+    private async consumeBatch(
+        invocations: CyclotronJobInvocation[],
+        source: CyclotronJobQueueSource
+    ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue, source })
             .set(invocations.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
 
-        await this._consumeBatch!(invocations)
+        const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
+
+        return result
     }
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -95,7 +94,7 @@ export class CyclotronJobQueue {
         // We only need to connect to the queue targets that are configured
 
         const allTargets: {
-            target: CyclotronJobQueueKind
+            target: CyclotronJobQueueSource
             percentage: number
         }[] = []
 
@@ -110,12 +109,12 @@ export class CyclotronJobQueue {
             })
         }
 
-        const targets = new Set<CyclotronJobQueueKind>(allTargets.map((x) => x.target))
+        const targets = new Set<CyclotronJobQueueSource>(allTargets.map((x) => x.target))
 
         // If any target is a non-100% then we need both producers ready
         const anySplitRouting = allTargets.some((x) => x.percentage < 1)
 
-        if (anySplitRouting || targets.has('postgres')) {
+        if (anySplitRouting || targets.has('postgres') || this.producerForceScheduledToPostgres) {
             await this.jobQueuePostgres.startAsProducer()
         }
 
@@ -151,7 +150,12 @@ export class CyclotronJobQueue {
         }
     }
 
-    private getTarget(invocation: HogFunctionInvocation): CyclotronJobQueueKind {
+    private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
+        if (this.producerForceScheduledToPostgres && invocation.queueScheduledAt) {
+            // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
+            return 'postgres'
+        }
+
         const teamId = invocation.teamId
         const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
         const producerConfig = mapping[invocation.queue] ?? mapping['*']
@@ -166,9 +170,9 @@ export class CyclotronJobQueue {
         return target
     }
 
-    public async queueInvocations(invocations: HogFunctionInvocation[]) {
-        const postgresInvocations: HogFunctionInvocation[] = []
-        const kafkaInvocations: HogFunctionInvocation[] = []
+    public async queueInvocations(invocations: CyclotronJobInvocation[]) {
+        const postgresInvocations: CyclotronJobInvocation[] = []
+        const kafkaInvocations: CyclotronJobInvocation[] = []
 
         for (const invocation of invocations) {
             const target = this.getTarget(invocation)
@@ -186,13 +190,21 @@ export class CyclotronJobQueue {
         ])
     }
 
-    public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
+    public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
+        // NOTE: This is only relevant to postgres backed jobs as kafka jobs can just be dropped
+        const pgJobsToDequeue = invocations.filter((x) => x.queueSource === 'postgres')
+        if (pgJobsToDequeue.length > 0) {
+            await this.jobQueuePostgres.dequeueInvocations(pgJobsToDequeue)
+        }
+    }
+
+    public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // TODO: Routing based on queue name is slightly tricky here as postgres jobs need to be acked no matter what...
         // We need to know if the job came from postgres and if so we need to ack, regardless of the target...
 
-        const postgresInvocationsToCreate: HogFunctionInvocationResult[] = []
-        const postgresInvocationsToUpdate: HogFunctionInvocationResult[] = []
-        const kafkaInvocations: HogFunctionInvocationResult[] = []
+        const postgresInvocationsToCreate: CyclotronJobInvocationResult[] = []
+        const postgresInvocationsToUpdate: CyclotronJobInvocationResult[] = []
+        const kafkaInvocations: CyclotronJobInvocationResult[] = []
 
         for (const invocationResult of invocationResults) {
             const target = this.getTarget(invocationResult.invocation)
@@ -256,7 +268,7 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
     const routing: CyclotronJobQueueRouting = {}
     const parts = stringMapping.split(',')
 
-    const validQueues = ['*', ...HOG_FUNCTION_INVOCATION_JOB_QUEUES]
+    const validQueues = ['*', ...CYCLOTRON_INVOCATION_JOB_QUEUES]
 
     for (const part of parts) {
         const [queue, target, percentageString] = part.split(':')
@@ -266,9 +278,9 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
         }
 
         // change the type to the correct one once validated
-        if (!CYCLOTRON_JOB_QUEUE_KINDS.includes(target as CyclotronJobQueueKind)) {
+        if (!CYCLOTRON_JOB_QUEUE_SOURCES.includes(target as CyclotronJobQueueSource)) {
             throw new Error(
-                `Invalid mapping: ${part} - target ${target} must be one of ${CYCLOTRON_JOB_QUEUE_KINDS.join(', ')}`
+                `Invalid mapping: ${part} - target ${target} must be one of ${CYCLOTRON_JOB_QUEUE_SOURCES.join(', ')}`
             )
         }
 
@@ -287,7 +299,7 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
         }
 
         routing[queue] = {
-            target: target as CyclotronJobQueueKind,
+            target: target as CyclotronJobQueueSource,
             percentage,
         }
     }

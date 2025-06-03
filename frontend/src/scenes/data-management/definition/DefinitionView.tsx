@@ -16,7 +16,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -223,7 +223,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 />
 
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap items-center gap-2 text-secondary">
+                <div className="flex flex-wrap gap-2 items-center text-secondary">
                     <div>{isProperty ? 'Property' : 'Event'} name:</div>
                     <LemonTag className="font-mono">{definition.name}</LemonTag>
                 </div>
@@ -232,7 +232,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             <LemonDivider className="my-6" />
             <div className="flex flex-wrap">
                 {isEvent && definition.created_at && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>First seen</h5>
                         <b>
                             <TZLabel time={definition.created_at} />
@@ -240,7 +240,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     </div>
                 )}
                 {isEvent && definition.last_seen_at && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>Last seen</h5>
                         <b>
                             <TZLabel time={definition.last_seen_at} />
@@ -249,7 +249,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 )}
 
                 {definitionStatus && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>Verification status</h5>
                         <div>
                             <Tooltip title={statusProps[definitionStatus].tooltip}>
@@ -263,7 +263,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 )}
 
                 {isProperty && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>Property type</h5>
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
@@ -281,7 +281,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
-                        logicKey="event-definitions"
                         type="destination"
                         filters={{
                             events: [

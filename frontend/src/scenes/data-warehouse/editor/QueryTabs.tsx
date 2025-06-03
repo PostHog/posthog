@@ -89,7 +89,6 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                     onChange={(e) => setTabName(e.target.value)}
                     onBlur={handleRename}
                     autoFocus
-                    handleRename={() => onRename(model, tabName)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             handleRename()

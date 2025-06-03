@@ -10,14 +10,20 @@ mod tests {
         },
         cohorts::cohort_cache_manager::CohortCacheManager,
         config::Config,
-        flags::flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup},
+        flags::{
+            flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
+            flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup},
+            flag_request::FlagRequest,
+            flag_service::FlagService,
+        },
         handler::{
-            decoding, evaluation::evaluate_feature_flags, properties, FeatureFlagEvaluationContext,
+            decoding, evaluation::evaluate_feature_flags, flags::fetch_and_filter, properties,
+            FeatureFlagEvaluationContext,
         },
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
+            insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_person_for_team_in_pg,
+            setup_pg_reader_client, setup_pg_writer_client, setup_redis_client,
         },
     };
     use axum::http::HeaderMap;
@@ -1093,5 +1099,144 @@ mod tests {
         headers.insert(CONTENT_TYPE, "application/xml".parse().unwrap());
         let result = decoding::decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_and_filter_flags() {
+        let redis_client = setup_redis_client(None);
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let flag_service = FlagService::new(redis_client.clone(), reader.clone());
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // Create a mix of survey and non-survey flags
+        let flags = vec![
+            FeatureFlag {
+                name: Some("Survey Flag 1".to_string()),
+                id: 1,
+                key: format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1"),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Survey Flag 2".to_string()),
+                id: 2,
+                key: format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey2"),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Regular Flag 1".to_string()),
+                id: 3,
+                key: "regular_flag1".to_string(),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Regular Flag 2".to_string()),
+                id: 4,
+                key: "regular_flag2".to_string(),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters::default(),
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+        ];
+
+        // Insert flags into redis
+        let flags_json = serde_json::to_string(&flags).unwrap();
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            team.project_id,
+            Some(flags_json),
+        )
+        .await
+        .unwrap();
+
+        let base_request = FlagRequest {
+            token: Some(team.api_token.clone()),
+            distinct_id: Some("test_user".to_string()),
+            ..Default::default()
+        };
+
+        // Test 1: only_evaluate_survey_feature_flags = true
+        let query_params = FlagsQueryParams {
+            only_evaluate_survey_feature_flags: Some(true),
+            ..Default::default()
+        };
+        let result = fetch_and_filter(&flag_service, team.project_id, &base_request, &query_params)
+            .await
+            .unwrap();
+        assert_eq!(result.flags.len(), 2);
+        assert!(result
+            .flags
+            .iter()
+            .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+        // Test 2: only_evaluate_survey_feature_flags = false
+        let query_params = FlagsQueryParams {
+            only_evaluate_survey_feature_flags: Some(false),
+            ..Default::default()
+        };
+        let result = fetch_and_filter(&flag_service, team.project_id, &base_request, &query_params)
+            .await
+            .unwrap();
+        assert_eq!(result.flags.len(), 4);
+        assert!(result
+            .flags
+            .iter()
+            .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+        // Test 3: only_evaluate_survey_feature_flags not set
+        let query_params = FlagsQueryParams::default();
+        let result = fetch_and_filter(&flag_service, team.project_id, &base_request, &query_params)
+            .await
+            .unwrap();
+        assert_eq!(result.flags.len(), 4);
+        assert!(result
+            .flags
+            .iter()
+            .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+        // Test 4: Both survey filter and specific keys requested
+        let request = FlagRequest {
+            flag_keys: Some(vec![
+                format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1"),
+                "regular_flag1".to_string(),
+            ]),
+            ..base_request
+        };
+
+        let query_params = FlagsQueryParams {
+            only_evaluate_survey_feature_flags: Some(true),
+            ..Default::default()
+        };
+
+        let result = fetch_and_filter(&flag_service, team.project_id, &request, &query_params)
+            .await
+            .unwrap();
+
+        // Should only return survey1 since both filters are applied:
+        // 1. Survey filter keeps only survey flags
+        // 2. Key filter then keeps only survey1 from those
+        assert_eq!(result.flags.len(), 1);
+        assert_eq!(
+            result.flags[0].key,
+            format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1")
+        );
     }
 }

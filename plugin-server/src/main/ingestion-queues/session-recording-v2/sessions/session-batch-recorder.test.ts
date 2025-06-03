@@ -178,7 +178,13 @@ describe('SessionBatchRecorder', () => {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+        recorder = new SessionBatchRecorder(
+            mockOffsetManager,
+            mockStorage,
+            mockMetadataStore,
+            mockConsoleLogStore,
+            new Date('2025-01-02 00:00:00Z')
+        )
     })
 
     const createMessage = (
@@ -532,7 +538,8 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
                 message
@@ -567,7 +574,8 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
             expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
@@ -602,13 +610,15 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
                 messages[0]
@@ -700,19 +710,22 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session3',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
 
             // Get mock recorders
@@ -755,13 +768,15 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 2,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
 
             // Get mock recorders
@@ -1382,7 +1397,13 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-01T10:00:00.000Z')
+            )
             await recorder.record(message)
             await recorder.flush()
 

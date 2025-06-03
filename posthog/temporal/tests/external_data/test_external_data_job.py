@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -52,6 +53,11 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 import psycopg
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
+
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
@@ -435,7 +441,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
-        customer_schema = _create_schema("Customer", new_source, team)
+        customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
 
         new_job: ExternalDataJob = ExternalDataJob.objects.create(
             team_id=team.id,
@@ -468,7 +474,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
-        charge_schema = _create_schema("Charge", new_source, team)
+        charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
 
         new_job: ExternalDataJob = ExternalDataJob.objects.create(
             team_id=team.id,
@@ -617,7 +623,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
-        customer_schema = _create_schema("Customer", new_source, team)
+        customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
 
         new_job: ExternalDataJob = ExternalDataJob.objects.create(
             team_id=team.id,
@@ -730,7 +736,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
     )
@@ -769,6 +775,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         update_external_data_job_model,
                         import_data_activity_sync,
                         create_source_templates,
+                        calculate_table_size_activity,
                         check_billing_limits_activity,
                         sync_new_schemas_activity,
                     ],

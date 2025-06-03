@@ -15,6 +15,7 @@ from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 
+# DEPRECATED - do not use
 class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     user = UserBasicSerializer(source="parent_membership.user", read_only=True)
     parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)

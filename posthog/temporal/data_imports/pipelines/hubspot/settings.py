@@ -86,6 +86,7 @@ DEFAULT_CONTACT_PROPS = [
     "hs_lead_status",
     "lastmodifieddate",
     "lastname",
+    "hs_buying_role",
 ]
 
 DEFAULT_TICKET_PROPS = [

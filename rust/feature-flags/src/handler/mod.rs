@@ -39,7 +39,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let distinct_id =
         cookieless::handle_distinct_id(&context, &request, &team, original_distinct_id).await?;
 
-    let filtered_flags = flags::fetch_and_filter(&flag_service, team.project_id, &request).await?;
+    let filtered_flags =
+        flags::fetch_and_filter(&flag_service, team.project_id, &request, &context.meta).await?;
     let property_overrides = properties::prepare_overrides(&context, &request)?;
 
     let flags_response = flags::evaluate_for_request(

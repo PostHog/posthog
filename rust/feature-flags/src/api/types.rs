@@ -70,6 +70,10 @@ pub struct FlagsQueryParams {
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 
+    /// Optional boolean indicating whether to only evaluate survey feature flags
+    #[serde(default)]
+    pub only_evaluate_survey_feature_flags: Option<bool>,
+
     /// Optional boolean indicating whether to include the config field in the response
     /// This lets us have parity with the legacy /decide endpoint so that we can support
     /// JS and other mobile clients need more config data than /flags supplied originally.

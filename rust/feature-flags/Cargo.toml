@@ -10,7 +10,7 @@ publish = false
 anyhow = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
@@ -57,8 +57,8 @@ md5 = "0.7.0"
 workspace = true
 
 [dev-dependencies]
-
 rstest = "0.25.0"
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
+test-case = "3.3.1"

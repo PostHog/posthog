@@ -681,6 +681,15 @@
   
   '''
 # ---
+# name: test_create_table_query[distributed_system_processes]
+  '''
+  
+          CREATE TABLE IF NOT EXISTS distributed_system_processes ON CLUSTER 'posthog'
+          ENGINE = Distributed(posthog, system, processes)
+          SETTINGS skip_unavailable_shards=1
+      
+  '''
+# ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -765,7 +774,7 @@
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
       , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
-      , properties_group_custom Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
+      , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
   
       
   , _timestamp DateTime
@@ -2285,6 +2294,10 @@
       distinct_id VARCHAR,
       min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      -- session recording v2 blocks
+      block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
       -- store the first url of the session so we can quickly show that in playlists
       first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
       -- but also store each url so we can query by visited page without having to scan all events
@@ -2693,7 +2706,13 @@
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
-          , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
+          , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_ai Map(String, String)
+              MATERIALIZED mapSort(
+                  mapFilter((key, _) -> key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices',
+                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+              )
+              CODEC(ZSTD(1))
+          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key like '$feature/%',
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
@@ -2994,6 +3013,10 @@
       distinct_id VARCHAR,
       min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      -- session recording v2 blocks
+      block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
       -- store the first url of the session so we can quickly show that in playlists
       first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
       -- but also store each url so we can query by visited page without having to scan all events
@@ -3976,7 +3999,13 @@
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
-          , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
+          , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_ai Map(String, String)
+              MATERIALIZED mapSort(
+                  mapFilter((key, _) -> key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices',
+                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+              )
+              CODEC(ZSTD(1))
+          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key like '$feature/%',
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
@@ -4277,6 +4306,10 @@
       distinct_id VARCHAR,
       min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      -- session recording v2 blocks
+      block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
       -- store the first url of the session so we can quickly show that in playlists
       first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
       -- but also store each url so we can query by visited page without having to scan all events

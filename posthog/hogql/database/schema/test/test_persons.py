@@ -1,3 +1,6 @@
+import unittest
+
+from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.schema import (
     PersonsOnEventsMode,
@@ -16,6 +19,7 @@ from posthog.test.base import (
     _create_person,
     _create_event,
     snapshot_clickhouse_queries,
+    flush_persons_and_events,
 )
 from posthog.models.person.util import create_person
 from datetime import datetime
@@ -126,3 +130,76 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query_runner.to_query(), self.team, modifiers=self.modifiers)
         assert response.clickhouse
         self.assertNotIn("where_optimization", response.clickhouse)
+
+    @snapshot_clickhouse_queries
+    def test_order_by_limit_transferred(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select id, properties from persons where properties.$some_prop = 'something' ORDER BY created_at DESC LIMIT 2"
+            ),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert len(response.results) == 2
+        assert response.clickhouse
+        self.assertIn("where_optimization", response.clickhouse)
+        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+
+
+class TestPersons(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        person_properties = {"$initial_referring_domain": "https://google.com", "utm_source": "google"}
+        self.google_person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties=person_properties,
+            created_at=datetime(2025, 5, 28, 12),
+        )
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            person_properties=person_properties,
+            timestamp=datetime(2025, 5, 28, 12),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+    def test_virtual_person_properties(self):
+        response = execute_hogql_query(
+            parse_select("select $virt_initial_channel_type from persons where id = {person_id}"),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == "Organic Search"
+
+    def test_virtual_event_person_properties(self):
+        response = execute_hogql_query(
+            parse_select("select person.$virt_initial_channel_type from events where person.id = {person_id}"),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == "Organic Search"
+
+    @unittest.expectedFailure
+    def test_virtual_event_poe_properties(self):
+        response = execute_hogql_query(
+            parse_select("select events.poe.$virt_initial_channel_type from events where person.id = {person_id}"),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == "Organic Search"
+
+    def test_virtual_event_pdi_properties(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select events.pdi.person.$virt_initial_channel_type from events where person.id = {person_id}"
+            ),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == "Organic Search"

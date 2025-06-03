@@ -3,7 +3,17 @@ import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
 import { Counter } from 'prom-client'
-import { type HeadersInit, Agent, errors, request } from 'undici'
+import {
+    type HeadersInit,
+    Agent,
+    errors,
+    fetch as undiciFetch,
+    request,
+    RequestInfo,
+    RequestInit,
+    Response,
+} from 'undici'
+export { Response } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
@@ -38,20 +48,34 @@ export class SecureRequestError extends errors.UndiciError {
     }
 }
 
+export class InvalidRequestError extends errors.UndiciError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'InvalidRequestError'
+    }
+}
+
+export class ResolutionError extends errors.UndiciError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ResolutionError'
+    }
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
     try {
         parsedUrl = new URL(url)
     } catch (err) {
-        throw new SecureRequestError('Invalid URL')
+        throw new InvalidRequestError('Invalid URL')
     }
     const { hostname, protocol } = parsedUrl
     if (!hostname) {
-        throw new SecureRequestError('No hostname')
+        throw new InvalidRequestError('No hostname')
     }
     if (!['http:', 'https:'].includes(protocol)) {
-        throw new SecureRequestError('Scheme must be either HTTP or HTTPS')
+        throw new InvalidRequestError('Scheme must be either HTTP or HTTPS')
     }
     return parsedUrl
 }
@@ -85,7 +109,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
     } catch (err) {
-        throw new SecureRequestError('Invalid hostname')
+        throw new ResolutionError('Invalid hostname')
     }
     for (const { address } of addrinfo) {
         const parsed = ipaddr.parse(address)
@@ -95,7 +119,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
         }
 
         // TRICKY: We need this for tests and local dev
-        const allowUnsafe = process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv()
+        const allowUnsafe = !isProdEnv()
 
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(parsed)) {
@@ -105,7 +129,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     }
     if (addrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
-        throw new SecureRequestError(`Unable to resolve ${hostname}`)
+        throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
     return addrinfo[0]
@@ -179,4 +203,24 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         json: async () => parseJSON(await result.body.text()),
         text: async () => await result.body.text(),
     }
+}
+
+// Legacy fetch implementation that exposes the entire fetch implementation
+export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
+    let parsed: URL
+    try {
+        parsed = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url)
+    } catch {
+        throw new Error('Invalid URL')
+    }
+
+    if (!parsed.hostname || !(parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
+        throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
+    }
+
+    const requestOptions = options ?? {}
+    requestOptions.dispatcher = sharedSecureAgent
+    requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+
+    return undiciFetch(parsed.toString(), requestOptions)
 }

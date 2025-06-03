@@ -269,21 +269,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 6
+            baseline = 8
 
-            with self.assertNumQueries(baseline + 10):
+            with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 11):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 11):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 11):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -602,7 +602,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
         dashboard_data = DashboardSerializer(
-            dashboard, context={"view": mock_view, "request": mock_request, "get_team": lambda: self.team}
+            dashboard,
+            context={
+                "view": mock_view,
+                "request": mock_request,
+                "get_team": lambda: self.team,
+                "insight_variables": [],
+            },
         ).data
         assert len(dashboard_data["tiles"]) == 1
 
@@ -1461,6 +1467,91 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_dashboard_variables_stale(self):
+        # if a variable is deleted/updated, the dashboard should not show the stale variable
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variable.id): {
+                "code_name": variable.code_name,
+                "variableId": str(variable.id),
+            }
+        }
+
+        variable.delete()
+
+        # recreate the variable
+        variabl2 = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variabl2.id)
+            assert value["code_name"] == variabl2.code_name
+            assert value["variableId"] == str(variabl2.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variabl2.id): {
+                "code_name": variabl2.code_name,
+                "variableId": str(variabl2.id),
+            }
+        }
 
     def test_dashboard_access_control_filtering(self) -> None:
         """Test that dashboards are properly filtered based on access control."""

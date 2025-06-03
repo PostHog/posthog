@@ -49,7 +49,7 @@ def summarizer(
     mock_user: MagicMock,
     mock_team: MagicMock,
 ) -> ReplaySummarizer:
-    return ReplaySummarizer(mock_recording, mock_user, mock_team)
+    return ReplaySummarizer(mock_recording.session_id, mock_user, mock_team)
 
 
 class TestReplaySummarizer:
@@ -57,16 +57,15 @@ class TestReplaySummarizer:
         self,
         summarizer: ReplaySummarizer,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[list[Any]],
-        mock_events_columns: list[str],
+        mock_raw_events: list[tuple[Any, ...]],
+        mock_raw_events_columns: list[str],
         mock_valid_llm_yaml_response: str,
     ):
         """
         Basic test to ensure the operations are called in the correct order.
         Most of the mocked functions are tested in other test modules.
         """
-        # Cut last two columns as they should be calculated by the summarizer
-        columns = mock_events_columns[:-2]
+        columns = mock_raw_events_columns
         # Mock DB/LLM dependencies
         with (
             patch(
@@ -90,11 +89,13 @@ class TestReplaySummarizer:
             mock_get_metadata.assert_called_once_with(
                 session_id="test_session_id",
                 team=summarizer.team,
+                local_reads_prod=False,
             )
             mock_get_events.assert_called_once_with(
                 session_id="test_session_id",
                 team=summarizer.team,
                 session_metadata=mock_raw_metadata,
+                local_reads_prod=False,
             )
             mock_stream_summary.assert_called_once()
             # Verify result structure
@@ -111,9 +112,7 @@ class TestReplaySummarizer:
             "get_metadata",
             return_value=None,
         ) as mock_get_db_metadata:
-            with pytest.raises(
-                ValueError, match=f"No session metadata found for session_id {summarizer.recording.session_id}"
-            ):
+            with pytest.raises(ValueError, match=f"No session metadata found for session_id {summarizer.session_id}"):
                 list(summarizer.summarize_recording())
             mock_get_db_metadata.assert_called_once_with(
                 session_id="test_session_id",
@@ -132,7 +131,7 @@ class TestReplaySummarizer:
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
-            with pytest.raises(ValueError, match=f"No columns found for session_id {summarizer.recording.session_id}"):
+            with pytest.raises(ValueError, match=f"No columns found for session_id {summarizer.session_id}"):
                 list(summarizer.summarize_recording())
                 mock_instance.get_events.assert_called_once_with(
                     session_id="test_session_id",
@@ -149,8 +148,8 @@ class TestReplaySummarizer:
         self,
         summarizer: ReplaySummarizer,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[list[Any]],
-        mock_events_columns: list[str],
+        mock_raw_events: list[tuple[Any, ...]],
+        mock_raw_events_columns: list[str],
         mock_valid_llm_yaml_response: str,
     ):
         """Test the ASGI streaming path."""
@@ -162,7 +161,7 @@ class TestReplaySummarizer:
             ),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_events",
-                return_value=(mock_events_columns[:-2], mock_raw_events),
+                return_value=(mock_raw_events_columns, mock_raw_events),
             ),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.stream_llm_session_summary",
@@ -175,7 +174,7 @@ class TestReplaySummarizer:
             assert results[0] == mock_valid_llm_yaml_response
 
     def test_summarize_recording_no_events_sse_error(
-        self, summarizer: ReplaySummarizer, mock_raw_metadata: dict[str, Any], mock_events_columns: list[str]
+        self, summarizer: ReplaySummarizer, mock_raw_metadata: dict[str, Any], mock_raw_events_columns: list[str]
     ):
         """Test that we yield a proper SSE error when no events are found (for example, for fresh real-time replays)."""
         with (
@@ -186,7 +185,7 @@ class TestReplaySummarizer:
             patch.object(
                 SessionReplayEvents,
                 "get_events",
-                return_value=(mock_events_columns[:-2], []),  # Return columns but no events
+                return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ) as mock_get_db_events,
         ):
             result = list(summarizer.summarize_recording())

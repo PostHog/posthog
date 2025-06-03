@@ -1,4 +1,4 @@
-import { IconPiggyBank } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -20,11 +20,20 @@ export const manifest: ProductManifest = {
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'Explore/Revenue analytics',
-            icon: <IconPiggyBank />,
-            href: () => urls.revenueAnalytics(),
+            path: 'Revenue analytics',
+            iconType: 'piggyBank',
+            href: urls.revenueAnalytics(),
+            visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+            tags: ['beta'],
+        },
+    ],
+    treeItemsMetadata: [
+        {
+            path: 'Revenue settings',
+            iconType: 'handMoney',
+            href: urls.revenueSettings(),
         },
     ],
 }

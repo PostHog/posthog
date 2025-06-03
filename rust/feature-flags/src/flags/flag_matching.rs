@@ -435,14 +435,12 @@ impl FeatureFlagMatcher {
         let mut flags_needing_db_properties = Vec::new();
 
         // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
-        let type_indexes: HashSet<GroupTypeIndex> = feature_flags
+        let has_type_indexes = feature_flags
             .flags
             .iter()
-            .filter(|flag| flag.active && !flag.deleted)
-            .filter_map(|flag| flag.get_group_type_index())
-            .collect();
+            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
 
-        if !type_indexes.is_empty() {
+        if has_type_indexes {
             let group_type_mapping_timer =
                 common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
 
@@ -1055,7 +1053,7 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
-        if let Some(first_condition) = feature_flag
+        if let Some(super_condition) = feature_flag
             .filters
             .super_groups
             .as_ref()
@@ -1063,11 +1061,11 @@ impl FeatureFlagMatcher {
         {
             let person_properties = self.get_person_properties(
                 property_overrides.clone(),
-                first_condition.properties.as_deref().unwrap_or(&[]),
+                super_condition.properties.as_deref().unwrap_or(&[]),
             )?;
 
             let has_relevant_super_condition_properties =
-                first_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().map_or(false, |props| {
                     props
                         .iter()
                         .any(|prop| person_properties.contains_key(&prop.key))
@@ -1075,7 +1073,7 @@ impl FeatureFlagMatcher {
 
             let (is_match, _) = self.is_condition_match(
                 feature_flag,
-                first_condition,
+                super_condition,
                 Some(person_properties),
                 hash_key_overrides,
             )?;

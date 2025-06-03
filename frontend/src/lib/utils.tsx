@@ -825,7 +825,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
@@ -978,6 +980,7 @@ const dateOptionsMap = {
     w: 'week',
     d: 'day',
     h: 'hour',
+    M: 'minute',
 } as const
 
 export function dateFilterToText(
@@ -1040,6 +1043,9 @@ export function dateFilterToText(
                     break
                 case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
+                    break
+                case 'minute':
+                    date = dayjs().subtract(counter, 'm')
                     break
                 default:
                     date = dayjs().subtract(counter, 'd')
@@ -1109,6 +1115,9 @@ export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset
             break
         case 'hour':
             response = dayjsInstance.add(amount, 'hour')
+            break
+        case 'minute':
+            response = dayjsInstance.add(amount, 'minute')
             break
         default:
             throw new UnexpectedNeverError(unit)

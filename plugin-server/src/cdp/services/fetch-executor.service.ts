@@ -3,14 +3,16 @@ import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions } from '../../utils/request'
+import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '../../utils/request'
+import { tryCatch } from '../../utils/try-catch'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
-    HogFunctionInvocation,
-    HogFunctionInvocationResult,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -18,17 +20,70 @@ const cdpHttpRequests = new Counter({
     labelNames: ['status'],
 })
 
-/**
- * This class is only used by the kafka based queuing system. For the Cyclotron system there is no need for this.
- */
+export const RETRIABLE_STATUS_CODES = [
+    408, // Request Timeout
+    429, // Too Many Requests (rate limiting)
+    500, // Internal Server Error
+    502, // Bad Gateway
+    503, // Service Unavailable
+    504, // Gateway Timeout
+]
+
+export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
+    let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+
+    if (error) {
+        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+            canRetry = false
+        } else {
+            canRetry = true // Only retry on general errors, not security or validation errors
+        }
+    }
+
+    return canRetry
+}
+
+export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
+    const backoffMs = Math.min(
+        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
+        config.CDP_FETCH_BACKOFF_MAX_MS
+    )
+    return DateTime.utc().plus({ milliseconds: backoffMs })
+}
+
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
 
-    private handleFetchFailure(
-        invocation: HogFunctionInvocation,
-        failure: CyclotronFetchFailureInfo,
-        metadata: { tries: number; trace: CyclotronFetchFailureInfo[] } = { tries: 0, trace: [] }
-    ): HogFunctionInvocationResult {
+    private async handleFetchFailure(
+        invocation: CyclotronJobInvocation,
+        response: FetchResponse | null,
+        error: any | null
+    ): Promise<CyclotronJobInvocationResult> {
+        let kind: CyclotronFetchFailureKind = 'requesterror'
+
+        if (error?.message.toLowerCase().includes('timeout')) {
+            kind = 'timeout'
+        }
+
+        const failure: CyclotronFetchFailureInfo = response
+            ? {
+                  kind: 'failurestatus' as CyclotronFetchFailureKind,
+                  message: `Received failure status: ${response?.status}`,
+                  headers: response?.headers,
+                  status: response?.status,
+                  timestamp: DateTime.utc(),
+              }
+            : {
+                  kind: kind,
+                  message: String(error),
+                  timestamp: DateTime.utc(),
+              }
+
+        // Get existing metadata from previous attempts if any
+        const metadata = (invocation.queueMetadata as { tries: number; trace: CyclotronFetchFailureInfo[] }) || {
+            tries: 0,
+            trace: [],
+        }
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
         const maxTries = params.max_tries ?? this.serverConfig.CDP_FETCH_RETRIES
         const updatedMetadata = {
@@ -36,8 +91,10 @@ export class FetchExecutorService {
             trace: [...metadata.trace, failure],
         }
 
+        const canRetry = isFetchResponseRetriable(response, error)
+
         // If we haven't exceeded retry limit, schedule a retry with backoff
-        if (updatedMetadata.tries < maxTries) {
+        if (canRetry && updatedMetadata.tries < maxTries) {
             // Calculate backoff with jitter, similar to Rust implementation
             const backoffMs = Math.min(
                 this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS * updatedMetadata.tries +
@@ -48,121 +105,117 @@ export class FetchExecutorService {
             const nextScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
             logger.info(`[FetchExecutorService] Scheduling retry`, {
-                hogFunctionId: invocation.hogFunction.id,
+                functionId: invocation.functionId,
                 status: failure.status,
                 backoffMs,
                 nextScheduledAt: nextScheduledAt.toISO(),
                 retryCount: updatedMetadata.tries,
             })
 
-            return {
-                invocation: {
-                    ...invocation,
+            return createInvocationResult(
+                invocation,
+                {
                     queue: 'fetch', // Keep in fetch queue for retry
                     queueMetadata: updatedMetadata,
+                    queueParameters: invocation.queueParameters, // Keep the same parameters
                     queuePriority: invocation.queuePriority + 1, // Decrease priority for retries
                     queueScheduledAt: nextScheduledAt,
                 },
-                finished: false,
-                logs: [],
-            }
+                {
+                    finished: false,
+                }
+            )
         }
 
         // If we've exceeded retries, return all failures in trace
-        return {
-            invocation: {
-                ...invocation,
-                queue: 'hog',
+        return createInvocationResult(
+            invocation,
+            {
+                queue: params.return_queue,
                 queueParameters: {
-                    response: null,
+                    response: response
+                        ? {
+                              status: response?.status,
+                              headers: response?.headers,
+                          }
+                        : null,
+                    body: response ? await response.text() : null,
                     trace: updatedMetadata.trace,
                     timings: [],
                 },
             },
-            finished: false,
-            logs: [],
-        }
+            {
+                finished: false,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.functionId,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
+            }
+        )
     }
 
-    async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    async execute(invocation: CyclotronJobInvocation): Promise<CyclotronJobInvocationResult> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
             throw new Error('Bad invocation')
         }
 
+        const start = performance.now()
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-
-        // Get existing metadata from previous attempts if any
-        const metadata = (invocation.queueMetadata as { tries: number; trace: CyclotronFetchFailureInfo[] }) || {
-            tries: 0,
-            trace: [],
+        const method = params.method.toUpperCase()
+        const fetchParams: FetchOptions = {
+            method,
+            headers: params.headers,
+            timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
+        }
+        if (!['GET', 'HEAD'].includes(method) && params.body) {
+            fetchParams.body = params.body
         }
 
-        try {
-            const start = performance.now()
-            const method = params.method.toUpperCase()
-            const fetchParams: FetchOptions = {
-                method,
-                headers: params.headers,
-                timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
-            }
-            if (!['GET', 'HEAD'].includes(method) && params.body) {
-                fetchParams.body = params.body
-            }
-            const fetchResponse = await fetch(params.url, fetchParams)
-            const duration = performance.now() - start
+        const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
 
-            cdpHttpRequests.inc({ status: fetchResponse.status.toString() })
+        const duration = performance.now() - start
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })
 
-            // Match Rust implementation: Only return response for success status codes (<400)
-            if (fetchResponse.status && fetchResponse.status < 400) {
-                return {
-                    invocation: {
-                        ...invocation,
-                        queue: 'hog',
-                        queueParameters: {
-                            response: {
-                                status: fetchResponse.status,
-                                headers: fetchResponse.headers,
-                            },
-                            body: await fetchResponse.text(),
-                            timings: [
-                                {
-                                    kind: 'async_function',
-                                    duration_ms: duration,
-                                },
-                            ],
-                        },
+        // If error - decide if it can be retried and set the values
+        if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
+            return await this.handleFetchFailure(invocation, fetchResponse, fetchError)
+        }
+
+        return createInvocationResult(
+            invocation,
+            {
+                queue: params.return_queue,
+                queueParameters: {
+                    response: {
+                        status: fetchResponse?.status,
+                        headers: fetchResponse?.headers,
                     },
-                    finished: false,
-                    logs: [],
-                }
-            } else {
-                // For failure status codes, handle retry logic
-                const failure: CyclotronFetchFailureInfo = {
-                    kind: 'failurestatus' as CyclotronFetchFailureKind,
-                    message: `Received failure status: ${fetchResponse.status}`,
-                    headers: fetchResponse.headers,
-                    status: fetchResponse.status,
-                    timestamp: DateTime.utc(),
-                }
-                return this.handleFetchFailure(invocation, failure, metadata)
+                    body: await fetchResponse.text(),
+                    timings: [
+                        {
+                            kind: 'async_function',
+                            duration_ms: duration,
+                        },
+                    ],
+                },
+            },
+            {
+                finished: false,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.functionId,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
             }
-        } catch (err) {
-            cdpHttpRequests.inc({ status: 'error' })
-
-            let kind: CyclotronFetchFailureKind = 'requesterror'
-
-            if (err.message.toLowerCase().includes('timeout')) {
-                kind = 'timeout'
-            }
-
-            // Match Rust implementation: Create a failure trace for errors
-            const failure: CyclotronFetchFailureInfo = {
-                kind,
-                message: String(err),
-                timestamp: DateTime.utc(),
-            }
-            return this.handleFetchFailure(invocation, failure, metadata)
-        }
+        )
     }
 }

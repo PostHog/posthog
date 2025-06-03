@@ -1,6 +1,14 @@
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
-    flags::{flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService},
+    api::{
+        errors::FlagError,
+        types::{FlagsQueryParams, FlagsResponse},
+    },
+    flags::{
+        flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
+        flag_models::{FeatureFlag, FeatureFlagList},
+        flag_request::FlagRequest,
+        flag_service::FlagService,
+    },
 };
 use axum::extract::State;
 use serde_json::Value;
@@ -14,18 +22,50 @@ pub async fn fetch_and_filter(
     flag_service: &FlagService,
     project_id: i64,
     request: &FlagRequest,
+    query_params: &FlagsQueryParams,
 ) -> Result<FeatureFlagList, FlagError> {
     let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
-    if let Some(flag_keys) = &request.flag_keys {
-        let keys: HashSet<String> = flag_keys.iter().cloned().collect();
-        let filtered = all_flags
-            .flags
+
+    let flags_after_survey_filter = filter_survey_flags(
+        all_flags.flags,
+        query_params
+            .only_evaluate_survey_feature_flags
+            .unwrap_or(false),
+    );
+
+    let final_filtered_flags =
+        filter_by_requested_keys(flags_after_survey_filter, request.flag_keys.as_deref());
+
+    Ok(FeatureFlagList::new(final_filtered_flags))
+}
+
+/// Filters flags to only include survey flags if requested
+/// This field is optional, passed in as a query param, and defaults to false
+fn filter_survey_flags(flags: Vec<FeatureFlag>, only_survey_flags: bool) -> Vec<FeatureFlag> {
+    if only_survey_flags {
+        flags
             .into_iter()
-            .filter(|f| keys.contains(&f.key))
-            .collect();
-        Ok(FeatureFlagList::new(filtered))
+            .filter(|flag| flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+            .collect()
     } else {
-        Ok(all_flags)
+        flags
+    }
+}
+
+/// Filters flags to only include those with keys in the requested set
+/// This field is optional, passed in as part of the request body, and if it is not provided, we return all flags
+fn filter_by_requested_keys(
+    flags: Vec<FeatureFlag>,
+    requested_keys: Option<&[String]>,
+) -> Vec<FeatureFlag> {
+    if let Some(keys) = requested_keys {
+        let requested_keys_set: HashSet<String> = keys.iter().cloned().collect();
+        flags
+            .into_iter()
+            .filter(|flag| requested_keys_set.contains(&flag.key))
+            .collect()
+    } else {
+        flags
     }
 }
 

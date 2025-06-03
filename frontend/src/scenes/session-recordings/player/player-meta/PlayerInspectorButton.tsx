@@ -1,8 +1,6 @@
-/**
- * @fileoverview PlayerInspector component is a button that opens the inspector sidebar
- */
 import { useActions, useValues } from 'kea'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import posthog from 'posthog-js'
 import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 
 import { SessionRecordingSidebarTab } from '~/types'
@@ -18,15 +16,16 @@ export function PlayerInspectorButton(): JSX.Element {
     return (
         <SettingsToggle
             title="View all activities from this session, including events, console logs, network requests, and an overview. Explore what happened in detail."
-            label="Activity"
+            label="Explore"
             icon={<IconUnverifiedEvent />}
             active={sidebarOpen}
             onClick={(): void => {
                 setSidebarOpen(!sidebarOpen)
                 setTab(SessionRecordingSidebarTab.INSPECTOR)
+                posthog.capture(!sidebarOpen ? 'opening player inspector' : 'closing player inspector', {})
             }}
-        >
-            Activity
-        </SettingsToggle>
+            data-ph-capture-attribute-opening={!sidebarOpen}
+            data-attr="open-player-inspector-button"
+        />
     )
 }

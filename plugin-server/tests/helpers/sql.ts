@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
 import {
+    CookielessServerHashMode,
     Hub,
     InternalPerson,
     Plugin,
@@ -14,7 +15,6 @@ import {
     RawOrganization,
     RawPerson,
     Team,
-    TeamId,
 } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
@@ -33,42 +33,72 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-// Reset the tables with some truncated first if we have issues regarding foreign keys
-export const POSTGRES_DELETE_PERSON_TABLES_QUERY = `
-DO $$
-BEGIN
-    DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_person CASCADE;
-END $$;
-`
-
-export const POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY = `
-DO $$
-BEGIN
-    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
-    DELETE FROM posthog_cohortpeople CASCADE;
-    DELETE FROM posthog_cohort CASCADE;
-    DELETE FROM posthog_featureflag CASCADE;
-END $$;
-`
-
 export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
 DO $$
 DECLARE
     r RECORD;
 BEGIN
+    -- First handle tables with foreign key dependencies
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_cohort CASCADE;
+    DELETE FROM posthog_featureflag CASCADE;
+    DELETE FROM posthog_organizationmembership CASCADE;
+    DELETE FROM posthog_grouptypemapping CASCADE;
+    DELETE FROM posthog_project CASCADE;
+    DELETE FROM posthog_pluginsourcefile CASCADE;
+    DELETE FROM posthog_pluginconfig CASCADE;
+    DELETE FROM posthog_plugin CASCADE;
+    DELETE FROM posthog_organization CASCADE;
+    DELETE FROM posthog_action CASCADE;
+    DELETE FROM posthog_user CASCADE;
+    DELETE FROM posthog_group CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+    DELETE FROM posthog_team CASCADE;
+    
     -- Then handle remaining tables
     FOR r IN (
         SELECT tablename
         FROM pg_tables
         WHERE schemaname = current_schema()
-        AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
+        AND tablename NOT IN (
+            'posthog_featureflaghashkeyoverride',
+            'posthog_cohortpeople',
+            'posthog_cohort',
+            'posthog_featureflag',
+            'posthog_organizationmembership',
+            'posthog_grouptypemapping',
+            'posthog_project',
+            'posthog_pluginsourcefile',
+            'posthog_pluginconfig',
+            'posthog_plugin',
+            'posthog_organization',
+            'posthog_action',
+            'posthog_user',
+            'posthog_group',
+            'posthog_persondistinctid',
+            'posthog_person',
+            'posthog_team'
+        )
     ) LOOP
         EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
     END LOOP;
 END $$;
 `
 
+export async function clearDatabase(db: PostgresRouter) {
+    // Delete all tables using COMMON_WRITE
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .catch((e) => {
+            console.error('Error deleting other tables', e)
+            throw e
+        })
+}
+
+// TODO: This shouldn't be called resetTestDatabase, as it actually adds data to the database
+// which can be misleading for people running tests
 export async function resetTestDatabase(
     code?: string,
     extraServerConfig: Partial<PluginsServerConfig> = {},
@@ -78,23 +108,7 @@ export async function resetTestDatabase(
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
 
-    // Delete pre-person tables using COMMON_WRITE
-    await db
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY, undefined, 'delete-pre-person-tables')
-        .catch((e) => {
-            console.error('Error deleting pre-person tables', e)
-            throw e
-        })
-
-    // Delete person tables using PERSONS_WRITE
-    await db
-        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSON_TABLES_QUERY, undefined, 'delete-person-tables')
-        .catch((e) => {
-            console.error('Error deleting person tables', e)
-            throw e
-        })
-
-    // Delete other tables using COMMON_WRITE
+    // Delete all tables using COMMON_WRITE
     await db
         .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
         .catch((e) => {
@@ -307,11 +321,12 @@ export async function createUserTeamAndOrganization(
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
     })
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
-    const selectResult = await hub.db.postgres.query<Team>(
+    const selectResult = await hub.postgres.query<Team>(
         PostgresUse.COMMON_READ,
         'SELECT * FROM posthog_team ORDER BY id',
         undefined,
@@ -382,7 +397,7 @@ export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
     token?: string
-): Promise<TeamId> => {
+): Promise<number> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
     let organizationId: string
