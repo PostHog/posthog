@@ -1,5 +1,7 @@
 import json
+import logging
 import threading
+import traceback
 import types
 from collections.abc import Sequence
 from contextlib import contextmanager
@@ -99,6 +101,9 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+logger = logging.getLogger(__name__)
+
+
 @patchable
 def sync_execute(
     query,
@@ -113,6 +118,7 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    orig_workload = workload
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -180,6 +186,8 @@ def sync_execute(
             # these disruptions
             settings["use_hedged_requests"] = "0"
         start_time = perf_counter()
+        if not workload:
+            logging.warning(f"workload is None, was {orig_workload}", traceback.format_exc())
         try:
             QUERY_STARTED_COUNTER.labels(
                 team_id=str(tags.get("team_id", "0")),
@@ -315,7 +323,7 @@ def _prepare_query(
     return annotated_sql, prepared_args, tags
 
 
-def _annotate_tagged_query(query, workload):
+def _annotate_tagged_query(query, workload: Workload):
     """
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
