@@ -3,7 +3,6 @@ from unittest import mock
 import logging
 import os
 
-from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from posthog.otel_instrumentation import initialize_otel, _otel_django_request_hook, _otel_django_response_hook
 from posthog.test.base import BaseTest
@@ -105,10 +104,8 @@ class TestOtelInstrumentation(BaseTest):
         self.assertEqual(mock_tracer_provider_cls.call_count, 1)
         call_args = mock_tracer_provider_cls.call_args
         self.assertEqual(call_args[1]["resource"], mock_resource_instance)
-        sampler_arg = call_args[1]["sampler"]
-        self.assertIsInstance(sampler_arg, ParentBased)
-        self.assertIsInstance(sampler_arg._root, TraceIdRatioBased)
-        self.assertEqual(sampler_arg._root.rate, 1.0)
+        # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
+        self.assertNotIn("sampler", call_args[1])
 
         mock_otlp_exporter_cls.assert_called_once_with()
         mock_batch_processor_cls.assert_called_once_with(mock_otlp_exporter_cls.return_value)
@@ -156,7 +153,8 @@ class TestOtelInstrumentation(BaseTest):
             elif event_name == "otel_sdk_logging_config_from_instrumentation_module":
                 found_sdk_config_log = True
             elif event_name == "otel_sampler_configured":
-                if kwargs.get("ratio") == 1.0 and kwargs.get("root_sampler_type") == "TraceIdRatioBased":
+                # Check for new env var based logging instead of sampler object properties
+                if kwargs.get("sampler_type") == "parentbased_traceidratio" and kwargs.get("sampler_arg") == "0":
                     found_sampler_config_log = True
 
         self.assertTrue(found_init_success_log, "Expected OTel initialization success log not found or incorrect.")
@@ -271,7 +269,8 @@ class TestOtelInstrumentation(BaseTest):
             "OTEL_SERVICE_NAME": "test-service-custom-sample",
             "OTEL_SDK_DISABLED": "false",
             "OTEL_PYTHON_LOG_LEVEL": "info",
-            "OTEL_TRACES_SAMPLING_RATIO": "0.5",
+            "OTEL_TRACES_SAMPLER": "parentbased_traceidratio",
+            "OTEL_TRACES_SAMPLER_ARG": "0.5",
         },
         clear=True,
     )
@@ -322,10 +321,8 @@ class TestOtelInstrumentation(BaseTest):
         self.assertEqual(mock_tracer_provider_cls.call_count, 1)
         call_args = mock_tracer_provider_cls.call_args
         self.assertEqual(call_args[1]["resource"], mock_resource_instance)
-        sampler_arg = call_args[1]["sampler"]
-        self.assertIsInstance(sampler_arg, ParentBased)
-        self.assertIsInstance(sampler_arg._root, TraceIdRatioBased)
-        self.assertEqual(sampler_arg._root.rate, 0.5)
+        # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
+        self.assertNotIn("sampler", call_args[1])
 
         mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
 
@@ -335,7 +332,7 @@ class TestOtelInstrumentation(BaseTest):
             args, kwargs = call_args_tuple
             event_name = args[0] if args else None
             if event_name == "otel_sampler_configured":
-                if kwargs.get("ratio") == 0.5:
+                if kwargs.get("sampler_type") == "parentbased_traceidratio" and kwargs.get("sampler_arg") == "0.5":
                     found_sampler_config_log = True
         self.assertTrue(
             found_sampler_config_log, "Expected OTel sampler configuration log with custom ratio not found."
