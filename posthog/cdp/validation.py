@@ -80,17 +80,6 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
         return json.dumps(obj)
 
 
-def has_liquid_syntax(value: Any) -> bool:
-    """Check if a value contains liquid template syntax"""
-    if isinstance(value, str):
-        return "{{" in value or "{%" in value
-    elif isinstance(value, dict):
-        return any(has_liquid_syntax(v) for v in value.values())
-    elif isinstance(value, list):
-        return any(has_liquid_syntax(item) for item in value)
-    return False
-
-
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
@@ -124,6 +113,7 @@ class AnyInputField(serializers.Field):
 
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
+    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
@@ -168,33 +158,11 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
 
         try:
-            if value:
-                # Check if this is a liquid template - either explicitly disabled templating OR has liquid syntax
-                has_liquid = has_liquid_syntax(value)
-                templating_disabled = schema.get("templating") is False
-
-                # Debug logging to see what's happening
-                logger.debug(
-                    f"Template validation debug - templating: {schema.get('templating')}, "
-                    f"has_liquid_syntax: {has_liquid}, "
-                    f"templating_disabled: {templating_disabled}, "
-                    f"schema_key: {schema.get('key')}, "
-                    f"item_type: {item_type}"
-                )
-
-                # If it has liquid syntax and it's an email type, treat it as liquid template
-                # This is a fallback for when the frontend doesn't properly set templating: false
-                is_liquid_template = templating_disabled or (item_type == "email" and has_liquid)
-
-                if is_liquid_template:
-                    # Skip bytecode generation for liquid templates
-                    # Remove any existing bytecode/transpiled data since we're using liquid
-                    if "bytecode" in attrs:
-                        del attrs["bytecode"]
-                    if "transpiled" in attrs:
-                        del attrs["transpiled"]
-                    logger.debug(f"Skipping bytecode generation for liquid template: {schema.get('key')}")
-                elif schema.get("templating", True):
+            if value and schema.get("templating", True):
+                if attrs.get("templating") == "liquid":
+                    # TODO: Add validation that the liquid is valid
+                    pass
+                else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
                     if item_type in ["string", "dictionary", "json", "email"]:
                         if item_type == "email" and isinstance(value, dict):

@@ -489,7 +489,7 @@ export function HogFunctionInputWithSchema({
                                     <div className="flex-1" />
 
                                     {supportsTemplating && (
-                                        <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                                        <div className="flex gap-2 items-center opacity-0 transition-opacity group-hover:opacity-100">
                                             <LemonButton
                                                 size="xsmall"
                                                 to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
