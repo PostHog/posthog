@@ -12,7 +12,7 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -32,7 +32,6 @@ import {
     CustomEventConversionGoal,
     DatabaseSchemaDataWarehouseTable,
     DataTableNode,
-    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     MARKETING_ANALYTICS_SCHEMA,
@@ -424,9 +423,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map'],
-            databaseTableListLogic,
-            ['dataWarehouseTables'],
+            ['sources_map', 'baseCurrency'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseTables', 'selfManagedTables'],
         ],
     })),
     actions({
@@ -758,16 +757,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     selectors(({ actions, values }) => ({
         // Helper functions for dynamic marketing analytics
         createMarketingDataWarehouseNodes: [
-            (s) => [s.sources_map, s.dataWarehouseTables],
+            (s) => [s.sources_map, s.dataWarehouseTables, s.selfManagedTables],
             (
                 sources_map: { [key: string]: SourceMap },
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[]
             ): AnyEntityNode[] => {
                 if (
                     !sources_map ||
                     Object.keys(sources_map).length === 0 ||
-                    !dataWarehouseTables ||
-                    dataWarehouseTables.length === 0
+                    ((!dataWarehouseTables || dataWarehouseTables.length === 0) &&
+                        (!selfManagedTables || selfManagedTables.length === 0))
                 ) {
                     return []
                 }
@@ -788,45 +788,50 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
-                const mappedNodes = Object.entries(validSourcesMap).map(([tableId, fieldMapping]: [string, any]) => {
-                    const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
-                    const table_name = table?.name
-                    const schema_name = table?.schema?.name
-                    if (!table_name) {
-                        return null
-                    }
+                const nodeList: AnyEntityNode[] = Object.entries(validSourcesMap)
+                    .map(([tableId, fieldMapping]: [string, any]) => {
+                        const dataWarehouseTable = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                        const selfManagedTable = selfManagedTables.find((table) => table.id === tableId)
+                        const tableName = dataWarehouseTable?.name || selfManagedTable?.name
+                        const schema = dataWarehouseTable?.schema?.name || selfManagedTable?.name
 
-                    const returning: AnyEntityNode = {
-                        kind: NodeKind.DataWarehouseNode,
-                        id: tableId,
-                        name: schema_name,
-                        custom_name: `${schema_name} Cost`,
-                        id_field: 'id',
-                        distinct_id_field: 'id',
-                        timestamp_field: fieldMapping.date,
-                        table_name: table_name,
-                        math: PropertyMathType.Sum,
-                        math_property: fieldMapping.total_cost,
-                    }
-                    return returning
-                })
+                        if (!tableName) {
+                            return null
+                        }
 
-                const nodeList: AnyEntityNode[] = mappedNodes.filter((node): node is DataWarehouseNode => node !== null)
+                        const returning: AnyEntityNode = {
+                            kind: NodeKind.DataWarehouseNode,
+                            id: tableId,
+                            name: schema,
+                            custom_name: `${schema} Cost`,
+                            id_field: 'id',
+                            distinct_id_field: 'id',
+                            timestamp_field: fieldMapping.date,
+                            table_name: tableName,
+                            math: PropertyMathType.Sum,
+                            math_property: fieldMapping.total_cost,
+                        }
+                        return returning
+                    })
+                    .filter((node) => node !== null)
+
                 return nodeList
             },
         ],
 
         createDynamicCampaignQuery: [
-            (s) => [s.sources_map, s.dataWarehouseTables],
+            (s) => [s.sources_map, s.dataWarehouseTables, s.selfManagedTables, s.baseCurrency],
             (
                 sources_map: { [key: string]: SourceMap },
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                baseCurrency: string
             ): string | null => {
                 if (
                     !sources_map ||
                     Object.keys(sources_map).length === 0 ||
-                    !dataWarehouseTables ||
-                    dataWarehouseTables.length === 0
+                    ((!dataWarehouseTables || dataWarehouseTables.length === 0) &&
+                        (!selfManagedTables || selfManagedTables.length === 0))
                 ) {
                     return null
                 }
@@ -849,25 +854,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const unionQueries = Object.entries(validSourcesMap)
                     .map(([tableId, fieldMapping]: [string, any]) => {
-                        const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
-                        const table_name = table?.name
-                        if (!table_name) {
+                        const dataWarehouseTable = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                        const selfManagedTable = selfManagedTables.find((table) => table.id === tableId)
+                        const tableName = dataWarehouseTable?.name || selfManagedTable?.name
+                        const schemaName = dataWarehouseTable?.schema?.name || selfManagedTable?.name
+                        if (!tableName) {
                             return null
                         }
 
+                        // TODO: we should replicate this logic for the area charts once we build the query runner
                         return `
                         SELECT 
                             ${fieldMapping.campaign_name} as campaignname,
-                            ${fieldMapping.total_cost} as cost,
-                            ${fieldMapping.clicks || '0'} as clicks,
-                            ${fieldMapping.impressions || '0'} as impressions,
-                            ${fieldMapping.source_name || `'${table.schema?.name || tableId}'`} as source_name
-                        FROM ${table_name}
+                            convertCurrency('${
+                                fieldMapping.base_currency || MARKETING_ANALYTICS_SCHEMA.base_currency.default
+                            }', '${baseCurrency}', toFloat(coalesce(${fieldMapping.total_cost}, 0))) as cost,
+                            toFloat(coalesce(${fieldMapping.clicks}, 0)) as clicks,
+                            toFloat(coalesce(${fieldMapping.impressions}, 0)) as impressions,
+                            ${fieldMapping.source_name || `'${schemaName}'`} as source_name
+                        FROM ${tableName}
                         WHERE ${fieldMapping.date} >= '2025-01-01'
                     `.trim()
                     })
                     .filter(Boolean)
-
                 if (unionQueries.length === 0) {
                     return `SELECT 'No valid sources_map configured' as message`
                 }
@@ -912,6 +921,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ORDER BY cc.total_cost DESC
                     LIMIT 20
                 `.trim()
+
                 return query
             },
         ],
