@@ -260,7 +260,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                             >
                                                 <PlayerFrame />
                                                 <PlayerFrameOverlay />
-                                                <FlaggedFeature flag={"annotations-recording-scope"} match={true}>
+                                                <FlaggedFeature flag="annotations-recording-scope" match={true}>
                                                 <PlayerFrameAnnotationOverlay />
                                                     </FlaggedFeature>
                                             </div>
