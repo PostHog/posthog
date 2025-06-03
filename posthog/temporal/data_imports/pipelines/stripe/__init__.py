@@ -409,9 +409,13 @@ def stripe_source(
         primary_keys=_get_primary_keys(resource),
         name=resource_name,
         column_hints=_get_column_hints(resource),
-        partition_count=None,
         # Stripe data is returned in descending timestamp order
         sort_mode="desc",
+        partition_count=1,  # this enables partitioning
+        partition_size=1,  # this enables partitioning
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=["created"],
     )
 
 
