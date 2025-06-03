@@ -11,6 +11,7 @@ import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
+from azure.core import exceptions as azure_exceptions
 from django.conf import settings
 from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
@@ -165,7 +166,15 @@ async def batch_embed_actions(
 
     successful_batches = []
     for action_batch, maybe_vector in zip(filtered_batches, responses):
+        # Authentication exception is not retryable.
+        if isinstance(maybe_vector, azure_exceptions.ClientAuthenticationError):
+            raise maybe_vector
+        # Rate limit raised, wait for a timeout.
+        if isinstance(maybe_vector, azure_exceptions.HttpResponseError) and maybe_vector.status_code == 429:
+            raise maybe_vector
+
         if isinstance(maybe_vector, BaseException):
+            posthoganalytics.capture_exception(maybe_vector, additional_properties={"tag": "max_ai"})
             logger.exception("Error embedding actions", error=maybe_vector)
             continue
         for action, embedding in zip(action_batch, maybe_vector):
@@ -410,7 +419,11 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     embedding_version=inputs.embedding_versions.actions if inputs.embedding_versions else None,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=timedelta(seconds=30),
+                    maximum_attempts=3,
+                    non_retryable_error_types=("ClientAuthenticationError",),
+                ),
             )
             if not res.has_more:
                 break

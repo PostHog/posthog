@@ -11,7 +11,7 @@ from posthog.schema import (
     VectorSearchResponseItem,
 )
 
-LATEST_ACTIONS_EMBEDDING_VERSION: int = 2
+LATEST_ACTIONS_EMBEDDING_VERSION: int = 3
 """Bump the version when the embedding behavior changes for actions."""
 
 

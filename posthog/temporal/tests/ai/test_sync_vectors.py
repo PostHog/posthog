@@ -886,3 +886,101 @@ async def test_updates_embedding_version(embeddings_mock, azure_mock, ateam):
             for action in actions:
                 await action.arefresh_from_db()
                 assert action.embedding_version == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_not_retried_on_authentication_error():
+    """Test that the workflow fails immediately on ClientAuthenticationError without retries."""
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        return 0  # No actions to summarize
+
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
+        call_count[1] += 1
+
+    @activity.defn(name="batch_embed_and_sync_actions")
+    async def batch_embed_and_sync_actions_mocked(
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
+        call_count[2] += 1
+        # Raise ClientAuthenticationError which should not be retried
+        from azure.core.exceptions import ClientAuthenticationError
+
+        raise ClientAuthenticationError("Authentication failed")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_actions_mocked,
+                batch_embed_and_sync_actions_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    SyncVectorsWorkflow.run,
+                    SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
+            # Should be called only once (no retries) due to non_retryable_error_types
+            assert call_count == [1, 0, 1]
+
+
+@pytest.mark.asyncio
+async def test_workflow_retried_on_rate_limit_error():
+    """Test that the workflow retries on rate limit HttpResponseError (429)."""
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        return 0  # No actions to summarize
+
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
+        call_count[1] += 1
+
+    @activity.defn(name="batch_embed_and_sync_actions")
+    async def batch_embed_and_sync_actions_mocked(
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
+        call_count[2] += 1
+        if call_count[2] < 3:
+            # Raise rate limit error which should be retried
+            from azure.core.exceptions import HttpResponseError
+
+            response = type("MockResponse", (), {"status_code": 429})()
+            raise HttpResponseError(response=response)
+        return BatchEmbedAndSyncActionsOutputs(has_more=False)
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_actions_mocked,
+                batch_embed_and_sync_actions_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                SyncVectorsWorkflow.run,
+                SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+            # Should be retried 3 times (due to retry policy with maximum_attempts=3)
+            assert call_count == [1, 0, 3]
