@@ -813,16 +813,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return globals
             },
         ],
-        globalsWithInputs: [
+        sampleGlobalsWithInputs: [
             (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
             (
                 sampleGlobals,
                 exampleInvocationGlobals,
                 configuration
-            ): HogFunctionInvocationGlobals & { inputs?: Record<string, any> } => {
+            ): Partial<HogFunctionInvocationGlobals> & { inputs?: Record<string, any> } => {
                 const inputs: Record<string, any> = {}
                 for (const input of configuration?.inputs_schema || []) {
                     inputs[input.key] = input.type
+                }
+
+                if (configuration.type === 'source_webhook') {
+                    return {
+                        request: {
+                            body: {},
+                            headers: {},
+                            ip: '127.0.0.1',
+                        },
+                        inputs,
+                    }
                 }
 
                 return {
@@ -1093,6 +1104,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const hogCode = configuration.hog || ''
 
                 return mightDropEvents(hogCode)
+            },
+        ],
+
+        canLoadSampleGlobals: [
+            (s) => [s.lastEventQuery],
+            (lastEventQuery) => {
+                return !!lastEventQuery
             },
         ],
     })),
