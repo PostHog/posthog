@@ -389,7 +389,7 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
             description: sanitizeHTML(question.description || ''),
         })) || []
 
-    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses || true)
+    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
 
     // Remove widget-specific fields if survey type is not Widget
     if (survey.type !== 'widget' && sanitizedAppearance) {
