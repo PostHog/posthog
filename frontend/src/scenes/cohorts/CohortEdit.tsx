@@ -130,8 +130,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <div className="deprecated-space-y-2 max-w-200">
-                    <div className="flex gap-4 flex-wrap">
+                <div className="flex flex-col gap-2 max-w-200">
+                    <div className="flex flex-col sm:flex-row gap-4">
                         <div className="flex-1">
                             <LemonField name="name" label="Name">
                                 <LemonInput data-attr="cohort-name" />
@@ -250,7 +250,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <div className="flex items-center justify-between my-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between my-4 gap-2">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
                                 <span>
