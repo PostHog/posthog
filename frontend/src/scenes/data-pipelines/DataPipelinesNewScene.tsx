@@ -1,4 +1,5 @@
 import { kea, path, props, selectors, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
@@ -65,7 +66,15 @@ export function DataPipelinesNewScene(): JSX.Element {
         return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
     }
     if (kind === 'source') {
-        return <NewSourceWizardScene />
+        return (
+            <>
+                <FlaggedFeature flag="cdp-hog-sources">
+                    <h2>Event sources</h2>
+                    <HogFunctionTemplateList defaultFilters={{}} type="source_webhook" />
+                </FlaggedFeature>
+                <NewSourceWizardScene />
+            </>
+        )
     }
 
     return <NotFound object="Data pipeline new options" />

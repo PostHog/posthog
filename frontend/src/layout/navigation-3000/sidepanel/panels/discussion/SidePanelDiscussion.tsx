@@ -71,7 +71,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                 }
             />
 
-            {commentsLogicProps ? (
+            {commentsLogicProps && !commentsLogicProps.disabled ? (
                 <DiscussionContent logicProps={commentsLogicProps} />
             ) : (
                 <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">

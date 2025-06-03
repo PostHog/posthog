@@ -264,7 +264,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={
-                            featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
+                            featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
                                 ? urls.organizationBillingSection('overview')
                                 : urls.organizationBilling()
                         }
@@ -272,7 +272,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
-                        {featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD] ? 'Billing & Usage' : 'Billing'}
+                        {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />

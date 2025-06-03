@@ -18,12 +18,23 @@ from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableSchemas
 
 
+def clean_customer_id(s: str | None) -> str | None:
+    """Clean customer IDs from Google Ads.
+
+    Customer IDs can contain dashes, but we need the ID without them.
+    """
+    if not s:
+        return s
+
+    return s.strip().replace("-", "")
+
+
 @config.config
 class GoogleAdsServiceAccountSourceConfig(config.Config):
     """Google Ads source config using service account for authentication."""
 
-    customer_id: str
     resource_name: str
+    customer_id: str = config.value(converter=clean_customer_id)
 
     private_key: str = config.value(
         default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
@@ -216,7 +227,7 @@ def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
     table = get_schemas(config)[config.resource_name]
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        query = f"SELECT {','.join(f'{field.name}' for field in table)} FROM {table.name}"
+        query = f"SELECT {','.join(f'{table.name}.{field.name}' for field in table)} FROM {table.name}"
 
         client = google_ads_client(config)
         service = client.get_service("GoogleAdsService", version="v19")
