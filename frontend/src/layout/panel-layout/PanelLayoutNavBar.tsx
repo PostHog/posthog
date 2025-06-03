@@ -430,7 +430,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             not sure how better to do this other than lower the notices z-index.. 
                         */}
                         <div
-                            className={`pt-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
+                            className={`pt-1 px-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
                                 isDev ? 'pb-10' : 'pb-2'
                             }`}
                         >
