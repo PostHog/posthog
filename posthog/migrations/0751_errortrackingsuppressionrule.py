@@ -6,7 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0749_modify_errortrackingstackframe_symbolset_relation")]
+    dependencies = [("posthog", "0750_dwh_model_statuses")]
 
     operations = [
         migrations.CreateModel(
