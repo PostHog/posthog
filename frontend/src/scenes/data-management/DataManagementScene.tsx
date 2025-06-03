@@ -198,6 +198,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
 export function DataManagementScene(): JSX.Element {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
     const { setTab } = useActions(dataManagementSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const lemonTabs: LemonTab<DataManagementTab>[] = enabledTabs.map((key) => ({
         key: key as DataManagementTab,
@@ -205,6 +206,12 @@ export function DataManagementScene(): JSX.Element {
         content: tabs[key].content,
         tooltipDocLink: tabs[key].tooltipDocLink,
     }))
+
+    if (featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) {
+        if (enabledTabs.includes(tab)) {
+            return tabs[tab || DataManagementTab.Actions].content
+        }
+    }
 
     return (
         <>
