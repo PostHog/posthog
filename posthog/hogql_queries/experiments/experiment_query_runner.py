@@ -678,6 +678,14 @@ class ExperimentQueryRunner(QueryRunner):
                                 [trends_control_variant, *trends_test_variants]
                             )
 
+                    probability = {
+                        variant.key: probability
+                        for variant, probability in zip(
+                            [trends_control_variant, *trends_test_variants],
+                            probabilities,
+                        )
+                    }
+
                 case ExperimentFunnelMetric():
                     funnel_variants = get_legacy_funnels_variant_results(sorted_results)
                     self._validate_event_variants(funnel_variants)
@@ -694,26 +702,17 @@ class ExperimentQueryRunner(QueryRunner):
                     credible_intervals = calculate_credible_intervals_v2_funnel(
                         [funnel_control_variant, *funnel_test_variants]
                     )
+                    probability = {
+                        variant.key: probability
+                        for variant, probability in zip(
+                            [funnel_control_variant, *funnel_test_variants],
+                            probabilities,
+                        )
+                    }
 
                 case _:
                     raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
 
-        if trends_variants:
-            probability = {
-                variant.key: probability
-                for variant, probability in zip(
-                    [trends_control_variant, *trends_test_variants],
-                    probabilities,
-                )
-            }
-        else:
-            probability = {
-                variant.key: probability
-                for variant, probability in zip(
-                    [funnel_control_variant, *funnel_test_variants],
-                    probabilities,
-                )
-            }
         return ExperimentQueryResponse(
             kind="ExperimentQuery",
             insight=[],
