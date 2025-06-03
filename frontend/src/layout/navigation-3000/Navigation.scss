@@ -43,7 +43,6 @@
     // `relative` is for positioning of the scene-level spinner
     position: relative;
     min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
-    padding-bottom: 10rem;
     margin: var(--scene-padding);
     margin-bottom: var(--scene-padding-bottom);
 
