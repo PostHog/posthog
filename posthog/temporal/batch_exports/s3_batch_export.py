@@ -12,6 +12,7 @@ import typing
 import aioboto3
 import botocore.exceptions
 import pyarrow as pa
+from aiobotocore.config import AioConfig
 from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -111,6 +112,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    use_virtual_style_addressing: bool = False
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -240,6 +242,7 @@ class S3MultiPartUpload:
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
         endpoint_url: str | None = None,
+        config: dict[str, typing.Any] | None = None,
     ):
         self._session = aioboto3.Session()
         self.region_name = region_name
@@ -250,6 +253,7 @@ class S3MultiPartUpload:
         self.key = key
         self.encryption = encryption
         self.kms_key_id = kms_key_id
+        self.config = config
         self.upload_id: str | None = None
         self.parts: list[Part] = []
         self.pending_parts: list[Part] = []
@@ -281,6 +285,10 @@ class S3MultiPartUpload:
     @contextlib.asynccontextmanager
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
+        if self.config:
+            boto_config = AioConfig(**self.config)
+        else:
+            boto_config = None
 
         try:
             async with self._session.client(
@@ -289,6 +297,7 @@ class S3MultiPartUpload:
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
                 endpoint_url=self.endpoint_url,
+                config=boto_config,
             ) as client:
                 yield client
         except ValueError as err:
@@ -661,6 +670,11 @@ def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUp
     except Exception as e:
         raise InvalidS3Key(e) from e
 
+    if inputs.use_virtual_style_addressing:
+        config = {"s3": {"addressing_style": "virtual"}}
+    else:
+        config = None
+
     return S3MultiPartUpload(
         bucket_name=inputs.bucket_name,
         key=key,
@@ -670,6 +684,7 @@ def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUp
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
         endpoint_url=inputs.endpoint_url or None,
+        config=config,
     )
 
 
@@ -868,6 +883,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
+            use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
         )

@@ -4628,6 +4628,7 @@ export type BatchExportServiceS3 = {
         endpoint_url: string | null
         file_format: string
         max_file_size_mb: number | null
+        use_virtual_style_addressing: boolean
     }
 }
 
@@ -5177,6 +5178,10 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
+
+// Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
+export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
+
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
@@ -5198,6 +5203,7 @@ export type HogFunctionSubTemplateType = Pick<
     'filters' | 'inputs' | 'masking' | 'mappings' | 'type'
 > & {
     template_id: HogFunctionTemplateType['id']
+    context_id: HogFunctionConfigurationContextId
     sub_template_id: HogFunctionSubTemplateIdType
     name?: string
     description?: string
