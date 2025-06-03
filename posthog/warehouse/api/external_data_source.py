@@ -147,8 +147,11 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
         ]
 
     def get_status(self, instance: ExternalDataJob):
-        if instance.status == ExternalDataJob.Status.CANCELLED:
+        if instance.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
+
+        if instance.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limit too low"
 
         return instance.status
 
@@ -282,16 +285,23 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
-        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
-        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in active_schemas)
+        any_billing_limits_reached = any(
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in active_schemas
+        )
+        any_billing_limits_too_low = any(
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in active_schemas
+        )
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
         any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
         any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
 
         if any_failures:
-            return ExternalDataSchema.Status.ERROR
-        elif any_cancelled:
+            return ExternalDataSchema.Status.FAILED
+        elif any_billing_limits_reached:
             return "Billing limits"
+        elif any_billing_limits_too_low:
+            return "Billing limits too low"
         elif any_paused:
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
@@ -863,7 +873,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type = request.data["source_type"]
 
         customer_id = payload.get("customer_id", "")
-        resource_name = payload.get("resource_name", "")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -873,11 +882,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={"customer_id": customer_id, "resource_name": resource_name},
+            job_inputs={"customer_id": customer_id},
             prefix=prefix,
         )
 
-        schemas = get_google_ads_schemas(GoogleAdsServiceAccountSourceConfig.from_dict(new_source_model.job_inputs))
+        config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
+        schemas = get_google_ads_schemas(config)
 
         return new_source_model, list(schemas.keys())
 
