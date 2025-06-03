@@ -29,8 +29,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         authentication::parse_and_authenticate(&context, &flag_service).await?;
 
     // Check billing limits early
-    if let Some(quota_response) = billing::check_limits(&context, &verified_token).await? {
-        return Ok(quota_response);
+    if let Some(quota_limited_response) = billing::check_limits(&context, &verified_token).await? {
+        return Ok(quota_limited_response);
     }
 
     let team = flag_service
