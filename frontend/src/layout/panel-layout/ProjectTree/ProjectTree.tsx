@@ -572,7 +572,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
@@ -617,7 +617,7 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
+                if (root === 'products://' || root === 'metadata://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
                 if (root === 'new://') {

@@ -191,6 +191,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_MAX_BACKGROUND_TASKS: number
+    CONSUMER_AUTO_CREATE_TOPICS: boolean
 
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
