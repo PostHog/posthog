@@ -514,10 +514,21 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
 
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
+    assignee = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters"]
+        fields = ["id", "filters", "assignee"]
         read_only_fields = ["team_id"]
+
+    def get_assignee(self, obj):
+        if obj.user_id:
+            return {"type": "user", "id": obj.user_id}
+        elif obj.user_group_id:
+            return {"type": "user_group", "id": obj.user_group_id}
+        elif obj.role_id:
+            return {"type": "role", "id": obj.role_id}
+        return None
 
 
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -575,10 +586,21 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
 
 class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
+    assignee = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters"]
+        fields = ["id", "filters", "assignee"]
         read_only_fields = ["team_id"]
+
+    def get_assignee(self, obj):
+        if obj.user_id:
+            return {"type": "user", "id": obj.user_id}
+        elif obj.user_group_id:
+            return {"type": "user_group", "id": obj.user_group_id}
+        elif obj.role_id:
+            return {"type": "role", "id": obj.role_id}
+        return None
 
 
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
