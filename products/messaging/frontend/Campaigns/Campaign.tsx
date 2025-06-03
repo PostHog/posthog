@@ -8,7 +8,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { AppMetricsV2 } from 'scenes/pipeline/metrics/AppMetricsV2'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -50,7 +49,6 @@ export function Campaign({ id }: CampaignLogicProps = {}): JSX.Element {
                         </div>
                     </div>
                 </Form>
-                {id && id !== 'new' && <AppMetricsV2 id={id} />}
             </div>
         ),
         workflow: (
