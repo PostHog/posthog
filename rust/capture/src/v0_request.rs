@@ -236,12 +236,15 @@ impl RawRequest {
                     Ok(out) => {
                         match String::from_utf8(out) {
                             Ok(unwrapped_payload) => {
-                                if unwrapped_payload.len() > limit {
-                                    error!(path = &path, "from_bytes: request size limit exceeded after post-decode base64 unwrap");
+                                let unwrapped_size = unwrapped_payload.len();
+                                if unwrapped_size > limit {
+                                    error!(path = &path,
+                                        unwrapped_size,
+                                        "from_bytes: request size limit exceeded after post-decode base64 unwrap");
                                     report_dropped_events("event_too_big", 1);
                                     return Err(CaptureError::EventTooBig(format!(
                                         "from_bytes: payload size limit {} exceeded after post-decode base64 unwrap: {}",
-                                        limit, unwrapped_payload.len(),
+                                        limit, unwrapped_size,
                                     )));
                                 }
                                 unwrapped_payload
