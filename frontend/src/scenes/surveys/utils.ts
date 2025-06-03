@@ -385,8 +385,8 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
     const sanitizedQuestions =
         survey.questions?.map((question) => ({
             ...question,
-            question: sanitizeHTML(question.question || ''),
-            description: sanitizeHTML(question.description || ''),
+            question: sanitizeHTML(question.question ?? ''),
+            description: sanitizeHTML(question.description ?? ''),
         })) || []
 
     const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
