@@ -591,6 +591,3 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
-
-/** This const is auto-generated, as is the whole file */
-export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({})
