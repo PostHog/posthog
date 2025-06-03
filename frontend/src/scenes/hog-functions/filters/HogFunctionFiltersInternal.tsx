@@ -1,8 +1,8 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
@@ -67,13 +67,11 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): HogFuncti
 }
 
 export function HogFunctionFiltersInternal(): JSX.Element {
-    const hasAlertRouting = useFeatureFlag('ERROR_TRACKING_ALERT_ROUTING')
     const {
         logicProps: { id },
         contextId,
     } = useValues(hogFunctionConfigurationLogic)
 
-    const taxonomicGroupTypes = useMemo(() => getTaxonomicGroupTypes(contextId), [contextId])
     const options = useMemo(() => getFilterOptions(contextId), [contextId])
 
     return (
@@ -88,10 +86,10 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                             onChange={(value) => onChange(setSimpleFilterValue(options, value))}
                             placeholder="Select a filter"
                         />
-                        {hasAlertRouting && taxonomicGroupTypes.length > 0 ? (
+                        <FlaggedFeature flag="error-tracking-alert-routing">
                             <PropertyFilters
                                 propertyFilters={value?.properties ?? []}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
                                         ...value,
@@ -102,7 +100,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 buttonSize="small"
                                 disablePopover
                             />
-                        ) : null}
+                        </FlaggedFeature>
+
                         {contextId === 'insight-alerts' ? (
                             <PropertyFilters
                                 propertyFilters={value?.events?.[0]?.properties ?? []}
