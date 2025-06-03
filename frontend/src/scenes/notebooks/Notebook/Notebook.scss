@@ -178,8 +178,12 @@
             }
         }
 
-        .NotebookLatex svg,
         .NotebookLatex mjx-container {
+            padding: 1em 0;
+        }
+
+        .NotebookLatex mjx-container,
+        .NotebookLatex svg {
             display: block;
             margin-right: auto;
             margin-left: auto;
