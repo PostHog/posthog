@@ -23,7 +23,7 @@ const pluginExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-class SegmentRetriableError extends Error {
+class SegmentFetchError extends Error {
     constructor(message?: string) {
         super(message)
     }
@@ -271,7 +271,7 @@ export class SegmentDestinationExecutorService {
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
                         )
-                        throw new SegmentRetriableError(
+                        throw new SegmentFetchError(
                             `Error executing function on event ${
                                 invocation.state.globals.event.uuid
                             }: Request failed with status ${fetchResponse?.status ?? 'unknown'} (${
@@ -313,7 +313,7 @@ export class SegmentDestinationExecutorService {
 
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            if (e instanceof SegmentRetriableError) {
+            if (e instanceof SegmentFetchError) {
                 result.finished = false
                 result.invocation.queue = 'segment'
                 result.invocation.queuePriority = metadata.tries
