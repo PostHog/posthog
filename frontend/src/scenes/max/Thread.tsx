@@ -173,8 +173,6 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <ContextTags
                                         insights={message.ui_context.insights}
                                         dashboards={message.ui_context.dashboards}
-                                        events={message.ui_context.events}
-                                        actions={message.ui_context.actions}
                                         className="flex flex-wrap gap-1 mb-2"
                                     />
                                 )}

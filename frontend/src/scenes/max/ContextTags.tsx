@@ -1,11 +1,11 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { MultiDashboardContextContainer, MultiInsightContextContainer } from './maxTypes'
 
 interface ContextTagsProps {
-    insights?: Record<string, Partial<QueryBasedInsightModel>>
-    dashboards?: Record<string, DashboardType<QueryBasedInsightModel>>
+    insights?: MultiInsightContextContainer
+    dashboards?: MultiDashboardContextContainer
     useCurrentPageContext?: boolean
     onRemoveInsight?: (key: string) => void
     onRemoveDashboard?: (key: string) => void
@@ -67,7 +67,7 @@ export function ContextTags({
                     closable={!!onRemoveInsight}
                     onClose={onRemoveInsight ? () => onRemoveInsight(key) : undefined}
                 >
-                    {insight.name || `Insight ${insight.short_id || insight.id}`}
+                    {insight.name || `Insight ${insight.id}`}
                 </LemonTag>
             )
         })

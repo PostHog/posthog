@@ -1,5 +1,4 @@
 import { Node } from '~/queries/schema/schema-general'
-import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 export interface InsightContextForMax {
     id: string | number
@@ -18,16 +17,6 @@ export interface DashboardContextForMax {
     insights: InsightContextForMax[]
 }
 
-// Container for multiple active insights, typically on a dashboard
-// Keyed by a unique identifier for the insight on the dashboard (e.g., dashboard_item_id)
-export interface MultiInsightContainer {
-    [insightKey: string]: Partial<QueryBasedInsightModel>
-}
-
-export interface MultiDashboardContainer {
-    [dashboardKey: string]: DashboardType<QueryBasedInsightModel>
-}
-
 export interface MultiDashboardContextContainer {
     [dashboardKey: string]: DashboardContextForMax
 }
@@ -43,8 +32,8 @@ export interface MaxNavigationContext {
 
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
-    dashboards?: MultiDashboardContextContainer | null
-    insights?: MultiInsightContextContainer | null
+    dashboards?: MultiDashboardContextContainer
+    insights?: MultiInsightContextContainer
 
     // General information that's always good to have, if available
     global_info?: {
@@ -58,7 +47,7 @@ export interface MaxContextOption {
     name: string
     icon: React.ReactNode
     items?: {
-        insights?: Partial<QueryBasedInsightModel>[]
-        dashboards?: DashboardType<QueryBasedInsightModel>[]
+        insights?: InsightContextForMax[]
+        dashboards?: DashboardContextForMax[]
     }
 }

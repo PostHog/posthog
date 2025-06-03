@@ -5,6 +5,8 @@ import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightShortId } from '~/types'
 
 import {
     chatResponseChunk,
@@ -398,87 +400,40 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
         },
     })
 
-    const {
-        addOrUpdateContextInsight,
-        addOrUpdateContextDashboard,
-        enableCurrentPageContext,
-        addOrUpdateActiveInsight,
-        setActiveDashboard,
-    } = useActions(maxContextLogic)
+    const { addOrUpdateContextInsight, enableCurrentPageContext, addOrUpdateActiveInsight } =
+        useActions(maxContextLogic)
 
     useEffect(() => {
         // Add multiple context insights
         addOrUpdateContextInsight('insight-1', {
-            short_id: 'insight-1',
+            short_id: 'insight-1' as InsightShortId,
             name: 'Weekly Active Users',
             description: 'Track weekly active users over time',
             query: {
                 kind: 'TrendsQuery',
                 series: [{ event: '$pageview' }],
-            },
+            } as TrendsQuery,
         })
 
         addOrUpdateContextInsight('insight-2', {
-            short_id: 'insight-2',
+            short_id: 'insight-2' as InsightShortId,
             name: 'Conversion Funnel',
             description: 'User signup to activation funnel',
             query: {
                 kind: 'FunnelsQuery',
                 series: [{ event: 'sign up' }, { event: 'first action' }],
-            },
-        })
-
-        // Add context dashboard
-        addOrUpdateContextDashboard('dashboard-1', {
-            id: 123,
-            name: 'Product Analytics Dashboard',
-            description: 'Key metrics for product performance',
-            tiles: [
-                {
-                    id: 1,
-                    insight: {
-                        short_id: 'dash-insight-1',
-                        name: 'Page Views',
-                        query: { kind: 'TrendsQuery', series: [{ event: '$pageview' }] },
-                    },
-                },
-                {
-                    id: 2,
-                    insight: {
-                        short_id: 'dash-insight-2',
-                        name: 'User Retention',
-                        query: { kind: 'RetentionQuery' },
-                    },
-                },
-            ],
+            } as FunnelsQuery,
         })
 
         // Add active insights for current page context
         addOrUpdateActiveInsight('active-insight-1', {
-            short_id: 'active-insight-1',
+            short_id: 'active-insight-1' as InsightShortId,
             name: 'Current Page Metrics',
             description: 'Metrics for the current page',
             query: {
                 kind: 'TrendsQuery',
                 series: [{ event: '$pageview' }],
-            },
-        })
-
-        // Set active dashboard for current page context
-        setActiveDashboard({
-            id: 456,
-            name: 'Live Dashboard',
-            description: 'Real-time metrics dashboard',
-            tiles: [
-                {
-                    id: 3,
-                    insight: {
-                        short_id: 'live-insight-1',
-                        name: 'Real-time Events',
-                        query: { kind: 'TrendsQuery', series: [{ event: '$pageview' }] },
-                    },
-                },
-            ],
+            } as TrendsQuery,
         })
 
         // Enable current page context to show active insights/dashboard

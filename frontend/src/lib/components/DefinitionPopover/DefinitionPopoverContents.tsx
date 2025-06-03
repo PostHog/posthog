@@ -22,18 +22,16 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { DashboardContextForMax, InsightContextForMax, MaxContextOption } from 'scenes/max/maxTypes'
 
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
-    DashboardType,
     EventDefinition,
     PropertyDefinition,
     PropertyDefinitionVerificationStatus,
-    QueryBasedInsightModel,
 } from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
@@ -370,18 +368,16 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             title="Dashboard"
                             value={
                                 <div className="flex flex-wrap gap-1">
-                                    {_definition.items.dashboards.map(
-                                        (dashboard: DashboardType<QueryBasedInsightModel>) => (
-                                            <LemonTag
-                                                key={dashboard.id}
-                                                size="small"
-                                                icon={<IconDashboard />}
-                                                className="text-xs"
-                                            >
-                                                {dashboard.name || `Dashboard ${dashboard.id}`}
-                                            </LemonTag>
-                                        )
-                                    )}
+                                    {_definition.items.dashboards.map((dashboard: DashboardContextForMax) => (
+                                        <LemonTag
+                                            key={dashboard.id}
+                                            size="small"
+                                            icon={<IconDashboard />}
+                                            className="text-xs"
+                                        >
+                                            {dashboard.name || `Dashboard ${dashboard.id}`}
+                                        </LemonTag>
+                                    ))}
                                 </div>
                             }
                         />
@@ -395,7 +391,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 title="Insights"
                                 value={
                                     <div className="flex flex-wrap gap-1">
-                                        {_definition.items.insights.map((insight: Partial<QueryBasedInsightModel>) => (
+                                        {_definition.items.insights.map((insight: InsightContextForMax) => (
                                             <LemonTag
                                                 key={insight.id}
                                                 size="small"
