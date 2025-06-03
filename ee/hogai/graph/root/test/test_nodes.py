@@ -870,6 +870,23 @@ Query results: 42 events"""
         self.assertIn('"page_view", "button_click"', result["ui_context_events"])
         self.assertIn("<events_context>", result["ui_context_events"])
 
+    def test_format_ui_context_with_events_with_descriptions(self):
+        # Create mock events with descriptions
+        event1 = EventContextForMax(id=1, name="page_view", description="User viewed a page")
+        event2 = EventContextForMax(id=2, name="button_click", description="User clicked a button")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(
+            dashboards=None, insights=None, events={"1": event1, "2": event2}, actions=None, global_info=None
+        )
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn(
+            '"page_view: User viewed a page", "button_click: User clicked a button"', result["ui_context_events"]
+        )
+        self.assertIn("<events_context>", result["ui_context_events"])
+
     def test_format_ui_context_with_actions(self):
         # Create mock actions
         action1 = ActionContextForMax(id=1, name="Sign Up")
@@ -883,6 +900,23 @@ Query results: 42 events"""
         result = self.mixin._format_ui_context(ui_context)
 
         self.assertIn('"Sign Up", "Purchase"', result["ui_context_actions"])
+        self.assertIn("<actions_context>", result["ui_context_actions"])
+
+    def test_format_ui_context_with_actions_with_descriptions(self):
+        # Create mock actions with descriptions
+        action1 = ActionContextForMax(id=1, name="Sign Up", description="User creates account")
+        action2 = ActionContextForMax(id=2, name="Purchase", description="User makes a purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(
+            dashboards=None, insights=None, events=None, actions={"1": action1, "2": action2}, global_info=None
+        )
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn(
+            '"Sign Up: User creates account", "Purchase: User makes a purchase"', result["ui_context_actions"]
+        )
         self.assertIn("<actions_context>", result["ui_context_actions"])
 
     def test_format_ui_context_with_navigation(self):

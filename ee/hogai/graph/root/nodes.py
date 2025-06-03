@@ -177,24 +177,30 @@ class RootNodeUIContextMixin(AssistantNode):
         # Format events context
         events_context = ""
         if ui_context.events:
-            event_names = []
+            event_details = []
             for _, event in ui_context.events.items():
-                event_names.append(event.name or f"Event {event.id}")
+                event_detail = f'"{event.name or f"Event {event.id}"}'
+                if event.description:
+                    event_detail += f": {event.description}"
+                event_detail += '"'
+                event_details.append(event_detail)
 
-            if event_names:
-                quoted_event_names = [f'"{name}"' for name in event_names]
-                events_context = f"<events_context>Event names the user is referring to:\n{', '.join(quoted_event_names)}\n</events_context>"
+            if event_details:
+                events_context = f"<events_context>Event names the user is referring to:\n{', '.join(event_details)}\n</events_context>"
 
         # Format actions context
         actions_context = ""
         if ui_context.actions:
-            action_names = []
+            action_details = []
             for _, action in ui_context.actions.items():
-                action_names.append(action.name or f"Action {action.id}")
+                action_detail = f'"{action.name or f"Action {action.id}"}'
+                if action.description:
+                    action_detail += f": {action.description}"
+                action_detail += '"'
+                action_details.append(action_detail)
 
-            if action_names:
-                quoted_action_names = [f'"{name}"' for name in action_names]
-                actions_context = f"<actions_context>Action names the user is referring to:\n{', '.join(quoted_action_names)}\n</actions_context>"
+            if action_details:
+                actions_context = f"<actions_context>Action names the user is referring to:\n{', '.join(action_details)}\n</actions_context>"
 
         # Format navigation context
         navigation_context = ""
