@@ -414,10 +414,10 @@ async fn it_handles_quota_limiting_v2() -> Result<()> {
     let response_body = res.json::<FlagsResponse>().await?;
 
     // Parse response body and assert that the quota_limited field is present and contains the correct value
-    assert!(response_body.core.quota_limited.is_some());
+    assert!(response_body.quota_limited.is_some());
     assert_eq!(
         vec![ServiceName::FeatureFlags.as_string()],
-        response_body.core.quota_limited.unwrap()
+        response_body.quota_limited.unwrap()
     );
 
     Ok(())
@@ -1597,7 +1597,7 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
     assert_eq!(StatusCode::OK, res.status());
     let v2: FlagsResponse = res.json().await?;
     assert_eq!(
-        v2.core.quota_limited,
+        v2.quota_limited,
         Some(vec![ServiceName::FeatureFlags.as_string()])
     );
 

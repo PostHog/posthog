@@ -19,7 +19,7 @@ use tower_http::{
 };
 
 use crate::{
-    api::{endpoint, test_endpoint},
+    api::endpoint,
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
     metrics::utils::team_id_label_filter,
@@ -74,22 +74,6 @@ where
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
-    // for testing flag requests
-    let test_router = Router::new()
-        .route(
-            "/test_flags/black_hole",
-            post(test_endpoint::test_black_hole)
-                .get(test_endpoint::test_black_hole)
-                .options(endpoint::options),
-        )
-        .route(
-            "/test_flags/black_hole/",
-            post(test_endpoint::test_black_hole)
-                .get(test_endpoint::test_black_hole)
-                .options(endpoint::options),
-        )
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
-
     // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
@@ -105,7 +89,6 @@ where
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
-        .merge(test_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))

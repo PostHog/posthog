@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagDetails, FlagsCore, FlagsResponse, FromFeatureAndMatch};
+use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -262,8 +262,7 @@ impl FeatureFlagMatcher {
         eval_timer
             .label(
                 "outcome",
-                if flags_response.core.errors_while_computing_flags || flag_hash_key_override_error
-                {
+                if flags_response.errors_while_computing_flags || flag_hash_key_override_error {
                     "error"
                 } else {
                     "success"
@@ -272,13 +271,12 @@ impl FeatureFlagMatcher {
             .fin();
 
         FlagsResponse {
-            core: FlagsCore {
-                errors_while_computing_flags: flag_hash_key_override_error
-                    || flags_response.core.errors_while_computing_flags,
-                flags: flags_response.core.flags,
-                quota_limited: None,
-                request_id: Some(request_id),
-            },
+            errors_while_computing_flags: flag_hash_key_override_error
+                || flags_response.errors_while_computing_flags,
+            flags: flags_response.flags,
+            quota_limited: None,
+            request_id: Some(request_id),
+            ..Default::default()
         }
     }
 
@@ -538,12 +536,11 @@ impl FeatureFlagMatcher {
                     1,
                 );
                 return FlagsResponse {
-                    core: FlagsCore {
-                        errors_while_computing_flags,
-                        flags: flag_details_map,
-                        quota_limited: None,
-                        request_id: Some(request_id),
-                    },
+                    errors_while_computing_flags,
+                    flags: flag_details_map,
+                    quota_limited: None,
+                    request_id: Some(request_id),
+                    ..Default::default()
                 };
             }
 
@@ -604,12 +601,11 @@ impl FeatureFlagMatcher {
         }
 
         FlagsResponse {
-            core: FlagsCore {
-                errors_while_computing_flags,
-                flags: flag_details_map,
-                quota_limited: None,
-                request_id: Some(request_id),
-            },
+            errors_while_computing_flags,
+            flags: flag_details_map,
+            quota_limited: None,
+            request_id: Some(request_id),
+            ..Default::default()
         }
     }
 
@@ -1562,9 +1558,9 @@ mod tests {
         let result = matcher
             .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4())
             .await;
-        assert!(!result.core.errors_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(
-            result.core.flags.get("test_flag").unwrap().to_value(),
+            result.flags.get("test_flag").unwrap().to_value(),
             FlagValue::Boolean(true)
         );
     }
@@ -4036,14 +4032,7 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4())
         .await;
 
-        assert!(
-            result
-                .core
-                .flags
-                .get("flag_continuity_missing")
-                .unwrap()
-                .enabled
-        );
+        assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
@@ -4835,8 +4824,8 @@ mod tests {
             .await;
 
         // Should succeed because we have overrides
-        assert!(!result.core.errors_while_computing_flags);
-        let flag_details = result.core.flags.get("test_flag").unwrap();
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
         assert!(flag_details.enabled);
     }
 

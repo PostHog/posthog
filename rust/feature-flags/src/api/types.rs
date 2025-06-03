@@ -1,9 +1,6 @@
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
-use crate::{
-    flags::flag_match_reason::FeatureFlagMatchReason,
-    plugin_config::plugin_config_operations::WebJsUrl,
-};
+use crate::{flags::flag_match_reason::FeatureFlagMatchReason, site_apps::WebJsUrl};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -21,13 +18,6 @@ pub enum FlagValue {
     String(String),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum ServiceResponse {
-    Default(LegacyFlagsResponse),
-    V2(FlagsPlusConfigResponse),
-}
-
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LinkedFlag {
     pub flag: String,
@@ -41,32 +31,64 @@ pub struct SiteApp {
     pub url: String,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Compression {
+    #[serde(rename = "gzip", alias = "gzip-js")]
+    Gzip,
+    #[serde(rename = "base64")]
+    Base64,
+    #[default]
+    #[serde(other)]
+    Unsupported,
+}
+
+impl Compression {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Compression::Gzip => "gzip",
+            Compression::Base64 => "base64",
+            Compression::Unsupported => "unsupported",
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct FlagsQueryParams {
+    /// Optional API version identifier, defaults to None (which returns a legacy response)
+    #[serde(alias = "v")]
+    pub version: Option<String>,
+
+    /// Compression type for the incoming request
+    pub compression: Option<Compression>,
+
+    /// Library version (alias: "ver")
+    #[serde(alias = "ver")]
+    pub lib_version: Option<String>,
+
+    /// Optional timestamp indicating when the request was sent
+    #[serde(alias = "_")]
+    pub sent_at: Option<i64>,
+
+    #[serde(default)]
+    pub config: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct FlagsCore {
+pub struct FlagsResponse {
+    // Core flag data - always present
     pub errors_while_computing_flags: bool,
     pub flags: HashMap<String, FlagDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Option<Uuid>,
-}
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Default, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct FlagsResponse {
-    #[serde(flatten)]
-    pub core: FlagsCore,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct FlagsPlusConfigResponse {
-    #[serde(flatten)]
-    pub core: FlagsCore,
-
+    // Legacy format fields - always present when we have flags
     pub feature_flags: HashMap<String, FlagValue>,
     pub feature_flag_payloads: HashMap<String, Value>,
 
+    // Config fields - only present when config=true
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub supported_compression: Vec<String>,
 
@@ -97,8 +119,8 @@ pub struct FlagsPlusConfigResponse {
     #[serde(skip_serializing_if = "is_empty_value", default)]
     pub toolbar_params: Value,
 
-    // Backwards compatibility, is always false
-    pub is_authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_authenticated: Option<bool>,
 
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub site_apps: Vec<WebJsUrl>,
@@ -117,39 +139,69 @@ pub struct FlagsPlusConfigResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_feature_flags: Option<bool>,
-    // TODO NEEDS QUOTA LIMITING FOR RECORDINGS
 }
 
-impl From<FlagsPlusConfigResponse> for FlagsResponse {
-    fn from(plus: FlagsPlusConfigResponse) -> Self {
-        FlagsResponse { core: plus.core }
-    }
-}
+impl FlagsResponse {
+    /// Create a new FlagsResponse with just the core flag data
+    pub fn new(
+        errors_while_computing_flags: bool,
+        flags: HashMap<String, FlagDetails>,
+        quota_limited: Option<Vec<String>>,
+        request_id: Option<Uuid>,
+    ) -> Self {
+        let feature_flags = flags
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_value()))
+            .collect();
 
-impl From<&FlagsPlusConfigResponse> for FlagsResponse {
-    fn from(plus: &FlagsPlusConfigResponse) -> Self {
-        FlagsResponse {
-            core: plus.core.clone(),
+        let feature_flag_payloads = flags
+            .iter()
+            .filter_map(|(k, v)| v.metadata.payload.clone().map(|p| (k.clone(), p)))
+            .collect();
+
+        Self {
+            errors_while_computing_flags,
+            flags,
+            quota_limited,
+            request_id,
+            feature_flags,
+            feature_flag_payloads,
+            ..Default::default()
         }
     }
-}
 
-impl FlagsPlusConfigResponse {
-    pub fn to_flags_response(&self) -> FlagsResponse {
-        FlagsResponse {
-            core: self.core.clone(),
-        }
-    }
-
-    pub fn to_legacy_flags_response(&self) -> LegacyFlagsResponse {
+    /// Convert to legacy response format (for backward compatibility)
+    pub fn to_legacy(&self) -> LegacyFlagsResponse {
         LegacyFlagsResponse {
-            errors_while_computing_flags: self.core.errors_while_computing_flags,
+            errors_while_computing_flags: self.errors_while_computing_flags,
             feature_flags: self.feature_flags.clone(),
             feature_flag_payloads: self.feature_flag_payloads.clone(),
-            quota_limited: self.core.quota_limited.clone(),
-            request_id: self.core.request_id.unwrap_or_else(Uuid::nil),
+            quota_limited: self.quota_limited.clone(),
+            request_id: self.request_id.unwrap_or_else(Uuid::nil),
         }
     }
+
+    /// Convert to a core flags response (strips config fields) - for API versioning
+    pub fn to_flags_response(&self) -> FlagsResponse {
+        FlagsResponse {
+            errors_while_computing_flags: self.errors_while_computing_flags,
+            flags: self.flags.clone(),
+            quota_limited: self.quota_limited.clone(),
+            request_id: self.request_id,
+            feature_flags: self.feature_flags.clone(),
+            feature_flag_payloads: self.feature_flag_payloads.clone(),
+            // All config fields default to None/empty
+            ..Default::default()
+        }
+    }
+}
+
+// Keep ServiceResponse for API versioning if needed
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ServiceResponse {
+    Default(LegacyFlagsResponse),
+    V2(FlagsResponse),
 }
 
 fn is_empty_value(val: &serde_json::Value) -> bool {
@@ -207,22 +259,21 @@ pub struct LegacyFlagsResponse {
     pub feature_flags: HashMap<String, FlagValue>,
     pub feature_flag_payloads: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
 }
 
 impl LegacyFlagsResponse {
+    /// Create from any FlagsResponse - maintains backward compatibility
     pub fn from_response(response: FlagsResponse) -> Self {
         Self {
-            errors_while_computing_flags: response.core.errors_while_computing_flags,
+            errors_while_computing_flags: response.errors_while_computing_flags,
             feature_flags: response
-                .core
                 .flags
                 .iter()
                 .map(|(key, flag)| (key.clone(), flag.to_value()))
                 .collect(),
             feature_flag_payloads: response
-                .core
                 .flags
                 .iter()
                 .filter_map(|(key, flag)| {
@@ -232,8 +283,8 @@ impl LegacyFlagsResponse {
                         .map(|payload| (key.clone(), payload))
                 })
                 .collect(),
-            quota_limited: response.core.quota_limited.clone(),
-            request_id: response.core.request_id.unwrap_or_else(Uuid::nil),
+            quota_limited: response.quota_limited.clone(),
+            request_id: response.request_id.unwrap_or_else(Uuid::nil),
         }
     }
 }
@@ -502,15 +553,8 @@ mod tests {
         );
 
         let request_id = Uuid::new_v4();
-        let response = FlagsResponse {
-            core: FlagsCore {
-                errors_while_computing_flags: false,
-                flags,
-                quota_limited: None,
-                request_id: Some(request_id),
-            },
-        };
-        let legacy_response = LegacyFlagsResponse::from_response(response);
+        let response = FlagsResponse::new(false, flags, None, Some(request_id));
+        let legacy_response = response.to_legacy();
 
         // Check that only flag1 with actual payload is included
         assert_eq!(legacy_response.feature_flag_payloads.len(), 2);
@@ -538,5 +582,48 @@ mod tests {
 
         // Check that the request_id is included
         assert_eq!(legacy_response.request_id, request_id);
+    }
+
+    #[test]
+    fn test_config_fields_are_skipped_when_none() {
+        let response = FlagsResponse::new(false, HashMap::new(), None, Some(Uuid::new_v4()));
+
+        let json = serde_json::to_value(&response).unwrap();
+        let obj = json.as_object().unwrap();
+
+        // Config fields should not be present when None/empty
+        assert!(!obj.contains_key("analytics"));
+        assert!(!obj.contains_key("autocaptureExceptions"));
+        assert!(!obj.contains_key("sessionRecording"));
+        assert!(!obj.contains_key("supportedCompression")); // empty vec
+        assert!(!obj.contains_key("siteApps")); // empty vec
+
+        // Core fields should always be present
+        assert!(obj.contains_key("errorsWhileComputingFlags"));
+        assert!(obj.contains_key("flags"));
+        assert!(obj.contains_key("featureFlags"));
+        assert!(obj.contains_key("featureFlagPayloads"));
+    }
+
+    #[test]
+    fn test_config_fields_are_included_when_set() {
+        let mut response = FlagsResponse::new(false, HashMap::new(), None, Some(Uuid::new_v4()));
+
+        println!("response: {:?}", response);
+
+        // Set some config fields
+        response.analytics = Some(AnalyticsConfig {
+            endpoint: Some("/analytics".to_string()),
+        });
+        response.supported_compression = vec!["gzip".to_string()];
+
+        let json = serde_json::to_value(&response).unwrap();
+
+        println!("json: {:?}", json);
+        let obj = json.as_object().unwrap();
+
+        // Config fields should be present when set
+        assert!(obj.contains_key("analytics"));
+        assert!(obj.contains_key("supportedCompression"));
     }
 }
