@@ -18,13 +18,4 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AddField(
-            model_name="organization",
-            name="session_idle_timeout_seconds",
-            field=models.IntegerField(
-                blank=True,
-                help_text="Custom session idle timeout in seconds. If not set, the global setting SESSION_IDLE_TIMEOUT_SECONDS will be used.",
-                null=True,
-            ),
-        ),
     ]

@@ -657,25 +657,9 @@ class SessionAgeMiddleware:
                     if hasattr(current_org, "session_cookie_age") and current_org.session_cookie_age is not None
                     else settings.SESSION_COOKIE_AGE
                 )
-                idle_timeout = (
-                    current_org.session_idle_timeout_seconds
-                    if hasattr(current_org, "session_idle_timeout_seconds")
-                    and current_org.session_idle_timeout_seconds is not None
-                    else settings.SESSION_IDLE_TIMEOUT_SECONDS
-                )
 
-                # Get last activity time
-                last_activity = request.session.get("last_activity", session_created_at)
                 current_time = time.time()
-
-                # If user is active (not idle), extend their session
-                if current_time - last_activity < idle_timeout:
-                    # Update last activity time
-                    request.session["last_activity"] = current_time
-                    request.session.modified = True
-                    request.session.save()
-                # If user is idle, check total session age
-                elif current_time - session_created_at > session_age:
+                if current_time - session_created_at > session_age:
                     # Log out the user
                     from django.contrib.auth import logout
 

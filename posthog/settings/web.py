@@ -207,9 +207,6 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
-# How long a session can be idle before being logged out (default 30 minutes)
-SESSION_IDLE_TIMEOUT_SECONDS = get_from_env("SESSION_IDLE_TIMEOUT_SECONDS", 30 * 60, type_cast=int)
-
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
 

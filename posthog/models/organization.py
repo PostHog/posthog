@@ -135,11 +135,6 @@ class Organization(UUIDModel):
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    session_idle_timeout_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Custom session idle timeout in seconds. If not set, the global setting SESSION_IDLE_TIMEOUT_SECONDS will be used.",
-    )
     for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
