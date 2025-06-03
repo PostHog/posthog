@@ -73,6 +73,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                     <EmailEditor
                         ref={(r) => setEmailEditorRef(r)}
                         onReady={() => onEmailEditorReady()}
+                        minHeight={20}
                         options={{
                             mergeTags,
                             displayMode: 'email',
