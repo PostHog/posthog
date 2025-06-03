@@ -1,9 +1,10 @@
 import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
+import { urls } from 'scenes/urls'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType } from '~/types'
@@ -14,23 +15,11 @@ import type { annotationsLogicType } from './annotationsLogicType'
 export const annotationsLogic = kea<annotationsLogicType>([
     path(['scenes', 'annotations', 'annotationsLogic']),
     connect(() => ({
-        actions: [
-            annotationsModel,
-            [
-                'loadAnnotationsNext',
-                'loadAnnotationsSuccess',
-                'replaceAnnotation',
-                'appendAnnotations',
-                'deleteAnnotation',
-            ],
-        ],
         values: [
             annotationsModel,
             ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
             teamLogic,
             ['timezone'],
-            userLogic,
-            ['user'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -82,5 +71,29 @@ export const annotationsLogic = kea<annotationsLogicType>([
                     : annotations
             },
         ],
+    })),
+    actionToUrl(() => ({
+        setScope: ({ scope }) => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    scope: scope ? scope : undefined,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.annotations()]: (_, searchParams) => {
+            const scope = searchParams.scope
+            if (scope && isValidAnnotationScope(scope) && scope !== values.scope) {
+                actions.setScope(scope)
+            }
+            if (!scope && values.scope) {
+                actions.setScope(null)
+            }
+        },
     })),
 ])

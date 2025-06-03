@@ -216,6 +216,49 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("organization", "organization scoped", 1),
+            ("project", "project scoped", 1),
+            ("insight", "insight scoped", 1),
+            ("dashboard_item", "insight scoped", 1),
+            ("dashboard", "dashboard scoped", 1),
+            (None, None, 4),
+        ]
+    )
+    def test_annotation_can_be_filtered_by_scope(self, scope: str, expected_content: str, expected_result_count: int):
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="organization scoped",
+            scope=Annotation.Scope.ORGANIZATION,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="project scoped",
+            scope=Annotation.Scope.PROJECT,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="insight scoped",
+            scope=Annotation.Scope.INSIGHT,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="dashboard scoped",
+            scope=Annotation.Scope.DASHBOARD,
+        )
+
+        scope_query_param = f"?scope={scope}" if scope else ""
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/{scope_query_param}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == expected_result_count
+        if expected_result_count == 1:
+            assert response.json()["results"][0]["content"] == expected_content
+
+    @parameterized.expand(
+        [
             # Test case: (scope, should_be_visible_in_date_range, should_be_visible_in_scope_filter)
             (Annotation.Scope.PROJECT, True, True),
             (Annotation.Scope.ORGANIZATION, True, True),

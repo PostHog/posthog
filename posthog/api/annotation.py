@@ -85,7 +85,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             queryset = queryset.order_by("-date_marker")
         if self.action != "partial_update":
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
-            # That's becasue annotations are restored with a PATCH request setting `deleted` to `False`
+            # That's because annotations are restored with a PATCH request setting `deleted` to `False`
             queryset = queryset.filter(deleted=False)
 
         # Add date range filtering
@@ -114,6 +114,8 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         scope = self.request.query_params.get("scope")
         if scope:
+            # let's allow the more recently used "insight" scope to be used as "dashboard_item"
+            scope = "dashboard_item" if scope == "insight" else scope
             if scope not in [scope.value for scope in Annotation.Scope]:
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 

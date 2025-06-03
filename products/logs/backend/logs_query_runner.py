@@ -47,8 +47,7 @@ class LogsQueryRunner(QueryRunner):
             timings=self.timings,
             limit_context=self.limit_context,
             filters=HogQLFilters(dateRange=self.query.dateRange),
-            # needed for CH cloud
-            settings=HogQLGlobalSettings(allow_experimental_object_type=False),
+            settings=self.settings,
         )
 
         results = []
@@ -137,6 +136,10 @@ class LogsQueryRunner(QueryRunner):
     @cached_property
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
+
+    @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(allow_experimental_object_type=False, allow_experimental_join_condition=False)
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
