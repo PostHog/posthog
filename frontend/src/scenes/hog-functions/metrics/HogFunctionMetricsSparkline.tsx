@@ -1,6 +1,7 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { inStorybookTestRunner } from 'lib/utils'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -11,13 +12,12 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
     const { appMetrics, appMetricsLoading } = useValues(logic)
     const { loadMetrics } = useActions(logic)
     const { ref: inViewRef, inView } = useInView()
-    const isInStorybook = document.body.classList.contains('storybook-test-runner')
 
     useEffect(() => {
-        if (isInStorybook || (inView && !appMetrics && !appMetricsLoading)) {
+        if (inStorybookTestRunner() || (inView && !appMetrics && !appMetricsLoading)) {
             loadMetrics()
         }
-    }, [inView, isInStorybook])
+    }, [inView])
 
     const displayData: SparklineTimeSeries[] = [
         {
