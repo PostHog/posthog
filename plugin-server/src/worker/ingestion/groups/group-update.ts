@@ -10,6 +10,7 @@ export interface GroupUpdate {
     group_properties: Properties
     created_at: DateTime
     version: number
+    needsWrite: boolean
 }
 
 export interface PropertiesUpdate {
@@ -25,6 +26,7 @@ export function fromGroup(group: Group): GroupUpdate {
         group_properties: group.group_properties,
         created_at: group.created_at,
         version: group.version,
+        needsWrite: false,
     }
 }
 

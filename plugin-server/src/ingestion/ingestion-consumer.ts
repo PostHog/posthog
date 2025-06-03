@@ -93,7 +93,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personStore: MeasuringPersonsStore
-    private groupStore: BatchWritingGroupStore
+    public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
@@ -145,6 +145,7 @@ export class IngestionConsumer {
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             batchWritingEnabled: this.hub.GROUP_BATCH_WRITING_ENABLED,
+            maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
         })
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
@@ -294,6 +295,8 @@ export class IngestionConsumer {
         })
 
         personsStoreForBatch.reportBatch()
+        groupStoreForBatch.reportBatch()
+        await groupStoreForBatch.flush()
 
         for (const message of messages) {
             if (message.timestamp) {

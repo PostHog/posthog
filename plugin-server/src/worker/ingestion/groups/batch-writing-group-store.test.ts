@@ -64,7 +64,7 @@ describe('BatchWritingGroupStore', () => {
 
     describe('Batch Writing Disabled', () => {
         beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false })
+            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false, maxConcurrentUpdates: 10 })
         })
 
         it('should fetch group from db multiple times, write multiple times to db', async () => {
@@ -133,7 +133,7 @@ describe('BatchWritingGroupStore', () => {
 
     describe('Batch Writing Enabled', () => {
         beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: true })
+            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: true, maxConcurrentUpdates: 10 })
         })
 
         it('should accumulate writes in cache, write once to db', async () => {

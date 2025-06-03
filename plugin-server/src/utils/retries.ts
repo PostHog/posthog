@@ -4,8 +4,10 @@ import { sleep } from './utils'
 // Simple retries in our code
 export const defaultRetryConfig = {
     // for easy value changes in tests
-    RETRY_INTERVAL_DEFAULT: 1000,
+    RETRY_INTERVAL_DEFAULT: 100, // Start with 100ms
     MAX_RETRIES_DEFAULT: 3,
+    BACKOFF_FACTOR: 2, // Exponential backoff multiplier
+    MAX_INTERVAL: 10000, // Cap at 10s
 }
 
 export async function promiseRetry<T>(
@@ -21,8 +23,12 @@ export async function promiseRetry<T>(
     }
     return fn().catch(async (error) => {
         logger.debug('🔁', `failed ${name}, retrying`, { error })
+        const nextInterval = Math.min(
+            retryIntervalMillis * defaultRetryConfig.BACKOFF_FACTOR,
+            defaultRetryConfig.MAX_INTERVAL
+        )
         await new Promise((resolve) => setTimeout(resolve, retryIntervalMillis))
-        return promiseRetry(fn, name, retries - 1, 2 * retryIntervalMillis, error)
+        return promiseRetry(fn, name, retries - 1, nextInterval, error)
     })
 }
 
@@ -31,13 +37,14 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
     if (attempt < 1) {
         throw new Error('Attempts are indexed starting with 1')
     }
-    return baseMs * multiplier ** (attempt - 1)
+    return Math.min(baseMs * multiplier ** (attempt - 1), defaultRetryConfig.MAX_INTERVAL)
 }
 
 /**
  * Retry a function, respecting `error.isRetriable`.
  */
-export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 500): Promise<T> {
+export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 100): Promise<T> {
+    let currentSleepMs = sleepMs
     for (let i = 0; i < tries; i++) {
         try {
             return await fn()
@@ -48,7 +55,11 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleep
             }
 
             // Fall through, `fn` will retry after sleep.
-            await sleep(sleepMs)
+            await sleep(currentSleepMs)
+            currentSleepMs = Math.min(
+                currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR,
+                defaultRetryConfig.MAX_INTERVAL
+            )
         }
     }
 
