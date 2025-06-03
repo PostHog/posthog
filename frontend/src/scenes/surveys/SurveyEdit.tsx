@@ -993,6 +993,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 TaxonomicFilterGroupType.CustomEvents,
                                                                 TaxonomicFilterGroupType.Events,
                                                             ]}
+                                                            allowNonCapturedEvents
                                                             onChange={(includedEvents) => {
                                                                 setSurveyValue('conditions', {
                                                                     ...survey.conditions,

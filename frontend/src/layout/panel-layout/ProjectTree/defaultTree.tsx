@@ -204,7 +204,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeDataWarehouse = (): FileSystemImport[] => [
+export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
