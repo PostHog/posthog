@@ -650,35 +650,32 @@ class SessionAgeMiddleware:
             # Get session creation time
             session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
             if session_created_at:
-                # Get the shortest session timeout from all organizations the user belongs to
-                shortest_age = None
-                shortest_idle_timeout = None
-                for org in request.user.organizations.all():
-                    if hasattr(org, "session_cookie_age") and org.session_cookie_age is not None:
-                        if shortest_age is None or org.session_cookie_age < shortest_age:
-                            shortest_age = org.session_cookie_age
-                    if hasattr(org, "session_idle_timeout_seconds") and org.session_idle_timeout_seconds is not None:
-                        if shortest_idle_timeout is None or org.session_idle_timeout_seconds < shortest_idle_timeout:
-                            shortest_idle_timeout = org.session_idle_timeout_seconds
-
-                # If no org-specific timeout, use the default
-                if shortest_age is None:
-                    shortest_age = settings.SESSION_COOKIE_AGE
-                if shortest_idle_timeout is None:
-                    shortest_idle_timeout = settings.SESSION_IDLE_TIMEOUT_SECONDS
+                # Get timeout from current organization
+                current_org = request.user.current_organization
+                session_age = (
+                    current_org.session_cookie_age
+                    if hasattr(current_org, "session_cookie_age") and current_org.session_cookie_age is not None
+                    else settings.SESSION_COOKIE_AGE
+                )
+                idle_timeout = (
+                    current_org.session_idle_timeout_seconds
+                    if hasattr(current_org, "session_idle_timeout_seconds")
+                    and current_org.session_idle_timeout_seconds is not None
+                    else settings.SESSION_IDLE_TIMEOUT_SECONDS
+                )
 
                 # Get last activity time
                 last_activity = request.session.get("last_activity", session_created_at)
                 current_time = time.time()
 
                 # If user is active (not idle), extend their session
-                if current_time - last_activity < shortest_idle_timeout:
+                if current_time - last_activity < idle_timeout:
                     # Update last activity time
                     request.session["last_activity"] = current_time
                     request.session.modified = True
                     request.session.save()
                 # If user is idle, check total session age
-                elif current_time - session_created_at > shortest_age:
+                elif current_time - session_created_at > session_age:
                     # Log out the user
                     from django.contrib.auth import logout
 

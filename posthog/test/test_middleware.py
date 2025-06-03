@@ -144,7 +144,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 54
+        cls.base_app_num_queries = 53
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -722,27 +722,6 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_shortest_org_timeout_used(self, mock_time):
-        # Create another org with shorter timeout
-        other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
-        self.user.organizations.add(other_org)
-
-        # Initial request sets session creation time
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
-        # last_activity should initially be the same as session_created_at
-        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
-
-        # Move forward past shorter timeout (31 seconds)
-        mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
-        response = self.client.get("/")
-        # Should redirect to login
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/login")
-
-    @freeze_time("2024-01-01 12:00:00")
-    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_org_specific_idle_timeout(self, mock_time):
         # Set org-specific idle timeout
         self.organization.session_idle_timeout_seconds = 10
@@ -781,19 +760,56 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_shortest_org_idle_timeout_used(self, mock_time):
-        # Create another org with shorter idle timeout
-        other_org = Organization.objects.create(name="Other Org", session_idle_timeout_seconds=5)
+    def test_session_timeout_after_switching_org(self, mock_time):
+        # Create another org with different timeout
+        other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
         self.user.organizations.add(other_org)
 
         # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
-        # last_activity should initially be the same as session_created_at
         self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
 
-        # Move forward 4 seconds (still active)
+        # Switch to other team
+        self.user.team = other_team
+        self.user.current_team = other_team
+        self.user.current_organization = other_org
+        self.user.save()
+
+        # Move forward 29 seconds (before new org's timeout)
+        mock_time.return_value = 1704110429.0  # 2024-01-01 12:00:29
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Move forward 31 seconds (past new org's timeout)
+        mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/login")
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_idle_timeout_after_switching_org(self, mock_time):
+        # Create another org with different idle timeout
+        other_org = Organization.objects.create(name="Other Org", session_idle_timeout_seconds=5)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        self.user.organizations.add(other_org)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        self.assertEqual(self.client.session.get("last_activity"), 1704110400.0)
+
+        # Switch to other team
+        self.user.team = other_team
+        self.user.current_team = other_team
+        self.user.current_organization = other_org
+        self.user.save()
+
+        # Move forward 4 seconds (before new org's idle timeout)
         mock_time.return_value = 1704110404.0  # 2024-01-01 12:00:04
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -805,7 +821,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Session should continue, last_activity should be updated
         self.assertEqual(self.client.session.get("last_activity"), 1704110404.0)
 
-        # Move forward 6 seconds (past shorter idle timeout)
+        # Move forward 6 seconds (past new org's idle timeout)
         mock_time.return_value = 1704110410.0  # 2024-01-01 12:00:10
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
