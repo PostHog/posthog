@@ -40,16 +40,16 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { DashboardsMenu } from './menus/DashboardsMenu'
 import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
 import { SessionReplayMenu } from './menus/SessionReplayMenu'
-import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
-    sortMethod?: ProjectTreeSortMethod // default: "folder"
     root?: string
     onlyTree?: boolean
+    showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
 }
@@ -59,11 +59,11 @@ let counter = 0
 
 export function ProjectTree({
     logicKey,
-    sortMethod,
     root,
     onlyTree = false,
     searchPlaceholder,
     treeSize = 'default',
+    showRecents,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
@@ -87,6 +87,7 @@ export function ProjectTree({
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
+        sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
         createFolder,
@@ -571,7 +572,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
@@ -616,7 +617,7 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
+                if (root === 'products://' || root === 'metadata://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
                 if (root === 'new://') {
@@ -786,9 +787,36 @@ export function ProjectTree({
                 />
             </ButtonPrimitive>
 
-            <div role="status" aria-live="polite" className="sr-only">
-                Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
-            </div>
+            {showRecents ? (
+                <>
+                    <div role="status" aria-live="polite" className="sr-only">
+                        Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
+                    </div>
+
+                    <div className="flex gap-1 items-center p-1 border-b border-tertiary">
+                        <ButtonPrimitive
+                            variant="default"
+                            size="sm"
+                            onClick={() => setSortMethod('folder')}
+                            aria-label="Sort by alphabetical order"
+                            tooltip="Sort by alphabetical order"
+                            className={cn('border-transparent', { 'text-accent': sortMethod === 'folder' })}
+                        >
+                            Alphabetical
+                        </ButtonPrimitive>
+                        <ButtonPrimitive
+                            variant="default"
+                            size="sm"
+                            onClick={() => setSortMethod('recent')}
+                            aria-label="Sort by creation date"
+                            tooltip="Sort by creation date"
+                            className={cn('border-transparent', { 'text-accent': sortMethod === 'recent' })}
+                        >
+                            Recent
+                        </ButtonPrimitive>
+                    </div>
+                </>
+            ) : null}
 
             {tree}
         </PanelLayoutPanel>
