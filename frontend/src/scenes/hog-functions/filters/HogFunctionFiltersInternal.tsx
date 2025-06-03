@@ -80,7 +80,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         } else if (contextId === 'insight-alerts') {
             return [TaxonomicFilterGroupType.Events]
         }
-        return [TaxonomicFilterGroupType.EventProperties]
+        return []
     }, [contextId, hasAlertRouting])
 
     return (
