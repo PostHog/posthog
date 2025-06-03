@@ -255,17 +255,29 @@ export class SegmentDestinationExecutorService {
                         this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
                     )
 
-                    if (
-                        retriesPossible &&
-                        isFetchResponseRetriable(fetchResponse, fetchError) &&
-                        metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
-                    ) {
+                    if (fetchError || !fetchResponse || fetchResponse.status >= 400) {
+                        if (
+                            !(
+                                retriesPossible &&
+                                isFetchResponseRetriable(fetchResponse, fetchError) &&
+                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                            )
+                        ) {
+                            retriesPossible = false
+                        }
+
                         // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         addLog(
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
                         )
-                        throw new SegmentRetriableError()
+                        throw new SegmentRetriableError(
+                            `Error executing function on event ${
+                                invocation.state.globals.event.uuid
+                            }: Request failed with status ${fetchResponse?.status ?? 'unknown'} (${
+                                (await fetchResponse?.text()) ?? 'unknown'
+                            })`
+                        )
                     }
 
                     if (method !== 'GET') {
@@ -302,11 +314,15 @@ export class SegmentDestinationExecutorService {
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof SegmentRetriableError) {
-                // We have retries left so we can trigger a retry
                 result.finished = false
                 result.invocation.queue = 'segment'
                 result.invocation.queuePriority = metadata.tries
                 result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
+
+                if (retriesPossible) {
+                    // We have retries left so we can trigger a retry
+                    return result
+                }
             }
 
             logger.error('💩', 'Segment destination errored', {
