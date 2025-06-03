@@ -133,6 +133,8 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
+        : key.length > 400
+        ? 'Key must be 400 characters or less.'
         : !key.match?.(/^[a-zA-Z0-9_-]+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined
