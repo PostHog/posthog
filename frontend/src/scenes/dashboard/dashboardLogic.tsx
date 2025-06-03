@@ -1442,8 +1442,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     cache.syncAbortController = new AbortController()
                     const methodOptions: ApiMethodOptions = { signal: cache.syncAbortController.signal }
 
-                    let rateLimitWarningShownThisRefresh = false
-
                     // Create an array of functions that fetch insights synchronously
                     const fetchSyncInsightFunctions = insightsToRefresh.map((insight) => async () => {
                         const queryId = uuid()
@@ -1455,7 +1453,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         let attempt = 0
                         const maxAttempts = 5
-                        const initialDelay = 3000
+                        const initialDelay = 1200
 
                         while (attempt < maxAttempts) {
                             try {
@@ -1483,10 +1481,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         break // Exit retry loop
                                     }
                                     const delay = initialDelay * Math.pow(2, attempt - 1) // Exponential backoff
-                                    if (!rateLimitWarningShownThisRefresh) {
-                                        lemonToast.warning(`Rate limit exceeded, still refreshing some insights`)
-                                        rateLimitWarningShownThisRefresh = true
-                                    }
                                     await wait(delay)
                                     continue // Retry
                                 }
