@@ -2,6 +2,8 @@ import { Liquid } from 'liquidjs'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
+const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
+
 export class LiquidRenderer {
     private liquid: Liquid
 
@@ -12,67 +14,11 @@ export class LiquidRenderer {
             outputEscape: 'escape',
         })
 
-        // Register custom filters
-        this.liquid.registerFilter('default', (value: any, defaultValue: any) => value ?? defaultValue)
-        this.liquid.registerFilter('date', (value: any, format: string) => {
-            // Handle "now" as current date
-            const date = value === 'now' ? new Date() : new Date(value)
-
-            // TODO: This feels like chatgpt wrote this? Its pretty limited to say the least?
-            // Simple date formatting - you can expand this
-            if (format === '%Y%m%d') {
-                return (
-                    date.getFullYear().toString() +
-                    (date.getMonth() + 1).toString().padStart(2, '0') +
-                    date.getDate().toString().padStart(2, '0')
-                )
-            }
-            if (format === '%B %-d, %Y at %l:%M %p') {
-                return (
-                    date.toLocaleDateString('en-US', {
-                        month: 'long',
-                        day: 'numeric',
-                        year: 'numeric',
-                    }) +
-                    ' at ' +
-                    date.toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                    })
-                )
-            }
-            if (format === '%l:%M %p') {
-                return date.toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true,
-                })
-            }
-            // Fallback to ISO string
-            return date.toISOString()
-        })
+        // NOTE: We can register custom filters here if needed like below
+        // this.liquid.registerFilter('default', (value: any, defaultValue: any) => value ?? defaultValue)
     }
 
-    private async render(template: string, context: any): Promise<string> {
-        // TODO: BW - understand this better.
-        // HTML decode the template before processing. To do maybe we should use a library for better html decoding
-        // $ is not decoded because it is used as a variable in liquid templates, so we need to handle this separately
-
-        const decodedTemplate = template
-            .replace(/&gt;/g, '>')
-            .replace(/&lt;/g, '<')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&#x27;/g, "'")
-
-        return await this.liquid.parseAndRender(decodedTemplate, context)
-    }
-
-    async renderWithHogFunctionGlobals(
-        template: string,
-        globals: HogFunctionInvocationGlobalsWithInputs
-    ): Promise<string> {
+    renderWithHogFunctionGlobals(template: string, globals: HogFunctionInvocationGlobalsWithInputs): Promise<string> {
         const context = {
             event: globals.event,
             person: globals.person,
@@ -82,7 +28,19 @@ export class LiquidRenderer {
             inputs: globals.inputs || {},
             now: new Date(),
         }
-        return await this.render(template, context)
+
+        // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
+        // We need to decode these but _only_ for the liquid elements i.e. content within {{ }} or {% %}
+        const decodedTemplate = template.replace(LIQUID_REGEX, (match) => {
+            return match
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&amp;/g, '&')
+                .replace(/&quot;/g, '"')
+                .replace(/&#x27;/g, "'")
+        })
+
+        return this.liquid.parseAndRenderSync(decodedTemplate, context)
     }
 }
 

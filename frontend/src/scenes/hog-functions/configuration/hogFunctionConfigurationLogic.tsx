@@ -103,20 +103,22 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         data: HogFunctionConfigurationType | HogFunctionMappingType
     ): Record<string, HogFunctionInputType> {
         const sanitizedInputs: Record<string, HogFunctionInputType> = {}
-        data.inputs_schema?.forEach((input) => {
-            const secret = data.inputs?.[input.key]?.secret
-            let value = data.inputs?.[input.key]?.value
+        data.inputs_schema?.forEach((inputSchema) => {
+            const templatingEnabled = inputSchema.templating ?? true
+            const input = data.inputs?.[inputSchema.key]
+            const secret = input?.secret
+            let value = input?.value
 
             if (secret) {
                 // If set this means we haven't changed the value
-                sanitizedInputs[input.key] = {
+                sanitizedInputs[inputSchema.key] = {
                     value: '********', // Don't send the actual value
                     secret: true,
                 }
                 return
             }
 
-            if (input.type === 'json' && typeof value === 'string') {
+            if (inputSchema.type === 'json' && typeof value === 'string') {
                 try {
                     value = JSON.parse(value)
                 } catch (e) {
@@ -124,10 +126,12 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
                 }
             }
 
-            sanitizedInputs[input.key] = {
+            sanitizedInputs[inputSchema.key] = {
                 value: value,
+                templating: templatingEnabled ? input?.templating ?? 'hog' : undefined,
             }
         })
+
         return sanitizedInputs
     }
 
