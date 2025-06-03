@@ -52,7 +52,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_increment_request_count() {
         let redis_client = setup_redis_client(None);
 

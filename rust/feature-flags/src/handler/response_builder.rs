@@ -142,9 +142,9 @@ async fn apply_config_fields(
     response.config.capture_dead_clicks = team.capture_dead_clicks;
 
     response.config.site_apps = if team.inject_web_apps.unwrap_or(false) {
-        get_decide_site_apps(context.reader.clone(), team.id).await?
+        Some(get_decide_site_apps(context.reader.clone(), team.id).await?)
     } else {
-        vec![]
+        Some(vec![])
     };
 
     Ok(())
@@ -235,10 +235,8 @@ mod tests {
         response.config.capture_dead_clicks = team.capture_dead_clicks;
 
         // Skip site_apps and session_recording since they require database/headers
-        // I test these in their respective modules
-        response.config.site_apps = vec![];
-
-        // TODO: add session_recording config
+        // NB: I test this behavior thoroughly in site_apps/mod.rs
+        response.config.site_apps = Some(vec![]);
     }
 
     fn create_base_team() -> Team {

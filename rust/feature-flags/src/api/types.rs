@@ -143,7 +143,8 @@ pub struct ConfigResponse {
     pub is_authenticated: Option<bool>,
 
     /// List of site apps with their IDs and URLs
-    pub site_apps: Vec<WebJsUrl>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site_apps: Option<Vec<WebJsUrl>>,
 
     /// Whether heatmaps are enabled
     #[serde(skip_serializing_if = "Option::is_none")]
