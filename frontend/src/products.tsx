@@ -491,4 +491,106 @@ export const treeItemsNew = [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsExplore = []
+export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'Broadcasts',
+        href: urls.messagingBroadcasts(),
+        type: 'hog_function/broadcast',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
+    },
+    {
+        path: 'Campaigns',
+        href: urls.messagingCampaigns(),
+        type: 'hog_function/campaign',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+    },
+    {
+        path: 'Early access features',
+        type: 'early_access_feature',
+        href: urls.earlyAccessFeatures(),
+        visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
+    },
+    {
+        path: `Experiments`,
+        type: 'experiment',
+        href: urls.experiments(),
+        visualOrder: PRODUCT_VISUAL_ORDER.experiments,
+    },
+    {
+        path: `Feature flags`,
+        type: 'feature_flag',
+        href: urls.featureFlags(),
+        visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
+    },
+    {
+        path: 'LLM observability',
+        iconType: 'ai',
+        href: urls.llmObservabilityDashboard(),
+        flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+        visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
+        tags: ['beta'],
+    },
+    {
+        path: 'Links',
+        type: 'link',
+        href: urls.links(),
+        flag: FEATURE_FLAGS.LINKS,
+        visualOrder: PRODUCT_VISUAL_ORDER.links,
+        tags: ['alpha'],
+    },
+    {
+        path: 'Logs',
+        iconType: 'live',
+        href: urls.logs(),
+        flag: FEATURE_FLAGS.LOGS,
+        visualOrder: PRODUCT_VISUAL_ORDER.logs,
+        tags: ['alpha'],
+    },
+    {
+        path: 'Product analytics',
+        type: 'insight',
+        href: urls.insights(),
+        visualOrder: PRODUCT_VISUAL_ORDER.productAnalytics,
+    },
+    {
+        path: 'Revenue analytics',
+        iconType: 'piggyBank',
+        href: urls.revenueAnalytics(),
+        visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+        tags: ['beta'],
+    },
+    {
+        path: 'Session replay',
+        href: urls.replay(ReplayTabs.Home),
+        type: 'session_recording_playlist',
+        visualOrder: PRODUCT_VISUAL_ORDER.sessionReplay,
+    },
+    { path: 'Surveys', type: 'survey', href: urls.surveys(), visualOrder: PRODUCT_VISUAL_ORDER.surveys },
+    {
+        path: 'User interviews',
+        href: urls.userInterviews(),
+        type: 'user_interview',
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+        visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
+        tags: ['alpha'],
+    },
+    {
+        path: 'Web analytics',
+        iconType: 'pieChart',
+        href: urls.webAnalytics(),
+        visualOrder: PRODUCT_VISUAL_ORDER.webAnalytics,
+    },
+]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsMetadata = (): FileSystemImport[] => [
+    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
+    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+]

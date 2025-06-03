@@ -44,6 +44,10 @@ DEFAULT_NUMERIC_SCALE = 32
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
+class DuplicatePrimaryKeysException(Exception):
+    pass
+
+
 def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
 
