@@ -406,7 +406,6 @@ export function HogFunctionInputWithSchema({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource } = useValues(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(false)
-    const [allowLiquid, setAllowLiquid] = useState(schema.type === 'email' && schema.templating === false)
 
     const value = configuration.inputs?.[schema.key]
 
@@ -427,12 +426,6 @@ export function HogFunctionInputWithSchema({
             setConfigurationValue(`inputs.${schema.key}`, null)
         }
         setConfigurationValue('inputs_schema', inputsSchema)
-    }
-
-    const handleLiquidToggle = (enabled: boolean): void => {
-        setAllowLiquid(enabled)
-        const newSchema = { templating: !enabled }
-        onSchemaChange(newSchema)
     }
 
     useEffect(() => {
@@ -459,11 +452,19 @@ export function HogFunctionInputWithSchema({
                 <LemonField name={`inputs.${schema.key}`} help={schema.description}>
                     {({
                         value,
-                        onChange,
+                        onChange: _onChange,
                     }: {
                         value?: HogFunctionInputType
                         onChange: (val: HogFunctionInputType) => void
                     }) => {
+                        const onChange = (newValue: HogFunctionInputType) => {
+                            _onChange({
+                                // Keep the existing parts if they exist
+                                ...value,
+                                ...newValue,
+                            })
+                        }
+
                         return (
                             <>
                                 <div className="flex gap-2 items-center">
@@ -488,29 +489,25 @@ export function HogFunctionInputWithSchema({
                                     <div className="flex-1" />
 
                                     {supportsTemplating && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
-                                            sideIcon={<IconInfo />}
-                                            noPadding
-                                            className="p-1 opacity-0 transition-opacity group-hover:opacity-100"
-                                        >
-                                            Supports templating
-                                        </LemonButton>
-                                    )}
-
-                                    {schema.type === 'email' && (
-                                        <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                                            <LemonSwitch
-                                                size="small"
-                                                checked={allowLiquid}
-                                                onChange={handleLiquidToggle}
-                                                label="Allow Liquid"
-                                                bordered
+                                        <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                                            <LemonButton
+                                                size="xsmall"
+                                                to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
+                                                sideIcon={<IconInfo />}
+                                                noPadding
+                                                className="p-1"
+                                            >
+                                                Supports templating
+                                            </LemonButton>
+                                            <LemonSelect
+                                                size="xsmall"
+                                                value={value?.templating ?? 'hog'}
+                                                onChange={(templating) => onChange({ value: value?.value, templating })}
+                                                options={[
+                                                    { label: 'Hog', value: 'hog' },
+                                                    { label: 'Liquid', value: 'liquid' },
+                                                ]}
                                             />
-                                            <Tooltip title="Enable Liquid templating syntax instead of Hog templating for email content">
-                                                <IconInfo className="text-muted-alt" />
-                                            </Tooltip>
                                         </div>
                                     )}
 
