@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -40,6 +40,17 @@ export const playlistLogic = kea<playlistLogicType>([
             }
             if (searchParams.showFilters) {
                 actions.setIsFiltersExpanded(true)
+            }
+        },
+    })),
+    listeners(() => ({
+        setIsFiltersExpanded: ({ isFiltersExpanded }) => {
+            // If we close the filter modal, we need to remove showFilters & filtersTab params from the url
+            if (isFiltersExpanded === false) {
+                const currentSearchParams = new URLSearchParams(window.location.search)
+                currentSearchParams.delete('showFilters')
+                currentSearchParams.delete('filtersTab')
+                window.history.replaceState({}, '', `${window.location.pathname}?${currentSearchParams.toString()}`)
             }
         },
     })),
