@@ -30,7 +30,6 @@ export type HogFunctionTemplateListFilters = {
 }
 
 export type HogFunctionTemplateListLogicProps = {
-    logicKey?: string
     type: HogFunctionTypeType
     additionalTypes?: HogFunctionTypeType[]
     subTemplateIds?: HogFunctionSubTemplateIdType[]
@@ -171,7 +170,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ forceFilters, logicKey }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
+            ({ forceFilters }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
@@ -179,7 +178,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     const configuration: Record<string, any> = {
                         ...(subTemplate ?? {}),
-                        logicKey,
                     }
                     if (forceFilters?.filters) {
                         // Always use the forced filters if given

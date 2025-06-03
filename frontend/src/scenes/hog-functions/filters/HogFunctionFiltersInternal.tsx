@@ -19,28 +19,37 @@ type FilterOption = { value: string; label: string }
  * Options for the 'Trigger' field on the new destination page
  */
 const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
-    if (contextId === 'error-tracking') {
-        return [
-            {
-                label: 'Error tracking issue created',
-                value: '$error_tracking_issue_created',
-            },
-            {
-                label: 'Error tracking issue reopened',
-                value: '$error_tracking_issue_reopened',
-            },
-        ]
+    switch (contextId) {
+        case 'error-tracking':
+            return [
+                {
+                    label: 'Error tracking issue created',
+                    value: '$error_tracking_issue_created',
+                },
+                {
+                    label: 'Error tracking issue reopened',
+                    value: '$error_tracking_issue_reopened',
+                },
+            ]
+        case 'insight-alerts':
+            return [
+                {
+                    label: 'Insight alert firing',
+                    value: '$insight_alert_firing',
+                },
+            ]
+        default:
+            return [
+                {
+                    label: 'Team activity',
+                    value: '$activity_log_entry_created',
+                },
+                {
+                    label: 'Early access feature updated',
+                    value: '$early_access_feature_updated',
+                },
+            ]
     }
-    return [
-        {
-            label: 'Team activity',
-            value: '$activity_log_entry_created',
-        },
-        {
-            label: 'Early access feature updated',
-            value: '$early_access_feature_updated',
-        },
-    ]
 }
 
 const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
@@ -60,21 +69,19 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): HogFuncti
 }
 
 export function HogFunctionFiltersInternal(): JSX.Element {
-    const {
-        logicProps: { id },
-        contextId,
-    } = useValues(hogFunctionConfigurationLogic)
+    const { contextId } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getFilterOptions(contextId), [contextId])
     const hasAlertRouting = useFeatureFlag('ERROR_TRACKING_ALERT_ROUTING')
-    const showPropertyFilters = (hasAlertRouting && contextId === 'error-tracking') || contextId === 'insight-alerts'
 
     const taxonomicGroupTypes = useMemo(() => {
-        if (contextId === 'error-tracking') {
+        if (hasAlertRouting && contextId === 'error-tracking') {
             return [TaxonomicFilterGroupType.ErrorTrackingIssues]
+        } else if (contextId === 'insight-alerts') {
+            return [TaxonomicFilterGroupType.Events]
         }
-        return []
-    }, [contextId])
+        return [TaxonomicFilterGroupType.EventProperties]
+    }, [contextId, hasAlertRouting])
 
     return (
         <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
@@ -88,8 +95,9 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                             onChange={(value) => onChange(setSimpleFilterValue(options, value))}
                             placeholder="Select a filter"
                         />
-                        {showPropertyFilters ? (
+                        {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
+                                key={contextId}
                                 propertyFilters={value?.properties ?? []}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
@@ -98,7 +106,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                         properties,
                                     })
                                 }}
-                                pageKey="hog-function-internal-property-filters"
+                                pageKey={`hog-function-internal-property-filters-${contextId}`}
                                 buttonSize="small"
                                 disablePopover
                             />

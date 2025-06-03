@@ -18,18 +18,18 @@ export function AlertDestinationSelector({ alertId }: AlertDestinationSelectorPr
             subTemplateIds={[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]}
             hideFeedback={true}
             filters={{
+                properties: [
+                    {
+                        key: 'alert_id',
+                        value: alertId,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
                 events: [
                     {
                         id: INSIGHT_ALERT_FIRING_EVENT_ID,
                         type: 'events',
-                        properties: [
-                            {
-                                key: 'alert_id',
-                                value: alertId,
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
                     },
                 ],
             }}
