@@ -32,6 +32,7 @@ import {
     CustomEventConversionGoal,
     DatabaseSchemaDataWarehouseTable,
     DataTableNode,
+    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     MARKETING_ANALYTICS_SCHEMA,
@@ -787,30 +788,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
-                const nodeList: AnyEntityNode[] = Object.entries(validSourcesMap)
-                    .map(([tableId, fieldMapping]: [string, any]) => {
-                        const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
-                        const table_name = table?.name
-                        const schema_name = table?.schema?.name
-                        if (!table_name) {
-                            return null
-                        }
+                const mappedNodes = Object.entries(validSourcesMap).map(([tableId, fieldMapping]: [string, any]) => {
+                    const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                    const table_name = table?.name
+                    const schema_name = table?.schema?.name
+                    if (!table_name) {
+                        return null
+                    }
 
-                        const returning: AnyEntityNode = {
-                            kind: NodeKind.DataWarehouseNode,
-                            id: tableId,
-                            name: schema_name,
-                            custom_name: `${schema_name} Cost`,
-                            id_field: 'id',
-                            distinct_id_field: 'id',
-                            timestamp_field: fieldMapping.date,
-                            table_name: table_name,
-                            math: PropertyMathType.Sum,
-                            math_property: fieldMapping.total_cost,
-                        }
-                        return returning
-                    })
-                    .filter((node) => node !== null)
+                    const returning: AnyEntityNode = {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: tableId,
+                        name: schema_name,
+                        custom_name: `${schema_name} Cost`,
+                        id_field: 'id',
+                        distinct_id_field: 'id',
+                        timestamp_field: fieldMapping.date,
+                        table_name: table_name,
+                        math: PropertyMathType.Sum,
+                        math_property: fieldMapping.total_cost,
+                    }
+                    return returning
+                })
+
+                const nodeList: AnyEntityNode[] = mappedNodes.filter((node): node is DataWarehouseNode => node !== null)
                 return nodeList
             },
         ],
