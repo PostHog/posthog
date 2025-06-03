@@ -503,6 +503,12 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
     )
 
+    sort_key = "uuid"
+    if isinstance(model, BatchExportModel) and model.name == "persons":
+        sort_key = "person_id"
+    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+        sort_key = "session_id"
+
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
         clickhouse_client=clickhouse_client,
@@ -517,6 +523,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         compression=compression,
         file_format=file_format,
         backfill_details=None,
+        sort_key=sort_key,
     )
 
 
@@ -1967,10 +1974,8 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
     class FakeSession(aioboto3.Session):
         @contextlib.asynccontextmanager
         async def client(self, *args, **kwargs):
-            client = self._session.create_client(*args, **kwargs)
-
-            async with client as client:
-                assert isinstance(client, S3Client)
+            async with self._session.create_client(*args, **kwargs) as client:
+                client = t.cast(S3Client, client)  # appease mypy
                 original_upload_part = client.upload_part
 
                 async def faulty_upload_part(*args, **kwargs):
@@ -1989,7 +1994,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
                     else:
                         return await original_upload_part(*args, **kwargs)
 
-                client.upload_part = faulty_upload_part  # type: ignore
+                client.upload_part = faulty_upload_part
 
                 yield client
 
@@ -2097,7 +2102,6 @@ async def test_s3_multi_part_upload_raises_retryable_exception(bucket_name, s3_k
         @contextlib.asynccontextmanager
         async def client(self, *args, **kwargs):
             client = self._session.create_client(*args, **kwargs)
-            assert isinstance(client, S3Client)
             client.upload_part = faulty_upload_part  # type: ignore
 
             yield client
@@ -2156,10 +2160,8 @@ async def test_s3_export_workflow_with_request_timeouts(
     class FakeSession(aioboto3.Session):
         @contextlib.asynccontextmanager
         async def client(self, *args, **kwargs):
-            client = self._session.create_client(*args, **kwargs)
-
-            async with client as client:
-                assert isinstance(client, S3Client)
+            async with self._session.create_client(*args, **kwargs) as client:
+                client = t.cast(S3Client, client)  # appease mypy
                 original_upload_part = client.upload_part
 
                 async def faulty_upload_part(*args, **kwargs):
@@ -2177,7 +2179,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                     else:
                         return await original_upload_part(*args, **kwargs)
 
-                client.upload_part = faulty_upload_part  # type: ignore
+                client.upload_part = faulty_upload_part
 
                 yield client
 
