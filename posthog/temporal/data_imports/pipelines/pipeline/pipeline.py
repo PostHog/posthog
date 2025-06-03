@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
@@ -114,6 +115,12 @@ class PipelineNonDLT:
             ):
                 self._job.rows_synced = 0
                 self._job.save()
+
+            # Check for duplicate primary keys
+            if self._is_incremental and self._resource.has_duplicate_primary_keys:
+                raise DuplicatePrimaryKeysException(
+                    f"The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key. Primary keys being used are: {self._resource.primary_keys}"
+                )
 
             # Setup row tracking
             if self._resource.rows_to_sync:
