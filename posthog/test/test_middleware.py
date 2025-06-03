@@ -144,7 +144,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 50
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -663,7 +663,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         # Should redirect to login
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/login")
+        self.assertEqual(response.url, "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.")
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
@@ -682,7 +682,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         # Should redirect to login
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/login")
+        self.assertEqual(response.url, "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.")
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
@@ -712,4 +712,4 @@ class TestSessionAgeMiddleware(APIBaseTest):
         mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/login")
+        self.assertEqual(response.url, "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.")
