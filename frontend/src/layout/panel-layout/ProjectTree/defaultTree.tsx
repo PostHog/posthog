@@ -27,8 +27,8 @@ import { urls } from 'scenes/urls'
 
 import {
     fileSystemTypes,
-    getTreeItemsDataManagement,
     getTreeItemsGames,
+    getTreeItemsMetadata,
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
@@ -204,8 +204,8 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
-    ...getTreeItemsDataManagement(),
+export const getDefaultTreeMetadata = (): FileSystemImport[] => [
+    ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
         iconType: 'definitions',

@@ -125,6 +125,11 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # TODO - should we really on_delete: CASCADE here?
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
+    def delete(self, *args, **kwargs):
+        # On delete, we want to clean up unresolved stack frames too
+        self.errortrackingstackframe_set.filter(resolved=False).delete()
+        super().delete(*args, **kwargs)
+
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "ref"]),
@@ -201,12 +206,31 @@ class ErrorTrackingGroupingRule(UUIDModel):
         # ]
 
 
+class ErrorTrackingSuppressionRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Grouping rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.CASCADE, null=True)
+    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it

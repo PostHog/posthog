@@ -200,20 +200,6 @@ export const storiesMap: storyGroup[] = [
         ],
     },
     {
-        id: 'series-d',
-        title: 'Series D',
-        stories: [
-            {
-                id: 'series-d-announcement',
-                title: 'Series D',
-                description: 'Series C + D',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/news_63e9466930.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/series_d_rough_cut_00a9fd72cc.mp4',
-                type: 'video',
-            },
-        ],
-    },
-    {
         id: 'max-ai',
         title: 'Max AI',
         stories: [

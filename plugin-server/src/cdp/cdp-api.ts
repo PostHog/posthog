@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
+import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
@@ -32,6 +33,7 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -40,14 +42,24 @@ export class CdpApi {
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
     }
 
     public get service(): PluginServerService {
         return {
             id: 'cdp-api',
-            onShutdown: async () => {},
+            onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
         }
+    }
+
+    async start() {
+        await this.hogFunctionManager.start()
+        await this.cdpSourceWebhooksConsumer.start()
+    }
+
+    async stop() {
+        await Promise.all([this.hogFunctionManager.stop(), this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy() {
@@ -67,6 +79,8 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
+        router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
 
         return router
     }
@@ -317,4 +331,61 @@ export class CdpApi {
             await this.hogFunctionMonitoringService.produceQueuedMessages()
         }
     }
+
+    private postWebhook =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<any> => {
+            // TODO: Source handler service that takes care of finding the relevant function,
+            // running it (maybe) and scheduling the job if it gets suspended
+
+            const { webhook_id } = req.params
+
+            try {
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
+
+                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                    // TODO: Better validation here before we directly use the result
+                    const httpResponse = result.execResult.httpResponse as { status: number; body: any }
+                    if (typeof httpResponse.body === 'string') {
+                        return res.status(httpResponse.status).send(httpResponse.body)
+                    } else if (typeof httpResponse.body === 'object') {
+                        return res.status(httpResponse.status).json(httpResponse.body)
+                    } else {
+                        return res.status(httpResponse.status).send('')
+                    }
+                }
+
+                if (result.error) {
+                    return res.status(500).json({
+                        status: 'Unhandled error',
+                    })
+                }
+                if (!result.finished) {
+                    return res.status(201).json({
+                        status: 'queued',
+                    })
+                }
+                return res.status(200).json({
+                    status: 'ok',
+                })
+            } catch (error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
+
+    private getWebhook =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<any> => {
+            const { webhook_id } = req.params
+
+            const webhook = await this.cdpSourceWebhooksConsumer.getWebhook(webhook_id)
+
+            if (!webhook) {
+                return res.status(404).json({ error: 'Not found' })
+            }
+
+            return res.set('Allow', 'POST').status(405).json({
+                error: 'Method not allowed',
+            })
+        }
 }
