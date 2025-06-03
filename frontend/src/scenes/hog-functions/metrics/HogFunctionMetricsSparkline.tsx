@@ -10,14 +10,14 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
     const logic = hogFunctionMetricsLogic({ id })
     const { appMetrics, appMetricsLoading } = useValues(logic)
     const { loadMetrics } = useActions(logic)
-
     const { ref: inViewRef, inView } = useInView()
+    const isInStorybook = document.body.classList.contains('storybook-test-runner')
 
     useEffect(() => {
-        if (inView && !appMetrics && !appMetricsLoading) {
+        if (isInStorybook || (inView && !appMetrics && !appMetricsLoading)) {
             loadMetrics()
         }
-    }, [inView])
+    }, [inView, isInStorybook])
 
     const displayData: SparklineTimeSeries[] = [
         {
@@ -31,12 +31,6 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
             values: appMetrics?.series.find((s) => s.name === 'failed')?.values || [],
         },
     ]
-
-    const isInStorybook = document.body.classList.contains('storybook-test-runner')
-
-    if (isInStorybook) {
-        return <div className="h-8 max-w-24 bg-surface-secondary" />
-    }
 
     return (
         <div ref={inViewRef}>
