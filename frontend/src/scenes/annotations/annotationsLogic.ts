@@ -12,6 +12,10 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { annotationScopeToName } from './annotationModalLogic'
 import type { annotationsLogicType } from './annotationsLogicType'
 
+const isValidAnnotationScope = (scope: string): scope is AnnotationScope => {
+    return Object.values(AnnotationScope).includes(scope as AnnotationScope)
+}
+
 export const annotationsLogic = kea<annotationsLogicType>([
     path(['scenes', 'annotations', 'annotationsLogic']),
     connect(() => ({
