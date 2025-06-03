@@ -27,6 +27,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
@@ -212,10 +213,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         <HistoryPreview sidePanel={sidePanel} />
                     </div>
                 ) : (
-                    <>
+                    /** Must be the last child and be a direct descendant of the scrollable element */
+                    <ThreadAutoScroller>
                         <Thread />
                         <QuestionInput isFloating />
-                    </>
+                    </ThreadAutoScroller>
                 )}
             </BindLogic>
         </>

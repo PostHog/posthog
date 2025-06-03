@@ -65,7 +65,7 @@ import {
     sanitizeHTML,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
-    validateColor,
+    validateSurveyAppearance,
 } from './utils'
 
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
@@ -1003,10 +1003,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         consolidatedSurveyResults: {
             loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
-                if (!values.isNewQuestionVizEnabled) {
-                    return { responsesByQuestion: {} }
-                }
-
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
@@ -1542,6 +1538,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.surveyMultipleChoiceResultsReady,
                 s.surveyOpenTextResultsReady,
                 s.surveyRecurringNPSResultsReady,
+                s.consolidatedSurveyResultsLoading,
+                s.isNewQuestionVizEnabled,
             ],
             (
                 surveyBaseStatsLoading: boolean,
@@ -1550,8 +1548,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 surveySingleChoiceResultsReady: boolean,
                 surveyMultipleChoiceResultsReady: boolean,
                 surveyOpenTextResultsReady: boolean,
-                surveyRecurringNPSResultsReady: boolean
+                surveyRecurringNPSResultsReady: boolean,
+                consolidatedSurveyResultsLoading: boolean,
+                isNewQuestionVizEnabled: boolean
             ) => {
+                if (isNewQuestionVizEnabled) {
+                    return (
+                        consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                    )
+                }
+
                 return (
                     surveyBaseStatsLoading ||
                     surveyDismissedAndSentCountLoading ||
@@ -2145,32 +2151,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     targeting_flag_filters: values.flagPropertyErrors,
                     // controlled using a PureField in the form
                     urlMatchType: values.urlMatchTypeValidationError,
-                    appearance: sanitizedAppearance && {
-                        backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
-                        borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        // Only validate rating button colors if there's a rating question
-                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
-                            ratingButtonActiveColor: validateColor(
-                                sanitizedAppearance.ratingButtonActiveColor,
-                                'rating button active color'
-                            ),
-                            ratingButtonColor: validateColor(
-                                sanitizedAppearance.ratingButtonColor,
-                                'rating button color'
-                            ),
-                        }),
-                        submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
-                        submitButtonTextColor: validateColor(
-                            sanitizedAppearance.submitButtonTextColor,
-                            'button text color'
+                    appearance:
+                        sanitizedAppearance &&
+                        validateSurveyAppearance(
+                            sanitizedAppearance,
+                            questions.some((q) => q.type === SurveyQuestionType.Rating),
+                            type
                         ),
-                        widgetSelector:
-                            type === 'widget' &&
-                            appearance?.widgetType === 'selector' &&
-                            !sanitizedAppearance.widgetSelector
-                                ? 'Please enter a CSS selector.'
-                                : undefined,
-                    },
                 }
             },
             submit: (surveyPayload) => {

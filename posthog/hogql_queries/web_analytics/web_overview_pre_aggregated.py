@@ -3,19 +3,15 @@ from typing import TYPE_CHECKING
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 
-SUPPORTED_PROPERTIES = {
-    "$host": "host",
-    "$device_type": "device_type",
-}
-
 
 class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebOverviewQueryRunner") -> None:
-        super().__init__(runner, supported_props_filters=SUPPORTED_PROPERTIES)
+        super().__init__(runner, supported_props_filters=WEB_OVERVIEW_SUPPORTED_PROPERTIES)
 
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
@@ -40,8 +36,8 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
                 NULL AS revenue,
                 NULL AS previous_revenue
-            FROM web_overview_daily
-            """,
+        FROM web_bounces_daily FINAL
+        """,
             placeholders={
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
                 "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", previous_period_filter),
@@ -55,21 +51,20 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 "avg_session_duration_previous": self._safe_avg_sessions(
                     "total_session_duration_state", previous_period_filter
                 ),
-                "bounce_rate_current": self._safe_avg_sessions("total_bounces_state", current_period_filter),
-                "bounce_rate_previous": self._safe_avg_sessions("total_bounces_state", previous_period_filter),
+                "bounce_rate_current": self._safe_avg_sessions("bounces_count_state", current_period_filter),
+                "bounce_rate_previous": self._safe_avg_sessions("bounces_count_state", previous_period_filter),
             },
         )
 
         assert isinstance(query, ast.SelectQuery)
 
-        filters = self._get_filters(table_name="web_overview_daily")
+        filters = self._get_filters(table_name="web_bounces_daily")
         if filters:
             query.where = filters
 
         return query
 
     def _uniq_merge_if(self, state_field: str, period_filter: ast.Expr) -> ast.Call:
-        """Utility method to create uniqMergeIf expressions"""
         return ast.Call(
             name="uniqMergeIf",
             args=[
@@ -79,7 +74,6 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         )
 
     def _sum_merge_if(self, state_field: str, period_filter: ast.Expr) -> ast.Call:
-        """Utility method to create sumMergeIf expressions"""
         return ast.Call(
             name="sumMergeIf",
             args=[
@@ -89,10 +83,6 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         )
 
     def _safe_avg_sessions(self, metric_state: str, period_filter: ast.Expr) -> ast.Call:
-        """
-        Utility method to safely calculate averages per session, avoiding division by zero.
-        Returns: if(sessions > 0, metric / sessions, 0)
-        """
         sessions_count = self._uniq_merge_if("sessions_uniq_state", period_filter)
         metric_sum = self._sum_merge_if(metric_state, period_filter)
 

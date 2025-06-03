@@ -252,6 +252,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
 
+    def visit_map_property_type(self, node: ast.PropertyType):
+        self.visit(node.field_type)
+
     def visit_expression_field_type(self, node: ast.ExpressionFieldType):
         pass
 

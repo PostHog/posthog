@@ -1,5 +1,7 @@
 import dataclasses
 from datetime import datetime
+
+import posthoganalytics
 import structlog
 from django.core.cache import cache
 from posthog.session_recordings.models.metadata import RecordingBlockListing
@@ -20,8 +22,18 @@ FIVE_SECONDS = 5
 ONE_DAY_IN_SECONDS = 24 * 60 * 60
 
 
-def listing_cache_key(recording: SessionRecording) -> str:
-    return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team.id}_{recording.session_id}"
+def listing_cache_key(recording: SessionRecording) -> str | None:
+    try:
+        return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team.id}_{recording.session_id}"
+    except Exception as e:
+        posthoganalytics.capture_exception(
+            e,
+            properties={
+                "location": "session_recording_v2_service.listing_cache_key",
+                "recording": recording.__dict__ if recording else None,
+            },
+        )
+        return None
 
 
 def within_the_last_day(start_time: datetime | None) -> bool:
@@ -39,13 +51,14 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
     then we don't hit ClickHouse too often.
     """
     cache_key = listing_cache_key(recording)
-    cached_block_listing = cache.get(cache_key)
-    if cached_block_listing is not None:
-        return cached_block_listing
+    if cache_key is not None:
+        cached_block_listing = cache.get(cache_key)
+        if cached_block_listing is not None:
+            return cached_block_listing
 
     listed_blocks = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
 
-    if listed_blocks is not None:
+    if listed_blocks is not None and not listed_blocks.is_empty() and cache_key is not None:
         # If a recording started more than 24 hours ago, then it is complete
         # we can cache it for a long time.
         # If not, we might still be receiving blocks, so we cache it for a short time.
