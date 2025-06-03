@@ -57,6 +57,15 @@ export function loadPostHogJS(): void {
                     loadedInstance.sessionManager?.resetSessionId()
                 }
 
+                setInterval(() => {
+                    const memory = (window.performance as any).memory
+                    if (memory) {
+                        loadedInstance.capture('memory_usage', {
+                            memory,
+                        })
+                    }
+                }, 60000)
+
                 // Make sure we have access to the object in window for debugging
                 window.posthog = loadedInstance
             },
