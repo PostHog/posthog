@@ -432,7 +432,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     { path: `Experiment`, type: 'experiment', href: urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: urls.featureFlag('new') },
     {
-        path: `Insight/Calendar Heatmap`,
+        path: `Insight/Calendar heatmap`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
         iconType: 'insightHogQL',
