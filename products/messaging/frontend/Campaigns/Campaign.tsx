@@ -22,7 +22,6 @@ export const scene: SceneExport = {
     }),
 }
 
-// Wrapper component with ReactFlowProvider
 export function Campaign({ id }: CampaignLogicProps = {}): JSX.Element {
     const { currentTab } = useValues(campaignLogic)
     const { campaignLoading } = useValues(campaignLogic)
