@@ -196,16 +196,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
-            identifier: 'Data',
-            id: 'Data',
+            identifier: 'Metadata',
+            id: 'Metadata',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Data')
+                    handlePanelTriggerClick('Metadata')
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Data' ? 'Close data' : 'Open data',
         },
         {
             identifier: 'People',
@@ -217,7 +216,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'People' ? 'Close people' : 'Open people',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -230,7 +228,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
         },
         {
             identifier: 'Activity',
@@ -253,8 +250,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
         },
     ]
 
