@@ -1,32 +1,90 @@
+import dataclasses
 from datetime import datetime
-from typing import TypedDict
-import structlog
 
+import posthoganalytics
+import structlog
+from django.core.cache import cache
+from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.session_replay_events_v2_test import SessionReplayEventsV2Test
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 logger = structlog.get_logger(__name__)
 
 
-class RecordingBlock(TypedDict):
+@dataclasses.dataclass(frozen=True)
+class RecordingBlock:
     start_time: datetime
     end_time: datetime
     url: str
+
+
+FIVE_SECONDS = 5
+ONE_DAY_IN_SECONDS = 24 * 60 * 60
+
+
+def listing_cache_key(recording: SessionRecording) -> str | None:
+    try:
+        # NB this has to be `team_id` and not `team.id` as it's called in an async context
+        # and `team.id` can trigger a database query, and the Django ORM is synchronous
+        return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team_id}_{recording.session_id}"
+    except Exception as e:
+        posthoganalytics.capture_exception(
+            e,
+            properties={
+                "location": "session_recording_v2_service.listing_cache_key",
+                "recording": recording.__dict__ if recording else None,
+            },
+        )
+        return None
+
+
+def within_the_last_day(start_time: datetime | None) -> bool:
+    if start_time is None:
+        return False
+
+    return (datetime.now(start_time.tzinfo) - start_time).total_seconds() < ONE_DAY_IN_SECONDS
+
+
+def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
+    """
+    When API clients are requesting v2 recordings, there is a dependency on querying ClickHouse for the metadata
+    We can have a cache of differing length depending on the age of the recording.
+    So that when a client ignores cache headers, or if they are paging through all blocks,
+    then we don't hit ClickHouse too often.
+    """
+    cache_key = listing_cache_key(recording)
+    if cache_key is not None:
+        cached_block_listing = cache.get(cache_key)
+        if cached_block_listing is not None:
+            return cached_block_listing
+
+    listed_blocks = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
+
+    if listed_blocks is not None and not listed_blocks.is_empty() and cache_key is not None:
+        # If a recording started more than 24 hours ago, then it is complete
+        # we can cache it for a long time.
+        # If not, we might still be receiving blocks, so we cache it for a short time.
+        # Blob ingestion flushes frequently, so we want not too short a cache.
+        # But without a cache we read from clickhouse too often
+        timeout = FIVE_SECONDS if within_the_last_day(recording.start_time) else ONE_DAY_IN_SECONDS
+        cache.set(cache_key, listed_blocks, timeout=timeout)
+
+    return listed_blocks
 
 
 def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     """
     Returns a list of recording blocks with their timestamps and URLs.
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
-    Returns empty list if the recording is invalid or incomplete.
+    Returns an empty list if the recording is invalid or incomplete.
     """
-    metadata = SessionReplayEventsV2Test().get_metadata(recording.session_id, recording.team)
-    if not metadata:
+    recording_blocks = load_blocks(recording)
+    if not recording_blocks:
         return []
 
-    first_timestamps = metadata["block_first_timestamps"]
-    last_timestamps = metadata["block_last_timestamps"]
-    urls = metadata["block_urls"]
+    first_timestamps = recording_blocks.block_first_timestamps
+    last_timestamps = recording_blocks.block_last_timestamps
+    urls = recording_blocks.block_urls
 
     # Validate that all arrays exist and have the same length
     if not (
@@ -43,19 +101,19 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
         return []
 
     blocks: list[RecordingBlock] = [
-        {
-            "start_time": start_time,
-            "end_time": end_time,
-            "url": url,
-        }
+        RecordingBlock(
+            start_time=start_time,
+            end_time=end_time,
+            url=url,
+        )
         for start_time, end_time, url in zip(first_timestamps, last_timestamps, urls)
     ]
 
-    blocks.sort(key=lambda b: b["start_time"])
+    blocks.sort(key=lambda b: b.start_time)
 
     # If we started recording halfway through the session, we should not return any blocks
     # as we don't have the complete recording from the start
-    if not blocks or "start_time" not in metadata or blocks[0]["start_time"] != metadata["start_time"]:
+    if not blocks or not recording_blocks.start_time or blocks[0].start_time != recording_blocks.start_time:
         return []
 
     return blocks

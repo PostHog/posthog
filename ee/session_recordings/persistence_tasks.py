@@ -7,6 +7,7 @@ from ee.session_recordings.session_recording_extensions import (
     persist_recording,
     persist_recording_v2,
     MINIMUM_AGE_FOR_RECORDING,
+    MAXIMUM_AGE_FOR_RECORDING,
     MAXIMUM_AGE_FOR_RECORDING_V2,
 )
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -17,7 +18,7 @@ logger = structlog.get_logger(__name__)
 REPLAY_NEEDS_PERSISTENCE_COUNTER = Counter(
     "snapshot_persist_persistence_task_queued",
     "Count of session recordings that need to be persisted",
-    # we normally avoid team label but not all teams pin recordings so there shouldn't be _too_ many labels here
+    # we normally avoid team label but not all teams pin recordings, so there shouldn't be _too_ many labels here
     labelnames=["team_id"],
 )
 
@@ -28,12 +29,12 @@ REPLAY_NEEDS_PERSISTENCE_V2_COUNTER = Counter(
 )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value, rate_limit="10/m")
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value, rate_limit="30/m")
 def persist_single_recording(id: str, team_id: int) -> None:
     persist_recording(id, team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value, rate_limit="10/m")
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value, rate_limit="30/m")
 def persist_single_recording_v2(id: str, team_id: int) -> None:
     persist_recording_v2(id, team_id)
 
@@ -43,8 +44,11 @@ def persist_single_recording_v2(id: str, team_id: int) -> None:
     queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
 )
 def persist_finished_recordings() -> None:
-    min_age = timezone.now() - MINIMUM_AGE_FOR_RECORDING
-    finished_recordings = SessionRecording.objects.filter(created_at__lte=min_age, object_storage_path=None)
+    max_created_at = timezone.now() - MINIMUM_AGE_FOR_RECORDING
+    min_created_at = timezone.now() - MAXIMUM_AGE_FOR_RECORDING
+    finished_recordings = SessionRecording.objects.filter(
+        created_at__lte=max_created_at, object_storage_path=None, created_at__gt=min_created_at
+    )
 
     logger.info("Persisting finished recordings", count=finished_recordings.count())
 

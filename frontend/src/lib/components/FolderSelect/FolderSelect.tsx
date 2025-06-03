@@ -1,13 +1,18 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { dayjs } from 'lib/dayjs'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useEffect, useRef, useState } from 'react'
+import { cn } from 'lib/utils/css-classes'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 
 export interface FolderSelectProps {
     /** The folder to select */
@@ -16,137 +21,205 @@ export interface FolderSelectProps {
     onChange?: (folder: string) => void
     /** Class name for the component */
     className?: string
-}
-
-function getAllFolderIds(path?: string): string[] {
-    if (!path) {
-        return []
-    }
-    const splits = splitPath(path)
-    return splits.map((_, i) => 'project-folder/' + joinPath(splits.slice(0, i + 1)))
+    /** Root for folder */
+    root?: string
+    /** Include "products://" in the final path */
+    includeProtocol?: boolean
+    /** Include root item in the tree as a selectable item */
+    includeRoot?: boolean
 }
 
 /** Input component for selecting a folder */
-export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
-    const { projectTreeOnlyFolders, treeTableKeys } = useValues(projectTreeLogic)
-    const { createFolder, loadFolderIfNotLoaded } = useActions(projectTreeLogic)
+let counter = 0
 
+export function FolderSelect({
+    value,
+    onChange,
+    root,
+    className,
+    includeProtocol,
+    includeRoot,
+}: FolderSelectProps): JSX.Element {
+    const [key] = useState(() => `folder-select-${counter++}`)
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
+
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
+        useValues(projectTreeLogic(props))
+    const {
+        setSearchTerm,
+        setExpandedSearchFolders,
+        setExpandedFolders,
+        createFolder,
+        expandProjectFolder,
+        setEditingItemId,
+        rename,
+        toggleFolderOpen,
+        deleteItem,
+    } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
 
-    const [expandedFolders, setExpandedFolders] = useState<string[]>([])
-    const [touchedFolders, setTouchedFolders] = useState<string[]>([])
-
     useEffect(() => {
-        if (!value) {
-            return
-        }
-        const allFolders = getAllFolderIds(value)
-        const newExpandedFolders = allFolders.filter((folder) => !expandedFolders.includes(folder))
-        if (newExpandedFolders.length > 0) {
-            setExpandedFolders([...expandedFolders, ...newExpandedFolders])
-            for (const folder of newExpandedFolders) {
-                if (!touchedFolders.includes(folder)) {
-                    loadFolderIfNotLoaded(folder)
-                }
+        if (includeProtocol) {
+            if (value?.startsWith('project://')) {
+                expandProjectFolder(value.replace('project://', ''))
             }
-            const newTouchedFolders = allFolders.filter((folder) => !touchedFolders.includes(folder))
-            setTouchedFolders([...touchedFolders, ...newTouchedFolders])
+        } else {
+            expandProjectFolder(value || '')
         }
-    }, [value, expandedFolders, touchedFolders])
+    }, [value])
+
+    function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
+        const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
+        const MenuItem = type === 'context' ? ContextMenuItem : DropdownMenuItem
+
+        return function DisplayMenu(item: TreeDataItem) {
+            if (item.id.startsWith('project-folder-empty/')) {
+                return undefined
+            }
+            if (item.record?.type === 'folder') {
+                return (
+                    <MenuGroup>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                createFolder(item.record?.path || '', true, (folder) => {
+                                    onChange?.(folder)
+                                })
+                            }}
+                            data-attr="folder-select-item-menu-new-folder-button"
+                        >
+                            <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                        </MenuItem>
+                        {item.record?.path && item.record?.type === 'folder' ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingItemId(item.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem data-attr="folder-select-item-menu-rename-button">
+                                    Rename
+                                </ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                        {item.record?.path && item.record?.type === 'folder' ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteItem(item.record as unknown as FileSystemEntry, props.key)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                    </MenuGroup>
+                )
+            }
+            return undefined
+        }
+    }
 
     return (
-        <div className={clsx('bg-[white] p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
-            <LemonTree
-                ref={treeRef}
-                className="px-0 py-1"
-                data={projectTreeOnlyFolders}
-                mode="tree"
-                tableViewKeys={treeTableKeys}
-                defaultSelectedFolderOrNodeId={value ? 'project-tree/' + value : undefined}
-                isItemActive={(item) => item.record?.path === value}
-                enableMultiSelection={false}
-                showFolderActiveState={true}
-                checkedItemCount={0}
-                onFolderClick={(folder) => {
-                    if (folder?.id) {
-                        if (!touchedFolders.includes(folder?.id)) {
-                            loadFolderIfNotLoaded(folder?.id)
-                            setTouchedFolders([...touchedFolders, folder?.id])
-                        }
-                        if (expandedFolders.includes(folder?.id)) {
-                            setExpandedFolders(expandedFolders.filter((id) => id !== folder?.id))
-                        } else {
-                            setExpandedFolders([...expandedFolders, folder?.id])
-                        }
-                        if (onChange) {
-                            const path = folder?.record?.path || ''
-                            if (path) {
-                                onChange(path)
-                            }
+        <div className="flex flex-col gap-2">
+            <LemonInput
+                type="search"
+                placeholder="Search"
+                fullWidth
+                onChange={(search) => setSearchTerm(search)}
+                value={searchTerm}
+                data-attr="folder-select-search-input"
+                autoFocus
+                onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault() // Prevent scrolling
+                        const visibleItems = treeRef?.current?.getVisibleItems()
+                        if (visibleItems && visibleItems.length > 0) {
+                            e.currentTarget.blur() // Remove focus from input
+                            treeRef?.current?.focusItem(visibleItems[0].id)
                         }
                     }
                 }}
-                expandedItemIds={expandedFolders}
-                onSetExpandedItemIds={setExpandedFolders}
-                enableDragAndDrop={false}
-                itemContextMenu={(item) => {
-                    if (item.id.startsWith('project-folder-empty/')) {
-                        return undefined
+            />
+            <ScrollableShadows direction="vertical" className={cn('bg-surface-primary border rounded', className)}>
+                <LemonTree
+                    ref={treeRef}
+                    selectMode="folder-only"
+                    className="px-0 py-1"
+                    data={fullFileSystemFiltered}
+                    mode="tree"
+                    tableViewKeys={treeTableKeys}
+                    defaultSelectedFolderOrNodeId={
+                        value?.includes('://') ? value : value ? 'project://' + value : undefined
                     }
-                    if (item.record?.type === 'folder') {
+                    isItemActive={(item) => item.record?.path === value}
+                    isItemEditing={(item) => {
+                        return editingItemId === item.id
+                    }}
+                    onItemNameChange={(item, name) => {
+                        if (item.name !== name) {
+                            rename(name, item.record as unknown as FileSystemEntry)
+                        }
+                        // Clear the editing item id when the name changes
+                        setEditingItemId('')
+                    }}
+                    showFolderActiveState={true}
+                    checkedItemCount={0}
+                    onFolderClick={(folder, isExpanded) => {
+                        if (folder) {
+                            if (includeProtocol) {
+                                toggleFolderOpen(folder.id, isExpanded)
+                                onChange?.(folder.id)
+                            } else {
+                                toggleFolderOpen(folder.id || '', isExpanded)
+                                onChange?.(folder.record?.path ?? '')
+                            }
+                        }
+                    }}
+                    expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                    onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+                    enableDragAndDrop={false}
+                    itemContextMenu={getItemContextMenu('context')}
+                    itemSideAction={getItemContextMenu('dropdown')}
+                    emptySpaceContextMenu={() => {
                         return (
                             <ContextMenuGroup>
                                 <ContextMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        createFolder(item.record?.path || '')
+                                        createFolder('', true)
                                     }}
                                 >
                                     <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                                 </ContextMenuItem>
                             </ContextMenuGroup>
                         )
-                    }
-                    return undefined
-                }}
-                itemSideAction={(item) => {
-                    if (item.id.startsWith('project-folder-empty/')) {
-                        return undefined
-                    }
-                    if (item.record?.type === 'folder') {
+                    }}
+                    renderItem={(item) => {
+                        const isNew =
+                            item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
                         return (
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        createFolder(item.record?.path || '')
-                                    }}
+                            <span className="truncate">
+                                <span
+                                    className={cn('truncate', {
+                                        'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                                    })}
                                 >
-                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
+                                    {item.displayName}{' '}
+                                    {isNew ? (
+                                        <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                            New
+                                        </LemonTag>
+                                    ) : null}
+                                </span>
+                            </span>
                         )
-                    }
-                    return undefined
-                }}
-                emptySpaceContextMenu={() => {
-                    return (
-                        <ContextMenuGroup>
-                            <ContextMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    createFolder('')
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                            </ContextMenuItem>
-                        </ContextMenuGroup>
-                    )
-                }}
-            />
+                    }}
+                />
+            </ScrollableShadows>
         </div>
     )
 }

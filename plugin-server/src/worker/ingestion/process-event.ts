@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { MessageHeader } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -258,14 +257,14 @@ export class EventsProcessor {
     }
 
     emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
-        const headers: MessageHeader[] = []
-        headers.push({ 'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(breadcrumbs)) })
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
-                headers: headers,
+                headers: {
+                    'kafka-consumer-breadcrumbs': JSON.stringify(breadcrumbs),
+                },
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original
@@ -302,7 +301,8 @@ export class EventsProcessor {
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},
-                timestamp
+                timestamp,
+                !this.hub.DISABLE_GROUP_SELECT_FOR_UPDATE
             )
         }
     }

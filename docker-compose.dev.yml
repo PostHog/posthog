@@ -20,6 +20,7 @@ services:
             - feature-flags
         extra_hosts:
             - 'web:host-gateway'
+            - 'plugins:host-gateway'
     db:
         extends:
             file: docker-compose.base.yml
@@ -161,7 +162,7 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${SECRET_KEY}
+            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
         ports:
             - '8666:8080'
         volumes:

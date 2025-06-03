@@ -10,10 +10,9 @@ import {
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
-import { isNotNil, isObject, pluralize } from 'lib/utils'
+import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { CurrencyCode, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
@@ -22,6 +21,33 @@ const teamActionsMapping: Record<
     keyof TeamType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
+    api_token: (change) => {
+        if (change === undefined || change.after === undefined) {
+            return null
+        }
+        const prefix = change.action === 'created' ? 'set' : 'reset'
+        return {
+            description: [<>{prefix} the project API key</>],
+        }
+    },
+    secret_api_token: (change) => {
+        if (change === undefined || change.after === undefined) {
+            return null
+        }
+        const prefix = change.action === 'created' ? 'generated' : 'rotated'
+        return {
+            description: [<>{prefix} the Feature Flags secure API key</>],
+        }
+    },
+    secret_api_token_backup: (change) => {
+        if (change === undefined || change.after === undefined || change.action !== 'deleted') {
+            return null
+        }
+        return {
+            description: [<>Deleted the Feature Flags secure API key backup</>],
+        }
+    },
+
     // session replay
     session_recording_minimum_duration_milliseconds: (change) => {
         const after = change?.after
@@ -418,72 +444,17 @@ const teamActionsMapping: Record<
             ],
         }
     },
-    revenue_tracking_config: (change): ChangeMapping | null => {
+    surveys_opt_in: (change): ChangeMapping | null => {
         if (!change) {
             return null
         }
 
-        const beforeCurrency =
-            typeof change.before === 'object' && change.before && 'baseCurrency' in change.before
-                ? change.before.baseCurrency || CurrencyCode.USD
-                : null
-        const afterCurrency =
-            typeof change.after === 'object' && change.after && 'baseCurrency' in change.after
-                ? change.after.baseCurrency || CurrencyCode.USD
-                : null
-
-        const beforeEvents: RevenueTrackingEventItem[] =
-            typeof change.before === 'object' && change.before && 'events' in change.before ? change.before.events : []
-        const afterEvents: RevenueTrackingEventItem[] =
-            typeof change.after === 'object' && change.after && 'events' in change.after ? change.after.events : []
-
-        const beforeEventNames = beforeEvents?.map((event) => event?.eventName)
-        const afterEventNames = afterEvents?.map((event) => event?.eventName)
-        const addedEvents = afterEventNames?.filter((event) => !beforeEventNames?.includes(event))
-        const removedEvents = beforeEventNames?.filter((event) => !afterEventNames?.includes(event))
-        const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
-
-        const changes = [
-            beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
-                ? `changed base currency from ${beforeCurrency} to ${afterCurrency}`
-                : null,
-            addedEvents?.length
-                ? `added ${addedEvents.length} ${pluralize(
-                      addedEvents.length,
-                      'event',
-                      'events',
-                      true
-                  )} (${addedEvents.join(', ')})`
-                : null,
-            removedEvents?.length
-                ? `removed ${removedEvents.length} ${pluralize(
-                      removedEvents.length,
-                      'event',
-                      'events',
-                      true
-                  )} (${removedEvents.join(', ')})`
-                : null,
-            modifiedEvents?.length
-                ? `modified ${modifiedEvents.length} ${pluralize(
-                      modifiedEvents.length,
-                      'event',
-                      'events',
-                      true
-                  )} (${modifiedEvents.join(', ')})`
-                : null,
-        ].filter(isNotNil)
-
-        if (!changes.length) {
-            return null
-        }
-
         return {
-            description: [<>Updated revenue tracking config: {changes.join(', ')}</>],
+            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
         }
     },
 
-    // TODO if I had to test and describe every single one of this I'd never release this
-    // we can add descriptions here as the need arises
+    // TODO implement these when possible
     access_control: () => null,
     anonymize_ips: () => null,
     app_urls: () => null,
@@ -504,15 +475,7 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
-    surveys_opt_in: (change): ChangeMapping | null => {
-        if (!change) {
-            return null
-        }
-
-        return {
-            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
-        }
-    },
+    revenue_analytics_config: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
@@ -521,7 +484,6 @@ const teamActionsMapping: Record<
 
     // should never come from the backend
     created_at: () => null,
-    api_token: () => null,
     id: () => null,
     updated_at: () => null,
     uuid: () => null,

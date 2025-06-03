@@ -17,6 +17,8 @@ from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
 from posthog.event_usage import groups
+from rest_framework.response import Response
+from rest_framework.decorators import action
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -155,8 +157,23 @@ class OrganizationMemberViewSet(
                 "organization_id": instance.organization_id,
                 "organization_name": instance.organization.name,
                 "removal_type": "self_removal" if is_self_removal else "removed_by_other",
+                "removed_email": removed_user.email,
+                "removed_user_id": removed_user.id,
             },
             groups=groups(instance.organization),
         )
 
         instance.user.leave(organization=instance.organization)
+
+    @action(detail=True, methods=["get"])
+    def scoped_api_keys(self, request, *args, **kwargs):
+        instance = self.get_object()
+        api_keys_data = instance.get_scoped_api_keys()
+
+        return Response(
+            {
+                "has_keys": api_keys_data["has_keys"],
+                "has_keys_active_last_week": api_keys_data["has_keys_active_last_week"],
+                "keys": api_keys_data["keys"],
+            }
+        )

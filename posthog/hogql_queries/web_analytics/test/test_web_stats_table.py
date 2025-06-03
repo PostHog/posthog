@@ -1202,9 +1202,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for idx, (timezone_offset, before_session_id, after_session_id) in enumerate(
             [
                 (0, str(uuid7(before_date)), str(uuid7(after_date))),  # UTC
-                (330, str(uuid7(before_date)), str(uuid7(after_date))),  # Calcutta UTC+5:30
-                (-240, str(uuid7(before_date)), str(uuid7(after_date))),  # New York UTC-4
-                (-180, str(uuid7(before_date)), str(uuid7(after_date))),  # Brasilia UTC-3
+                (-330, str(uuid7(before_date)), str(uuid7(after_date))),  # Calcutta UTC+5:30
+                (240, str(uuid7(before_date)), str(uuid7(after_date))),  # New York UTC-4
+                (180, str(uuid7(before_date)), str(uuid7(after_date))),  # Brasilia UTC-3
             ]
         ):
             _create_person(

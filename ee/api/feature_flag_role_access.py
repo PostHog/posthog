@@ -11,6 +11,7 @@ from posthog.models import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 
 
+# DEPRECATED - do not use
 class FeatureFlagRoleAccessPermissions(BasePermission):
     message = "You can't edit roles for this feature flag."
 

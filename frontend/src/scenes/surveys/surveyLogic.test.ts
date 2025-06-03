@@ -11,6 +11,7 @@ import {
     PropertyOperator,
     Survey,
     SurveyEventName,
+    SurveyEventProperties,
     SurveyEventStats,
     SurveyPosition,
     SurveyQuestionBranchingType,
@@ -1526,7 +1527,7 @@ describe('survey filters', () => {
                         properties: expect.arrayContaining([
                             // Survey ID property should still be present
                             {
-                                key: '$survey_id',
+                                key: SurveyEventProperties.SURVEY_ID,
                                 operator: 'exact',
                                 type: 'event',
                                 value: MULTIPLE_CHOICE_SURVEY.id,
@@ -1557,7 +1558,7 @@ describe('survey filters', () => {
                         // Should still have the survey ID property even with no filters
                         properties: expect.arrayContaining([
                             {
-                                key: '$survey_id',
+                                key: SurveyEventProperties.SURVEY_ID,
                                 operator: 'exact',
                                 type: 'event',
                                 value: MULTIPLE_CHOICE_SURVEY.id,
@@ -1583,7 +1584,7 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['loadSurveySuccess'])
 
         const answerFilter: EventPropertyFilter = {
-            key: '$survey_response',
+            key: SurveyEventProperties.SURVEY_RESPONSE,
             value: 'test response',
             operator: PropertyOperator.IContains,
             type: PropertyFilterType.Event,
@@ -1633,15 +1634,6 @@ describe('surveyLogic filters for surveys responses', () => {
                 logic.actions.setSurveyValue('created_at', dayjs().subtract(16, 'weeks').format('YYYY-MM-DD'))
             }).toMatchValues({
                 defaultInterval: 'month',
-            })
-        })
-
-        it('uses start_date over created_at when available', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSurveyValue('created_at', dayjs().subtract(16, 'weeks').format('YYYY-MM-DD'))
-                logic.actions.setSurveyValue('start_date', dayjs().subtract(2, 'weeks').format('YYYY-MM-DD'))
-            }).toMatchValues({
-                defaultInterval: 'day',
             })
         })
 

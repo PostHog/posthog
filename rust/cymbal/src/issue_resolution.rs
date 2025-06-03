@@ -1,12 +1,17 @@
 use std::fmt::Display;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
-use sqlx::Acquire;
+use serde_json::json;
+use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
+use crate::assignment_rules::{try_assignment_rules, Assignment};
+use crate::teams::TeamManager;
+use crate::types::FingerprintedErrProps;
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
@@ -30,7 +35,6 @@ pub struct Issue {
     pub status: IssueStatus,
     pub name: Option<String>,
     pub description: Option<String>,
-    pub eligible_for_assignment: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +44,18 @@ pub enum IssueStatus {
     Resolved,
     PendingRelease,
     Suppressed,
+}
+
+impl IssueStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IssueStatus::Archived => "Archived",
+            IssueStatus::Active => "Active",
+            IssueStatus::Resolved => "Resolved",
+            IssueStatus::PendingRelease => "Pending Release",
+            IssueStatus::Suppressed => "Suppressed",
+        }
+    }
 }
 
 impl Issue {
@@ -56,7 +72,7 @@ impl Issue {
             r#"
             -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
             -- generally a risky override of sqlx's normal type checking
-            SELECT i.id, i.team_id, i.status, i.name, i.description, false as "eligible_for_assignment!"
+            SELECT i.id, i.team_id, i.status, i.name, i.description
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -81,7 +97,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, name, description, false as "eligible_for_assignment!" FROM posthog_errortrackingissue
+            SELECT id, team_id, status, name, description FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -108,7 +124,6 @@ impl Issue {
             status: IssueStatus::Active,
             name: Some(name),
             description: Some(description),
-            eligible_for_assignment: true,
         };
 
         sqlx::query!(
@@ -128,17 +143,13 @@ impl Issue {
         Ok(issue)
     }
 
-    pub async fn maybe_reopen<'c, E>(
-        &mut self,
-        executor: E,
-        context: &AppContext,
-    ) -> Result<(), UnhandledError>
+    pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         // If this issue is already active, or permanently suppressed, we don't need to do anything
         if matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed) {
-            return Ok(());
+            return Ok(false);
         }
 
         let res = sqlx::query_scalar!(
@@ -153,16 +164,34 @@ impl Issue {
         .fetch_all(executor)
         .await?;
 
-        self.eligible_for_assignment = !res.is_empty(); // We actually updated a row
-
-        // If we actually updated a row
-        if self.eligible_for_assignment {
+        let reopened = !res.is_empty();
+        if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
-            send_issue_reopened_alert(context, self).await?;
         }
 
-        Ok(())
+        Ok(reopened)
+    }
+
+    pub async fn get_assignments<'c, E>(
+        &self,
+        executor: E,
+    ) -> Result<Vec<Assignment>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let assignments = sqlx::query_as!(
+            Assignment,
+            r#"
+            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
+            WHERE issue_id = $1
+            "#,
+            self.id
+        )
+        .fetch_all(executor)
+        .await?;
+
+        Ok(assignments)
     }
 }
 
@@ -220,19 +249,29 @@ impl IssueFingerprintOverride {
 }
 
 pub async fn resolve_issue(
-    context: &AppContext,
+    context: Arc<AppContext>,
     team_id: i32,
-    fingerprint: &str,
     name: String,
     description: String,
     event_timestamp: DateTime<Utc>,
+    event_properties: FingerprintedErrProps,
 ) -> Result<Issue, UnhandledError> {
     let mut conn = context.pool.acquire().await?;
-
     // Fast path - just fetch the issue directly, and then reopen it if needed
-    let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
+    let existing_issue =
+        Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
+            .await?;
     if let Some(mut issue) = existing_issue {
-        issue.maybe_reopen(&mut *conn, context).await?;
+        if issue.maybe_reopen(&mut *conn).await? {
+            let assignment = process_assignment(
+                &mut conn,
+                &context.team_manager,
+                &issue,
+                event_properties.clone(),
+            )
+            .await?;
+            send_issue_reopened_alert(&context, &issue, assignment).await?;
+        }
         return Ok(issue);
     }
 
@@ -255,7 +294,7 @@ pub async fn resolve_issue(
     let issue_override = IssueFingerprintOverride::create_or_load(
         &mut *txn,
         team_id,
-        fingerprint,
+        &event_properties.fingerprint.value,
         &issue,
         event_timestamp,
     )
@@ -267,46 +306,82 @@ pub async fn resolve_issue(
     let was_created = issue_override.issue_id == issue.id;
     let mut issue = issue;
     if !was_created {
-        // It wasn't actually created new, so it's not eligible for assignment based
-        // on it being new - maybe_reopen will handle eligibility of the existing issue
-        issue.eligible_for_assignment = false;
         txn.rollback().await?;
+        // Replace the attempt issue with the existing one
+        issue = Issue::load(&mut *conn, team_id, issue_override.id)
+            .await?
+            .unwrap_or(issue);
+
+        // Since we just loaded an issue, check if it needs to be reopened
+        if issue.maybe_reopen(&mut *conn).await? {
+            let assignment = process_assignment(
+                &mut conn,
+                &context.team_manager,
+                &issue,
+                event_properties.clone(),
+            )
+            .await?;
+            send_issue_reopened_alert(&context, &issue, assignment).await?;
+        }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
-        send_issue_created_alert(context, &issue).await?;
+        let assignment = process_assignment(
+            &mut txn,
+            &context.team_manager,
+            &issue,
+            event_properties.clone(),
+        )
+        .await?;
+        send_issue_created_alert(&context, &issue, assignment).await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
-    }
-
-    // This being None is /almost/ impossible, unless between the transaction above finishing and
-    // this point, someone merged the issue and deleted the old one, but if that happens,
-    // we don't care about this reopen failing (since this issue is irrelevant anyway).
-    if let Some(mut loaded) = Issue::load(&mut *conn, team_id, issue_override.issue_id).await? {
-        loaded.maybe_reopen(&mut *conn, context).await?;
-        issue = loaded;
-    }
+    };
 
     Ok(issue)
+}
+
+pub async fn process_assignment(
+    conn: &mut PgConnection,
+    team_manager: &TeamManager,
+    issue: &Issue,
+    props: FingerprintedErrProps,
+) -> Result<Option<Assignment>, UnhandledError> {
+    let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
+        Some(new)
+    } else {
+        try_assignment_rules(conn, team_manager, issue.clone(), props.to_output(issue.id)).await?
+    };
+
+    let assignment = if let Some(new_assignment) = new_assignment {
+        Some(new_assignment.apply(&mut *conn, issue.id).await?)
+    } else {
+        issue.get_assignments(&mut *conn).await?.first().cloned()
+    };
+
+    Ok(assignment)
 }
 
 async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
+    assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_created", issue).await
+    send_internal_event(context, "$error_tracking_issue_created", issue, assignment).await
 }
 
 async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
+    assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_reopened", issue).await
+    send_internal_event(context, "$error_tracking_issue_reopened", issue, assignment).await
 }
 
 async fn send_internal_event(
     context: &AppContext,
     event: &str,
     issue: &Issue,
+    new_assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
     event
@@ -315,6 +390,34 @@ async fn send_internal_event(
     event
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
+    event.insert_prop("status", issue.status.as_str())?;
+
+    if let Some(assignment) = new_assignment {
+        if let Some(user_id) = assignment.user_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user", "id": user_id.to_string()}),
+                )
+                .expect("Strings are serializable");
+        }
+        if let Some(group_id) = assignment.user_group_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user_group", "id": group_id.to_string()}),
+                )
+                .expect("Strings are serializable");
+        }
+        if let Some(role_id) = assignment.role_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "role", "id": role_id.to_string()}),
+                )
+                .expect("Strings are serializable");
+        }
+    }
 
     send_iter_to_kafka(
         &context.immediate_producer,

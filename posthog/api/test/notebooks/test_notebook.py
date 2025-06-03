@@ -243,3 +243,21 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
+
+    def test_create_notebook_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {
+                "title": "My Notebook in folder",
+                "_create_in_folder": "Notebooks/Special Team Folder",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        notebook_short_id = response.json()["short_id"]
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=notebook_short_id, type="notebook").first()
+        assert fs_entry is not None
+        assert "Notebooks/Special Team Folder" in fs_entry.path

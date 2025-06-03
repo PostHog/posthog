@@ -10,9 +10,12 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
+import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
+import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
+import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
+import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -21,28 +24,23 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
-import {
-    startAsyncOnEventHandlerConsumer,
-    startAsyncWebhooksHandlerConsumer,
-} from './main/ingestion-queues/on-event-handler-consumer'
+import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
-import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
+import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
-import { parseJSON } from './utils/json-parse'
 import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
-import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
-import { populatePluginCapabilities } from './worker/vm/lazy'
+import { initPlugins as _initPlugins } from './worker/tasks'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -140,15 +138,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.processAsyncOnEventHandlers) {
-                serviceLoaders.push(async () => {
-                    await initPlugins()
-                    return startAsyncOnEventHandlerConsumer({
-                        hub: hub,
-                    })
-                })
-            }
-
             if (capabilities.processAsyncWebhooksHandlers) {
                 serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
             }
@@ -169,7 +158,6 @@ export class PluginServer {
                         id: 'session-recordings-blob',
                         onShutdown: async () => await ingester.stop(),
                         healthcheck: () => ingester.isHealthy() ?? false,
-                        batchConsumer: ingester.batchConsumer,
                     }
                 })
             }
@@ -193,16 +181,9 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(
-                        this.config,
-                        false,
-                        postgres,
-                        batchConsumerFactory,
-                        producer
-                    )
+                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -211,16 +192,9 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(
-                        this.config,
-                        true,
-                        postgres,
-                        batchConsumerFactory,
-                        producer
-                    )
+                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -228,7 +202,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpProcessedEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -242,11 +216,21 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpLegacyOnEvent) {
+                serviceLoaders.push(async () => {
+                    await initPlugins()
+                    const consumer = new CdpLegacyEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
                     await initPlugins()
                     const api = new CdpApi(hub)
                     this.expressApp.use('/', api.router())
+                    await api.start()
                     return api.service
                 })
             }
@@ -276,26 +260,32 @@ export class PluginServer {
                 })
             }
 
-            const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
-            this.services.push(...readyServices)
+            if (capabilities.cdpCyclotronWorkerHogFlow) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerHogFlow(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
 
-            this.pubsub = new PubSub(this.hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    logger.info('⚡', 'Reloading plugins!')
-                    await reloadPlugins(hub)
-                },
-                'reset-available-product-features-cache': (message) => {
-                    hub.teamManager.orgAvailableFeaturesChanged(parseJSON(message).organization_id)
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(parseJSON(message).plugin_id))
-                    }
-                },
+            // The service commands is always created
+            serviceLoaders.push(async () => {
+                const serverCommands = new ServerCommands(hub)
+                this.expressApp.use('/', serverCommands.router())
+                await serverCommands.start()
+                return serverCommands.service
             })
 
-            await this.pubsub.start()
+            if (capabilities.cdpCyclotronWorkerSegment) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerSegment(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
+            this.services.push(...readyServices)
 
             setupCommonRoutes(this.expressApp, this.services)
 
@@ -306,18 +296,6 @@ export class PluginServer {
                 })
             }
 
-            // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
-            // Ideally we would also join all the other background tasks as well to ensure we stop the
-            // server if we hit any errors and don't end up with zombie instances, but I'll leave that
-            // refactoring for another time. Note that we have the liveness health checks already, so in K8s
-            // cases zombies should be reaped anyway, albeit not in the most efficient way.
-
-            this.services.forEach((service) => {
-                service.batchConsumer?.join().catch(async (error) => {
-                    logger.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
-                    await this.stop(error)
-                })
-            })
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
@@ -337,12 +315,14 @@ export class PluginServer {
             })
         }
 
-        process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
+        process.on('unhandledRejection', (error: Error | any) => {
+            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
+
+            void this.stop(error)
         })
 
         process.on('uncaughtException', async (error: Error) => {
@@ -368,16 +348,21 @@ export class PluginServer {
             job.cancel()
         })
 
+        logger.info('💤', ' Shutting down services...')
         await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
 
         if (this.hub) {
+            logger.info('💤', ' Shutting down plugins...')
             // Wait *up to* 5 seconds to shut down VMs.
             await Promise.race([teardownPlugins(this.hub), delay(5000)])
 
+            logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
             await closeHub(this.hub)
         }
+
+        logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
     }

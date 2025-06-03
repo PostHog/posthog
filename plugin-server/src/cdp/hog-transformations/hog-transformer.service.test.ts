@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
-import { getProducedKafkaMessages } from '../../../tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -252,7 +253,7 @@ describe('HogTransformer', () => {
                 timestamp: '2024-01-01T00:00:00Z',
             }
 
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
             expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
@@ -260,9 +261,9 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
 
-            await Promise.all(result.scheduledPromises)
+            await hogTransformer.processInvocationResults()
 
-            const messages = getProducedKafkaMessages()
+            const messages = mockProducerObserver.getProducedKafkaMessages()
             // Replace certain messages that have changeable values
             messages.forEach((x) => {
                 if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {
@@ -1276,10 +1277,10 @@ describe('HogTransformer', () => {
             const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).not.toHaveBeenCalled()
-            expect(result.scheduledPromises.length).toBe(1) // Only the produceQueuedMessages promise
+            expect(hogTransformer['invocationResults'].length).toBe(1)
 
             observeResultsSpy.mockRestore()
         })
@@ -1325,10 +1326,12 @@ describe('HogTransformer', () => {
                 .mockImplementation(() => Promise.resolve())
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
+            expect(hogTransformer['invocationResults'].length).toBe(1)
+            await hogTransformer.processInvocationResults()
+            expect(hogTransformer['invocationResults'].length).toBe(0)
 
             expect(observeResultsSpy).toHaveBeenCalled()
-            expect(result.scheduledPromises.length).toBe(2) // Both produceQueuedMessages and observeResults promises
 
             observeResultsSpy.mockRestore()
         })

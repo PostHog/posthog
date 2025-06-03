@@ -1,6 +1,6 @@
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
-import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
@@ -12,10 +12,7 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
     let postgres: PostgresRouter
     let teamId: Team['id']
-    let team2Id: Team['id']
-    let team3Id: Team['id']
     let teamToken: Team['api_token']
-    let otherOrganizationId: string
     let organizationId: Team['organization_id']
     let fetchTeamsSpy: jest.SpyInstance
 
@@ -32,9 +29,6 @@ describe('TeamManager()', () => {
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
-        otherOrganizationId = await createOrganization(postgres)
-        team2Id = await createTeam(postgres, team.organization_id)
-        team3Id = await createTeam(postgres, otherOrganizationId)
         fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams')
     })
 
@@ -63,7 +57,7 @@ describe('TeamManager()', () => {
                   "anonymize_ips": false,
                   "api_token": "THIS IS NOT A TOKEN FOR TEAM 2",
                   "available_features": [],
-                  "cookieless_server_hash_mode": null,
+                  "cookieless_server_hash_mode": 2,
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
@@ -166,25 +160,6 @@ describe('TeamManager()', () => {
             await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
             const result = await teamManager.hasAvailableFeature(teamId, 'feature1')
             expect(result).toBe(true)
-        })
-
-        it('refreshes relevant teams when the organization available features change', async () => {
-            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
-            const results = await Promise.all([
-                teamManager.hasAvailableFeature(teamId, 'feature1'),
-                teamManager.hasAvailableFeature(team2Id, 'feature1'),
-                teamManager.hasAvailableFeature(team3Id, 'feature1'),
-            ])
-            expect(results).toEqual([true, true, false])
-
-            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature2', name: 'Feature 2' }])
-            teamManager.orgAvailableFeaturesChanged(organizationId)
-            const results2 = await Promise.all([
-                teamManager.hasAvailableFeature(teamId, 'feature1'),
-                teamManager.hasAvailableFeature(team2Id, 'feature1'),
-                teamManager.hasAvailableFeature(team3Id, 'feature1'),
-            ])
-            expect(results2).toEqual([false, false, false])
         })
     })
 })

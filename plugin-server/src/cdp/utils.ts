@@ -1,6 +1,5 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
-import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
@@ -8,22 +7,16 @@ import { gunzip, gzip } from 'zlib'
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { parseJSON } from '../utils/json-parse'
-import { logger } from '../utils/logger'
-import { captureException } from '../utils/posthog'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionInvocationLogEntry,
-    HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationSerialized,
-    HogFunctionLogEntrySerialized,
     HogFunctionType,
+    LogEntry,
+    LogEntrySerialized,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
@@ -296,8 +289,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return parseJSON(res.toString())
 }
 
-export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
-    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
+    const preparedLogs: LogEntrySerialized[] = []
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -316,7 +309,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
         previousTimestamp = logEntry.timestamp
 
-        const sanitized: HogFunctionLogEntrySerialized = {
+        const sanitized: LogEntrySerialized = {
             ...logEntry,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
@@ -326,92 +319,12 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
     return preparedLogs
 }
 
-export function createInvocation(
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType
-): HogFunctionInvocation {
-    return {
-        id: new UUIDT().toString(),
-        globals,
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: 'hog',
-        queuePriority: 1,
-        timings: [],
-    }
-}
-
-export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
-    const serializedInvocation: HogFunctionInvocationSerialized = {
-        ...invocation,
-        hogFunctionId: invocation.hogFunction.id,
-        // We clear the params as they are never used in the serialized form
-        queueParameters: undefined,
-    }
-
-    delete (serializedInvocation as any).hogFunction
-
-    return serializedInvocation
-}
-
-export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
-    const queueParameters: HogFunctionInvocation['queueParameters'] = invocation.queueParameters
-    let blob: CyclotronJobUpdate['blob'] = undefined
-    let parameters: CyclotronJobUpdate['parameters'] = undefined
-
-    if (queueParameters) {
-        const { body, ...rest } = queueParameters
-        parameters = rest
-        blob = body ? Buffer.from(body) : undefined
-    }
-
-    const updates: CyclotronJobUpdate = {
-        vmState: serializeHogFunctionInvocation(invocation),
-        priority: invocation.queuePriority,
-        queueName: invocation.queue,
-        parameters,
-        blob,
-        metadata: invocation.queueMetadata,
-        scheduled: invocation.queueScheduledAt?.toISO(),
-    }
-    return updates
-}
-
-export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
-    const parsedState = job.vmState as HogFunctionInvocationSerialized | null
-    const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
-
-    if (job.blob && params) {
-        // Deserialize the blob into the params
-        try {
-            params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
-        } catch (e) {
-            logger.error('Error parsing blob', e, job.blob)
-            captureException(e)
-        }
-    }
-
-    // TRICKY: If this is being converted for the fetch service we don't deserialize the vmstate as it isn't necessary
-    // We cast it to the right type as we would rather things crash if they try to use it
-    // This will be fixed in an upcoming PR
-
-    return {
-        id: job.id,
-        globals: parsedState?.globals ?? ({} as unknown as HogFunctionInvocationGlobalsWithInputs),
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: (job.queueName as any) ?? 'hog',
-        queuePriority: job.priority,
-        queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
-        queueMetadata: job.metadata ?? undefined,
-        queueParameters: params,
-        vmState: parsedState?.vmState,
-        timings: parsedState?.timings ?? [],
-    }
-}
-
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {

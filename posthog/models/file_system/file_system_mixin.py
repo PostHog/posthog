@@ -1,5 +1,3 @@
-# posthog/models/file_system/file_system_mixin.py
-
 import dataclasses
 from django.db.models import Exists, OuterRef, CharField, Model, F, Q, QuerySet
 from django.db.models.functions import Cast
@@ -23,6 +21,10 @@ class FileSystemSyncMixin(Model):
 
     class Meta:
         abstract = True
+
+    def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_in_folder = _create_in_folder
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet[Any]:
@@ -75,12 +77,12 @@ class FileSystemSyncMixin(Model):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
 
-        @receiver(post_save, sender=cls)
+        @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: FileSystemSyncMixin, created, **kwargs):
             from posthog.models.file_system.file_system import create_or_update_file, delete_file
 
+            fs_data = instance.get_file_system_representation()
             try:
-                fs_data = instance.get_file_system_representation()
                 team = instance.team  # type: ignore
                 if fs_data.should_delete:
                     delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref)
@@ -93,18 +95,19 @@ class FileSystemSyncMixin(Model):
                         ref=fs_data.ref,
                         href=fs_data.href,
                         meta=fs_data.meta,
-                        created_by=getattr(instance, "created_by", None),
+                        created_at=fs_data.meta.get("created_at") or getattr(instance, "created_at", None),
+                        created_by_id=fs_data.meta.get("created_by") or getattr(instance, "created_by_id", None),
                     )
             except Exception as e:
                 # Don't raise exceptions in signals
                 capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
 
-        @receiver(post_delete, sender=cls)
+        @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: FileSystemSyncMixin, **kwargs):
             from posthog.models.file_system.file_system import delete_file
 
+            fs_data = instance.get_file_system_representation()
             try:
-                fs_data = instance.get_file_system_representation()
                 team = instance.team  # type: ignore
                 delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref)
             except Exception as e:

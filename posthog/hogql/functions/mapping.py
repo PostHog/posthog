@@ -908,6 +908,342 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "geohashEncode": HogQLFunctionMeta("geohashEncode", 2, 3),
     "geohashDecode": HogQLFunctionMeta("geohashDecode", 1, 1),
     "geohashesInBox": HogQLFunctionMeta("geohashesInBox", 5, 5),
+    "h3IsValid": HogQLFunctionMeta(
+        "h3IsValid",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetResolution": HogQLFunctionMeta(
+        "h3GetResolution",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetBaseCell": HogQLFunctionMeta(
+        "h3GetBaseCell",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3EdgeAngle": HogQLFunctionMeta(
+        "h3EdgeAngle",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3EdgeLengthM": HogQLFunctionMeta(
+        "h3EdgeLengthM",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3EdgeLengthKm": HogQLFunctionMeta(
+        "h3EdgeLengthKm",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "geoToH3": HogQLFunctionMeta(
+        "geoToH3",
+        3,
+        3,
+        signatures=[
+            ((FloatType(), FloatType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ToGeo": HogQLFunctionMeta(
+        "h3ToGeo",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), TupleType(item_types=[FloatType(), FloatType()])),
+        ],
+    ),
+    "h3ToGeoBoundary": HogQLFunctionMeta(
+        "h3ToGeoBoundary",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=TupleType(item_types=[FloatType(), FloatType()]))),
+        ],
+    ),
+    "h3kRing": HogQLFunctionMeta(
+        "h3kRing",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3HexAreaM2": HogQLFunctionMeta(
+        "h3HexAreaM2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3HexAreaKm2": HogQLFunctionMeta(
+        "h3HexAreaKm2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3IndexesAreNeighbors": HogQLFunctionMeta(
+        "h3IndexesAreNeighbors",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ToChildren": HogQLFunctionMeta(
+        "h3ToChildren",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3ToParent": HogQLFunctionMeta(
+        "h3ToParent",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ToString": HogQLFunctionMeta(
+        "h3ToString",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), StringType()),
+        ],
+    ),
+    "stringToH3": HogQLFunctionMeta(
+        "stringToH3",
+        1,
+        1,
+        signatures=[
+            ((StringType(),), IntegerType()),
+        ],
+    ),
+    "h3IsResClassIII": HogQLFunctionMeta(
+        "h3IsResClassIII",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3IsPentagon": HogQLFunctionMeta(
+        "h3IsPentagon",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetFaces": HogQLFunctionMeta(
+        "h3GetFaces",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3CellAreaM2": HogQLFunctionMeta(
+        "h3CellAreaM2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3CellAreaRads2": HogQLFunctionMeta(
+        "h3CellAreaRads2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3ToCenterChild": HogQLFunctionMeta(
+        "h3ToCenterChild",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ExactEdgeLengthM": HogQLFunctionMeta(
+        "h3ExactEdgeLengthM",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3ExactEdgeLengthKm": HogQLFunctionMeta(
+        "h3ExactEdgeLengthKm",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3ExactEdgeLengthRads": HogQLFunctionMeta(
+        "h3ExactEdgeLengthRads",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3NumHexagons": HogQLFunctionMeta(
+        "h3NumHexagons",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3PointDistM": HogQLFunctionMeta(
+        "h3PointDistM",
+        4,
+        4,
+        signatures=[
+            ((FloatType(), FloatType(), FloatType(), FloatType()), FloatType()),
+        ],
+    ),
+    "h3PointDistKm": HogQLFunctionMeta(
+        "h3PointDistKm",
+        4,
+        4,
+        signatures=[
+            ((FloatType(), FloatType(), FloatType(), FloatType()), FloatType()),
+        ],
+    ),
+    "h3PointDistRads": HogQLFunctionMeta(
+        "h3PointDistRads",
+        4,
+        4,
+        signatures=[
+            ((FloatType(), FloatType(), FloatType(), FloatType()), FloatType()),
+        ],
+    ),
+    "h3GetRes0Indexes": HogQLFunctionMeta(
+        "h3GetRes0Indexes",
+        0,
+        0,
+        signatures=[
+            ((), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3GetPentagonIndexes": HogQLFunctionMeta(
+        "h3GetPentagonIndexes",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3Line": HogQLFunctionMeta(
+        "h3Line",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3Distance": HogQLFunctionMeta(
+        "h3Distance",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3HexRing": HogQLFunctionMeta(
+        "h3HexRing",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3GetUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetUnidirectionalEdge",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3UnidirectionalEdgeIsValid": HogQLFunctionMeta(
+        "h3UnidirectionalEdgeIsValid",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetOriginIndexFromUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetOriginIndexFromUnidirectionalEdge",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetDestinationIndexFromUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetDestinationIndexFromUnidirectionalEdge",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetIndexesFromUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetIndexesFromUnidirectionalEdge",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), TupleType(item_types=[IntegerType(), IntegerType()])),
+        ],
+    ),
+    "h3GetUnidirectionalEdgesFromHexagon": HogQLFunctionMeta(
+        "h3GetUnidirectionalEdgesFromHexagon",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3GetUnidirectionalEdgeBoundary": HogQLFunctionMeta(
+        "h3GetUnidirectionalEdgeBoundary",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=TupleType(item_types=[FloatType(), FloatType()]))),
+        ],
+    ),
     # nullable
     "isnull": HogQLFunctionMeta("isNull", 1, 1, case_sensitive=False),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),
@@ -984,7 +1320,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
     # PostgreSQL-style date/time functions
     "date_part": HogQLFunctionMeta(
-        "if({} = 'year', toYear({}), if({} = 'month', toMonth({}), if({} = 'day', toDayOfMonth({}), if({} = 'hour', toHour({}), if({} = 'minute', toMinute({}), if({} = 'second', toSecond({}), if({} = 'dow', toDayOfWeek({}), if({} = 'doy', toDayOfYear({}), if({} = 'quarter', toQuarter({}), null)))))))))",  # Maps to same implementation as extract
+        "if({0} = 'year', toYear({1}), if({0} = 'month', toMonth({1}), if({0} = 'day', toDayOfMonth({1}), if({0} = 'hour', toHour({1}), if({0} = 'minute', toMinute({1}), if({0} = 'second', toSecond({1}), if({0} = 'dow', toDayOfWeek({1}), if({0} = 'doy', toDayOfYear({1}), if({0} = 'quarter', toQuarter({1}), null)))))))))",  # Maps to same implementation as extract
         2,
         2,
         signatures=[
@@ -992,6 +1328,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), DateType()), IntegerType()),
         ],
         using_placeholder_arguments=True,
+        using_positional_arguments=True,
     ),
     **{
         name: HogQLFunctionMeta(
@@ -1260,7 +1597,12 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         using_positional_arguments=True,
     ),
     # survey functions
-    "getSurveyResponse": HogQLFunctionMeta("getSurveyResponse", 1, 3),
+    "getSurveyResponse": HogQLFunctionMeta(
+        "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
+    ),
+    "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
+        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
 }
 
 # Permitted HogQL aggregations
@@ -1268,6 +1610,9 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "countState": HogQLFunctionMeta("countState", 0, 1, aggregate=True),
+    "countMerge": HogQLFunctionMeta("countMerge", 1, 1, aggregate=True),
+    "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
@@ -1340,6 +1685,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMinMerge": HogQLFunctionMeta("argMinMerge", 1, 1, aggregate=True),
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
     "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
+    "avgStateIf": HogQLFunctionMeta("avgStateIf", 2, 2, aggregate=True),
     "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
     "avgMergeIf": HogQLFunctionMeta("avgMergeIf", 2, 2, aggregate=True),
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
@@ -1387,6 +1733,10 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "minMapIf": HogQLFunctionMeta("minMapIf", 2, 3, aggregate=True),
     "maxMap": HogQLFunctionMeta("maxMap", 1, 2, aggregate=True),
     "maxMapIf": HogQLFunctionMeta("maxMapIf", 2, 3, aggregate=True),
+    "sumMerge": HogQLFunctionMeta("sumMerge", 1, 1, aggregate=True),
+    "sumMergeIf": HogQLFunctionMeta("sumMergeIf", 2, 2, aggregate=True),
+    "sumState": HogQLFunctionMeta("sumState", 1, 1, aggregate=True),
+    "sumStateIf": HogQLFunctionMeta("sumStateIf", 2, 2, aggregate=True),
     "medianArray": HogQLFunctionMeta("medianArrayOrNull", 1, 1, aggregate=True),
     "skewSamp": HogQLFunctionMeta("skewSamp", 1, 1, aggregate=True),
     "skewSampIf": HogQLFunctionMeta("skewSampIf", 2, 2, aggregate=True),
@@ -1409,7 +1759,10 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
     "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True),
+    "uniqMergeIf": HogQLFunctionMeta("uniqMergeIf", 2, 2, aggregate=True),
     "uniqMap": HogQLFunctionMeta("uniqMap", 1, 1, aggregate=True),
+    "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
+    "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
     "uniqUpToMerge": HogQLFunctionMeta("uniqUpToMerge", 1, 1, 1, 1, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
@@ -1479,12 +1832,14 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsIf": HogQLFunctionMeta("maxIntersectionsIf", 3, 3, aggregate=True),
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
-    "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 5, aggregate=True),
+    "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True),
+    "md5": HogQLFunctionMeta("hex(MD5({}))", 1, 1, aggregate=True, using_placeholder_arguments=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
+    "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
@@ -1569,7 +1924,7 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopEnd",
 )
 
-SURVEY_FUNCTIONS = {"getSurveyResponse"}
+SURVEY_FUNCTIONS = {"getSurveyResponse", "uniqueSurveySubmissionsFilter"}
 
 
 def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:

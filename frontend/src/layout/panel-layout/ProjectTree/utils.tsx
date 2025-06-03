@@ -1,10 +1,11 @@
-import { IconArrowUpRight, IconPlus } from '@posthog/icons'
+import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
@@ -17,11 +18,48 @@ export interface ConvertProps {
     searchTerm?: string
     disableFolderSelect?: boolean
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
+    recent?: boolean
+    users?: Record<string, UserBasicType>
+    foldersFirst?: boolean
+    allShortcuts?: boolean
+}
+
+export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
+    const root = protocol.replace(/\/+/, '').replace(':', '')
+    return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
+}
+
+export function protocolTitle(str: string): string {
+    return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
+}
+
+export function splitProtocolPath(url: string): [string, string] {
+    const folders = url ? splitPath(url) : []
+    const urlWithProtocol = folders.length > 0 && folders[0].endsWith(':') && url.startsWith(`${folders[0]}//`)
+    if (urlWithProtocol) {
+        return [folders[0] + '//', joinPath(folders.slice(1))]
+    }
+    return ['products://', url]
+}
+
+export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
+    const parts = splitPath(url)
+    if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
+        if (parts.length > 1) {
+            return parts[parts.length - 1]
+        }
+        return protocolTitle(parts[0].slice(0, -1))
+    }
+    if (parts.length > 0) {
+        return parts[parts.length - 1]
+    }
+    return defaultName
 }
 
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
     const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
     const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+
     if (parentA === parentB) {
         if (a.type === 'folder' && b.type !== 'folder') {
             return -1
@@ -33,17 +71,13 @@ export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): num
     return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
 }
 
-export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
-    if (item.shortcut) {
-        return (
-            <div className="relative">
-                {icon}
-                <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
-            </div>
-        )
-    }
-
-    return icon
+export function wrapWithShortcutIcon(icon: React.ReactNode): JSX.Element {
+    return (
+        <div className="relative">
+            {icon}
+            <IconShortcut className="icon-shortcut absolute bottom-[-0.15rem] left-[-0.25rem] [&_path]:fill-white" />
+        </div>
+    )
 }
 
 export function convertFileSystemEntryToTreeDataItem({
@@ -54,7 +88,42 @@ export function convertFileSystemEntryToTreeDataItem({
     searchTerm,
     disableFolderSelect,
     disabledReason,
+    recent,
+    users,
+    foldersFirst = true,
+    allShortcuts = false,
 }: ConvertProps): TreeDataItem[] {
+    function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
+        const pathSplit = splitPath(item.path)
+        const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
+        const nodeId = getItemId(item, root)
+        const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
+        const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
+
+        const icon = iconForType('iconType' in item ? item.iconType : item.type)
+        const node: TreeDataItem = {
+            id: nodeId,
+            name: itemName,
+            displayName,
+            icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
+            record: { ...item, user },
+            checked: checkedItems[nodeId],
+            tags: item.tags,
+            visualOrder: item.visualOrder,
+        }
+        if (item && disabledReason?.(item)) {
+            node.disabledReason = disabledReason(item)
+        }
+        if (disableFolderSelect && item.type === 'folder') {
+            node.disableSelect = true
+        }
+        return node
+    }
+
+    if (recent) {
+        return imports.map(itemToTreeDataItem)
+    }
+
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 
@@ -66,7 +135,7 @@ export function convertFileSystemEntryToTreeDataItem({
     const markIndeterminateFolders = (path: string): void => {
         const parts = splitPath(path)
         for (let i = 0; i < parts.length; i++) {
-            indeterminateFolders[`${root}-folder/${joinPath(parts.slice(0, i + 1))}`] = true
+            indeterminateFolders[`${root}${joinPath(parts.slice(0, i + 1))}`] = true
         }
     }
 
@@ -76,12 +145,13 @@ export function convertFileSystemEntryToTreeDataItem({
             (node) => node.record?.path === fullPath && node.record?.type === 'folder'
         )
         if (!folderNode) {
-            const id = `${root}-folder/${fullPath}`
+            const id = `${root}${fullPath}`
+            const [protocol] = splitProtocolPath(id)
             folderNode = {
                 id,
                 name: folderName,
                 displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
-                record: { type: 'folder', id: null, path: fullPath },
+                record: { type: 'folder', id: null, protocol, path: fullPath },
                 children: [],
                 checked: checkedItems[id],
             }
@@ -90,7 +160,6 @@ export function convertFileSystemEntryToTreeDataItem({
             }
             if (folderNode.record && disabledReason?.(folderNode.record as FileSystemEntry)) {
                 folderNode.disabledReason = disabledReason(folderNode.record as FileSystemEntry)
-                folderNode.onClick = undefined
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
@@ -107,16 +176,16 @@ export function convertFileSystemEntryToTreeDataItem({
     // Iterate over each raw project item.
     for (const item of imports) {
         const pathSplit = splitPath(item.path)
-        const itemName = pathSplit.pop()!
+        pathSplit.pop()
         const folderPath = joinPath(pathSplit)
-
-        // Split the folder path by "/" (ignoring empty parts).
-        const folderParts = folderPath ? splitPath(folderPath) : []
 
         // Start at the root level.
         let currentLevel = rootNodes
         let folderNode: TreeDataItem | undefined = undefined
         const accumulatedPath: string[] = []
+        let accumulatedChildren: TreeDataItem[] = []
+
+        const folderParts = folderPath ? splitPath(folderPath) : []
 
         // Create (or find) nested folders as needed.
         for (const part of folderParts) {
@@ -125,7 +194,6 @@ export function convertFileSystemEntryToTreeDataItem({
             currentLevel = folderNode.children!
         }
 
-        let accumulatedChildren: TreeDataItem[] = []
         if (item.type === 'folder') {
             const folderMatch = (node: TreeDataItem): boolean =>
                 node.record?.path === item.path && node.record?.type === 'folder'
@@ -146,34 +214,10 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
 
-        // Create the actual item node.
-        const nodeId = item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}/${item.id || item.path}`
-        const node: TreeDataItem = {
-            id: nodeId,
-            name: itemName,
-            displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />,
-            icon: item._loading ? (
-                <Spinner />
-            ) : (
-                wrapWithShortutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
-            ),
-            record: item,
-            checked: checkedItems[nodeId],
-            onClick: () => {
-                if (item.href) {
-                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
-                }
-            },
-        }
-        if (item && disabledReason?.(item)) {
-            node.disabledReason = disabledReason(item)
-            node.onClick = undefined
-        }
-        if (disableFolderSelect) {
-            if (item.type === 'folder') {
-                node.disableSelect = true
-            }
-        } else if (checkedItems[nodeId]) {
+        const nodeId = getItemId(item)
+        const node = itemToTreeDataItem(item)
+
+        if (checkedItems[nodeId]) {
             markIndeterminateFolders(joinPath(splitPath(item.path).slice(0, -1)))
         }
 
@@ -200,6 +244,7 @@ export function convertFileSystemEntryToTreeDataItem({
                     name: 'Loading...',
                     icon: <Spinner />,
                     disableSelect: true,
+                    type: 'loading-indicator',
                 })
             }
             allFolderNodes.push(node)
@@ -215,12 +260,13 @@ export function convertFileSystemEntryToTreeDataItem({
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
-            // folders before files
-            if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
-                return -1
-            }
-            if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
-                return 1
+            if (foldersFirst) {
+                if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
+                    return -1
+                }
+                if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
+                    return 1
+                }
             }
             return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
         })
@@ -230,7 +276,10 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
     }
-    sortNodes(rootNodes)
+
+    if (root !== 'products://' && root !== 'persons://') {
+        sortNodes(rootNodes)
+    }
 
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
@@ -286,6 +335,10 @@ export function escapePath(path: string): string {
     return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
 }
 
+export function unescapePath(path: string): string {
+    return path.replace(/\\\//g, '/').replace(/\\\\/g, '\\')
+}
+
 export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
     for (const node of projectTree) {
         if (node.id === itemId) {
@@ -299,4 +352,61 @@ export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): 
         }
     }
     return undefined
+}
+
+/**
+ * Calculates the new path for a file system entry when moving it to a new destination folder
+ * @param item The file system entry to move
+ * @param destinationFolder The destination folder path (empty string for root)
+ * @returns Object containing the new path and whether the move is valid
+ */
+export function calculateMovePath(
+    item: FileSystemEntry,
+    destinationFolder: string
+): { newPath: string; isValidMove: boolean } {
+    const oldPath = item.path
+    const oldSplit = splitPath(oldPath)
+    const fileName = oldSplit.pop()
+
+    if (!fileName) {
+        return { newPath: '', isValidMove: false }
+    }
+
+    let newPath = ''
+
+    if (destinationFolder === '') {
+        // Moving to root
+        newPath = joinPath([fileName])
+        // Only valid if item is not already at root
+        const isValidMove = oldSplit.length > 0
+        return { newPath, isValidMove }
+    }
+    // Moving to another folder
+    newPath = joinPath([...splitPath(destinationFolder), fileName])
+    // Only valid if destination is different from current location
+    const isValidMove = newPath !== oldPath
+    return { newPath, isValidMove }
+}
+
+export function appendResultsToFolders(
+    results: RecentResults | SearchResults,
+    folders: Record<string, FileSystemEntry[]>
+): Record<string, FileSystemEntry[]> {
+    // Append search results into the loaded state to persist data and help with multi-selection between panels
+    const newState: Record<string, FileSystemEntry[]> = { ...folders }
+    const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
+    for (const result of newResults) {
+        const folder = joinPath(splitPath(result.path).slice(0, -1))
+        if (newState[folder]) {
+            const existingItem = newState[folder].find((item) => item.id === result.id)
+            if (existingItem) {
+                newState[folder] = newState[folder].map((file) => (file.id === result.id ? result : file))
+            } else {
+                newState[folder] = [...newState[folder], result]
+            }
+        } else {
+            newState[folder] = [result]
+        }
+    }
+    return newState
 }

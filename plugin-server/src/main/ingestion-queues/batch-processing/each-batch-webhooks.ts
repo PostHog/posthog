@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
@@ -18,9 +17,6 @@ import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
-
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
 
 export const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
@@ -95,54 +91,44 @@ export async function eachBatchHandlerHelper(
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
-    const transaction = Sentry.startTransaction({ name: `eachBatch${stats_key}` })
+    const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
-    try {
-        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
+    ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
+    ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
 
-        ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
-        ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
-
-        for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
-            const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
-
-            if (!isRunning() || isStale()) {
-                logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
-                    isRunning: isRunning(),
-                    isStale: isStale(),
-                    msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                })
-                await heartbeat()
-                return
-            }
-
-            await Promise.all(
-                eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
-            )
-
-            resolveOffset(lastOffset)
-            await commitOffsetsIfNecessary()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
-            latestOffsetTimestampGauge
-                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
-                .set(Number.parseInt(lastTimestamp))
-
+    for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
+        if (!isRunning() || isStale()) {
+            logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
+                isRunning: isRunning(),
+                isStale: isStale(),
+                msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
+            })
             await heartbeat()
-
-            batchSpan.finish()
+            return
         }
 
-        logger.debug(
-            '🧩',
-            `Kafka batch of ${batch.messages.length} events completed in ${
-                new Date().valueOf() - batchStartTimer.valueOf()
-            }ms (${loggingKey})`
+        await Promise.all(
+            eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
         )
-    } finally {
-        transaction.finish()
+
+        resolveOffset(lastOffset)
+        await commitOffsetsIfNecessary()
+
+        // Record that latest messages timestamp, such that we can then, for
+        // instance, alert on if this value is too old.
+        latestOffsetTimestampGauge
+            .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
+            .set(Number.parseInt(lastTimestamp))
+
+        await heartbeat()
     }
+
+    logger.debug(
+        '🧩',
+        `Kafka batch of ${batch.messages.length} events completed in ${
+            new Date().valueOf() - batchStartTimer.valueOf()
+        }ms (${loggingKey})`
+    )
 }
 
 async function addGroupPropertiesToPostIngestionEvent(

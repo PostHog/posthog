@@ -1,58 +1,12 @@
-import csv
 from datetime import datetime
-import json
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 from django.template import Engine, Context
 
 
-def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
-    headers = []
-    rows: list[list[str | datetime]] = []
-    with open(file_path) as f:
-        reader = csv.reader(f)
-        headers = next(reader)
-        # Ensure chronological order of the events
-        timestamp_index = get_column_index(headers, "timestamp")
-        if not timestamp_index:
-            raise ValueError("Timestamp column not found in the CSV")
-        for raw_row in reader:
-            row: list[str | datetime] = []
-            timestamp_str = raw_row[timestamp_index]
-            timestamp = prepare_datetime(timestamp_str)
-            row = [*raw_row[:timestamp_index], timestamp, *raw_row[timestamp_index + 1 :]]
-            rows.append(row)
-        rows.sort(key=lambda x: x[timestamp_index])
-    # Replace the headers with custom one to replicate DB response for recordings
-    override_headers = [
-        "event",
-        "timestamp",
-        "elements_chain_href",
-        "elements_chain_texts",
-        "elements_chain_elements",
-        "$window_id",
-        "$current_url",
-        "$event_type",
-    ]
-    if len(headers) != len(override_headers):
-        raise ValueError(
-            f"Headers length mismatch when loading session recording events from CSV: {len(headers)} != {len(override_headers)}"
-        )
-    return override_headers, rows
-
-
-def load_session_metadata_from_json(file_path: str) -> dict[str, Any]:
-    with open(file_path) as f:
-        raw_session_metadata = json.load(f)
-    raw_session_metadata["start_time"] = prepare_datetime(raw_session_metadata.get("start_time"))
-    raw_session_metadata["end_time"] = prepare_datetime(raw_session_metadata.get("end_time"))
-    return raw_session_metadata
-
-
 def get_column_index(columns: list[str], column_name: str) -> int:
     for i, c in enumerate(columns):
-        if c == column_name:
+        if c.replace("$", "") == column_name.replace("$", ""):
             return i
     else:
         raise ValueError(f"Column {column_name} not found in the columns: {columns}")
@@ -128,3 +82,24 @@ def load_custom_template(template_dir: Path, template_name: str, context: dict |
     template = engine.from_string(template_string)
     # Render template with context
     return template.render(Context(context or {}))
+
+
+def serialize_to_sse_event(event_label: str, event_data: str) -> str:
+    """
+    Serialize data into a Server-Sent Events (SSE) message format.
+    Args:
+        event_label: The type of event (e.g. "session-summary-stream" or "error")
+        event_data: The data to be sent in the event (most likely JSON-serialized)
+    Returns:
+        A string formatted according to the SSE specification
+    """
+    # Escape new lines in event label
+    event_label = event_label.replace("\n", "\\n")
+    # Check (cheap) if event data is JSON-serialized, no need to escape
+    if (event_data.startswith("{") and event_data.endswith("}")) or (
+        event_data.startswith("[") and event_data.endswith("]")
+    ):
+        return f"event: {event_label}\ndata: {event_data}\n\n"
+    # Otherwise, escape newlines also
+    event_data = event_data.replace("\n", "\\n")
+    return f"event: {event_label}\ndata: {event_data}\n\n"

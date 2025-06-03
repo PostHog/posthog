@@ -267,7 +267,7 @@ describe('DB', () => {
 
     async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
             'fetchPersonByPersonId'
@@ -284,7 +284,7 @@ describe('DB', () => {
         await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
 
         const result = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
             [team.id, 'addPersonlessDistinctId'],
             'addPersonlessDistinctId'
@@ -303,7 +303,10 @@ describe('DB', () => {
         })
 
         test('without properties', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
+            const [person, kafkaMessages] = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [
+                { distinctId },
+            ])
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
             const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
 
             expect(fetched_person.is_identified).toEqual(false)
@@ -315,7 +318,10 @@ describe('DB', () => {
         })
 
         test('without properties indentified true', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
+            const [person, kafkaMessages] = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [
+                { distinctId },
+            ])
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
             const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
 
             expect(fetched_person.is_identified).toEqual(true)
@@ -327,7 +333,7 @@ describe('DB', () => {
         })
 
         test('with properties', async () => {
-            const person = await db.createPerson(
+            const [person, kafkaMessages] = await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
                 { a: ISO_TIMESTAMP, b: ISO_TIMESTAMP, c: ISO_TIMESTAMP },
@@ -338,7 +344,7 @@ describe('DB', () => {
                 uuid,
                 [{ distinctId }]
             )
-
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
             const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
 
             expect(fetched_person!.is_identified).toEqual(false)
@@ -365,9 +371,18 @@ describe('DB', () => {
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
             // Note that we update the person badly in case of concurrent updates, but lets make sure we're consistent
-            const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, {}, {}, team.id, null, false, uuid, [
-                { distinctId },
-            ])
+            const [personDbBefore, kafkaMessagesPersonDbBefore] = await db.createPerson(
+                TIMESTAMP,
+                { c: 'aaa' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                [{ distinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesPersonDbBefore)
             const providedPersonTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
@@ -399,7 +414,8 @@ describe('DB', () => {
         it('deletes person from postgres', async () => {
             const team = await getFirstTeam(hub)
             // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            const [person, kafkaMessages] = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             await db.deletePerson(person)
 
@@ -426,19 +442,30 @@ describe('DB', () => {
             it('marks person as deleted in clickhouse', async () => {
                 const team = await getFirstTeam(hub)
                 // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
-                const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+                const [personBefore, kafkaMessagesPersonBefore] = await db.createPerson(
+                    TIMESTAMP,
+                    {},
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    []
+                )
+                await hub.db.kafkaProducer.queueMessages(kafkaMessagesPersonBefore)
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
-                const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
+                const [_personUpdated, updatePersonKafkaMessages] = await db.updatePersonDeprecated(personBefore, {
                     properties: { foo: 'bar' },
                 })
                 await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
-                const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages(kafkaMessages)
+                const kafkaMessages = await db.deletePerson(personBefore)
+                await hub.db.kafkaProducer.queueMessages(kafkaMessages)
                 await db.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
@@ -490,10 +517,18 @@ describe('DB', () => {
         it('returns person object if person exists', async () => {
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
-            const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, {}, {}, team.id, null, true, uuid, [
-                { distinctId: 'some_id' },
-            ])
-
+            const [createdPerson, kafkaMessages] = await db.createPerson(
+                TIMESTAMP,
+                { foo: 'bar' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                [{ distinctId: 'some_id' }]
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
             const person = await db.fetchPerson(team.id, 'some_id')
 
             expect(person).toEqual(createdPerson)
@@ -519,8 +554,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
@@ -536,8 +570,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
@@ -561,8 +594,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             await expect(
@@ -573,8 +605,7 @@ describe('DB', () => {
                     { prop: 'newval' },
                     TIMESTAMP,
                     { prop: ISO_TIMESTAMP },
-                    { prop: PropertyUpdateOperation.Set },
-                    1
+                    { prop: PropertyUpdateOperation.Set }
                 )
             ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
         })
@@ -587,8 +618,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             const originalGroup = await db.fetchGroup(2, 0, 'group_key')
@@ -601,8 +631,7 @@ describe('DB', () => {
                 { prop: 'newVal', prop2: 2 },
                 TIMESTAMP,
                 { prop: timestamp2.toISO()!, prop2: timestamp2.toISO()! },
-                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                2
+                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
@@ -667,7 +696,7 @@ describe('DB', () => {
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            const sourcePerson = await db.createPerson(
+            const [sourcePerson, kafkaMessagesSourcePerson] = await db.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -678,7 +707,8 @@ describe('DB', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'source_person' }]
             )
-            const targetPerson = await db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
+            const [targetPerson, kafkaMessagesTargetPerson] = await db.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -689,6 +719,7 @@ describe('DB', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'target_person' }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesTargetPerson)
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
         })

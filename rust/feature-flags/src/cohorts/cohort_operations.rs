@@ -8,16 +8,13 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use tracing::instrument;
 
+use super::cohort_models::CohortPropertyType;
+use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
-use crate::{
-    api::errors::FlagError, client::database::Client as DatabaseClient,
-    properties::property_models::PropertyFilter,
-};
-
-use super::cohort_models::CohortPropertyType;
-use super::cohort_models::CohortValues;
+use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
+use common_database::Client as DatabaseClient;
 
 impl Cohort {
     /// Returns all cohorts for a given team

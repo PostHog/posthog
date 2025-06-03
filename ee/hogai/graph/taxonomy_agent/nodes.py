@@ -133,7 +133,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(
@@ -163,8 +163,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             raise ValueError("Failed to generate events prompt.")
 
         events: list[str] = [
-            # Add "All Events" to the mapping
-            "All Events",
+            # Add "All events" to the mapping
+            "All events",
         ]
         for item in response.results:
             if len(response.results) > 25 and item.count <= 3:

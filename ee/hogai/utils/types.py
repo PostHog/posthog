@@ -1,4 +1,4 @@
-import operator
+import uuid
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated, Literal, Optional, Union
@@ -23,6 +23,48 @@ AIMessageUnion = Union[
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 
+def add_and_merge_messages(
+    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
+) -> Sequence[AssistantMessageUnion]:
+    """Merges two lists of messages, updating existing messages by ID.
+
+    By default, this ensures the state is "append-only", unless the
+    new message has the same ID as an existing message.
+
+    Args:
+        left: The base list of messages.
+        right: The list of messages to merge
+            into the base list.
+
+    Returns:
+        A new list of messages with the messages from `right` merged into `left`.
+        If a message in `right` has the same ID as a message in `left`, the
+        message from `right` will replace the message from `left`.
+    """
+    # coerce to list
+    left = list(left)
+    right = list(right)
+
+    # assign missing ids
+    for m in left:
+        if m.id is None:
+            m.id = str(uuid.uuid4())
+    for m in right:
+        if m.id is None:
+            m.id = str(uuid.uuid4())
+
+    # merge
+    left_idx_by_id = {m.id: i for i, m in enumerate(left)}
+    merged = left.copy()
+    for m in right:
+        if (existing_idx := left_idx_by_id.get(m.id)) is not None:
+            merged[existing_idx] = m
+        else:
+            merged.append(m)
+
+    return merged
+
+
 class _SharedAssistantState(BaseModel):
     """
     The state of the root node.
@@ -44,6 +86,11 @@ class _SharedAssistantState(BaseModel):
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
+    """
+
+    onboarding_question: Optional[str] = Field(default=None)
+    """
+    A clarifying question asked during the onboarding process.
     """
 
     memory_updated: Optional[bool] = Field(default=None)
@@ -82,14 +129,14 @@ class _SharedAssistantState(BaseModel):
 
 
 class AssistantState(_SharedAssistantState):
-    messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
     """
     Messages exposed to the user.
     """
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Sequence[AssistantMessageUnion]] = Field(default=None)
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
     """
@@ -114,9 +161,12 @@ class PartialAssistantState(_SharedAssistantState):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
-    MEMORY_ONBOARDING = "memory_onboarding"
     MEMORY_INITIALIZER = "memory_initializer"
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
+    MEMORY_ONBOARDING = "memory_onboarding"
+    MEMORY_ONBOARDING_ENQUIRY = "memory_onboarding_enquiry"
+    MEMORY_ONBOARDING_ENQUIRY_INTERRUPT = "memory_onboarding_enquiry_interrupt"
+    MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
     TRENDS_PLANNER = "trends_planner"

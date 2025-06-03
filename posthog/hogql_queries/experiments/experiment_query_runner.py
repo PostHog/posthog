@@ -422,8 +422,12 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _get_metric_aggregation_expr(self) -> ast.Expr:
         match self.metric:
-            case ExperimentMeanMetric():
-                return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            case ExperimentMeanMetric() as metric:
+                match metric.source.math:
+                    case ExperimentMetricMathType.UNIQUE_SESSION:
+                        return parse_expr("toFloat(count(distinct metric_events.value))")
+                    case _:
+                        return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
                 return funnel_steps_to_window_funnel_expr(self.metric)
 

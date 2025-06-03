@@ -2,25 +2,28 @@ import json
 import threading
 import types
 from collections.abc import Sequence
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
 
-import posthoganalytics
 import sqlparse
-from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from prometheus_client import Counter
 
-from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
+from posthog.clickhouse.client.connection import (
+    Workload,
+    get_client_from_pool,
+    get_default_clickhouse_workload_type,
+    ClickHouseUser,
+)
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
 from posthog.exceptions import ClickhouseAtCapacity
-from posthog.settings import TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -96,14 +99,6 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
-@cached(cache=TTLCache(maxsize=1, ttl=600))
-def get_api_queries_online_allow_list() -> set[int]:
-    with suppress(Exception):
-        cfg = json.loads(posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster"))
-        return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
-    return set[int]()
-
-
 @patchable
 def sync_execute(
     query,
@@ -116,6 +111,7 @@ def sync_execute(
     team_id: Optional[int] = None,
     readonly=False,
     sync_client: Optional[SyncClient] = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -132,9 +128,11 @@ def sync_execute(
     if workload == Workload.DEFAULT and (is_personal_api_key or get_query_tag_value("kind") == "celery"):
         workload = Workload.OFFLINE
 
+    tag_id: str = get_query_tag_value("id") or ""
     # Make sure we always have process_query_task on the online cluster
-    if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
+    if tag_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
+        ch_user = ClickHouseUser.APP
 
     chargeable = get_query_tag_value("chargeable") or 0
     # Customer is paying for API
@@ -143,7 +141,7 @@ def sync_execute(
         and workload == Workload.OFFLINE
         and chargeable
         and is_cloud()
-        and team_id in get_api_queries_online_allow_list()
+        and team_id in API_QUERIES_ON_ONLINE_CLUSTER
     ):
         workload = Workload.ONLINE
 
@@ -155,9 +153,20 @@ def sync_execute(
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
     query_id = validated_client_query_id()
-    core_settings = {**default_settings(), **(settings or {})}
+    core_settings = {
+        **default_settings(),
+        **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
+        **(settings or {}),
+    }
     tags["query_settings"] = core_settings
     query_type = tags.get("query_type", "Other")
+    if ch_user == ClickHouseUser.DEFAULT:
+        if is_personal_api_key:
+            ch_user = ClickHouseUser.API
+        elif tags.get("kind", "") == "request" and "api/" in tag_id and "capture" not in tag_id:
+            # process requests made to API from the PH app
+            ch_user = ClickHouseUser.APP
+
     while True:
         settings = {
             **core_settings,
@@ -177,7 +186,7 @@ def sync_execute(
                 access_method=tags.get("access_method", "other"),
                 chargeable=str(tags.get("chargeable", "0")),
             ).inc()
-            with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
+            with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
                 result = client.execute(
                     prepared_sql,
                     params=prepared_args,
@@ -188,7 +197,10 @@ def sync_execute(
         except Exception as e:
             exception_type = ch_error_type(e)
             QUERY_ERROR_COUNTER.labels(
-                exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+                exception_type=exception_type,
+                query_type=query_type,
+                workload=workload.value if workload else "None",
+                chargeable=chargeable,
             ).inc()
             err = wrap_query_error(e)
             if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:

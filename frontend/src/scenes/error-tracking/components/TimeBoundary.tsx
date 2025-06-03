@@ -7,7 +7,7 @@ import { match, P } from 'ts-pattern'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
 
 type TimeBoundaryProps = {
     label: string
@@ -17,8 +17,8 @@ type TimeBoundaryProps = {
 }
 
 export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoundaryProps): JSX.Element {
-    const { dateRange } = useValues(errorTrackingIssueSceneLogic)
-    const { setDateRange } = useActions(errorTrackingIssueSceneLogic)
+    const { dateRange } = useValues(errorFiltersLogic)
+    const { setDateRange } = useActions(errorFiltersLogic)
     const onClick = useCallback(
         (e: MouseEvent): void => {
             setDateRange(updateDateRange(dateRange))
@@ -35,7 +35,7 @@ export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoun
                 .with([false, P.any], () => (
                     <span
                         onClick={onClick}
-                        className="hover:bg-fill-button-tertiary-hover px-1 rounded flex items-center"
+                        className="hover:bg-fill-button-tertiary-hover px-1 rounded flex items-center cursor-pointer"
                     >
                         <TZLabel
                             time={time as Dayjs}

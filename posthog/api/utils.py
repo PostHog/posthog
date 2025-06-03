@@ -147,9 +147,20 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     return result
 
 
+def is_csp_report(request) -> bool:
+    return (
+        request.path == "/report"
+        or request.path == "/report/"
+        or request.headers.get("Content-Type") in {"application/reports+json", "application/csp-report"}
+    )
+
+
 def get_token(data, request) -> Optional[str]:
     token = None
-    if request.method == "GET":
+
+    if request.method == "GET" or is_csp_report(
+        request
+    ):  # CSPs are actually POST, but the token must be available at the report-uri/to URL
         if request.GET.get("token"):
             token = request.GET.get("token")  # token passed as query param
         elif request.GET.get("api_key"):
@@ -177,7 +188,7 @@ def get_token(data, request) -> Optional[str]:
 
 def get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
-        return int(request.POST["project_id"])
+        return int(request.GET["project_id"])
     if request.POST.get("project_id"):
         return int(request.POST["project_id"])
     if isinstance(data, list):
@@ -189,6 +200,7 @@ def get_project_id(data, request) -> Optional[int]:
 
 def get_data(request):
     data = None
+
     try:
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
@@ -326,6 +338,30 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
+
+
+def is_insight_query(query):
+    insight_kinds = {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+    if getattr(query, "kind", None) in insight_kinds:
+        return True
+    if getattr(query, "kind", None) == "HogQLQuery":
+        return True
+    if getattr(query, "kind", None) == "DataTableNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    if getattr(query, "kind", None) == "DataVisualizationNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    return False
 
 
 def parse_bool(value: Union[str, list[str]]) -> bool:
@@ -549,7 +585,7 @@ class ServerTimingsGathered:
                 """
                 capture_exception(
                     Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"timings": timings},
+                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
                 )
                 break
 

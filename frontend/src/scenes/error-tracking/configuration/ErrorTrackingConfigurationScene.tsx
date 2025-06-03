@@ -7,12 +7,13 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { ErrorTrackingSetupPrompt } from '../ErrorTrackingSetupPrompt'
+import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { ERROR_TRACKING_LOGIC_KEY } from '../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
 
 export type ConfigurationSceneTabType =
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'

@@ -1,5 +1,5 @@
 import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
-import { LemonSnack } from '@posthog/lemon-ui'
+import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -41,27 +41,33 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
 
     return (
-        <ButtonGroupPrimitive menuItem fullWidth groupVariant="side-action-group">
+        <ButtonGroupPrimitive menuItem fullWidth>
             <DropdownMenuItem asChild>
-                <ButtonPrimitive
-                    menuItem
-                    href={relativeOtherProjectPath}
-                    sideActionLeft
+                <Link
+                    buttonProps={{
+                        menuItem: true,
+                        hasSideActionRight: true,
+                    }}
                     tooltip={`Switch to project: ${team.name}`}
                     tooltipPlacement="right"
+                    to={relativeOtherProjectPath}
+                    data-attr="tree-navbar-project-dropdown-other-project-button"
                 >
                     <ProjectName team={team} />
-                </ButtonPrimitive>
+                </Link>
             </DropdownMenuItem>
-            <ButtonPrimitive
-                href={urls.project(team.id, urls.settings('project'))}
-                iconOnly
-                sideActionRight
+            <Link
+                buttonProps={{
+                    iconOnly: true,
+                    isSideActionRight: true,
+                }}
                 tooltip={`View settings for project: ${team.name}`}
                 tooltipPlacement="right"
+                to={urls.project(team.id, urls.settings('project'))}
+                data-attr="tree-navbar-project-dropdown-other-project-settings-button"
             >
                 <IconGear />
-            </ButtonPrimitive>
+            </Link>
         </ButtonGroupPrimitive>
     )
 }
@@ -77,7 +83,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     return isAuthenticatedTeam(currentTeam) ? (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive>
+                <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button">
                     <IconFolderOpen className="text-tertiary" />
                     Project
                     <IconChevronRight
@@ -105,27 +111,31 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                    <ButtonGroupPrimitive fullWidth groupVariant="side-action-group">
+                    <ButtonGroupPrimitive fullWidth>
                         <ButtonPrimitive
                             menuItem
                             active
                             disabled
-                            sideActionLeft
+                            hasSideActionRight
                             tooltip={`Current project: ${currentTeam.name}`}
                             tooltipPlacement="right"
+                            data-attr="tree-navbar-project-dropdown-current-project-button"
                         >
                             <ProjectName team={currentTeam} />
                         </ButtonPrimitive>
-                        <ButtonPrimitive
-                            active
-                            href={urls.project(currentTeam.id, urls.settings('project'))}
-                            iconOnly
-                            sideActionRight
+                        <Link
+                            buttonProps={{
+                                active: true,
+                                iconOnly: true,
+                                isSideActionRight: true,
+                            }}
                             tooltip={`View settings for project: ${currentTeam.name}`}
                             tooltipPlacement="right"
+                            to={urls.project(currentTeam.id, urls.settings('project'))}
+                            data-attr="tree-navbar-project-dropdown-current-project-settings-button"
                         >
                             <IconGear className="text-tertiary" />
-                        </ButtonPrimitive>
+                        </Link>
                     </ButtonGroupPrimitive>
                 </DropdownMenuItem>
 

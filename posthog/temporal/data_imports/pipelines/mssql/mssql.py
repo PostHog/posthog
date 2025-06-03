@@ -1,12 +1,15 @@
+from __future__ import annotations
+
+import collections
+import math
+import typing
 from collections.abc import Iterator
-from dataclasses import dataclass
 from typing import Any
 
 import pyarrow as pa
-import pymssql
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from pymssql import Cursor
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
@@ -15,14 +18,75 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )
-from posthog.warehouse.models import IncrementalFieldType
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+if typing.TYPE_CHECKING:
+    from pymssql import Cursor
+
+
+@config.config
+class MSSQLSourceConfig(config.Config):
+    host: str
+    user: str
+    password: str
+    database: str
+    schema: str
+    port: int = config.value(converter=int)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+def get_schemas(config: MSSQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    def inner(mssql_host: str, mssql_port: int):
+        # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+        import pymssql
+
+        connection = pymssql.connect(
+            server=mssql_host,
+            # pymssql requires port to be str
+            port=str(mssql_port),
+            database=config.database,
+            user=config.user,
+            password=config.password,
+            login_timeout=5,
+        )
+
+        with connection.cursor(as_dict=False) as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+
+            schema_list = collections.defaultdict(list)
+
+            for row in cursor:
+                if row:
+                    schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+
+        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            if tunnel is None:
+                raise ConnectionError("Can't open tunnel to SSH server")
+
+            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return inner(config.host, config.port)
 
 
 def _build_query(
@@ -81,16 +145,76 @@ def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str]
     return [row[0] for row in rows]
 
 
-@dataclass
-class TableStructureRow:
-    column_name: str
-    data_type: str
-    is_nullable: bool
-    numeric_precision: int | None
-    numeric_scale: int | None
+class MSSQLColumn(Column):
+    """Implementation of the `Column` protocol for a MSSQL source.
+
+    Attributes:
+        name: The column's name.
+        data_type: The name of the column's data type as described in
+            https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-types-transact-sql.
+        nullable: Whether the column is nullable or not.
+        numeric_precision: The number of significant digits. Only used with
+            numeric `data_type`s, otherwise `None`.
+        numeric_scale: The number of significant digits to the right of
+            decimal point. Only used with numeric `data_type`s, otherwise
+            `None`.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        data_type: str,
+        nullable: bool,
+        numeric_precision: int | None = None,
+        numeric_scale: int | None = None,
+    ) -> None:
+        self.name = name
+        self.data_type = data_type
+        self.nullable = nullable
+        self.numeric_precision = numeric_precision
+        self.numeric_scale = numeric_scale
+
+    def to_arrow_field(self) -> pa.Field[pa.DataType]:
+        """Return a `pyarrow.Field` that closely matches this column."""
+        arrow_type: pa.DataType
+
+        match self.data_type:
+            case "bigint":
+                arrow_type = pa.int64()
+            case "int" | "integer":
+                arrow_type = pa.int32()
+            case "smallint":
+                arrow_type = pa.int16()
+            case "tinyint":
+                arrow_type = pa.int8()
+            case "decimal" | "numeric" | "money":
+                if not self.numeric_precision or not self.numeric_scale:
+                    raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
+
+                arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
+            case "float" | "real":
+                arrow_type = pa.float64()
+            case "varchar" | "char" | "text" | "nchar" | "nvarchar" | "ntext":
+                arrow_type = pa.string()
+            case "date":
+                arrow_type = pa.date32()
+            case "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset":
+                arrow_type = pa.timestamp("us")
+            case "time":
+                arrow_type = pa.time64("us")
+            case "bit" | "boolean" | "bool":
+                arrow_type = pa.bool_()
+            case "binary" | "varbinary" | "image":
+                arrow_type = pa.binary()
+            case "json":
+                arrow_type = pa.string()
+            case _:
+                arrow_type = pa.string()
+
+        return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
+def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table[MSSQLColumn]:
     query = """
         SELECT
             COLUMN_NAME,
@@ -110,67 +234,39 @@ def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[T
             "table_name": table_name,
         },
     )
-    rows = cursor.fetchall()
-    if not rows:
-        raise ValueError(f"Table {table_name} not found")
-    return [
-        TableStructureRow(
-            column_name=row[0],
-            data_type=row[1],
-            is_nullable=bool(row[2]),
-            numeric_precision=row[3],
-            numeric_scale=row[4],
+
+    numeric_data_types = {"numeric", "decimal", "money"}
+    columns = []
+    for row in cursor:
+        if row is None:
+            break
+
+        name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate = row
+        if data_type in numeric_data_types:
+            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        else:
+            numeric_precision = None
+            numeric_scale = None
+
+        columns.append(
+            MSSQLColumn(
+                name=name,
+                data_type=data_type,
+                nullable=nullable,
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
         )
-        for row in rows
-    ]
 
+    if not columns:
+        raise ValueError(f"Table {table_name} not found")
 
-def _get_arrow_schema(table_structure: list[TableStructureRow]) -> pa.Schema:
-    fields = []
-
-    for col in table_structure:
-        name = col.column_name
-        data_type = col.data_type.lower()
-
-        arrow_type: pa.DataType
-
-        # Map MS SQL type names to PyArrow types
-        # https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-types-transact-sql?view=sql-server-ver16
-        match data_type:
-            case "bigint":
-                arrow_type = pa.int64()
-            case "int" | "integer":
-                arrow_type = pa.int32()
-            case "smallint":
-                arrow_type = pa.int16()
-            case "tinyint":
-                arrow_type = pa.int8()
-            case "decimal" | "numeric" | "money":
-                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
-                arrow_type = build_pyarrow_decimal_type(precision, scale)
-            case "float" | "real":
-                arrow_type = pa.float64()
-            case "varchar" | "char" | "text" | "nchar" | "nvarchar" | "ntext":
-                arrow_type = pa.string()
-            case "date":
-                arrow_type = pa.date32()
-            case "datetime" | "datetime2" | "smalldatetime":
-                arrow_type = pa.timestamp("us")
-            case "time":
-                arrow_type = pa.time64("us")
-            case "bit" | "boolean" | "bool":
-                arrow_type = pa.bool_()
-            case "binary" | "varbinary" | "image":
-                arrow_type = pa.binary()
-            case "json":
-                arrow_type = pa.string()
-            case _:
-                arrow_type = pa.string()
-
-        fields.append(pa.field(name, arrow_type, nullable=col.is_nullable))
-
-    return pa.schema(fields)
+    return Table(
+        name=table_name,
+        parents=(schema,),
+        columns=columns,
+    )
 
 
 def _get_table_average_row_size(
@@ -252,6 +348,7 @@ def _get_table_chunk_size(
             return DEFAULT_CHUNK_SIZE
     except Exception as e:
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
+        capture_exception(e)
         return DEFAULT_CHUNK_SIZE
 
     chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
@@ -260,6 +357,101 @@ def _get_table_chunk_size(
         f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
     )
     return min_chunk_size
+
+
+def _get_table_stats(cursor: Cursor, schema: str, table_name: str) -> tuple[int, float]:
+    """Calculate the number of rows and size of a table.
+
+    Uses sp_spaceused stored procedure which is the official way to get accurate table size and row count.
+    Falls back to simpler version for SQL Server versions before 2012.
+    """
+    # Try modern version first (SQL Server 2012+)
+    query = "EXEC sp_spaceused %(full_table_name)s, @updateusage = 'TRUE'"
+
+    try:
+        cursor.execute(query, {"full_table_name": f"[{schema}].[{table_name}]"})
+    except Exception:
+        # If @updateusage parameter fails, try the older version
+        query = "EXEC sp_spaceused %(full_table_name)s"
+        cursor.execute(query, {"full_table_name": f"[{schema}].[{table_name}]"})
+
+    result = cursor.fetchone()
+    if result is None:
+        raise ValueError("_get_partition_settings: sp_spaceused returned no results")
+
+    # sp_spaceused returns: name, rows, reserved, data, index_size, unused
+    _, total_rows, _, data_size, _, _ = result
+
+    # Convert string values to numbers
+    total_rows = int(total_rows)
+
+    # Parse size with unit (e.g. "1024.45 MB" -> 1024.45, "MB")
+    size_parts = data_size.strip().split(" ")
+    if len(size_parts) != 2:
+        raise ValueError(
+            f"_get_partition_settings: Invalid sp_spaceused result: expected 2 parts, got {len(size_parts)}"
+        )
+
+    size_value = float(size_parts[0])
+    unit = size_parts[1].upper()
+
+    # Convert to bytes based on unit
+    multiplier = {"KB": 1024, "MB": 1024 * 1024, "GB": 1024 * 1024 * 1024, "TB": 1024 * 1024 * 1024 * 1024}.get(unit)
+    if multiplier is None:
+        raise ValueError(f"_get_partition_settings: Unexpected unit '{unit}' in sp_spaceused result")
+
+    total_bytes = size_value * multiplier
+    return total_rows, total_bytes
+
+
+def _get_rows_to_sync(
+    cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
+) -> int:
+    try:
+        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+        cursor.execute(query, inner_query_args)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
+
+
+def _get_partition_settings(
+    cursor: Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> PartitionSettings | None:
+    """Calculate the partition size and count for a table."""
+
+    total_rows, total_bytes = _get_table_stats(cursor, schema, table_name)
+    if total_bytes == 0 or total_rows == 0:
+        return None
+
+    # Calculate partition size based on target bytes per partition
+    bytes_per_row = total_bytes / total_rows
+    partition_size = int(round(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / bytes_per_row))
+    partition_count = math.floor(total_rows / partition_size)
+    logger.debug(
+        f"_get_partition_settings: {total_rows=}, {total_bytes=}, {bytes_per_row=}, "
+        f"{partition_size=}, {partition_count=}"
+    )
+
+    if partition_count == 0:
+        return PartitionSettings(partition_count=1, partition_size=partition_size)
+
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
 def mssql_source(
@@ -276,6 +468,8 @@ def mssql_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
+    import pymssql
+
     table_name = table_names[0]
     if not table_name:
         raise ValueError("Table name is missing")
@@ -289,8 +483,18 @@ def mssql_source(
         login_timeout=5,
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query, inner_query_args = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table_structure = _get_table_structure(cursor, schema, table_name)
+            table = _get_table(cursor, schema, table_name)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
             chunk_size = _get_table_chunk_size(
                 cursor,
                 schema,
@@ -301,14 +505,21 @@ def mssql_source(
                 db_incremental_field_last_value,
                 logger,
             )
+            try:
+                partition_settings = (
+                    _get_partition_settings(cursor, schema, table_name, logger) if is_incremental else None
+                )
+            except Exception as e:
+                logger.debug(f"_get_partition_settings: Error: {e}. Skipping partitioning.")
+                capture_exception(e)
+                partition_settings = None
 
             # Fallback on checking for an `id` field on the table
-            if primary_keys is None:
-                if any(ts.column_name == "id" for ts in table_structure):
-                    primary_keys = ["id"]
+            if primary_keys is None and "id" in table:
+                primary_keys = ["id"]
 
     def get_rows() -> Iterator[Any]:
-        arrow_schema = _get_arrow_schema(table_structure)
+        arrow_schema = table.to_arrow_schema()
 
         with pymssql.connect(
             server=host,
@@ -346,4 +557,7 @@ def mssql_source(
         name=name,
         items=get_rows(),
         primary_keys=primary_keys,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
+        rows_to_sync=rows_to_sync,
     )

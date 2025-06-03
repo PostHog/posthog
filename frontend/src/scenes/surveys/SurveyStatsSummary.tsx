@@ -1,10 +1,11 @@
 import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
-import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
+import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 
-import { SurveyRates, SurveyStats } from '~/types'
+import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
@@ -21,7 +22,7 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
             <div className="text-xs font-semibold uppercase text-text-secondary">{title}</div>
             {isLoading ? (
                 <>
-                    <LemonSkeleton className="h-8 w-16" />
+                    <LemonSkeleton className="h-9 w-16" />
                     <LemonSkeleton className="h-4 w-32" />
                 </>
             ) : (
@@ -35,11 +36,11 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
 }
 
 function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
-    const uniqueUsersShown = stats['survey shown'].unique_persons
-    const uniqueUsersSent = stats['survey sent'].unique_persons
+    const uniqueUsersShown = stats[SurveyEventName.SHOWN].unique_persons
+    const uniqueUsersSent = stats[SurveyEventName.SENT].unique_persons
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
     return (
-        <div className="flex flex-wrap gap-4 mb-4">
+        <div className="flex flex-wrap gap-4">
             <StatCard
                 title="Total Impressions by Unique Users"
                 value={humanFriendlyNumber(uniqueUsersShown)}
@@ -64,12 +65,12 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
 }
 
 function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
-    const impressions = stats['survey shown'].total_count
-    const sent = stats['survey sent'].total_count
+    const impressions = stats[SurveyEventName.SHOWN].total_count
+    const sent = stats[SurveyEventName.SENT].total_count
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
 
     return (
-        <div className="flex flex-wrap gap-4 mb-4">
+        <div className="flex flex-wrap gap-4">
             <StatCard
                 title="Total Impressions"
                 value={humanFriendlyNumber(impressions)}
@@ -119,14 +120,18 @@ function SurveyStatsStackedBar({
     stats: SurveyStats
     filterByDistinctId: boolean
 }): JSX.Element {
-    const total = !filterByDistinctId ? stats['survey shown'].total_count : stats['survey shown'].unique_persons
+    const total = !filterByDistinctId
+        ? stats[SurveyEventName.SHOWN].total_count
+        : stats[SurveyEventName.SHOWN].unique_persons
     const onlySeen = !filterByDistinctId
-        ? stats['survey shown'].total_count_only_seen
-        : stats['survey shown'].unique_persons_only_seen
+        ? stats[SurveyEventName.SHOWN].total_count_only_seen
+        : stats[SurveyEventName.SHOWN].unique_persons_only_seen
     const dismissed = !filterByDistinctId
-        ? stats['survey dismissed'].total_count
-        : stats['survey dismissed'].unique_persons
-    const sent = !filterByDistinctId ? stats['survey sent'].total_count : stats['survey sent'].unique_persons
+        ? stats[SurveyEventName.DISMISSED].total_count
+        : stats[SurveyEventName.DISMISSED].unique_persons
+    const sent = !filterByDistinctId
+        ? stats[SurveyEventName.SENT].total_count
+        : stats[SurveyEventName.SENT].unique_persons
 
     const segments: StackedBarSegment[] = [
         {
@@ -153,25 +158,48 @@ function SurveyStatsStackedBar({
 }
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
-    const { filterSurveyStatsByDistinctId } = useValues(surveyLogic)
+    const { filterSurveyStatsByDistinctId, processedSurveyStats, survey } = useValues(surveyLogic)
     const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
 
     return (
-        <div>
+        <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 justify-between">
-                <h3>Survey performance</h3>
-                <div className="flex items-center gap-2">
-                    <LemonLabel>
-                        Count each person once
-                        <LemonSwitch
-                            checked={filterSurveyStatsByDistinctId}
-                            onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
-                            tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
-                        />
-                    </LemonLabel>
-                </div>
+                <h3 className="mb-0">Survey performance</h3>
+                {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
+                    <div className="flex items-center gap-2">
+                        <LemonLabel>
+                            Count each person once
+                            <LemonSwitch
+                                checked={filterSurveyStatsByDistinctId}
+                                onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
+                                tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
+                            />
+                        </LemonLabel>
+                    </div>
+                )}
             </div>
-            {children}
+            {survey.start_date && (
+                <div className="flex items-center text-sm text-secondary">
+                    <div className="flex gap-2 items-center">
+                        <span className="inline-flex items-center gap-1">
+                            Started: <TZLabel time={survey.start_date} />
+                        </span>
+                        <span className="text-border-dark">•</span>
+                        {survey.end_date ? (
+                            <span className="inline-flex items-center gap-1">
+                                <span className="h-2 w-2 rounded-full bg-danger/50" />
+                                Ended: <TZLabel time={survey.end_date} />
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1 text-success">
+                                <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
+                                Active
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
+            <div className="flex flex-col gap-4">{children}</div>
         </div>
     )
 }
@@ -179,7 +207,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
 function SurveyStatsSummarySkeleton(): JSX.Element {
     return (
         <SurveyStatsContainer>
-            <div className="flex flex-wrap gap-4 mb-4">
+            <div className="flex flex-wrap gap-4">
                 <StatCard
                     title="Total Impressions by Unique Users"
                     value={0}
@@ -199,8 +227,7 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
                     isLoading={true}
                 />
             </div>
-
-            <LemonSkeleton className="h-10 w-full" />
+            <StackedBarSkeleton />
         </SurveyStatsContainer>
     )
 }
@@ -221,7 +248,7 @@ function _SurveyStatsSummary(): JSX.Element {
     if (!processedSurveyStats) {
         return (
             <SurveyStatsContainer>
-                <div className="text-center text-text-secondary">No data available for this survey yet.</div>
+                <div className="text-text-secondary text-left">No data available for this survey yet.</div>
             </SurveyStatsContainer>
         )
     }
