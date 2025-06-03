@@ -1,7 +1,7 @@
 import { Hub } from '~/src/types'
 
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 /**
@@ -9,12 +9,11 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
  */
 export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerSegment'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
     private segmentPluginExecutor: SegmentDestinationExecutorService
 
     constructor(hub: Hub) {
         super(hub, 'segment')
-        this.segmentPluginExecutor = new SegmentDestinationExecutorService()
+        this.segmentPluginExecutor = new SegmentDestinationExecutorService(this.hub)
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {

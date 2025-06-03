@@ -1,6 +1,11 @@
 // Accessing lib styles.
 .StoriesModal__modal {
     min-width: 0;
+    overflow: hidden;
+    border: 1px solid rgb(219 222 212);
+    border-radius: 6px;
+    box-shadow: 0 25px 50px -12px rgb(52 48 48 / 50%), -8px 0 25px -8px rgb(52 48 48 / 25%),
+        8px 0 25px -8px rgb(52 48 48 / 25%);
 
     // This will change the opacity of the swipe component so it's not visible until hovered
     div > div:nth-child(2) > div:nth-child(2) {
