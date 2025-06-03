@@ -5446,7 +5446,7 @@ export interface ProductManifest {
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
-    treeItemsDataManagement?: FileSystemImport[]
+    treeItemsMetadata?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {
