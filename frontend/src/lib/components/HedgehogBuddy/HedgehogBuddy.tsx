@@ -390,7 +390,7 @@ export class HedgehogActor {
         }
     }
 
-    setRandomAnimation(): void {
+    setRandomAnimation(exclude: AnimationName[] = []): void {
         if (this.mainAnimation?.name !== 'stop') {
             this.setAnimation('stop')
         } else {
@@ -401,6 +401,7 @@ export class HedgehogActor {
             randomChoiceList = this.hedgehogConfig.walking_enabled
                 ? randomChoiceList
                 : randomChoiceList.filter((x) => x !== 'walk')
+            randomChoiceList = randomChoiceList.filter((x) => !exclude.includes(x))
             this.setAnimation(sampleOne(randomChoiceList))
         }
     }
