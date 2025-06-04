@@ -476,7 +476,7 @@ def get_teams_with_billable_event_count_in_period(
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -502,7 +502,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -599,13 +599,13 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 4 splits
+    # Execute the split query with 3 splits
     return _execute_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
         params={},
-        num_splits=2,
+        num_splits=3,
         combine_results_func=combine_event_metrics_results,
     )
 
