@@ -1,4 +1,5 @@
 from parameterized import parameterized
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebStatsDailyTable,
     WebBouncesDailyTable,
@@ -54,25 +55,24 @@ class TestWebAnalyticsPreAggregatedSchema:
     ]
 
     @property
-    def all_tables(self) -> dict[str, object]:
-        """Lazy initialization of all table instances"""
+    def all_tables(self) -> dict[str, Table]:
         if not hasattr(self, "_tables"):
             self._tables = {name: cls() for name, cls, _ in self.TABLE_CONFIGS}
         return self._tables
 
     @property
-    def stats_tables(self) -> dict[str, object]:
+    def stats_tables(self) -> dict[str, Table]:
         return {k: v for k, v in self.all_tables.items() if "Stats" in k}
 
     @property
-    def bounces_tables(self) -> dict[str, object]:
+    def bounces_tables(self) -> dict[str, Table]:
         return {k: v for k, v in self.all_tables.items() if "Bounces" in k}
 
     @property
-    def non_combined_tables(self) -> dict[str, object]:
+    def non_combined_tables(self) -> dict[str, Table]:
         return {k: v for k, v in self.all_tables.items() if "Combined" not in k}
 
-    def _assert_fields_in_tables(self, field_names: list[str], tables: dict[str, object], should_contain: bool = True):
+    def _assert_fields_in_tables(self, field_names: list[str], tables: dict[str, Table], should_contain: bool = True):
         for field_name in field_names:
             for table_name, table_instance in tables.items():
                 if should_contain:
@@ -82,7 +82,7 @@ class TestWebAnalyticsPreAggregatedSchema:
                         field_name not in table_instance.fields
                     ), f"Field '{field_name}' should not be in {table_name}"
 
-    def _assert_field_groups_in_tables(self, field_groups: dict[str, list[str]], tables: dict[str, object]):
+    def _assert_field_groups_in_tables(self, field_groups: dict[str, list[str]], tables: dict[str, Table]):
         for _, field_names in field_groups.items():
             self._assert_fields_in_tables(field_names, tables)
 
