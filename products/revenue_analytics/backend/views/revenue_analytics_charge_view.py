@@ -37,6 +37,7 @@ FIELDS: dict[str, FieldOrTable] = {
     # Some of these are here only to power `events` views while others
     # are here to support data warehouse tables, check below for more details
     "id": StringDatabaseField(name="id"),
+    "source_label": StringDatabaseField(name="source_label"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "customer_id": StringDatabaseField(name="customer_id"),
     "invoice_id": StringDatabaseField(name="invoice_id"),
@@ -47,12 +48,12 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
-    @staticmethod
-    def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:
+    @classmethod
+    def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
 
-    @staticmethod
-    def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    @classmethod
+    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
             return []
 
@@ -60,6 +61,8 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
         queries: list[tuple[str, ast.SelectQuery]] = []
         for event in revenue_config.events:
+            prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
+
             comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
                 revenue_config, event, do_currency_conversion=False
             )
@@ -72,6 +75,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             query = ast.SelectQuery(
                 select=[
                     ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
+                    ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
                     ast.Alias(
@@ -111,21 +115,21 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             )
 
-            queries.append((event.eventName, query))
+            queries.append((event.eventName, prefix, query))
 
         return [
             RevenueAnalyticsChargeView(
                 id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
                 name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
-                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_event(event_name),
+                prefix=prefix,
                 query=query.to_hogql(),
                 fields=FIELDS,
             )
-            for event_name, query in queries
+            for event_name, prefix, query in queries
         ]
 
-    @staticmethod
-    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    @classmethod
+    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -145,6 +149,8 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         team = table.team
         revenue_config = team.revenue_analytics_config
 
+        prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
+
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and
         # avoid manual interpolation of constants, leaving that to the HogQL printer
@@ -152,6 +158,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             select=[
                 # Base fields to allow insights to work (need `distinct_id` AND `timestamp` fields)
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
+                ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 # Useful for cross joins
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
@@ -226,7 +233,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             RevenueAnalyticsChargeView(
                 id=str(table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
-                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
+                prefix=prefix,
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

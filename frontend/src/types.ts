@@ -859,6 +859,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    RevenueAnalytics = 'revenue_analytics',
     Log = 'log',
 }
 
@@ -879,6 +880,11 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 
 export interface EventMetadataPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.EventMetadata
+    operator: PropertyOperator
+}
+
+export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.RevenueAnalytics
     operator: PropertyOperator
 }
 
@@ -971,6 +977,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | RevenueAnalyticsPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3531,6 +3538,7 @@ export enum PropertyType {
 export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
+    RevenueAnalytics = 'revenue_analytics',
     Person = 'person',
     Group = 'group',
     Session = 'session',
@@ -3732,6 +3740,7 @@ export interface CoreFilterDefinition {
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
+    type?: PropertyType
 }
 
 export interface TileParams {

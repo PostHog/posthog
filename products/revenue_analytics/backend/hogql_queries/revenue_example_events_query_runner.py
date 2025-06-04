@@ -11,7 +11,7 @@ from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
 )
 
-from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):

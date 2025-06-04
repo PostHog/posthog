@@ -25,13 +25,23 @@ from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
+from posthog.hogql.database.schema.exchange_rate import (
+    revenue_comparison_and_value_exprs_for_events,
+    currency_expression_for_events,
+)
 
 SOURCE_VIEW_SUFFIX = "invoice_item_revenue_view"
+EVENTS_VIEW_SUFFIX = "invoice_item_revenue_view_events"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
+    "source_label": StringDatabaseField(name="source_label"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "product_id": StringDatabaseField(name="product_id"),
+    "customer_id": StringDatabaseField(name="customer_id"),
+    "invoice_id": StringDatabaseField(name="invoice_id"),
+    "session_id": StringDatabaseField(name="session_id"),
+    "event_name": StringDatabaseField(name="event_name"),
     **BASE_CURRENCY_FIELDS,
 }
 
@@ -47,19 +57,90 @@ def extract_json_string(field: str, *path: str) -> ast.Call:
 
 
 class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
-    @staticmethod
-    def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:
+    @classmethod
+    def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_INVOICE_ITEM
 
-    # TODO: Need to figure out a way to support this for events
-    # We'll need either support for arbitrary HogQL here (which we need in general anyway)
-    # or force some kind of structure to list what an "invoice" is, and how to compute the revenue from it
-    @staticmethod
-    def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
-        return []
+    # NOTE: Very similar to charge views, but for individual invoice items
+    @classmethod
+    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+        if len(team.revenue_analytics_config.events) == 0:
+            return []
 
-    @staticmethod
-    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+        revenue_config = team.revenue_analytics_config
+
+        queries: list[tuple[str, ast.SelectQuery]] = []
+        for event in revenue_config.events:
+            comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
+                revenue_config, event, do_currency_conversion=False
+            )
+            _, currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
+                revenue_config,
+                event,
+                amount_expr=ast.Field(chain=["currency_aware_amount"]),
+            )
+
+            prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
+
+            query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
+                    ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
+                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                    ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
+                    ast.Alias(
+                        alias="invoice_id", expr=ast.Constant(value=None)
+                    ),  # Helpful for sources, not helpful for events
+                    ast.Alias(
+                        alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
+                    ),
+                    ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
+                    ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
+                    ast.Alias(alias="original_amount", expr=value_expr),
+                    # Being zero-decimal implies we will NOT divide the original amount by 100
+                    # We should only do that if we've tagged the event with `currencyAwareDecimal`
+                    # Otherwise, we'll just assume it's a non-zero-decimal currency
+                    ast.Alias(
+                        alias="enable_currency_aware_divider",
+                        expr=is_zero_decimal_in_stripe(ast.Field(chain=["original_currency"]))
+                        if event.currencyAwareDecimal
+                        else ast.Constant(value=True),
+                    ),
+                    currency_aware_divider(),
+                    currency_aware_amount(),
+                    ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                    ast.Alias(alias="amount", expr=currency_aware_amount_expr),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=ast.And(
+                    exprs=[
+                        comparison_expr,
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                            right=ast.Constant(value=None),
+                        ),
+                    ]
+                ),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            )
+
+            queries.append((event.eventName, prefix, query))
+
+        return [
+            RevenueAnalyticsInvoiceItemView(
+                id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                prefix=prefix,
+                query=query.to_hogql(),
+                fields=FIELDS,
+            )
+            for event_name, prefix, query in queries
+        ]
+
+    @classmethod
+    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -79,15 +160,22 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
         team = invoice_table.team
         revenue_config = team.revenue_analytics_config
 
+        prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
+
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and
         # avoid manual interpolation of constants, leaving that to the HogQL printer
         query = ast.SelectQuery(
             select=[
                 # Base fields to allow insights to work (need `distinct_id` AND `timestamp` fields)
-                ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
+                ast.Alias(alias="id", expr=ast.Field(chain=["invoice_item_id"])),
+                ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 ast.Field(chain=["product_id"]),
+                ast.Field(chain=["customer_id"]),
+                ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
+                ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
+                ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
                 # Compute the original currency, converting to uppercase to match the currency code in the `exchange_rate` table
                 ast.Alias(
                     alias="original_currency",
@@ -149,6 +237,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     select=[
                         ast.Field(chain=["id"]),
                         ast.Field(chain=["created_at"]),
+                        ast.Field(chain=["customer_id"]),
                         # Explode the `lines.data` field into an individual row per item
                         ast.Alias(
                             alias="data",
@@ -164,6 +253,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                                 ],
                             ),
                         ),
+                        ast.Alias(alias="invoice_item_id", expr=extract_json_string("data", "id")),
                         ast.Alias(alias="amount_captured", expr=extract_json_string("data", "amount")),
                         ast.Alias(alias="currency", expr=extract_json_string("data", "currency")),
                         ast.Alias(alias="product_id", expr=extract_json_string("data", "price", "product")),
@@ -179,7 +269,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
             RevenueAnalyticsInvoiceItemView(
                 id=str(invoice_table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
-                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
+                prefix=prefix,
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

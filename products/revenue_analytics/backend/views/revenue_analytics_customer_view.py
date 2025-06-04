@@ -21,6 +21,7 @@ SOURCE_VIEW_SUFFIX = "customer_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
+    "source_label": StringDatabaseField(name="source_label"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "name": StringDatabaseField(name="name"),
     "email": StringDatabaseField(name="email"),
@@ -29,17 +30,17 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
-    @staticmethod
-    def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:
+    @classmethod
+    def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER
 
     # No customer views for events, we only have that for schema sources
-    @staticmethod
-    def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    @classmethod
+    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
         return []
 
-    @staticmethod
-    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    @classmethod
+    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -56,6 +57,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
             return []
 
         table = cast(DataWarehouseTable, customer_schema.table)
+        prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
 
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and
@@ -66,6 +68,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
+                ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
@@ -78,7 +81,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
             RevenueAnalyticsCustomerView(
                 id=str(table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
-                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
+                prefix=prefix,
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

@@ -532,6 +532,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
                 }
             ]
         },
@@ -13162,6 +13165,7 @@
                 "data_warehouse",
                 "data_warehouse_person_property",
                 "error_tracking_issue",
+                "revenue_analytics",
                 "log"
             ],
             "type": "string"
@@ -17075,6 +17079,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
@@ -17082,7 +17089,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse>": {
@@ -17098,6 +17105,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
                 },
@@ -17105,7 +17115,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse>": {
@@ -17121,6 +17131,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
                 },
@@ -17128,7 +17141,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
@@ -17144,6 +17157,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 },
@@ -17151,7 +17167,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsConfig": {
@@ -17233,6 +17249,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
@@ -17240,7 +17259,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
@@ -17300,6 +17319,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
                 },
@@ -17307,7 +17329,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "interval", "kind", "revenueSources"],
+            "required": ["groupBy", "interval", "kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
@@ -17382,6 +17404,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
                 },
@@ -17389,7 +17414,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsOverviewQueryResponse": {
@@ -17428,6 +17453,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "RevenueAnalyticsPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "revenue_analytics",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "RevenueAnalyticsPropertyFilters": {
+            "items": {
+                "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+            },
+            "type": "array"
+        },
         "RevenueAnalyticsTopCustomersGroupBy": {
             "enum": ["month", "all"],
             "type": "string"
@@ -17449,6 +17503,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 },
@@ -17456,7 +17513,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "kind", "revenueSources"],
+            "required": ["groupBy", "kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -18523,6 +18580,7 @@
                 "error_tracking_issues",
                 "logs",
                 "replay",
+                "revenue_analytics_properties",
                 "resources"
             ],
             "type": "string"
