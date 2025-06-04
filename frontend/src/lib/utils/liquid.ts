@@ -25,9 +25,9 @@ export class LiquidRenderer {
             return match
                 .replace(/&lt;/g, '<')
                 .replace(/&gt;/g, '>')
-                .replace(/&amp;/g, '&')
                 .replace(/&quot;/g, '"')
                 .replace(/&#x27;/g, "'")
+                .replace(/&amp;/g, '&') // NOTE: This should always be last
         })
 
         return this.liquid.parse(decodedTemplate)
