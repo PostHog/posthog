@@ -647,7 +647,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding hidden
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) > 0
+        assert len(virtual_props) == 2
 
     def test_virtual_property_search_by_name(self):
         response = self.client.get(
