@@ -97,8 +97,9 @@ export function InsightTooltip({
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const concreteTooltipTitle = getTooltipTitle(seriesData, altTitle, date)
     const title: ReactNode | null =
-        getTooltipTitle(seriesData, altTitle, date) ||
+        concreteTooltipTitle ||
         (date
             ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
                   timezone ? shortTimeZone(timezone) : 'UTC'
@@ -108,7 +109,7 @@ export function InsightTooltip({
 
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
-        const dataSource = invertDataSource(seriesData, breakdownFilter, formula)
+        const dataSource = invertDataSource(seriesData, breakdownFilter)
         const columns: LemonTableColumns<InvertedSeriesDatum> = [
             {
                 key: 'datum',
@@ -137,7 +138,7 @@ export function InsightTooltip({
                     align: 'right',
                     title:
                         (colIdx === 0 ? rightTitle : undefined) ||
-                        (!altTitle &&
+                        (!concreteTooltipTitle &&
                             renderSeries(
                                 <InsightLabel
                                     action={seriesColumn.action}

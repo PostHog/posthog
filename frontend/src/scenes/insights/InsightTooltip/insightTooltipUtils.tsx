@@ -103,8 +103,7 @@ export function getFormattedDate(input?: string | number, interval: IntervalType
 
 export function invertDataSource(
     seriesData: SeriesDatum[],
-    breakdownFilter: BreakdownFilter | null | undefined,
-    formula: boolean | undefined
+    breakdownFilter: BreakdownFilter | null | undefined
 ): InvertedSeriesDatum[] {
     // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
     const cohorts = cohortsModel.findMounted()?.values?.allCohorts
@@ -113,9 +112,6 @@ export function invertDataSource(
     seriesData.forEach((s) => {
         let datumTitle
         const pillValues = []
-        if (formula && s.label !== undefined) {
-            pillValues.push(s.label)
-        }
         if (s.breakdown_value !== undefined) {
             pillValues.push(
                 formatBreakdownLabel(
