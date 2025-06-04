@@ -425,11 +425,26 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         """Override to filter out deleted experiments and apply filters."""
         queryset = queryset.exclude(deleted=True)
 
-        # Filtering
-
-        # archived
-        # Only apply for list view, not detail view
+        # Only apply filters for list view, not detail view
         if self.action == "list":
+            # filtering by status
+            status = self.request.query_params.get("status")
+            if status:
+                status = status.lower()
+                if status != "all":
+                    if status == "draft":
+                        queryset = queryset.filter(start_date__isnull=True)
+                    elif status == "running":
+                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
+                    elif status == "complete":
+                        queryset = queryset.filter(end_date__isnull=False)
+
+            # filtering by creator id
+            created_by_id = self.request.query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
+
+            # archived
             archived = self.request.query_params.get("archived")
             if archived is not None:
                 archived_bool = archived.lower() == "true"
