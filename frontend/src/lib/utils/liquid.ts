@@ -1,9 +1,9 @@
-import { Liquid } from 'liquidjs'
-
-import { HogFunctionInvocationGlobalsWithInputs } from '../types'
+// Lazy load liquid library
+import { Liquid, Template } from 'liquidjs'
 
 const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
 
+// NOTE: This should be moved to common package but currently is a copy of plugin-server/src/cdp/utils/liquid.ts
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
 
@@ -18,17 +18,7 @@ export class LiquidRenderer {
         return this._liquid
     }
 
-    static renderWithHogFunctionGlobals(template: string, globals: HogFunctionInvocationGlobalsWithInputs): string {
-        const context = {
-            event: globals.event,
-            person: globals.person,
-            groups: globals.groups,
-            project: globals.project,
-            source: globals.source,
-            inputs: globals.inputs || {},
-            now: new Date(),
-        }
-
+    public static parse(template: string): Template[] {
         // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
         // We need to decode these but _only_ for the liquid elements i.e. content within {{ }} or {% %}
         const decodedTemplate = template.replace(LIQUID_REGEX, (match) => {
@@ -40,6 +30,6 @@ export class LiquidRenderer {
                 .replace(/&#x27;/g, "'")
         })
 
-        return this.liquid.parseAndRenderSync(decodedTemplate, context)
+        return this.liquid.parse(decodedTemplate)
     }
 }

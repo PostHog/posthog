@@ -26,7 +26,7 @@ import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { liquidRenderer } from '../utils/liquid'
+import { LiquidRenderer } from '../utils/liquid'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -100,7 +100,7 @@ const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobals
     }
 
     if (typeof value === 'string') {
-        return liquidRenderer.renderWithHogFunctionGlobals(value, globals)
+        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals)
     }
 
     if (Array.isArray(value)) {

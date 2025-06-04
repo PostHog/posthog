@@ -13,6 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { LiquidRenderer } from 'lib/utils/liquid'
 import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
@@ -699,38 +700,75 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const inputs = configuration.inputs ?? {}
                 const inputErrors: Record<string, string> = {}
 
-                configuration.inputs_schema?.forEach((input) => {
-                    const key = input.key
-                    const value = inputs[key]?.value
-                    if (inputs[key]?.secret) {
+                configuration.inputs_schema?.forEach((inputSchema) => {
+                    const key = inputSchema.key
+                    const input = inputs[key]
+                    const language = input?.templating ?? 'hog'
+                    const value = input?.value
+                    if (input?.secret) {
                         // We leave unmodified secret values alone
                         return
                     }
 
+                    const getTemplatingError = (value: string): string | undefined => {
+                        if (language === 'liquid' && typeof value === 'string') {
+                            try {
+                                LiquidRenderer.parse(value)
+                            } catch (e: any) {
+                                return `Liquid template error: ${e.message}`
+                            }
+                        }
+                    }
+
+                    const addTemplatingError = (value: string): void => {
+                        const templatingError = getTemplatingError(value)
+                        if (templatingError) {
+                            inputErrors[key] = templatingError
+                        }
+                    }
+
                     const missing = value === undefined || value === null || value === ''
-                    if (input.required && missing) {
+                    if (inputSchema.required && missing) {
                         inputErrors[key] = 'This field is required'
                     }
 
-                    if (input.type === 'json' && typeof value === 'string') {
+                    if (inputSchema.type === 'json' && typeof value === 'string') {
                         try {
                             JSON.parse(value)
                         } catch (e) {
                             inputErrors[key] = 'Invalid JSON'
                         }
+
+                        addTemplatingError(value)
                     }
 
-                    if (input.type === 'email' && value) {
+                    if (inputSchema.type === 'email' && value) {
                         const emailTemplateErrors: Partial<EmailTemplate> = {
-                            html: !value.html ? 'HTML is required' : undefined,
-                            subject: !value.subject ? 'Subject is required' : undefined,
-                            // text: !value.text ? 'Text is required' : undefined,
-                            from: !value.from ? 'From is required' : undefined,
-                            to: !value.to ? 'To is required' : undefined,
+                            html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
+                            subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
+                            // text: !value.text ? 'Text is required' : getTemplatingError(value.text),
+                            from: !value.from ? 'From is required' : getTemplatingError(value.from),
+                            to: !value.to ? 'To is required' : getTemplatingError(value.to),
                         }
 
-                        if (Object.values(emailTemplateErrors).some((v) => !!v)) {
-                            inputErrors[key] = { value: emailTemplateErrors } as any
+                        const combinedErrors = Object.values(emailTemplateErrors)
+                            .filter((v) => !!v)
+                            .join(', ')
+
+                        if (combinedErrors) {
+                            inputErrors[key] = combinedErrors
+                        }
+                    }
+
+                    if (inputSchema.type === 'string' && typeof value === 'string') {
+                        addTemplatingError(value)
+                    }
+
+                    if (inputSchema.type === 'dictionary') {
+                        for (const val of Object.values(value ?? {})) {
+                            if (typeof val === 'string') {
+                                addTemplatingError(val)
+                            }
                         }
                     }
                 })

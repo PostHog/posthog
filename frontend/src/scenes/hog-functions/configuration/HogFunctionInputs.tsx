@@ -121,11 +121,7 @@ function EmailTemplateField({
 }): JSX.Element {
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
-    return (
-        <LemonField name={`inputs.${schema.key}`} help={schema.description}>
-            <EmailTemplater variables={sampleGlobalsWithInputs} value={value} onChange={onChange} />
-        </LemonField>
-    )
+    return <EmailTemplater variables={sampleGlobalsWithInputs} value={value} onChange={onChange} />
 }
 
 function HogFunctionTemplateInput(props: {

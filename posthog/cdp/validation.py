@@ -160,7 +160,8 @@ class InputsItemSerializer(serializers.Serializer):
         try:
             if value and schema.get("templating", True):
                 if attrs.get("templating") == "liquid":
-                    # TODO: Add validation that the liquid is valid
+                    # NOTE: We don't do validaton at this level. The frontend will validate for us
+                    # and we don't care about it being invalid at this stage.
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value

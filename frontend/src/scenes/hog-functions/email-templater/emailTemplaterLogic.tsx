@@ -95,7 +95,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     selectors({
-        logicProps: [() => [(_, props) => props], (props) => props],
+        logicProps: [() => [(_, props) => props], (props): EmailTemplaterLogicProps => props],
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
             (personPropertyDefinitions: PropertyDefinition[]): MergeTags => {

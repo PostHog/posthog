@@ -1,5 +1,5 @@
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
-import { liquidRenderer } from './liquid'
+import { LiquidRenderer } from './liquid'
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
@@ -51,39 +51,48 @@ describe('LiquidRenderer', () => {
     describe('basic rendering', () => {
         it('renders simple variables', () => {
             const template = 'Hello {{ person.name }}!'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            expect(LiquidRenderer['_liquid']).toBeDefined()
             expect(result).toMatchInlineSnapshot(`"Hello test_person!"`)
+        })
+    })
+
+    describe('memoized initialisation', () => {
+        it('only initialises once', () => {
+            LiquidRenderer['_liquid'] = null
+            LiquidRenderer.renderWithHogFunctionGlobals('Hello {{ person.name }}!', globals)
+            expect(LiquidRenderer['_liquid']).toBeDefined()
         })
     })
 
     describe('custom filters', () => {
         it('handles default filter', () => {
             const template = '{{ value | default: "fallback" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, { ...globals })
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, { ...globals })
             expect(result).toMatchInlineSnapshot(`"fallback"`)
         })
 
         it('handles date filter with %Y%m%d format', () => {
             const template = '{{ "2024-03-20" | date: "%Y%m%d" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"20240320"`)
         })
 
         it('handles date filter with %B %-d, %Y at %l:%M %p format', () => {
             const template = '{{ "2024-03-20T15:30:00" | date: "%B %-d, %Y at %l:%M %p" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"March 20, 2024 at  3:30 PM"`)
         })
 
         it('handles date filter with %l:%M %p format', () => {
             const template = '{{ "2024-03-20T15:30:00" | date: "%l:%M %p" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`" 3:30 PM"`)
         })
 
         it('handles "now" in date filter', () => {
             const template = '{{ "now" | date: "%Y%m%d" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
         })
     })
@@ -91,19 +100,19 @@ describe('LiquidRenderer', () => {
     describe('HTML decoding', () => {
         it('decodes HTML entities', () => {
             const template = '{{ "&lt;div&gt;Hello &amp; World&lt;/div&gt;" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"&lt;div&gt;Hello &amp; World&lt;/div&gt;"`)
         })
 
         it('renders liquid elements that have been encoded', () => {
             const template = '{% if 1 &lt; 2 %}hello!{% endif %}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"hello!"`)
         })
 
         it('preserves $ in template', () => {
             const template = '{{ "$100" }}'
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"$100"`)
         })
 
@@ -118,7 +127,7 @@ describe('LiquidRenderer', () => {
 <p style="line-height: 140%;">{% assign event_friendly = event_date_raw | date: "%B %-d, %Y at %l:%M %p" %}<br />{% if event_date &gt; today %}<br />The event is coming up on {{ event_friendly }}.<br />{% elsif event_date == today %}<br />The event is happening today at {{ event_friendly | date: "%l:%M %p" }}!<br />{% else %}<br />This event took place on {{ event_friendly }}.<br />{% endif %}</p>
   </div>`
 
-            const result = liquidRenderer.renderWithHogFunctionGlobals(html, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(html, globals)
             expect(result).toMatchInlineSnapshot(`
                 "
                 <div style="font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;">
@@ -160,7 +169,7 @@ describe('LiquidRenderer', () => {
   {% endfor %}
 </ul>`
 
-            const result = liquidRenderer.renderWithHogFunctionGlobals(html, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(html, globals)
             expect(result).toMatchInlineSnapshot(`
                 "
 
@@ -252,7 +261,7 @@ describe('LiquidRenderer', () => {
                 },
                 inputs: {},
             }
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatchInlineSnapshot(`"Event: test_event, Person: test_person"`)
         })
 
@@ -294,7 +303,7 @@ describe('LiquidRenderer', () => {
                 },
                 inputs: {},
             }
-            const result = liquidRenderer.renderWithHogFunctionGlobals(template, globals)
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
         })
     })
