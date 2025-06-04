@@ -53,9 +53,10 @@ class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     def get_queryset(self):
-        # Some current organization attributes are needed in authentication middleware. This allows us to prefetch them.
-        # so we don't have to do more queries later. It's important to only query the attributes we need.
-        # Django doesn't have a way to automatically get all user fields so we need to explicitly list them.
+        # Optimize user queries by preloading essential fields and related organization data.
+        # This prevents N+1 queries in authentication middleware and other common user operations.
+        # We explicitly list all required fields since Django's select_related() doesn't support
+        # automatic field selection for related models.
         return (
             super()
             .get_queryset()
