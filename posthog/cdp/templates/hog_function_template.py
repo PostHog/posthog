@@ -55,7 +55,7 @@ class HogFunctionMappingTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "deprecated", "coming_soon"]
+    status: Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"]
     free: bool
     type: HogFunctionTemplateType
     id: str

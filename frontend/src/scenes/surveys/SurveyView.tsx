@@ -464,7 +464,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
-    if (isAnyResultsLoading) {
+    if (isAnyResultsLoading && !isNewQuestionVizEnabled) {
         lemonToast.info('Loading survey results...', {
             toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
             hideProgressBar: true,

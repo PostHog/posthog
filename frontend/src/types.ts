@@ -413,6 +413,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    members_can_invite?: boolean
     metadata?: OrganizationMetadata
     member_count: number
 }
@@ -4581,11 +4582,19 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
     sync_time_of_day: string | null
-    status?: string
+    status?: ExternalDataSchemaStatus
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
+}
+
+export enum ExternalDataSchemaStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    Paused = 'Paused',
+    Cancelled = 'Cancelled',
 }
 
 export enum ExternalDataJobStatus {
@@ -4593,6 +4602,7 @@ export enum ExternalDataJobStatus {
     Completed = 'Completed',
     Failed = 'Failed',
     BillingLimits = 'Billing limits',
+    BillingLimitTooLow = 'Billing limit too low',
 }
 
 export interface ExternalDataJob {
@@ -5177,7 +5187,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
 // Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
 export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
