@@ -30,6 +30,10 @@ export function getCurrentTeamId(): TeamType['id'] {
     return maybeTeamId
 }
 
+export function getCurrentTeamIdOrNone(): TeamType['id'] | null {
+    return getAppContext()?.current_team?.id ?? null
+}
+
 // NOTE: Any changes to the userId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentUserId(): UserType['uuid'] {
@@ -38,6 +42,10 @@ export function getCurrentUserId(): UserType['uuid'] {
         throw new Error(`User ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
     return maybeUserId
+}
+
+export function getCurrentUserIdOrNone(): UserType['uuid'] | null {
+    return getAppContext()?.current_user?.uuid ?? null
 }
 
 // NOTE: Any changes to the organizationId trigger a full page load so we don't use the logic
