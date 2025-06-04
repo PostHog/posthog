@@ -1,11 +1,13 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
+from datetime import datetime, UTC
 
 from freezegun import freeze_time
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models import Action, Element, Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
@@ -945,3 +947,67 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
         assert conversion_rate.previous is None
         assert conversion_rate.changeFromPreviousPct is None
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_it_should_use_preaggregated_tables_with_fixed_dates_and_no_other_filters(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables for historical data"
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_current_date(self):
+        today = datetime.now(UTC).date().isoformat()
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to=today),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(),
+            "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)",
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[{"key": "unsupported_property", "value": "value"}],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertFalse(
+            pre_agg_builder.can_use_preaggregated_tables(),
+            "Should not use pre-aggregated tables with unsupported properties",
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_cannot_use_preaggregated_tables_with_conversion_goal(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            conversionGoal=CustomEventConversionGoal(customEventName="custom_event"),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertFalse(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should not use pre-aggregated tables with conversion goal"
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_supported_properties(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[{"key": "$host", "value": "app.posthog.com"}],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
+        )

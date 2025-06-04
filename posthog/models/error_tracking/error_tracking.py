@@ -1,5 +1,7 @@
 from django.db import models, transaction
 from django.contrib.postgres.fields import ArrayField
+from django.conf import settings
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
@@ -7,6 +9,7 @@ from posthog.models.user import User
 from posthog.models.user_group import UserGroup
 from ee.models.rbac.role import Role
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+from posthog.storage import object_storage
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
@@ -80,6 +83,30 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
+class ErrorTrackingRelease(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
+    # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
+    # id of the model
+    hash_id = models.TextField(null=False, blank=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    version = models.TextField(null=False, blank=False)
+    project = models.TextField(null=False, blank=False)  # For now, we may spin this out to a dedicated model later
+
+    # Releases can have some metadata attached to them (like id, name, version,
+    # commit, whatever), which we put onto exceptions if they're
+    metadata = models.JSONField(null=True, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "hash_id"]),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "hash_id"], name="unique_release_hash_id_per_team"),
+        ]
+
+
 class ErrorTrackingSymbolSet(UUIDModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -95,6 +122,22 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
     content_hash = models.TextField(null=True, blank=False)
+
+    # Symbol sets can have an associated release, if they were uploaded
+    # with one
+    release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
+
+    def delete(self, *args, **kwargs):
+        storage_ptr = self.storage_ptr
+        with transaction.atomic():
+            # We always keep resolved frames, as they're used in the UI
+            self.errortrackingstackframe_set.filter(resolved=False).delete()
+            super().delete(*args, **kwargs)
+
+        # We'd rather have orphan objects in s3 than records in postgres that don't actually point
+        # to anything, so we delete the rows and /then/ clean up the s3 object
+        if storage_ptr:
+            delete_symbol_set_contents(storage_ptr)
 
     class Meta:
         indexes = [
@@ -172,12 +215,31 @@ class ErrorTrackingGroupingRule(UUIDModel):
         # ]
 
 
+class ErrorTrackingSuppressionRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Grouping rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.CASCADE, null=True)
+    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it
@@ -285,3 +347,13 @@ def override_error_tracking_issue_fingerprint(
         },
         sync=sync,
     )
+
+
+def delete_symbol_set_contents(upload_path: str) -> None:
+    if settings.OBJECT_STORAGE_ENABLED:
+        object_storage.delete(file_name=upload_path)
+    else:
+        raise ValidationError(
+            code="object_storage_required",
+            detail="Object storage must be available to delete source maps.",
+        )

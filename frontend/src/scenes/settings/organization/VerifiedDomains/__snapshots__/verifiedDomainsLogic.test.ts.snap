@@ -143,6 +143,18 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               "revenueProperty": "subscription_value",
             },
           ],
+          "goals": [
+            {
+              "due_date": "2020-12-31",
+              "goal": 1000000,
+              "name": "2020 Q4",
+            },
+            {
+              "due_date": "2035-12-31",
+              "goal": 1500000,
+              "name": "2035 Q4",
+            },
+          ],
         },
         "secret_api_token": "phs_default-team-secret-api-token",
         "secret_api_token_backup": "phs_default-team-secret-api-token-backup",

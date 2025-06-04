@@ -1,20 +1,21 @@
 import { IconRocket } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Early Access Features',
+    name: 'Early access features',
     scenes: {
         EarlyAccessFeatures: {
-            name: 'Early Access Features',
+            name: 'Early access features',
             import: () => import('./frontend/EarlyAccessFeatures'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'EarlyAccessFeature',
         },
         EarlyAccessFeature: {
-            name: 'Early Access Features',
+            name: 'Early access feature',
             import: () => import('./frontend/EarlyAccessFeature'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
@@ -34,8 +35,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         early_access_feature: {
+            name: 'Early access feature',
             icon: <IconRocket />,
             href: (ref: string) => urls.earlyAccessFeature(ref),
+            iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
+            filterKey: 'early_access_feature',
         },
     },
     treeItemsNew: [
@@ -50,9 +54,7 @@ export const manifest: ProductManifest = {
             path: 'Early access features',
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
+            visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
         },
     ],
-    fileSystemFilterTypes: {
-        early_access_feature: { name: 'Early access features' },
-    },
 }

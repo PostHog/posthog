@@ -8,15 +8,15 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
-import { sanitizeSurveyAppearance, validateColor } from 'scenes/surveys/utils'
+import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SurveyAppearance } from '~/types'
 
 import { defaultSurveyAppearance, NEW_SURVEY } from './constants'
+import { Customization } from './survey-appearance/SurveyCustomization'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-import { Customization } from './SurveyCustomization'
 
 interface Props {
     isModal?: boolean
@@ -77,11 +77,18 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
         ValidationErrorType
     > | null>(null)
 
-    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
-        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
-    )
+    const [editableSurveyConfig, setEditableSurveyConfig] = useState({
+        ...defaultSurveyAppearance,
+        ...currentTeam?.survey_config?.appearance,
+    })
 
-    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
+    const [templatedSurvey, setTemplatedSurvey] = useState({
+        ...NEW_SURVEY,
+        appearance: {
+            ...NEW_SURVEY.appearance,
+            ...currentTeam?.survey_config?.appearance,
+        },
+    })
 
     if (templatedSurvey.appearance === defaultSurveyAppearance) {
         templatedSurvey.appearance = editableSurveyConfig
@@ -89,20 +96,10 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
 
     const updateSurveySettings = (): void => {
         const sanitizedAppearance = sanitizeSurveyAppearance(editableSurveyConfig)
-        const errors = {
-            backgroundColor: validateColor(sanitizedAppearance?.backgroundColor, 'background color'),
-            borderColor: validateColor(sanitizedAppearance?.borderColor, 'border color'),
-            ratingButtonActiveColor: validateColor(
-                sanitizedAppearance?.ratingButtonActiveColor,
-                'rating button active color'
-            ),
-            ratingButtonColor: validateColor(sanitizedAppearance?.ratingButtonColor, 'rating button color'),
-            submitButtonColor: validateColor(sanitizedAppearance?.submitButtonColor, 'button color'),
-            submitButtonTextColor: validateColor(sanitizedAppearance?.submitButtonTextColor, 'button text color'),
-        }
+        const errors = sanitizedAppearance && validateSurveyAppearance(sanitizedAppearance, true, templatedSurvey.type)
 
         // Check if there are any validation errors
-        const hasErrors = Object.values(errors).some((error) => error !== undefined)
+        const hasErrors = errors && Object.values(errors).some((error) => error !== undefined)
         setValidationErrors(errors)
 
         if (hasErrors || !sanitizedAppearance) {
@@ -138,30 +135,34 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                 )}
             </div>
 
-            <div className="flex gap-2 mb-2 align-top">
-                <Customization
-                    appearance={editableSurveyConfig}
-                    hasBranchingLogic={false}
-                    customizeRatingButtons={true}
-                    customizePlaceholderText={true}
-                    onAppearanceChange={(appearance) => {
-                        setEditableSurveyConfig({
-                            ...editableSurveyConfig,
-                            ...appearance,
-                        })
-                        setTemplatedSurvey({
-                            ...templatedSurvey,
-                            ...{ appearance: appearance },
-                        })
-                    }}
-                    validationErrors={validationErrors}
-                />
-                <div className="flex-1" />
-                <div className="mt-10 mr-5 survey-view">
-                    {globalSurveyAppearanceConfigAvailable && (
-                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
-                    )}
+            <div className="flex gap-8">
+                <div className="min-w-1/2">
+                    <Customization
+                        survey={templatedSurvey}
+                        hasBranchingLogic={false}
+                        hasRatingButtons={true}
+                        hasPlaceholderText={true}
+                        onAppearanceChange={(appearance) => {
+                            const newAppearance = {
+                                ...editableSurveyConfig,
+                                ...appearance,
+                            }
+                            const errors = validateSurveyAppearance(newAppearance, true, templatedSurvey.type)
+                            setValidationErrors(errors)
+                            setEditableSurveyConfig(newAppearance)
+                            setTemplatedSurvey({
+                                ...templatedSurvey,
+                                appearance: newAppearance,
+                            })
+                        }}
+                        validationErrors={validationErrors}
+                    />
                 </div>
+                {globalSurveyAppearanceConfigAvailable && (
+                    <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
+                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                    </div>
+                )}
             </div>
         </div>
     )

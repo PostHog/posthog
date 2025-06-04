@@ -1,21 +1,45 @@
 import { LemonTagType } from '@posthog/lemon-ui'
-import Fuse from 'fuse.js'
+import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { objectsEqual, toParams } from 'lib/utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { BillingType, Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import { isLegacyExperiment } from './utils'
+import { isLegacyExperiment, shouldUseNewQueryRunnerForNewObjects } from './utils'
+
+export const EXPERIMENTS_PER_PAGE = 100
+
+export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> {
+    /* not in the API response */
+    filters?: ExperimentsFilters | null
+}
+
+export interface ExperimentsFilters {
+    search?: string
+    status?: ProgressStatus | 'all'
+    created_by_id?: number
+    page?: number
+    order?: string
+}
+
+const DEFAULT_FILTERS: ExperimentsFilters = {
+    search: undefined,
+    status: 'all',
+    created_by_id: undefined,
+    page: 1,
+}
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -51,25 +75,24 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['featureFlags'],
             router,
             ['location'],
+            billingLogic,
+            ['billing'],
         ],
     })),
     actions({
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
-        setUserFilter: (userFilter: string | null) => ({ userFilter }),
+        setExperimentsFilters: (filters: Partial<ExperimentsFilters>, replace?: boolean) => ({ filters, replace }),
     }),
     reducers({
-        searchTerm: {
-            setSearchTerm: (_, { searchTerm }) => searchTerm,
-        },
-        searchStatus: {
-            setSearchStatus: (_, { status }) => status,
-        },
-        userFilter: [
-            null as string | null,
+        filters: [
+            DEFAULT_FILTERS,
             {
-                setUserFilter: (_, { userFilter }) => userFilter,
+                setExperimentsFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                },
             },
         ],
         tab: [
@@ -80,87 +103,83 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        setExperimentsFilters: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadExperiments()
+        },
         setExperimentsTab: ({ tabKey }) => {
             if (tabKey === ExperimentsTabs.SharedMetrics) {
                 // Saved Metrics is a fake tab that we use to redirect to the shared metrics page
                 actions.setExperimentsTab(ExperimentsTabs.All)
                 router.actions.push('/experiments/shared-metrics')
-            } else {
-                router.actions.push('/experiments')
             }
         },
     })),
     loaders(({ values }) => ({
         experiments: [
-            [] as Experiment[],
+            { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
                 loadExperiments: async () => {
-                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments?limit=1000`)
-                    return response.results as Experiment[]
-                },
-                deleteExperiment: async (id: number) => {
-                    await api.delete(`api/projects/${values.currentProjectId}/experiments/${id}`)
-                    lemonToast.info('Experiment removed')
-                    deleteFromTree('experiment', String(id))
-                    return values.experiments.filter((experiment) => experiment.id !== id)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
+                    )
+                    return {
+                        ...response,
+                        offset: values.paramsFromFilters.offset,
+                    }
                 },
                 archiveExperiment: async (id: number) => {
                     await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
                     lemonToast.info('Experiment archived')
-                    return values.experiments.filter((experiment) => experiment.id !== id)
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.filter((experiment) => experiment.id !== id),
+                        count: values.experiments.count - 1,
+                    }
                 },
                 addToExperiments: (experiment: Experiment) => {
-                    return [...values.experiments, experiment]
+                    return {
+                        ...values.experiments,
+                        results: [...values.experiments.results, experiment],
+                        count: values.experiments.count + 1,
+                    }
                 },
                 updateExperiments: (experiment: Experiment) => {
-                    return values.experiments.map((exp) => (exp.id === experiment.id ? experiment : exp))
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.map((exp) => (exp.id === experiment.id ? experiment : exp)),
+                        count: values.experiments.count,
+                    }
                 },
             },
         ],
     })),
-    selectors(({ values }) => ({
-        filteredExperiments: [
-            (s) => [s.experiments, s.searchTerm, s.searchStatus, s.userFilter, s.tab],
-            (experiments, searchTerm, searchStatus, userFilter, tab) => {
-                let filteredExperiments: Experiment[] = experiments
-
-                if (tab === ExperimentsTabs.Archived) {
-                    filteredExperiments = filteredExperiments.filter((experiment) => !!experiment.archived)
-                } else if (tab === ExperimentsTabs.Yours) {
-                    filteredExperiments = filteredExperiments.filter(
-                        (experiment) => experiment.created_by?.uuid === values.user?.uuid
-                    )
-                } else {
-                    filteredExperiments = filteredExperiments.filter((experiment) => !experiment.archived)
-                }
-
-                if (searchTerm) {
-                    filteredExperiments = new Fuse(filteredExperiments, {
-                        keys: ['name', 'feature_flag_key', 'description'],
-                        threshold: 0.3,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
-                }
-
-                if (searchStatus && searchStatus !== 'all') {
-                    filteredExperiments = filteredExperiments.filter(
-                        (experiment) => getExperimentStatus(experiment) === searchStatus
-                    )
-                }
-
-                if (userFilter) {
-                    filteredExperiments = filteredExperiments.filter(
-                        (experiment) => experiment.created_by?.uuid === userFilter
-                    )
-                }
-                return filteredExperiments
-            },
+    selectors(() => ({
+        count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
+        paramsFromFilters: [
+            (s) => [s.filters, s.tab],
+            (filters: ExperimentsFilters, tab: ExperimentsTabs) => ({
+                ...filters,
+                limit: EXPERIMENTS_PER_PAGE,
+                offset: filters.page ? (filters.page - 1) * EXPERIMENTS_PER_PAGE : 0,
+                archived: tab === ExperimentsTabs.Archived,
+            }),
         ],
         shouldShowEmptyState: [
-            (s) => [s.experimentsLoading, s.experiments],
-            (experimentsLoading, experiments): boolean => {
-                return experiments.length === 0 && !experimentsLoading && !values.searchTerm && !values.searchStatus
+            (s) => [s.experimentsLoading, s.experiments, s.filters],
+            (experimentsLoading, experiments, filters): boolean => {
+                return !experimentsLoading && experiments.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
+            },
+        ],
+        pagination: [
+            (s) => [s.filters, s.count],
+            (filters, count): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: EXPERIMENTS_PER_PAGE,
+                    currentPage: filters.page || 1,
+                    entryCount: count,
+                }
             },
         ],
         webExperimentsAvailable: [
@@ -170,16 +189,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
         // TRICKY: we do not load all feature flags here, just the latest ones.
         unavailableFeatureFlagKeys: [
             (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments],
-            (featureFlags: FeatureFlagsResult, experiments: Experiment[]) => {
+            (featureFlags: FeatureFlagsResult, experiments: ExperimentsResult) => {
                 return new Set([
                     ...featureFlags.results.map((flag) => flag.key),
-                    ...experiments.map((experiment) => experiment.feature_flag_key),
+                    ...experiments.results.map((experiment) => experiment.feature_flag_key),
                 ])
             },
         ],
         showLegacyBadge: [
-            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments],
-            (featureFlags: FeatureFlagsSet, experiments: Experiment[]): boolean => {
+            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments, s.billing],
+            (featureFlags: FeatureFlagsSet, experiments: ExperimentsResult, billing: BillingType): boolean => {
                 /**
                  * If the new query runner is enabled, we want to always show the legacy badge,
                  * even if all existing experiments are legacy experiments.
@@ -187,7 +206,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                  * Not ideal to use feature flags at this level, but this is how things are and
                  * it'll take a while to change.
                  */
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]) {
+                if (shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)) {
                     return true
                 }
 
@@ -197,13 +216,65 @@ export const experimentsLogic = kea<experimentsLogicType>([
                  * that use the NEW query runner.
                  * This covers the case when the feature was disabled after creating new experiments.
                  */
-                return experiments.some((experiment) => !isLegacyExperiment(experiment))
+                return experiments.results.some((experiment) => !isLegacyExperiment(experiment))
             },
         ],
     })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadExperiments()
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
+            const searchParams: Record<string, string | number> = {
+                ...values.filters,
+            }
+
+            if (values.tab !== ExperimentsTabs.All) {
+                searchParams['tab'] = values.tab
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
+        return {
+            setExperimentsFilters: changeUrl,
+            setExperimentsTab: changeUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.experiments()]: async (_, searchParams) => {
+            const tabInURL = searchParams['tab']
+
+            if (!tabInURL) {
+                if (values.tab !== ExperimentsTabs.All) {
+                    actions.setExperimentsTab(ExperimentsTabs.All)
+                }
+            } else if (tabInURL !== values.tab) {
+                actions.setExperimentsTab(tabInURL)
+            }
+
+            const { page, search, status, created_by_id, order } = searchParams
+            const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
+                search,
+                created_by_id,
+                order,
+            }
+
+            pageFiltersFromUrl.status = status || 'all'
+            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : 1
+
+            actions.setExperimentsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
 ])

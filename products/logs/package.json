@@ -1,13 +1,26 @@
 {
     "name": "@posthog/products-logs",
+    "scripts": {},
+    "dependencies": {
+        "eslint-plugin-posthog": "workspace:*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@storybook/react": "*",
         "@types/react": "*",
+        "classnames": "*",
         "clsx": "*",
-        "fuse.js": "*",
+        "eslint": "*",
+        "eslint-plugin-posthog": "*",
+        "jest": "*",
         "kea": "*",
         "kea-loaders": "*",
         "kea-router": "*",
-        "react": "*"
+        "prettier": "*",
+        "react": "*",
+        "stylelint": "*",
+        "typescript": "*",
+        "use-debounce": "*",
+        "ansi-colors": "*"
     }
 }
