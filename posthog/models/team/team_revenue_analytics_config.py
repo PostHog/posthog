@@ -1,6 +1,6 @@
 from django.db import models
 from posthog.models.team import Team
-from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem, RevenueAnalyticsGoal
+from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.exceptions import ValidationError
@@ -8,20 +8,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Django requires a list of tuples for choices
-CURRENCY_CODE_CHOICES = [(code.value, code.value) for code in CurrencyCode]
-
-# Intentionally asserting this here to guarantee we remember
-# to rerun migrations when a new currency is added
-# python manage.py makemigrations
-assert len(CURRENCY_CODE_CHOICES) == 152
-
 
 # Intentionally not inheriting from UUIDModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the Team model.
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
-    base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=CurrencyCode.USD.value)
     notified_first_sync = models.BooleanField(default=False, null=True)
 
     # Mangled fields incoming:

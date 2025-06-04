@@ -1,6 +1,6 @@
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { useRef } from 'react'
 
-import { BaseCurrency } from './BaseCurrency'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 
 export function MarketingAnalyticsSettings(): JSX.Element {

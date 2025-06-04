@@ -6,19 +6,12 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    CurrencyCode,
-    MarketingAnalyticsConfig,
-    MarketingAnalyticsSchema,
-    SourceMap,
-} from '~/queries/schema/schema-general'
-import { Region } from '~/types'
+import { MarketingAnalyticsConfig, MarketingAnalyticsSchema, SourceMap } from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 
-const createEmptyConfig = (region: Region | null | undefined): MarketingAnalyticsConfig => ({
+const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
-    base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
 })
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
@@ -35,7 +28,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
-        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
         updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsSchema, columnName: string | null) => ({
             tableId,
             fieldName,
@@ -48,13 +40,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         marketingAnalyticsConfig: [
             null as MarketingAnalyticsConfig | null,
             {
-                updateBaseCurrency: (state: MarketingAnalyticsConfig | null, { baseCurrency }) => {
-                    if (!state) {
-                        return state
-                    }
-
-                    return { ...state, base_currency: baseCurrency }
-                },
                 updateSourceMapping: (state: MarketingAnalyticsConfig | null, { tableId, fieldName, columnName }) => {
                     if (!state) {
                         return state
@@ -86,23 +71,15 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             },
         ],
         savedMarketingAnalyticsConfig: [
-            // TODO: Check how to pass the preflight region here
-            values.currentTeam?.marketing_analytics_config || createEmptyConfig(null),
+            values.currentTeam?.marketing_analytics_config || createEmptyConfig(),
             {
                 updateCurrentTeam: (_, { marketing_analytics_config }) => {
-                    // TODO: Check how to pass the preflight region here
-                    return marketing_analytics_config || createEmptyConfig(null)
+                    return marketing_analytics_config || createEmptyConfig()
                 },
             },
         ],
     })),
     selectors({
-        baseCurrency: [
-            (s) => [s.marketingAnalyticsConfig],
-            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) =>
-                marketingAnalyticsConfig?.base_currency || CurrencyCode.USD,
-        ],
-
         sources_map: [
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => marketingAnalyticsConfig?.sources_map || {},
@@ -136,7 +113,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }
 
         return {
-            updateBaseCurrency: updateCurrentTeam,
             updateSourceMapping: updateCurrentTeam,
             save: updateCurrentTeam,
         }
@@ -145,7 +121,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         marketingAnalyticsConfig: {
             loadMarketingAnalyticsConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.marketing_analytics_config || createEmptyConfig(values.preflight?.region)
+                    return values.currentTeam.marketing_analytics_config || createEmptyConfig()
                 }
                 return null
             },

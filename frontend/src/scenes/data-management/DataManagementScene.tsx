@@ -126,7 +126,14 @@ const tabs: Record<
     },
     [DataManagementTab.MarketingAnalytics]: {
         url: urls.marketingAnalytics(),
-        label: 'Marketing analytics',
+        label: (
+            <>
+                Marketing{' '}
+                <LemonTag type="warning" size="small" className="ml-2">
+                    BETA
+                </LemonTag>
+            </>
+        ),
         content: <MarketingAnalyticsSettings />,
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },

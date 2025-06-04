@@ -1,4 +1,5 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
@@ -23,7 +24,6 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
-import { BaseCurrency } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/BaseCurrency'
 import { NonNativeExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/NonNativeExternalDataSourceConfiguration'
 
 import { Realm } from '~/types'
@@ -48,7 +48,6 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -172,6 +171,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamTimezone />,
             },
             {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
@@ -245,11 +249,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Revenue analytics',
         settings: [
             {
-                id: 'revenue-base-currency',
-                title: 'Revenue base currency',
-                component: <RevenueBaseCurrencySettings />,
-            },
-            {
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
@@ -274,11 +273,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Marketing analytics',
         flag: 'WEB_ANALYTICS_MARKETING',
         settings: [
-            {
-                id: 'marketing-base-currency',
-                title: 'Marketing base currency',
-                component: <BaseCurrency />,
-            },
             {
                 id: 'marketing-analytics-external-data-sources',
                 title: 'External data sources',

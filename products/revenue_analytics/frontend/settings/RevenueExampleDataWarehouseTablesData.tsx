@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { Query } from '~/queries/Query/Query'
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, DEFAULT_CURRENCY } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
@@ -18,7 +18,7 @@ const queryContext: QueryContext = {
         original_revenue: {
             render: ({ value, record }) => {
                 const originalCurrency = (record as any[])[3]
-                return <Revenue value={value as number} currency={originalCurrency ?? CurrencyCode.USD} />
+                return <Revenue value={value as number} currency={originalCurrency ?? DEFAULT_CURRENCY} />
             },
         },
         currency: {
@@ -29,7 +29,7 @@ const queryContext: QueryContext = {
         revenue: {
             render: ({ value, record }) => {
                 const convertedCurrency = (record as any[])[5]
-                return <Revenue value={value as number} currency={convertedCurrency ?? CurrencyCode.USD} />
+                return <Revenue value={value as number} currency={convertedCurrency ?? DEFAULT_CURRENCY} />
             },
         },
     },

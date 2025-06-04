@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
 
@@ -53,7 +54,7 @@ function GoalAmountColumn({
     onChange,
     baseCurrency,
 }: ColumnProps<number> & { baseCurrency: CurrencyCode }): JSX.Element {
-    const { symbol, isPrefix } = getCurrencySymbol(baseCurrency ?? CurrencyCode.USD)
+    const { symbol, isPrefix } = getCurrencySymbol(baseCurrency)
 
     if (mode === 'edit') {
         return (
@@ -149,7 +150,8 @@ const EMPTY_GOAL = {
 }
 
 export function GoalsConfiguration(): JSX.Element {
-    const { revenueAnalyticsConfig, baseCurrency, goals } = useValues(revenueAnalyticsSettingsLogic)
+    const { revenueAnalyticsConfig, goals } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const actions = useActions(revenueAnalyticsSettingsLogic)
 
     // It's not adding by default, but we want to show the form in storybook and test runner

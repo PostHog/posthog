@@ -32,6 +32,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPI
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
+from posthog.schema import CurrencyCode
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
@@ -56,6 +57,14 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from django.core.cache import cache
+
+# Django requires a list of tuples for choices
+CURRENCY_CODE_CHOICES = [(code.value, code.value) for code in CurrencyCode]
+
+# Intentionally asserting this here to guarantee we remember
+# to rerun migrations when a new currency is added
+# python manage.py makemigrations
+assert len(CURRENCY_CODE_CHOICES) == 152
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -165,6 +174,7 @@ TEAM_CONFIG_FIELDS = (
     "revenue_analytics_config",
     "marketing_analytics_config",
     "onboarding_tasks",
+    "base_currency",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -176,7 +186,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals"]
+        fields = ["events", "goals"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
@@ -200,13 +210,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["base_currency", "sources_map"]
+        fields = ["sources_map"]
 
     def update(self, instance, validated_data):
-        # Handle base_currency normally
-        if "base_currency" in validated_data:
-            instance.base_currency = validated_data["base_currency"]
-
         # Handle sources_map with partial updates
         if "sources_map" in validated_data:
             new_sources_map = validated_data["sources_map"]
@@ -235,6 +241,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
+    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=CurrencyCode.USD.value)
 
     class Meta:
         model = Team

@@ -477,6 +477,7 @@ const teamActionsMapping: Record<
     timezone: () => null,
     revenue_analytics_config: () => null,
     marketing_analytics_config: () => null,
+    base_currency: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,

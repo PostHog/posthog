@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
-    CurrencyCode,
+    DEFAULT_CURRENCY,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,
@@ -210,7 +210,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? CurrencyCode.USD)
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? DEFAULT_CURRENCY)
         return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
             isPrefix ? '' : ' ' + symbol
         }`

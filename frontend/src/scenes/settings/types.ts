@@ -143,6 +143,7 @@ export type SettingId =
     | 'csp-reporting'
     | 'marketing-base-currency'
     | 'marketing-analytics-external-data-sources'
+    | 'base-currency'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

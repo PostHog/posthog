@@ -129,7 +129,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
     revenue_analytics_config: {
-        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
@@ -167,9 +166,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
     marketing_analytics_config: {
-        base_currency: CurrencyCode.USD,
         sources_map: {},
     },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

@@ -3015,6 +3015,8 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
+export const DEFAULT_CURRENCY = CurrencyCode.USD
+
 export type RevenueCurrencyPropertyConfig = {
     property?: string
     static?: CurrencyCode
@@ -3048,11 +3050,6 @@ export interface RevenueAnalyticsGoal {
 }
 
 export interface RevenueAnalyticsConfig {
-    /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
-
     /**
      * @default []
      */
@@ -3127,9 +3124,5 @@ export type MarketingAnalyticsSchema = keyof typeof MARKETING_ANALYTICS_SCHEMA
 export type SourceMap = Record<keyof typeof MARKETING_ANALYTICS_SCHEMA, string | undefined>
 
 export interface MarketingAnalyticsConfig {
-    /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
     sources_map?: Record<string, SourceMap>
 }

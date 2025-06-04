@@ -4,7 +4,7 @@ from posthog.hogql import ast
 from posthog.schema import (
     RevenueAnalyticsEventItem,
 )
-from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+from posthog.models.team.team import Team
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
     StringDatabaseField,
@@ -44,12 +44,10 @@ def convert_currency_call(
 
 
 # Given an event config and the base config, figure out what the currency should look like
-def currency_expression_for_events(
-    config: TeamRevenueAnalyticsConfig, event_config: RevenueAnalyticsEventItem
-) -> ast.Expr:
+def currency_expression_for_events(team: Team, event_config: RevenueAnalyticsEventItem) -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not event_config.revenueCurrencyProperty:
-        return ast.Constant(value=config.base_currency)
+        return ast.Constant(value=team.base_currency)
 
     if event_config.revenueCurrencyProperty.property:
         return ast.Call(
@@ -60,14 +58,14 @@ def currency_expression_for_events(
     if event_config.revenueCurrencyProperty.static:
         return ast.Constant(value=event_config.revenueCurrencyProperty.static.value)
 
-    return ast.Constant(value=config.base_currency)
+    return ast.Constant(value=team.base_currency)
 
 
 # Tuple of (comparison_expr, value_expr) that can be used to:
 # - Check whether the event is the one we're looking for
 # - Convert the revenue to the base currency if needed
 def revenue_comparison_and_value_exprs_for_events(
-    config: TeamRevenueAnalyticsConfig,
+    team: Team,
     event_config: RevenueAnalyticsEventItem,
     do_currency_conversion: bool = True,
     amount_expr: ast.Expr | None = None,
@@ -89,7 +87,7 @@ def revenue_comparison_and_value_exprs_for_events(
         value_expr = ast.Call(
             name="if",
             args=[
-                ast.Call(name="isNull", args=[currency_expression_for_events(config, event_config)]),
+                ast.Call(name="isNull", args=[currency_expression_for_events(team, event_config)]),
                 ast.Call(
                     name="toDecimal",
                     args=[
@@ -99,8 +97,8 @@ def revenue_comparison_and_value_exprs_for_events(
                 ),
                 convert_currency_call(
                     amount_expr,
-                    currency_expression_for_events(config, event_config),
-                    ast.Constant(value=config.base_currency),
+                    currency_expression_for_events(team, event_config),
+                    ast.Constant(value=team.base_currency),
                     ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
                 ),
             ],
@@ -118,13 +116,13 @@ def revenue_comparison_and_value_exprs_for_events(
 
 
 # This sums up the revenue from all events in the group
-def revenue_sum_expression_for_events(config: Union[TeamRevenueAnalyticsConfig, None]) -> ast.Expr:
-    if not config or not config.events:
+def revenue_sum_expression_for_events(team: Union[Team, None]) -> ast.Expr:
+    if not team or not team.revenue_analytics_config.events:
         return ast.Constant(value=None)
 
     exprs: list[ast.Expr] = []
-    for event in config.events:
-        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(config, event)
+    for event in team.revenue_analytics_config.events:
+        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(team, event)
 
         exprs.append(
             ast.Call(
@@ -144,15 +142,15 @@ def revenue_sum_expression_for_events(config: Union[TeamRevenueAnalyticsConfig, 
 
 # This returns an expression that you can add to a `where` clause
 # to know if we have a event with valid revenue
-def revenue_where_expr_for_events(config: Union[TeamRevenueAnalyticsConfig, None]) -> ast.Expr:
-    if not config or not config.events:
+def revenue_where_expr_for_events(team: Union[Team, None]) -> ast.Expr:
+    if not team or not team.revenue_analytics_config.events:
         return ast.Constant(value=False)
 
     exprs: list[ast.Expr] = []
-    for event in config.events:
+    for event in team.revenue_analytics_config.events:
         # Dont care about conversion, only care about comparison which is independent of conversion
         comparison_expr, _value_expr = revenue_comparison_and_value_exprs_for_events(
-            config, event, do_currency_conversion=False
+            team, event, do_currency_conversion=False
         )
         exprs.append(comparison_expr)
 
