@@ -9671,6 +9671,35 @@
             "required": ["id", "path"],
             "type": "object"
         },
+        "FileSystemIconType": {
+            "enum": [
+                "plug",
+                "cohort",
+                "insight",
+                "definitions",
+                "warning",
+                "errorTracking",
+                "ai",
+                "cursor",
+                "heatmap",
+                "database",
+                "folder",
+                "handMoney",
+                "live",
+                "notification",
+                "pieChart",
+                "piggyBank",
+                "sql",
+                "insightFunnel",
+                "insightTrends",
+                "insightRetention",
+                "insightUserPaths",
+                "insightLifecycle",
+                "insightStickiness",
+                "insightHogQL"
+            ],
+            "type": "string"
+        },
         "FileSystemImport": {
             "additionalProperties": false,
             "properties": {
@@ -9734,35 +9763,6 @@
             },
             "required": ["path"],
             "type": "object"
-        },
-        "FileSystemIconType": {
-            "enum": [
-                "plug",
-                "cohort",
-                "insight",
-                "definitions",
-                "warning",
-                "errorTracking",
-                "ai",
-                "cursor",
-                "heatmap",
-                "database",
-                "folder",
-                "handMoney",
-                "live",
-                "notification",
-                "pieChart",
-                "piggyBank",
-                "sql",
-                "insightFunnel",
-                "insightTrends",
-                "insightRetention",
-                "insightUserPaths",
-                "insightLifecycle",
-                "insightStickiness",
-                "insightHogQL"
-            ],
-            "type": "string"
         },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
