@@ -1,8 +1,10 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconCheck, IconSort } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
@@ -66,6 +68,65 @@ function CategoryPill({
     )
 }
 
+function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType }): JSX.Element {
+    const { taxonomicGroups, eventOrdering } = useValues(taxonomicFilterLogic)
+    const { setEventOrdering } = useActions(taxonomicFilterLogic)
+
+    if (openTab === TaxonomicFilterGroupType.Events) {
+        const currentGroup = taxonomicGroups.find((g) => g.type === openTab)
+
+        return (
+            <div className="flex flex-row justify-between items-center w-full">
+                <span>{currentGroup?.name || openTab}</span>
+                <LemonMenu
+                    items={[
+                        {
+                            label: (
+                                <div className="flex flex-row gap-2">
+                                    {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
+                                    <span>Name</span>
+                                </div>
+                            ),
+                            tooltip: 'Sort events alphabetically',
+                            onClick: () => {
+                                setEventOrdering('name')
+                            },
+                        },
+                        {
+                            label: (
+                                <div className="flex flex-row gap-2">
+                                    {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
+                                    <span>Last seen</span>
+                                </div>
+                            ),
+                            tooltip: 'Show the most recent events first',
+                            onClick: () => {
+                                setEventOrdering('-last_seen_at')
+                            },
+                        },
+                        {
+                            label: (
+                                <div className="flex flex-row gap-2">
+                                    {!eventOrdering ? <IconCheck /> : <IconBlank />}
+                                    <span>Both</span>
+                                </div>
+                            ),
+                            tooltip:
+                                'Sorts events by the day they were last seen, and then by name. The default option.',
+                            onClick: () => {
+                                setEventOrdering(null)
+                            },
+                        },
+                    ]}
+                >
+                    <LemonButton icon={<IconSort />} size="small" title="Choose a sorting option for events" />
+                </LemonMenu>
+            </div>
+        )
+    }
+    return <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>
+}
+
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
@@ -96,7 +157,7 @@ export function InfiniteSelectResults({
         <>
             {hasMultipleGroups && (
                 <div className="taxonomic-group-title pb-2">
-                    {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
+                    <TaxonomicGroupTitle openTab={openTab} />
                 </div>
             )}
             <InfiniteList popupAnchorElement={popupAnchorElement} />

@@ -83,7 +83,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
+        actions: [
+            taxonomicFilterLogic(props),
+            ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived', 'setEventOrdering'],
+        ],
     })),
     actions({
         selectSelected: true,
@@ -428,6 +431,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
         },
         setSearchQuery: async () => {
+            if (values.hasRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else if (props.autoSelectItem) {
+                actions.setIndex(0)
+            }
+        },
+        setEventOrdering: async () => {
+            if (props.listGroupType !== TaxonomicFilterGroupType.Events) {
+                return
+            }
+
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else if (props.autoSelectItem) {

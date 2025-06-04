@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from unittest.mock import ANY, patch
 from uuid import uuid4
@@ -20,20 +20,22 @@ from posthog.test.base import APIBaseTest
 class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
-    EXPECTED_EVENT_DEFINITIONS: list[dict[str, Any]] = [
-        {"name": "installed_app"},
-        {"name": "rated_app"},
-        {"name": "purchase"},
-        {"name": "entered_free_trial"},
-        {"name": "watched_movie"},
-        {"name": "$pageview"},
-    ]
+    EXPECTED_EVENT_DEFINITIONS: list[dict[str, Any]]
 
     @classmethod
     def setUpTestData(cls):
         cls.organization = create_organization(name="test org")
         cls.demo_team = create_team(organization=cls.organization)
         cls.user = create_user("user", "pass", cls.organization)
+
+        cls.EXPECTED_EVENT_DEFINITIONS = [
+            {"name": "installed_app", "last_seen_at": datetime.now() - timedelta(days=1)},
+            {"name": "rated_app", "last_seen_at": datetime.now() - timedelta(days=12)},
+            {"name": "purchase", "last_seen_at": datetime.now() - timedelta(days=3)},
+            {"name": "entered_free_trial", "last_seen_at": datetime.now() - timedelta(hours=1)},
+            {"name": "watched_movie", "last_seen_at": None},
+            {"name": "$pageview", "last_seen_at": datetime.now() - timedelta(hours=1, minutes=4)},
+        ]
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition, team_id=cls.demo_team.pk)
@@ -63,10 +65,54 @@ class TestEventDefinitionAPI(APIBaseTest):
                 0,
             )
 
-        # Test ordering
-        response = self.client.get("/api/projects/@current/event_definitions/")
-
+    def test_list_event_definitions_ordering(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?ordering=name")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
+            ("$pageview", "2020-01-01T22:56:00Z"),
+            ("entered_free_trial", "2020-01-01T23:00:00Z"),
+            ("installed_app", "2020-01-01T00:00:00Z"),
+            ("purchase", "2019-12-30T00:00:00Z"),
+            ("rated_app", "2019-12-21T00:00:00Z"),
+            ("watched_movie", None),
+        ]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?ordering=-name")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
+            ("watched_movie", None),
+            ("rated_app", "2019-12-21T00:00:00Z"),
+            ("purchase", "2019-12-30T00:00:00Z"),
+            ("installed_app", "2020-01-01T00:00:00Z"),
+            ("entered_free_trial", "2020-01-01T23:00:00Z"),
+            ("$pageview", "2020-01-01T22:56:00Z"),
+        ]
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/?ordering=-last_seen_at::date&ordering=name"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
+            ("$pageview", "2020-01-01T22:56:00Z"),
+            ("entered_free_trial", "2020-01-01T23:00:00Z"),
+            ("installed_app", "2020-01-01T00:00:00Z"),
+            ("purchase", "2019-12-30T00:00:00Z"),
+            ("rated_app", "2019-12-21T00:00:00Z"),
+            ("watched_movie", None),
+        ]
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/?ordering=-last_seen_at::date&ordering=-name"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
+            ("installed_app", "2020-01-01T00:00:00Z"),
+            ("entered_free_trial", "2020-01-01T23:00:00Z"),
+            ("$pageview", "2020-01-01T22:56:00Z"),
+            ("purchase", "2019-12-30T00:00:00Z"),
+            ("rated_app", "2019-12-21T00:00:00Z"),
+            ("watched_movie", None),
+        ]
 
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
@@ -223,9 +269,9 @@ def capture_event(event: EventData):
 
 
 def create_event_definitions(event_definition: dict, team_id: int) -> EventDefinition:
-    """
-    Create event definition for a team.
-    """
     created_definition = EventDefinition.objects.create(name=event_definition["name"], team_id=team_id)
+    if event_definition["last_seen_at"]:
+        created_definition.last_seen_at = event_definition["last_seen_at"]
+        created_definition.save()
 
     return created_definition
