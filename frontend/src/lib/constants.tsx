@@ -249,6 +249,8 @@ export const FEATURE_FLAGS = {
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     ERROR_TRACKING_INTEGRATIONS: 'error-tracking-integrations', // owner: @david #team-error-tracking
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
+    ERROR_TRACKING_CUSTOM_GROUPING: 'error-tracking-custom-grouping', // owner: #team-error-tracking
+    ERROR_TRACKING_SUPPRESSION_RULES: 'error-tracking-suppression-rules', // owner: #team-error-tracking
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
     POSTHOG_STORIES: 'posthog-stories', // owner: @jabahamondes #team-web-analytics
     ACTIVE_HOURS_HEATMAP: 'active-hours-heatmap', // owner: @jabahamondes #team-web-analytics

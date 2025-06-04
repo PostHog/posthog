@@ -47,6 +47,7 @@ from posthog.warehouse.models.external_data_schema import update_should_sync
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
     "Primary key required for incremental syncs",
+    "The primary keys for this table are not unique",
 ]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
