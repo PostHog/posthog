@@ -18,13 +18,26 @@ class TestResult:
     """Result of a statistical test."""
 
     point_estimate: float
+    """Point estimate of the difference between treatment and control groups."""
+
     confidence_interval: tuple[float, float]
+    """Confidence interval of the difference between treatment and control groups."""
+
     p_value: float
+
     test_statistic: float
+    """Test statistic of the test (t-statistic, etc.)."""
+
     degrees_of_freedom: float
+
     is_significant: bool
+    """Whether the test is significant at the alpha level."""
+
     test_type: str
+    """Type of test (two_sided, greater, less, etc.)."""
+
     alpha: float
+    """Significance level."""
 
 
 class StatisticalTest(ABC):
