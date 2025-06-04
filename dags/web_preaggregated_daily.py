@@ -19,11 +19,11 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
 )
 
-
-partition_def = DailyPartitionsDefinition(start_date="2020-01-01")
-
+# 14 is a sane value for production but locally we can run more partitions per run to speed up testing
 max_partitions_per_run = int(os.getenv("DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN", 14))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
+
+partition_def = DailyPartitionsDefinition(start_date="2020-01-01")
 
 
 def pre_aggregate_web_analytics_data(
@@ -123,7 +123,6 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-# Daily incremental job with asset-level concurrency control
 web_pre_aggregate_daily_job = dagster.define_asset_job(
     name="web_analytics_daily_job",
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
@@ -151,7 +150,7 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
     Runs daily for the previous day's partition.
     The usage of pre-aggregated tables is controlled by a query modifier AND is behind a feature flag.
     """
-    # Get yesterday's partition
+
     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     return dagster.RunRequest(
