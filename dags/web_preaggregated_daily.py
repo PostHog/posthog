@@ -130,8 +130,8 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # This limits the job concurrency on the run queue but needs to be set on the instance level
-        # https://github.com/PostHog/charts/blob/master/config/dagster
+        # The intance level config limits the job concurrency on the run queue
+        # https://github.com/PostHog/charts/blob/chore/dagster-config/config/dagster/prod-us.yaml#L179-L181
     },
     # This limit the concurrency of the assets inside the job, so they run sequentially
     config={
