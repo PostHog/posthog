@@ -74,6 +74,9 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         return <SpinnerOverlay />
     }
 
+    const requiredFields = ['interval']
+    const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
+
     const buttons = (
         <>
             <LemonButton
@@ -329,6 +332,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                         batchExportConfigTestLoading={batchExportConfigTestLoading}
                                         runningStep={runningStep}
                                         runBatchExportConfigTestStep={runBatchExportConfigTestStep}
+                                        requiredFieldsMissing={requiredFieldsMissing}
                                     />
                                 </div>
                             )}
@@ -361,11 +365,13 @@ export function BatchExportConfigurationTests({
     batchExportConfigTestLoading,
     runningStep,
     runBatchExportConfigTestStep,
+    requiredFieldsMissing,
 }: {
     batchExportConfigTest: BatchExportConfigurationTest
     batchExportConfigTestLoading: boolean
     runningStep: number | null
     runBatchExportConfigTestStep: (step: any) => void
+    requiredFieldsMissing: string[]
 }): JSX.Element | null {
     if (!batchExportConfigTest && batchExportConfigTestLoading) {
         return (
@@ -391,15 +397,31 @@ export function BatchExportConfigurationTests({
         )
     }
 
+    const header = (
+        <div className="space-y-2">
+            <h2 className="text-lg font-semibold flex items-center gap-2 m-0">Test configuration</h2>
+            <p className="text-xs text-secondary">
+                Test the batch export's configuration to uncover errors before saving it
+            </p>
+        </div>
+    )
+
+    if (requiredFieldsMissing.length > 0) {
+        return (
+            <div className="space-y-4">
+                {header}
+                <LemonBanner type="info">
+                    Please select a value for the following fields before testing the configuration:{' '}
+                    {requiredFieldsMissing.join(', ')}
+                </LemonBanner>
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <div className="space-y-2">
-                    <h2 className="text-lg font-semibold flex items-center gap-2 m-0">Test configuration</h2>
-                    <p className="text-xs text-secondary">
-                        Test the batch export's configuration to uncover errors before saving it
-                    </p>
-                </div>
+                {header}
                 <LemonButton
                     onClick={() => runBatchExportConfigTestStep(0)}
                     disabledReason={runningStep !== null ? 'Test step is running' : null}
