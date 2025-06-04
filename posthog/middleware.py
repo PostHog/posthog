@@ -654,7 +654,9 @@ class SessionAgeMiddleware:
                 current_org = request.user.current_organization
                 session_age = (
                     current_org.session_cookie_age
-                    if hasattr(current_org, "session_cookie_age") and current_org.session_cookie_age is not None
+                    if current_org
+                    and hasattr(current_org, "session_cookie_age")
+                    and current_org.session_cookie_age is not None
                     else settings.SESSION_COOKIE_AGE
                 )
 
