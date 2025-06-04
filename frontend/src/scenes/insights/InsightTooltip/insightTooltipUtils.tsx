@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
+import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -129,10 +130,10 @@ export function invertDataSource(
             datumTitle = (
                 <>
                     {pillValues.map((pill, index) => (
-                        <>
-                            <span key={pill}>{midEllipsis(pill, 60)}</span>
+                        <React.Fragment key={pill}>
+                            <span>{midEllipsis(pill, 60)}</span>
                             {index < pillValues.length - 1 && ' · '}
-                        </>
+                        </React.Fragment>
                     ))}
                 </>
             )
