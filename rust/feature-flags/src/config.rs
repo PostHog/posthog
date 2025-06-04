@@ -3,6 +3,7 @@ use envconfig::Envconfig;
 use once_cell::sync::Lazy;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -24,6 +25,14 @@ impl FromStr for FlexBool {
 impl From<FlexBool> for bool {
     fn from(flex: FlexBool) -> Self {
         flex.0
+    }
+}
+
+impl Deref for FlexBool {
+    type Target = bool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -214,8 +223,8 @@ impl Config {
         }
     }
 
-    pub fn is_team_excluded(&self, team_id: i32, setting: &TeamIdCollection) -> bool {
-        match setting {
+    pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
+        match teams_to_exclude {
             TeamIdCollection::All => true,
             TeamIdCollection::None => false,
             TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),

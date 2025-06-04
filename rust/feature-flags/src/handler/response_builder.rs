@@ -67,6 +67,31 @@ async fn apply_config_fields(
     context: &ConfigContext,
     team: &Team,
 ) -> Result<(), FlagError> {
+    // Apply all the core config fields that don't require async operations
+    apply_core_config_fields(response, &context.config, team);
+
+    // Handle fields that require request context (headers, config, etc)
+    // I test this config field in isolation in session_recording.rs, and have integration tests for it in tests/test_flags.rs
+    response.config.session_recording = session_recording::session_recording_config_response(
+        team,
+        &context.headers,
+        &context.config,
+    );
+
+    // Handle fields that require database access
+    // I test this config field in isolation in site_apps/mod.rs and have integration tests for it in tests/test_flags.rs
+    response.config.site_apps = if team.inject_web_apps.unwrap_or(false) {
+        Some(get_decide_site_apps(context.reader.clone(), team.id).await?)
+    } else {
+        Some(vec![])
+    };
+
+    Ok(())
+}
+
+/// Core config field logic that doesn't require async operations or external dependencies.
+/// This function can be used by both the main async flow and tests.
+fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team: &Team) {
     let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
     let autocapture_web_vitals_allowed_metrics =
         team.autocapture_web_vitals_allowed_metrics.as_ref();
@@ -76,26 +101,22 @@ async fn apply_config_fields(
     response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
     response.config.autocapture_opt_out = team.autocapture_opt_out;
 
-    response.config.analytics = if !context.config.debug.0
-        && !context.config.is_team_excluded(
-            team.id,
-            &context.config.new_analytics_capture_excluded_team_ids,
-        ) {
+    response.config.analytics = if !*config.debug
+        && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
+    {
         Some(AnalyticsConfig {
-            endpoint: Some(context.config.new_analytics_capture_endpoint.clone()),
+            endpoint: Some(config.new_analytics_capture_endpoint.clone()),
         })
     } else {
         None
     };
 
-    response.config.elements_chain_as_string = if !context.config.is_team_excluded(
-        team.id,
-        &context.config.element_chain_as_string_excluded_teams,
-    ) {
-        Some(true)
-    } else {
-        None
-    };
+    response.config.elements_chain_as_string =
+        if !config.is_team_excluded(team.id, &config.element_chain_as_string_excluded_teams) {
+            Some(true)
+        } else {
+            None
+        };
 
     response.config.capture_performance = match (capture_network_timing, capture_web_vitals) {
         (false, false) => Some(serde_json::json!(false)),
@@ -130,114 +151,28 @@ async fn apply_config_fields(
     response.config.default_identified_only = Some(true);
     response.config.flags_persistence_default =
         Some(team.flags_persistence_default.unwrap_or(false));
-    response.config.session_recording = session_recording::session_recording_config_response(
-        team,
-        &context.headers,
-        &context.config,
-    );
     response.config.toolbar_params = Some(serde_json::json!(
         HashMap::<String, serde_json::Value>::new()
     ));
     response.config.is_authenticated = Some(false);
     response.config.capture_dead_clicks = team.capture_dead_clicks;
-
-    response.config.site_apps = if team.inject_web_apps.unwrap_or(false) {
-        Some(get_decide_site_apps(context.reader.clone(), team.id).await?)
-    } else {
-        Some(vec![])
-    };
-
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
         api::types::{
-            AnalyticsConfig, ConfigResponse, FlagDetails, FlagDetailsMetadata,
-            FlagEvaluationReason, FlagsResponse, SessionRecordingField,
+            ConfigResponse, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagsResponse,
+            SessionRecordingField,
         },
         config::{Config, FlexBool, TeamIdCollection},
-        handler::session_recording,
+        handler::{response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
     };
     use serde_json::json;
     use sqlx::types::{Json, Uuid};
     use std::collections::HashMap;
     use uuid::Uuid as StdUuid;
-
-    // Test-only function that tests config logic without database dependencies
-    fn apply_config_fields_test_only(response: &mut FlagsResponse, config: &Config, team: &Team) {
-        let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
-        let autocapture_web_vitals_allowed_metrics =
-            team.autocapture_web_vitals_allowed_metrics.as_ref();
-        let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
-
-        response.config.has_feature_flags = Some(!response.flags.is_empty());
-        response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-        response.config.autocapture_opt_out = team.autocapture_opt_out;
-
-        response.config.analytics = if !config.debug.0
-            && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
-        {
-            Some(AnalyticsConfig {
-                endpoint: Some(config.new_analytics_capture_endpoint.clone()),
-            })
-        } else {
-            None
-        };
-
-        response.config.elements_chain_as_string =
-            if !config.is_team_excluded(team.id, &config.element_chain_as_string_excluded_teams) {
-                Some(true)
-            } else {
-                None
-            };
-
-        response.config.capture_performance = match (capture_network_timing, capture_web_vitals) {
-            (false, false) => Some(serde_json::json!(false)),
-            (network, web_vitals) => {
-                let mut perf_map = HashMap::new();
-                perf_map.insert("network_timing".to_string(), serde_json::json!(network));
-                perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
-                if web_vitals {
-                    perf_map.insert(
-                        "web_vitals_allowed_metrics".to_string(),
-                        serde_json::json!(autocapture_web_vitals_allowed_metrics.cloned()),
-                    );
-                }
-                Some(serde_json::json!(perf_map))
-            }
-        };
-
-        response.config.config = Some(serde_json::json!({"enable_collect_everything": true}));
-
-        response.config.autocapture_exceptions =
-            if team.autocapture_exceptions_opt_in.unwrap_or(false) {
-                Some(serde_json::json!(HashMap::from([(
-                    "endpoint".to_string(),
-                    serde_json::json!("/e/")
-                )])))
-            } else {
-                Some(serde_json::json!(false))
-            };
-
-        response.config.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
-        response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
-        response.config.default_identified_only = Some(true);
-        response.config.flags_persistence_default =
-            Some(team.flags_persistence_default.unwrap_or(false));
-        response.config.toolbar_params = Some(serde_json::json!(HashMap::<
-            String,
-            serde_json::Value,
-        >::new()));
-        response.config.is_authenticated = Some(false);
-        response.config.capture_dead_clicks = team.capture_dead_clicks;
-
-        // Skip site_apps and session_recording since they require database/headers
-        // NB: I test this behavior thoroughly in site_apps/mod.rs
-        response.config.site_apps = Some(vec![]);
-    }
 
     fn create_base_team() -> Team {
         Team {
@@ -292,7 +227,7 @@ mod tests {
         let config = Config::default_test_config();
         let team = create_base_team();
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         // Basic fields always set
         assert_eq!(
@@ -335,7 +270,7 @@ mod tests {
         let config = Config::default_test_config();
         let team = create_base_team();
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.has_feature_flags, Some(true));
     }
@@ -350,7 +285,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team();
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert!(response.config.analytics.is_some());
         assert_eq!(
@@ -368,7 +303,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team();
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert!(response.config.analytics.is_none());
     }
@@ -383,7 +318,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team(); // team.id = 1
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert!(response.config.analytics.is_none());
     }
@@ -396,7 +331,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team();
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.elements_chain_as_string, Some(true));
     }
@@ -409,7 +344,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team(); // team.id = 1
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert!(response.config.elements_chain_as_string.is_none());
     }
@@ -423,7 +358,7 @@ mod tests {
         team.capture_performance_opt_in = Some(false);
         team.autocapture_web_vitals_opt_in = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.capture_performance, Some(json!(false)));
     }
@@ -437,7 +372,7 @@ mod tests {
         team.capture_performance_opt_in = Some(true);
         team.autocapture_web_vitals_opt_in = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         let expected = json!({
             "network_timing": true,
@@ -455,7 +390,7 @@ mod tests {
         team.capture_performance_opt_in = Some(false);
         team.autocapture_web_vitals_opt_in = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         let expected = json!({
             "network_timing": false,
@@ -475,7 +410,7 @@ mod tests {
         team.autocapture_web_vitals_opt_in = Some(true);
         team.autocapture_web_vitals_allowed_metrics = Some(Json(json!(["CLS", "FCP", "LCP"])));
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         let expected = json!({
             "network_timing": true,
@@ -493,7 +428,7 @@ mod tests {
 
         team.autocapture_exceptions_opt_in = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         let expected = json!({"endpoint": "/e/"});
         assert_eq!(response.config.autocapture_exceptions, Some(expected));
@@ -507,7 +442,7 @@ mod tests {
 
         team.autocapture_exceptions_opt_in = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
     }
@@ -518,7 +453,7 @@ mod tests {
         let config = Config::default_test_config();
         let team = create_base_team(); // autocapture_exceptions_opt_in is None
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
     }
@@ -531,7 +466,7 @@ mod tests {
 
         team.surveys_opt_in = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.surveys, Some(json!(true)));
     }
@@ -544,7 +479,7 @@ mod tests {
 
         team.surveys_opt_in = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.surveys, Some(json!(false)));
     }
@@ -557,7 +492,7 @@ mod tests {
 
         team.heatmaps_opt_in = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.heatmaps, Some(true));
     }
@@ -570,7 +505,7 @@ mod tests {
 
         team.heatmaps_opt_in = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.heatmaps, Some(false));
     }
@@ -583,7 +518,7 @@ mod tests {
 
         team.flags_persistence_default = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.flags_persistence_default, Some(true));
     }
@@ -596,7 +531,7 @@ mod tests {
 
         team.flags_persistence_default = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.flags_persistence_default, Some(false));
     }
@@ -609,7 +544,7 @@ mod tests {
 
         team.autocapture_opt_out = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.autocapture_opt_out, Some(true));
     }
@@ -622,7 +557,7 @@ mod tests {
 
         team.autocapture_opt_out = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.autocapture_opt_out, Some(false));
     }
@@ -635,7 +570,7 @@ mod tests {
 
         team.capture_dead_clicks = Some(true);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.capture_dead_clicks, Some(true));
     }
@@ -648,7 +583,7 @@ mod tests {
 
         team.capture_dead_clicks = Some(false);
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         assert_eq!(response.config.capture_dead_clicks, Some(false));
     }
@@ -659,7 +594,7 @@ mod tests {
         let config = Config::default_test_config();
         let team = create_base_team(); // all optional fields are None/false
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         // Test that defaults are applied correctly
         assert_eq!(response.config.surveys, Some(json!(false)));
@@ -680,7 +615,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team();
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         // Both should be disabled/None for excluded teams
         assert!(response.config.analytics.is_none());
@@ -697,7 +632,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team(); // team.id = 1
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         // Both should be disabled/None for team id 1 (in exclusion list)
         assert!(response.config.analytics.is_none());
@@ -714,7 +649,7 @@ mod tests {
         let mut response = create_base_response();
         let team = create_base_team(); // team.id = 1
 
-        apply_config_fields_test_only(&mut response, &config, &team);
+        apply_core_config_fields(&mut response, &config, &team);
 
         // Both should be enabled for team id 1 (not in exclusion list)
         assert!(response.config.analytics.is_some());

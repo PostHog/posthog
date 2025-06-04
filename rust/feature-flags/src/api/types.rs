@@ -34,9 +34,8 @@ pub struct SiteApp {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
-    #[serde(rename = "gzip", alias = "gzip-js")]
+    #[serde(alias = "gzip-js")]
     Gzip,
-    #[serde(rename = "base64")]
     Base64,
     #[default]
     #[serde(other)]
