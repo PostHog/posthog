@@ -1,5 +1,5 @@
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -13,7 +13,7 @@ import {
     parseEncodedSnapshots,
     processAllSnapshots,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { keyForSource, SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -51,6 +51,7 @@ export interface SessionRecordingDataLogicProps {
     realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
+    playerKey?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -72,7 +73,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshots: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
-        loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
+        loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
+            sources,
+        }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
         markViewed: (delay?: number) => ({ delay }),
@@ -112,17 +115,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaFailure: () => true,
             },
         ],
-        snapshotsBySource: [
-            null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+        snapshotsBySourceSuccessCount: [
+            0,
             {
-                loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
-                    const sourceKey = keyForSource(snapshotsForSource.source)
-
-                    return {
-                        ...state,
-                        [sourceKey]: snapshotsForSource,
-                    }
-                },
+                loadSnapshotsForSourceSuccess: (state) => state + 1,
             },
         ],
         wasMarkedViewed: [
@@ -132,7 +128,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionComments: {
             loadRecordingComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
@@ -198,34 +194,67 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotsForSource: [
             null as SessionRecordingSnapshotSourceResponse | null,
             {
-                loadSnapshotsForSource: async ({ source }, breakpoint) => {
+                loadSnapshotsForSource: async ({ sources }, breakpoint) => {
                     let params: SessionRecordingSnapshotParams
 
-                    if (source.source === SnapshotSourceType.blob) {
-                        if (!source.blob_key) {
-                            throw new Error('Missing key')
+                    if (sources.length > 1) {
+                        // they all have to be blob_v2
+                        if (sources.some((s) => s.source !== SnapshotSourceType.blob_v2)) {
+                            throw new Error('Unsupported source for multiple sources')
                         }
-                        params = { blob_key: source.blob_key, source: 'blob' }
-                    } else if (source.source === SnapshotSourceType.realtime) {
-                        params = { source: 'realtime', version: '2024-04-30' }
-                    } else if (source.source === SnapshotSourceType.blob_v2) {
-                        params = { source: 'blob_v2', blob_key: source.blob_key }
+                        params = {
+                            source: 'blob_v2',
+                            // so the caller has to make sure these are in order!
+                            start_blob_key: sources[0].blob_key,
+                            end_blob_key: sources[sources.length - 1].blob_key,
+                        }
                     } else {
-                        throw new Error(`Unsupported source: ${source.source}`)
+                        const source = sources[0]
+
+                        if (source.source === SnapshotSourceType.blob) {
+                            if (!source.blob_key) {
+                                throw new Error('Missing key')
+                            }
+                            params = { blob_key: source.blob_key, source: 'blob' }
+                        } else if (source.source === SnapshotSourceType.realtime) {
+                            params = { source: 'realtime' }
+                        } else if (source.source === SnapshotSourceType.blob_v2) {
+                            params = { source: 'blob_v2', blob_key: source.blob_key }
+                        } else if (source.source === SnapshotSourceType.file) {
+                            // no need to load a file source, it is already loaded
+                            return { source }
+                        } else {
+                            throw new Error(`Unsupported source: ${source.source}`)
+                        }
                     }
 
                     await breakpoint(1)
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
-                        if (source.source === 'realtime' && e.status === 404) {
+                        if (sources[0].source === 'realtime' && e.status === 404) {
                             // Realtime source is not always available, so a 404 is expected
                             return []
                         }
                         throw e
                     })
 
-                    const parsedSnapshots = await parseEncodedSnapshots(response, props.sessionRecordingId)
-                    return { snapshots: parsedSnapshots, source }
+                    // sorting is very cheap for already sorted lists
+                    const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
+                        (a, b) => a.timestamp - b.timestamp
+                    )
+                    // we store the data in the cache because we want to avoid copying this data as much as possible
+                    // and kea's immutability means we were copying all of the data on every snapshot call
+                    cache.snapshotsBySource = cache.snapshotsBySource || {}
+                    // it doesn't matter which source we use as the key, since we combine the snapshots anyway
+                    cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
+                    // but we do want to mark the sources as loaded
+                    sources.forEach((s) => {
+                        const k = keyForSource(s)
+                        // we just need something against each key so we don't load it again
+                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || { snapshots: [] }
+                    })
+
+                    return { sources: sources }
                 },
             },
         ],
@@ -240,37 +269,35 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
-                            FROM events
-                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND $session_id = ${props.sessionRecordingId}
-                              ORDER BY timestamp ASC
-                        LIMIT 1000000
-                        `
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+FROM events
+WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+AND $session_id = ${props.sessionRecordingId}
+ORDER BY timestamp ASC
+LIMIT 1000000`
 
                     let relatedEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
-                            FROM events
-                            WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
-                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
-                        `
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+FROM events
+WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
+AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
+AND (empty ($session_id) OR isNull($session_id))
+AND properties.$lib != 'web'`
+
                     if (person?.uuid) {
                         relatedEventsQuery += `
-                            AND person_id = '${person.uuid}'
-                        `
+AND person_id = '${person.uuid}'`
                     }
                     if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
                         relatedEventsQuery += `
-                            AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}
-                        `
+AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`
                     }
-                    relatedEventsQuery += `
-                        ORDER BY timestamp ASC
-                        LIMIT 1000000
-                    `
 
+                    relatedEventsQuery += `
+ORDER BY timestamp ASC
+LIMIT 1000000
+                    `
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
                         api.query({
@@ -349,12 +376,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                        -- the timestamp range here is only to avoid querying too much of the events table
-                                        -- we don't really care about the absolute value,
-                                        -- but we do care about whether timezones have an odd impact
-                                        -- so, we extend the range by a day on each side so that timezones don't cause issues
-                                         WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
-                                           AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                                         -- the timestamp range here is only to avoid querying too much of the events table
+                                         -- we don't really care about the absolute value,
+                                         -- but we do care about whether timezones have an odd impact
+                                         -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                         WHERE timestamp
+                                             > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                                           AND timestamp
+                                             < ${dayjs(latestTimestamp).add(1, 'day')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
@@ -429,13 +458,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
             const sources = values.snapshotSources
-            const snapshots = snapshotsForSource.snapshots
+            const sourceKey = snapshotsForSource.sources
+                ? keyForSource(snapshotsForSource.sources[0])
+                : keyForSource(snapshotsForSource.source)
+            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
 
             // Cache the last response count to detect if we're getting the same data over and over
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                // if we're getting no results from realtime polling we can increment faster
+                // if we're getting no results from realtime polling, we can increment faster
                 // so that we stop polling sooner
                 const increment = newSnapshotsCount === 0 ? 2 : 1
                 cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
@@ -444,7 +476,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
             cache.lastSnapshotsCount = newSnapshotsCount
 
-            if (!snapshots.length && sources?.length === 1) {
+            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
                 // We got only a single source to load, loaded it successfully, but it had no snapshots.
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
@@ -458,29 +490,39 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadNextSnapshotSource: () => {
-            const nextSourceToLoad = values.snapshotSources?.find((s) => {
-                const sourceKey = keyForSource(s)
-                return !values.snapshotsBySource?.[sourceKey]
-            })
+            // yes this is ugly duplication but we're going to deprecate v1 and I want it to be clear which is which
+            if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
+                const nextSourcesToLoad =
+                    values.snapshotSources?.filter((s) => {
+                        const sourceKey = keyForSource(s)
+                        return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                    }) || []
 
-            if (nextSourceToLoad) {
-                return actions.loadSnapshotsForSource(nextSourceToLoad)
-            }
+                if (nextSourcesToLoad.length > 0) {
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 100))
+                }
 
-            if (
-                values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2) &&
-                !props.blobV2PollingDisabled
-            ) {
-                actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
+                if (!props.blobV2PollingDisabled) {
+                    actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
+                }
+            } else {
+                const nextSourceToLoad = values.snapshotSources?.find((s) => {
+                    const sourceKey = keyForSource(s)
+                    return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                })
+
+                if (nextSourceToLoad) {
+                    return actions.loadSnapshotsForSource([nextSourceToLoad])
+                }
+
+                // If we have a realtime source, start polling it
+                const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
+                if (realTimeSource) {
+                    actions.pollRealtimeSnapshots()
+                }
             }
 
             actions.reportUsageIfFullyLoaded()
-
-            // If we have a realtime source, start polling it
-            const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
-            if (realTimeSource) {
-                actions.pollRealtimeSnapshots()
-            }
         },
         pollRealtimeSnapshots: () => {
             // always make sure we've cleared up the last timeout
@@ -491,7 +533,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             // we could change this or add to it e.g. only poll if browser is visible to user
             if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
                 cache.realTimePollingTimeoutID = setTimeout(() => {
-                    actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
+                    actions.loadSnapshotsForSource([{ source: SnapshotSourceType.realtime }])
                 }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
             } else {
                 actions.stopRealtimePolling()
@@ -514,6 +556,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         markViewed: async ({ delay }, breakpoint) => {
             // Triggered on first paint
             breakpoint()
+            if (props.playerKey?.startsWith('file-')) {
+                return
+            }
             if (values.wasMarkedViewed) {
                 return
             }
@@ -689,7 +734,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (snapshots, sessionPlayerMetaDataLoading, snapshotsLoading, sessionEventsDataLoading): boolean => {
                 // TODO: Do a proper check for all sources having been loaded
                 return (
-                    !!snapshots.length &&
+                    !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
                     !sessionEventsDataLoading
@@ -770,9 +815,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s, p) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp, p.sessionRecordingId],
-            (sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId): RecordingSnapshot[] => {
-                return processAllSnapshots(sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId)
+            (s, p) => [
+                s.snapshotSources,
+                s.viewportForTimestamp,
+                p.sessionRecordingId,
+                s.snapshotsBySourceSuccessCount,
+            ],
+            (
+                sources,
+                viewportForTimestamp,
+                sessionRecordingId,
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                _snapshotsBySourceSuccessCount
+            ): RecordingSnapshot[] => {
+                if (!sources || !cache.snapshotsBySource) {
+                    return []
+                }
+                return processAllSnapshots(
+                    sources,
+                    cache.snapshotsBySource || {},
+                    viewportForTimestamp,
+                    sessionRecordingId
+                )
             },
         ],
 
@@ -826,6 +890,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (start, snapshotsInvalid) => {
                 const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
                 return snapshotsInvalid && lessThanFiveMinutesOld
+            },
+        ],
+
+        isLikelyPastTTL: [
+            (s) => [s.start, s.snapshotSources],
+            (start, snapshotSources) => {
+                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
+                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
+                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
+                const hasNoSources = snapshotSources?.length === 0
+                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
             },
         ],
 
@@ -896,4 +971,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        // Clear the cache
+
+        if (cache.realTimePollingTimeoutID) {
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = undefined
+        }
+
+        cache.windowIdForTimestamp = undefined
+        cache.viewportForTimestamp = undefined
+        cache.snapshotsBySource = undefined
+    }),
 ])

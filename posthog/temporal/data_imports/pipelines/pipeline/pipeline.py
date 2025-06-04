@@ -3,7 +3,9 @@ import time
 from typing import Any
 
 import deltalake as deltalake
+import posthoganalytics
 import pyarrow as pa
+from django.db.models import F
 from dlt.sources import DltSource
 
 from posthog.exceptions_capture import capture_exception
@@ -12,29 +14,30 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
     trigger_compaction_job,
 )
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
-    _get_incremental_field_last_value,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
-    _notify_revenue_analytics_that_sync_has_completed,
-    _update_job_row_count,
     append_partition_key_to_table,
+    normalize_column_name,
     normalize_table_column_names,
-    should_partition_table,
-    supports_partial_data_loading,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
+)
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -42,6 +45,7 @@ from posthog.warehouse.models import (
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
 )
 
 
@@ -111,6 +115,12 @@ class PipelineNonDLT:
             ):
                 self._job.rows_synced = 0
                 self._job.save()
+
+            # Check for duplicate primary keys
+            if self._is_incremental and self._resource.has_duplicate_primary_keys:
+                raise DuplicatePrimaryKeysException(
+                    f"The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key. Primary keys being used are: {self._resource.primary_keys}"
+                )
 
             # Setup row tracking
             if self._resource.rows_to_sync:
@@ -215,8 +225,11 @@ class PipelineNonDLT:
         if should_partition_table(delta_table, self._schema, self._resource):
             partition_count = self._schema.partition_count or self._resource.partition_count
             partition_size = self._schema.partition_size or self._resource.partition_size
-            partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
-            partition_format = self._schema.partition_format
+            partition_keys = (
+                self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
+            )
+            partition_format = self._schema.partition_format or self._resource.partition_format
+            partition_mode = self._schema.partition_mode or self._resource.partition_mode
             if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
                 pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
@@ -224,7 +237,7 @@ class PipelineNonDLT:
                     partition_count=partition_count,
                     partition_size=partition_size,
                     partition_keys=partition_keys,
-                    partition_mode=self._schema.partition_mode,
+                    partition_mode=partition_mode,
                     partition_format=partition_format,
                     logger=self._logger,
                 )
@@ -361,3 +374,87 @@ class PipelineNonDLT:
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
+
+
+def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
+    schema.last_synced_at = job.created_at
+    schema.save()
+
+
+def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
+    logger.debug(f"Updating rows_synced with +{count}")
+    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+
+
+def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
+    if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
+        return
+
+    incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
+    if incremental_field_name is None:
+        return
+
+    column = table[normalize_column_name(incremental_field_name)]
+    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
+
+    # TODO(@Gilbert09): support different operations here (e.g. min)
+    last_value = numpy_arr.max()
+    return last_value
+
+
+def should_partition_table(
+    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
+) -> bool:
+    if not schema.is_incremental:
+        return False
+
+    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
+        return True
+
+    if source.partition_count is None:
+        return False
+
+    if delta_table is None:
+        return True
+
+    delta_schema = delta_table.schema().to_pyarrow()
+    if PARTITION_KEY in delta_schema.names:
+        return True
+
+    return False
+
+
+def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
+    """
+    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
+    the approach.
+    """
+    return schema.source.source_type == ExternalDataSource.Type.STRIPE
+
+
+def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    try:
+        if (
+            schema.name == STRIPE_CHARGE_RESOURCE_NAME
+            and schema.source.source_type == ExternalDataSource.Type.STRIPE
+            and schema.source.revenue_analytics_enabled
+            and not schema.team.revenue_analytics_config.notified_first_sync
+        ):
+            # For every admin in the org, send a revenue analytics ready event
+            # This will trigger a Campaign in PostHog and send an email
+            for user in schema.team.all_users_with_access():
+                if user.distinct_id is not None:
+                    posthoganalytics.capture(
+                        user.distinct_id,
+                        "revenue_analytics_ready",
+                        {"source_type": schema.source.source_type},
+                    )
+
+            # Mark the team as notified, avoiding spamming emails
+            schema.team.revenue_analytics_config.notified_first_sync = True
+            schema.team.revenue_analytics_config.save()
+    except Exception as e:
+        # Silently fail, we don't want this to crash the pipeline
+        # Sending an email is not critical to the pipeline
+        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
+        capture_exception(e)

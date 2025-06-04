@@ -1,11 +1,11 @@
 import logging
 
-from kafka import KafkaProducer
+
 import structlog
 from django.core.management.base import BaseCommand
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.error_tracking import override_error_tracking_issue_fingerprint
-
+from posthog.kafka_client.client import KafkaProducer
 from posthog.models import ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)

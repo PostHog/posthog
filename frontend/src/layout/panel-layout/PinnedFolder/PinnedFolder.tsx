@@ -27,12 +27,13 @@ export function PinnedFolder(): JSX.Element {
                         iconOnly
                         tooltip="Change pinned folder"
                         tooltipPlacement="right"
+                        data-attr="tree-navbar-pinned-folder-change-button"
                     >
                         <IconGear className="size-3 text-secondary" />
                     </ButtonPrimitive>
                 </div>
             )}
-            <div className="flex flex-col mt-[-0.25rem] h-full">
+            <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
             {modalVisible ? (
@@ -44,7 +45,11 @@ export function PinnedFolder(): JSX.Element {
                         typeof selectedFolder === 'string' ? (
                             <>
                                 <div className="flex-1" />
-                                <LemonButton type="primary" onClick={() => setPinnedFolder(selectedFolder)}>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => setPinnedFolder(selectedFolder)}
+                                    data-attr="tree-navbar-pinned-folder-change-select-button"
+                                >
                                     Select {formatUrlAsName(selectedFolder, 'Project root')}
                                 </LemonButton>
                             </>
@@ -52,7 +57,12 @@ export function PinnedFolder(): JSX.Element {
                     }
                 >
                     <div className="w-192 max-w-full">
-                        <FolderSelect value={selectedFolder} onChange={setSelectedFolder} includeProtocol />
+                        <FolderSelect
+                            value={selectedFolder}
+                            onChange={setSelectedFolder}
+                            includeProtocol
+                            className="h-[60vh] min-h-[200px]"
+                        />
                     </div>
                 </LemonModal>
             ) : null}

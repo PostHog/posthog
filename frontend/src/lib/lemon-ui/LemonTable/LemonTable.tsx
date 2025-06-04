@@ -45,7 +45,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Status of each row. Defaults no status. */
     rowStatus?: 'highlighted' | ((record: T, rowIndex: number) => 'highlighted' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
-    onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
+    onRow?: (record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
     size?: 'small' | 'middle'
     /** Whether this table already is inset, meaning it needs reduced horizontal padding (0.5rem instead of 1rem). */
@@ -219,6 +219,8 @@ export function LemonTable<T extends Record<string, any>>({
         throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
 
+    const isRowExpansionToggleShown = expandable ? expandable?.showRowExpansionToggle ?? true : false
+
     return (
         <div
             id={id}
@@ -245,7 +247,7 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {!!expandable && <col className="w-0" /> /* Expand/collapse column */}
+                            {isRowExpansionToggleShown && <col className="w-0" /> /* Expand/collapse column */}
                             {columns
                                 .filter((column) => !column.isHidden)
                                 .map((column, index) => (
@@ -257,7 +259,11 @@ export function LemonTable<T extends Record<string, any>>({
                             <thead>
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
-                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
+                                        {
+                                            isRowExpansionToggleShown && (
+                                                <th className="LemonTable__toggle" />
+                                            ) /* Expand/collapse */
+                                        }
                                         {columnGroups.map((columnGroup, columnGroupIndex) =>
                                             columnGroupIndex === 0 && firstColumnSticky ? (
                                                 <React.Fragment key={`LemonTable-th-group-${columnGroupIndex}`}>

@@ -33,7 +33,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_no_crash_when_no_source_is_selected
@@ -57,7 +58,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data
@@ -74,6 +76,7 @@
        (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
                `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
                `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
                `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
                `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
                `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
@@ -87,6 +90,7 @@
           (SELECT posthog_test_stripe_charge.id AS id,
                   parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
                   posthog_test_stripe_charge.customer AS customer_id,
+                  posthog_test_stripe_charge.invoice AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
                   upper(posthog_test_stripe_charge.currency) AS original_currency,
@@ -126,7 +130,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_and_limited_date_range
@@ -143,6 +148,7 @@
        (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
                `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
                `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
                `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
                `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
                `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
@@ -156,6 +162,7 @@
           (SELECT posthog_test_stripe_charge.id AS id,
                   parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
                   posthog_test_stripe_charge.customer AS customer_id,
+                  posthog_test_stripe_charge.invoice AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
                   upper(posthog_test_stripe_charge.currency) AS original_currency,
@@ -195,7 +202,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_group_by_all
@@ -212,6 +220,7 @@
        (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
                `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
                `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
                `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
                `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
                `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
@@ -225,6 +234,7 @@
           (SELECT posthog_test_stripe_charge.id AS id,
                   parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
                   posthog_test_stripe_charge.customer AS customer_id,
+                  posthog_test_stripe_charge.invoice AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
                   upper(posthog_test_stripe_charge.currency) AS original_currency,
@@ -266,7 +276,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_events_data
@@ -283,6 +294,7 @@
        (SELECT `revenue_analytics.purchase.charge_events_revenue_view`.id AS id,
                `revenue_analytics.purchase.charge_events_revenue_view`.timestamp AS timestamp,
                `revenue_analytics.purchase.charge_events_revenue_view`.customer_id AS customer_id,
+               `revenue_analytics.purchase.charge_events_revenue_view`.invoice_id AS invoice_id,
                `revenue_analytics.purchase.charge_events_revenue_view`.session_id AS session_id,
                `revenue_analytics.purchase.charge_events_revenue_view`.event_name AS event_name,
                `revenue_analytics.purchase.charge_events_revenue_view`.original_currency AS original_currency,
@@ -296,6 +308,7 @@
           (SELECT events.uuid AS id,
                   toTimeZone(events.created_at, 'UTC') AS timestamp,
                   events.distinct_id AS customer_id,
+                  NULL AS invoice_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -324,7 +337,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -341,6 +355,7 @@
        (SELECT `revenue_analytics.purchase.charge_events_revenue_view`.id AS id,
                `revenue_analytics.purchase.charge_events_revenue_view`.timestamp AS timestamp,
                `revenue_analytics.purchase.charge_events_revenue_view`.customer_id AS customer_id,
+               `revenue_analytics.purchase.charge_events_revenue_view`.invoice_id AS invoice_id,
                `revenue_analytics.purchase.charge_events_revenue_view`.session_id AS session_id,
                `revenue_analytics.purchase.charge_events_revenue_view`.event_name AS event_name,
                `revenue_analytics.purchase.charge_events_revenue_view`.original_currency AS original_currency,
@@ -354,6 +369,7 @@
           (SELECT events.uuid AS id,
                   toTimeZone(events.created_at, 'UTC') AS timestamp,
                   events.distinct_id AS customer_id,
+                  NULL AS invoice_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
@@ -383,7 +399,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_without_customers_data
@@ -400,6 +417,7 @@
        (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
                `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
                `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
                `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
                `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
                `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
@@ -413,6 +431,7 @@
           (SELECT posthog_test_stripe_charge.id AS id,
                   parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
                   posthog_test_stripe_charge.customer AS customer_id,
+                  posthog_test_stripe_charge.invoice AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
                   upper(posthog_test_stripe_charge.currency) AS original_currency,
@@ -439,6 +458,7 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
