@@ -241,7 +241,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         syncSnapshotsWithPlayer: true,
-        exportRecordingToFile: true,
+        exportRecordingToFile: (type?: 'posthog' | 'rrweb') => ({ type }),
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
@@ -1218,7 +1218,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async () => {
+        exportRecordingToFile: async ({ type }) => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -1243,11 +1243,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = values.createExportJSON()
-
+                const payload = values.createExportJSON(type)
+                const suffix = type === 'rrweb' ? 'rrweb-recording' : 'ph-recording'
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}-ph-recording.json`,
+                    `export-${props.sessionRecordingId}-${suffix}.json`,
                     { type: 'application/json' }
                 )
 

@@ -931,15 +931,19 @@ LIMIT 1000000
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
-                return () => ({
-                    version: '2023-04-28',
-                    data: {
-                        id: sessionPlayerMetaData?.id ?? '',
-                        person: sessionPlayerMetaData?.person,
-                        snapshots: snapshots,
-                    },
-                })
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
+                return (type?: 'posthog' | 'rrweb') => {
+                    return type === 'rrweb'
+                        ? snapshots
+                        : {
+                              version: '2023-04-28',
+                              data: {
+                                  id: sessionPlayerMetaData?.id ?? '',
+                                  person: sessionPlayerMetaData?.person,
+                                  snapshots: snapshots,
+                              },
+                          }
+                }
             },
         ],
 
