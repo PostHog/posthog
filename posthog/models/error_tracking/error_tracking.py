@@ -128,12 +128,16 @@ class ErrorTrackingSymbolSet(UUIDModel):
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
     def delete(self, *args, **kwargs):
+        storage_ptr = self.storage_ptr
         with transaction.atomic():
             # We always keep resolved frames, as they're used in the UI
             self.errortrackingstackframe_set.filter(resolved=False).delete()
-            if self.storage_ptr:
-                delete_symbol_set_contents(self.storage_ptr)
             super().delete(*args, **kwargs)
+
+        # We'd rather have orphan objects in s3 than records in postgres that don't actually point
+        # to anything, so we delete the rows and /then/ clean up the s3 object
+        if storage_ptr:
+            delete_symbol_set_contents(self.storage_ptr)
 
     class Meta:
         indexes = [
