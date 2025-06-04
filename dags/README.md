@@ -141,7 +141,8 @@ concurrency:
 
 3. Run Dagster with the configuration:
 
-`DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1` Force small partitions per run to create multiple runs
+```bash
+DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1  # Force small partitions per run to create multiple runs
 
 ```bash
 export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1 DEBUG=1 dagster dev -m dags.definitions
