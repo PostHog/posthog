@@ -1,1 +1,1 @@
-0752_organization_members_can_invite
+0754_organization_is_platform

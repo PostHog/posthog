@@ -19,13 +19,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import HumanMessage
 from posthog.utils import get_instance_region
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=1000)
+    content = serializers.CharField(required=True, max_length=6000)  ## roughly 1.5k tokens
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
@@ -68,11 +67,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
 
-    def get_renderers(self):
-        if self.action == "create":
-            return [ServerSentEventRenderer()]
-        return super().get_renderers()
-
     def get_serializer_class(self):
         if self.action == "create":
             return MessageSerializer
@@ -105,7 +99,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,
         )
-        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
+        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
