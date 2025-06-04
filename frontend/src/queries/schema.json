@@ -12580,14 +12580,7 @@
             "additionalProperties": false,
             "properties": {
                 "dashboards": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/MultiDashboardContextContainer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/MultiDashboardContextContainer"
                 },
                 "global_info": {
                     "additionalProperties": false,
@@ -12599,14 +12592,7 @@
                     "type": "object"
                 },
                 "insights": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/MultiInsightContextContainer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "$ref": "#/definitions/MultiInsightContextContainer"
                 }
             },
             "type": "object"
