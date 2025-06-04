@@ -25,6 +25,7 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
+    AnnotationType,
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -88,10 +89,19 @@ export type InspectorListItemInactivity = InspectorListItemBase & {
     durationMs: number
 }
 
-export type InspectorListItemComment = InspectorListItemBase & {
+export type InspectorListItemNotebookComment = InspectorListItemBase & {
     type: 'comment'
+    source: 'notebook'
     data: RecordingComment
 }
+
+export type InspectorListItemAnnotationComment = InspectorListItemBase & {
+    type: 'comment'
+    source: 'annotation'
+    data: AnnotationType
+}
+
+export type InspectorListItemComment = InspectorListItemNotebookComment | InspectorListItemAnnotationComment
 
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: FilterableInspectorListItemTypes.CONSOLE
@@ -223,7 +233,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             sessionRecordingEventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataLogic(props),
-            ['loadFullEventData', 'setTrackedWindow'],
+            ['loadFullEventData', 'setTrackedWindow', 'sessionAnnotations'],
         ],
         values: [
             miniFiltersLogic,
@@ -530,6 +540,23 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        annotationItems: [
+            (s) => [s.sessionAnnotations, s.windowIdForTimestamp, s.windowNumberForID],
+            (sessionAnnotations, windowIdForTimestamp, windowNumberForID): InspectorListItem[] => {
+                const items: InspectorListItemComment[] = []
+                for (const annotation of sessionAnnotations || []) {
+                    const windowId = windowIdForTimestamp(annotation.timestamp.valueOf())
+                    items.push({
+                        ...annotation,
+                        highlightColor: 'primary',
+                        windowId: windowId,
+                        windowNumber: windowNumberForID(windowId),
+                    })
+                }
+                return items
+            },
+        ],
+
         allContextItems: [
             (s) => [
                 s.start,
@@ -541,6 +568,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.windowNumberForID,
                 s.sessionPlayerMetaData,
                 s.segments,
+                s.annotationItems,
             ],
             (
                 start,
@@ -551,7 +579,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 windowIdForTimestamp,
                 windowNumberForID,
                 sessionPlayerMetaData,
-                segments
+                segments,
+                annotationItems
             ) => {
                 const items: InspectorListItem[] = []
 
@@ -589,12 +618,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push(event)
                 }
 
+                // no conversion needed for annotations, they're ready to roll
+                for (const annotation of annotationItems || []) {
+                    items.push(annotation)
+                }
+
                 for (const comment of sessionComments || []) {
                     const { timestamp, timeInRecording } = commentTimestamp(comment, start)
                     if (timestamp) {
                         items.push({
                             highlightColor: 'primary',
                             type: 'comment',
+                            source: 'notebook',
                             timeInRecording: timeInRecording,
                             timestamp: timestamp,
                             search: comment.comment,
@@ -605,8 +640,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
-                // now we've calculated everything else
-                // always start with a context row that has a little summary
+                // now we've calculated everything else,
+                // we always start with a context row
+                // that lets us show a little summary
                 if (start) {
                     items.push({
                         type: 'inspector-summary',
