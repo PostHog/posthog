@@ -1,17 +1,16 @@
 {
-    "id": 67,
-    "name": "storybook-experiment-3",
+    "id": 17,
+    "name": "experiment-multiple-metrics",
     "description": null,
-    "start_date": "2025-01-01T13:23:00Z",
+    "start_date": "2025-06-03T14:48:37.594000Z",
     "end_date": null,
-    "feature_flag_key": "storybook-experiment-3",
+    "feature_flag_key": "experiment-multiple-metrics",
     "feature_flag": {
-        "id": 163,
+        "id": 142,
         "team_id": 1,
-        "name": "Feature Flag for Experiment storybook-experiment-3",
-        "key": "storybook-experiment-3",
+        "name": "Feature Flag for Experiment experiment-multiple-metrics",
+        "key": "experiment-multiple-metrics",
         "filters": {
-            "payloads": {},
             "groups": [
                 {
                     "properties": [],
@@ -34,13 +33,18 @@
                     }
                 ]
             },
+            "holdout_groups": null,
             "aggregation_group_type_index": null
         },
         "deleted": false,
         "active": true,
-        "ensure_experience_continuity": false
+        "ensure_experience_continuity": false,
+        "has_encrypted_payloads": false,
+        "version": 1
     },
+    "holdout": null,
     "holdout_id": null,
+    "exposure_cohort": null,
     "parameters": {
         "feature_flag_variants": [
             {
@@ -58,37 +62,56 @@
         ],
         "recommended_sample_size": 0,
         "recommended_running_time": 0,
-        "minimum_detectable_effect": 1
+        "minimum_detectable_effect": 30
     },
     "secondary_metrics": [],
     "saved_metrics": [],
-    "saved_metrics_ids": [],
+    "saved_metrics_ids": null,
     "filters": {},
     "archived": false,
+    "deleted": false,
     "created_by": {
         "id": 1,
-        "uuid": "0193314c-c2b1-0000-24a1-a38b35180d80",
-        "distinct_id": "Lc1U777y6KO8OhdOLGfd4G3J8o0ZVfs88EhoBuF2sYr",
+        "uuid": "0196a5e4-1c5d-0000-8b8c-31ae10f6d7d7",
+        "distinct_id": "TM2Vy3T9MqY0HHAxgKBj95zZEaZ45MYSpuSxu6MaVNj",
         "first_name": "Juraj",
         "last_name": "",
         "email": "juraj@posthog.com",
-        "is_email_verified": false
+        "is_email_verified": false,
+        "hedgehog_config": null,
+        "role_at_organization": "engineering"
     },
-    "created_at": "2025-01-27T13:21:34.895340Z",
-    "updated_at": "2025-01-27T14:16:54.298507Z",
+    "created_at": "2025-06-03T14:48:11.882465Z",
+    "updated_at": "2025-06-03T14:48:50.754962Z",
     "type": "product",
+    "exposure_criteria": {
+        "filterTestAccounts": true
+    },
     "metrics": [
         {
             "kind": "ExperimentMetric",
-            "metric_type": "mean",
             "source": {
                 "kind": "EventsNode",
-                "event": "storybook-click"
-            }
+                "math": "total",
+                "event": "$pageview"
+            },
+            "metric_type": "mean"
+        },
+        {
+            "kind": "ExperimentMetric",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "signup completed"
+                }
+            ],
+            "metric_type": "funnel"
         }
     ],
     "metrics_secondary": [],
     "stats_config": {
         "version": 2
-    }
+    },
+    "conclusion": null,
+    "conclusion_comment": null
 }
