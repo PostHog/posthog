@@ -866,9 +866,12 @@ class Producer:
             if filters_str:
                 filters_str = f"AND {filters_str}"
 
-            query = query_template.safe_substitute(
-                fields=query_fields, filters=filters_str, order="ORDER BY _inserted_at, event"
-            )
+            if str(team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
+                order = ""
+            else:
+                order = "ORDER BY _inserted_at, event"
+
+            query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order=order)
 
         parameters["team_id"] = team_id
         parameters = {**parameters, **extra_query_parameters}
