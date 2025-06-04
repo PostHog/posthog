@@ -27,13 +27,13 @@ import {
 } from './maxTypes'
 
 const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): InsightContextForMax => {
-    const source = (insight.query as any).source
+    const source = (insight.query as any)?.source
     return {
         id: insight.short_id!,
         name: insight.name,
         description: insight.description,
         query: source,
-        insight_type: source.kind,
+        insight_type: source?.kind,
     }
 }
 
