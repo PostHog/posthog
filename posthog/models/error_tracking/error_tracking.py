@@ -1,5 +1,7 @@
 from django.db import models, transaction
 from django.contrib.postgres.fields import ArrayField
+from django.conf import settings
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
@@ -7,6 +9,7 @@ from posthog.models.user import User
 from posthog.models.user_group import UserGroup
 from ee.models.rbac.role import Role
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+from posthog.storage import object_storage
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
@@ -122,13 +125,15 @@ class ErrorTrackingSymbolSet(UUIDModel):
 
     # Symbol sets can have an associated release, if they were uploaded
     # with one
-    # TODO - should we really on_delete: CASCADE here?
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
     def delete(self, *args, **kwargs):
-        # On delete, we want to clean up unresolved stack frames too
-        self.errortrackingstackframe_set.filter(resolved=False).delete()
-        super().delete(*args, **kwargs)
+        with transaction.atomic():
+            # We always keep resolved frames, as they're used in the UI
+            self.errortrackingstackframe_set.filter(resolved=False).delete()
+            if self.storage_ptr:
+                delete_symbol_set_contents(self.storage_ptr)
+            super().delete(*args, **kwargs)
 
     class Meta:
         indexes = [
@@ -338,3 +343,13 @@ def override_error_tracking_issue_fingerprint(
         },
         sync=sync,
     )
+
+
+def delete_symbol_set_contents(upload_path: str) -> None:
+    if settings.OBJECT_STORAGE_ENABLED:
+        object_storage.delete(file_name=upload_path)
+    else:
+        raise ValidationError(
+            code="object_storage_required",
+            detail="Object storage must be available to delete source maps.",
+        )
