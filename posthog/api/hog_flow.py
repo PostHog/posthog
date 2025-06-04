@@ -18,10 +18,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_flow.hog_flow import HogFlow
 
-# Maximum size of HOG code as a string in bytes (100KB)
-MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
-# Maximum number of transformation functions per team
-MAX_TRANSFORMATIONS_PER_TEAM = 20
 
 logger = structlog.get_logger(__name__)
 
