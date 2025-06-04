@@ -317,7 +317,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             return
                         }
 
-                        if (e instanceof ApiError && e.status === 429) {
+                        if (e.status === 429) {
                             relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
                         }
 
