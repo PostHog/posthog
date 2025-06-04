@@ -242,7 +242,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         const propertiesUpdate = calculateUpdate(group.group_properties || {}, properties)
         if (propertiesUpdate.updated) {
             // Update cache with pending changes
-            this.addGroupTocache(teamId, groupKey, {
+            this.addGroupToCache(teamId, groupKey, {
                 team_id: teamId,
                 group_type_index: groupTypeIndex,
                 group_key: groupKey,
@@ -323,7 +323,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
                     expectedVersion,
                     tx
                 )
-                this.addGroupTocache(teamId, groupKey, {
+                this.addGroupToCache(teamId, groupKey, {
                     team_id: teamId,
                     group_type_index: groupTypeIndex,
                     group_key: groupKey,
@@ -415,7 +415,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         return result
     }
 
-    private addGroupTocache(teamId: TeamId, groupKey: string, group: GroupUpdate | null) {
+    private addGroupToCache(teamId: TeamId, groupKey: string, group: GroupUpdate | null) {
         const key = this.getCacheKey(teamId, groupKey)
         this.groupCache.set(key, group)
     }
@@ -446,14 +446,14 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
                     if (this.options.batchWritingEnabled) {
                         if (existingGroup) {
                             const groupUpdate = fromGroup(existingGroup)
-                            this.addGroupTocache(teamId, groupKey, {
+                            this.addGroupToCache(teamId, groupKey, {
                                 ...groupUpdate,
                                 needsWrite: true,
                             })
                             this.cacheMetrics.cacheSize++
                             return groupUpdate
                         } else {
-                            this.addGroupTocache(teamId, groupKey, null)
+                            this.addGroupToCache(teamId, groupKey, null)
                             this.cacheMetrics.cacheSize++
                             return null
                         }
