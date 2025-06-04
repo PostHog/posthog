@@ -864,6 +864,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ) : (
                         <LemonField name="viewName">
                             <LemonInput
+                                data-attr="sql-editor-input-save-view-name"
                                 disabled={isLoading}
                                 placeholder="Please enter the name of the view"
                                 autoFocus
