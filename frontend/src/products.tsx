@@ -54,6 +54,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/Library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/Library/MessageTemplate'),
+    MessageSenders: () => import('../../products/messaging/frontend/Senders/MessageSenders'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
@@ -87,6 +88,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'MessagingLibraryTemplate',
         'messagingLibraryTemplateFromMessage',
     ],
+    '/messaging/senders': ['MessageSenders', 'messageSenders'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/user_interviews': ['UserInterviews', 'userInterviews'],
     '/user_interviews/:id': ['UserInterview', 'userInterview'],
@@ -148,6 +150,7 @@ export const productConfiguration: Record<string, any> = {
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
     MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
+    MessageSenders: { name: 'Messaging', projectBased: true },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
