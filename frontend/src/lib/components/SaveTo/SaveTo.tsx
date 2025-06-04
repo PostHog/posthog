@@ -50,6 +50,7 @@ export function SaveToModal(): JSX.Element {
                                 ))}
                             </>
                         }
+                        data-attr="save-to-modal-save-button"
                         disabledReason={typeof lastFolder !== 'string' ? 'Please select a folder' : undefined}
                     >
                         Save to {lastFolder || 'folder'}
