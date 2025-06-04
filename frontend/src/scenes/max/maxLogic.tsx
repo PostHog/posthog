@@ -282,7 +282,7 @@ export const maxLogic = kea<maxLogicType>([
                     return null
                 }
 
-                return 'Max'
+                return 'Max AI'
             },
         ],
 
@@ -317,7 +317,13 @@ export const maxLogic = kea<maxLogicType>([
             // the current chat is not a chat with ID
             // the current chat is a temp chat
             // we have explicitly marked
-            if (!values.conversationId || isTempId(values.conversationId) || payload?.doNotUpdateCurrentThread) {
+            // we're in an autorun conversation
+            if (
+                !values.conversationId ||
+                values.autoRun ||
+                isTempId(values.conversationId) ||
+                payload?.doNotUpdateCurrentThread
+            ) {
                 return
             }
 
@@ -327,14 +333,13 @@ export const maxLogic = kea<maxLogicType>([
             // after the history has been loaded.
             if (conversation) {
                 actions.scrollThreadToBottom('instant')
-            }
-
-            if (!conversation) {
+                if (conversation.status === ConversationStatus.InProgress) {
+                    // If the conversation is in progress, poll the conversation status.
+                    actions.pollConversation(values.conversationId)
+                }
+            } else {
                 // If the conversation is not found, retrieve once the conversation status and reset if 404.
                 actions.pollConversation(values.conversationId, 0, 0)
-            } else if (conversation.status === ConversationStatus.InProgress) {
-                // If the conversation is in progress, poll the conversation status.
-                actions.pollConversation(values.conversationId)
             }
         },
 

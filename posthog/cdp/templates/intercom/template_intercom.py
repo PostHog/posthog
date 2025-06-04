@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-intercom",
@@ -162,7 +162,7 @@ if (res.status >= 400) {
 )
 
 template_send_event: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-intercom-event",

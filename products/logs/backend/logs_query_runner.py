@@ -17,6 +17,7 @@ from posthog.schema import (
     LogsQueryResponse,
     IntervalType,
     PropertyGroupsMode,
+    LogPropertyFilter,
 )
 
 
@@ -35,6 +36,37 @@ class LogsQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
+        def get_property_type(value):
+            try:
+                value = float(value)
+                return "float"
+            except ValueError:
+                pass
+            # todo: datetime?
+            return "str"
+
+        if len(self.query.filterGroup.values) > 0:
+            # dynamically detect type of the given property values
+            # if they all convert cleanly to float, use the __float property mapping instead
+            # we keep multiple attribute maps for different types:
+            # attribute_map_str
+            # attribute_map_float
+            # attribute_map_datetime
+            #
+            # for now we'll just check str and float as we need a decent UI for datetime filtering.
+            for property_filter in self.query.filterGroup.values[0].values:
+                if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
+                    property_type = "str"
+                    if isinstance(property_filter.value, list):
+                        property_types = {get_property_type(v) for v in property_filter.value}
+                        # only use the detected type if all given values have the same type
+                        # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
+                        if len(property_types) == 1:
+                            property_type = property_types.pop()
+                    else:
+                        property_type = get_property_type(property_filter.value)
+                    property_filter.key += f"__{property_type}"
+
     def calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
@@ -47,8 +79,7 @@ class LogsQueryRunner(QueryRunner):
             timings=self.timings,
             limit_context=self.limit_context,
             filters=HogQLFilters(dateRange=self.query.dateRange),
-            # needed for CH cloud
-            settings=HogQLGlobalSettings(allow_experimental_object_type=False),
+            settings=self.settings,
         )
 
         results = []
@@ -137,6 +168,10 @@ class LogsQueryRunner(QueryRunner):
     @cached_property
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
+
+    @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(allow_experimental_object_type=False, allow_experimental_join_condition=False)
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
