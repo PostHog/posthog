@@ -173,6 +173,8 @@ class Organization(UUIDModel):
 
     objects: OrganizationManager = OrganizationManager()
 
+    is_platform = models.BooleanField(default=False, null=True, blank=True)
+
     def __str__(self):
         return self.name
 

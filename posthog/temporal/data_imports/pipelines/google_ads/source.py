@@ -175,8 +175,10 @@ def _traverse_attributes(thing: typing.Any, *path: str):
     current = thing
 
     for component in path:
-        current = getattr(current, component)
+        if component == "type":
+            component += "_"
 
+        current = getattr(current, component)
     return current
 
 

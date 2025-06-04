@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 0754_organization_session_cookie_age
+=======
+0754_organization_is_platform
+>>>>>>> origin/master
