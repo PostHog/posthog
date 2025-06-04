@@ -1,5 +1,6 @@
 import { IconPinFilled } from '@posthog/icons'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -24,6 +25,10 @@ export function DashboardsMenu({ MenuItem = DropdownMenuItem }: CustomMenuProps)
                                 menuItem: true,
                             }}
                             to={urls.dashboard(dashboard.id)}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                router.actions.push(urls.dashboard(dashboard.id))
+                            }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     // small delay to fight dropdown menu from taking focus

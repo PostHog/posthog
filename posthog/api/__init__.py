@@ -597,6 +597,20 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/grouping_rules",
+    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    "project_error_tracking_grouping_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/suppression_rules",
+    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    "project_error_tracking_suppression_rule",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/issues",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",

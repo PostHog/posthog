@@ -340,6 +340,30 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(pk=key)
 
 
+def is_insight_query(query):
+    insight_kinds = {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+    if getattr(query, "kind", None) in insight_kinds:
+        return True
+    if getattr(query, "kind", None) == "HogQLQuery":
+        return True
+    if getattr(query, "kind", None) == "DataTableNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    if getattr(query, "kind", None) == "DataVisualizationNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    return False
+
+
 def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
