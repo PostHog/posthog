@@ -199,7 +199,7 @@ def export_web_analytics_data(
 ) -> None:
     config = context.op_config
     team_ids = config.get("team_ids", [1, 2])
-    clickhouse_settings = config["clickhouse_settings"]
+    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
 
     if DEBUG:
         s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
@@ -210,7 +210,7 @@ def export_web_analytics_data(
         date_start="2020-01-01",
         date_end=datetime.now(UTC).strftime("%Y-%m-%d"),
         team_ids=team_ids,
-        settings=clickhouse_settings,
+        settings=ch_settings,
         table_name=table_name,
         s3_path=s3_path,
     )
