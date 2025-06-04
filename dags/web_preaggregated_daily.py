@@ -21,7 +21,11 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
 )
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.object_storage import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_ENDPOINT, OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER
+from posthog.settings.object_storage import (
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+)
 
 # 14 is a sane value for production but locally we can run more partitions per run to speed up testing
 max_partitions_per_run = int(os.getenv("DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN", 14))
@@ -134,7 +138,7 @@ def export_web_analytics_data(
     export_prefix: str,
 ) -> None:
     config = context.op_config
-    team_ids = config.get("team_ids", [1, 2])
+    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
 
     if DEBUG:
