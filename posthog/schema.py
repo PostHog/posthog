@@ -2836,6 +2836,44 @@ class ExperimentMetricBaseProperties(BaseModel):
     name: Optional[str] = None
 
 
+class ExperimentStatsBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: int
+    significant: bool
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: int
+    p_value: float
+    significant: bool
+    sum: float
+    sum_squares: float
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5886,6 +5924,14 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class ExperimentMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class FeaturePropertyFilter(BaseModel):

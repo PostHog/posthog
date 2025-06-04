@@ -380,8 +380,8 @@ describe('Event Pipeline E2E tests', () => {
             expect(events.length).toEqual(n)
         })
 
-        // Should have fetched the group once
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
+        // Should have fetched the group for each event
+        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(150)
         expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
         expect(hub.db.updateGroup).toHaveBeenCalledTimes(149)
         expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
@@ -465,7 +465,7 @@ describe('Event Pipeline E2E tests', () => {
                     team_id: team.id,
                     group_type_index: 0,
                     // Missing k3: v2 as we do not read the group properties before making a write
-                    group_properties: { k1: 'v1', k2: 'v3', k4: 'v3' },
+                    group_properties: { k1: 'v1', k2: 'v3', k3: 'v2', k4: 'v3' },
                     group_key: groupKey,
                     version: 3,
                 })
