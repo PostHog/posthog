@@ -29,6 +29,7 @@ KNOWN_ORIGINS = {
     "eu.posthog.com",
     "localhost:8000",
     "localhost:8010",
+    "app.dev.posthog.dev",
 }
 
 
