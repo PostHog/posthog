@@ -12,8 +12,8 @@ use crate::error::CapturedError;
 #[command(version, about, long_about = None)]
 pub struct Cli {
     /// The PostHog host to connect to
-    #[arg(long, default_value = "https://us.posthog.com")]
-    host: String,
+    #[arg(long)]
+    host: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -83,14 +83,14 @@ impl Cli {
                     version,
                 } => {
                     sourcemap::upload::upload(
-                        &command.host,
+                        command.host,
                         directory,
                         project.clone(),
                         version.clone(),
                     )?;
                 }
             },
-            Commands::Query { cmd } => query::query_command(&command.host, cmd)?,
+            Commands::Query { cmd } => query::query_command(command.host, cmd)?,
         }
 
         Ok(())
