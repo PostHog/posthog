@@ -137,7 +137,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
         # We'd rather have orphan objects in s3 than records in postgres that don't actually point
         # to anything, so we delete the rows and /then/ clean up the s3 object
         if storage_ptr:
-            delete_symbol_set_contents(self.storage_ptr)
+            delete_symbol_set_contents(storage_ptr)
 
     class Meta:
         indexes = [
