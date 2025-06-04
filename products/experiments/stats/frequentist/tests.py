@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 from .statistics import AnyStatistic, StatisticError, DifferenceType
 from .utils import (
@@ -26,10 +25,6 @@ class TestResult:
     is_significant: bool
     test_type: str
     alpha: float
-
-    # Optional sequential testing fields
-    e_value: Optional[float] = None
-    confidence_sequence: Optional[tuple[float, float]] = None
 
 
 class StatisticalTest(ABC):
@@ -102,9 +97,7 @@ class TwoSidedTTest(StatisticalTest):
         """Run two-sided t-test."""
         validate_sample_sizes(treatment_stat, control_stat)
 
-        # Calculate point estimate
-        scaling_factor = kwargs.get("scaling_factor", 1.0)
-        point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, scaling_factor)
+        point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type)
 
         # Calculate variance and degrees of freedom
         pooled_variance = calculate_variance_pooled(treatment_stat, control_stat, difference_type)

@@ -16,6 +16,8 @@ def get_mean(statistic: AnyStatistic) -> float:
         return statistic.mean
     elif isinstance(statistic, ProportionStatistic):
         return statistic.proportion
+    else:
+        raise StatisticError(f"Unknown statistic type: {type(statistic)}")
 
 
 def get_variance(statistic: AnyStatistic) -> float:
@@ -32,7 +34,6 @@ def calculate_point_estimate(
     treatment_stat: AnyStatistic,
     control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    scaling_factor: float = 1.0,
 ) -> float:
     """
     Calculate point estimate for treatment vs control comparison.
@@ -41,7 +42,6 @@ def calculate_point_estimate(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference to calculate
-        scaling_factor: Scaling factor for scaled differences
 
     Returns:
         Point estimate value
@@ -126,6 +126,9 @@ def calculate_welch_satterthwaite_df(treatment_stat: AnyStatistic, control_stat:
     treatment_n = get_sample_size(treatment_stat)
     control_n = get_sample_size(control_stat)
 
+    if min(treatment_n, control_n) < 2:
+        raise StatisticError("Welch-Satterthwaite requires n ≥ 2 per group.")
+
     # Variance terms
     var1_over_n1 = treatment_var / treatment_n
     var2_over_n2 = control_var / control_n
@@ -134,13 +137,9 @@ def calculate_welch_satterthwaite_df(treatment_stat: AnyStatistic, control_stat:
     numerator = (var1_over_n1 + var2_over_n2) ** 2
 
     # Denominator: (s₁²/n₁)²/(n₁-1) + (s₂²/n₂)²/(n₂-1)
-    term1 = var1_over_n1**2 / max(treatment_n - 1, 1)
-    term2 = var2_over_n2**2 / max(control_n - 1, 1)
+    term1 = var1_over_n1**2 / (treatment_n - 1)
+    term2 = var2_over_n2**2 / (control_n - 1)
     denominator = term1 + term2
-
-    if denominator == 0:
-        # Handle edge case where both variances are zero
-        return max(treatment_n + control_n - 2, 1)
 
     return numerator / denominator
 

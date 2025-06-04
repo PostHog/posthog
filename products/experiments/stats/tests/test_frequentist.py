@@ -1,4 +1,3 @@
-import numpy as np
 from unittest import TestCase
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
 from products.experiments.stats.frequentist.statistics import (
@@ -19,7 +18,7 @@ def create_test_result_dict(result):
         "uplift": {
             "dist": "normal",
             "mean": result.point_estimate,
-            "stddev": np.sqrt(result.confidence_interval[1] - result.confidence_interval[0]) ** 2 / (2 * 1.96) ** 2
+            "stddev": (result.confidence_interval[1] - result.confidence_interval[0]) / (2 * 1.96) ** 2
             if result.confidence_interval[1] != float("inf") and result.confidence_interval[0] != float("-inf")
             else None,
         },

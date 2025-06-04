@@ -38,7 +38,7 @@ class FrequentistMethod:
         config = FrequentistConfig(
             alpha=0.01,
             difference_type=DifferenceType.ABSOLUTE,
-            test_type=TestType.ONE_SIDED_GREATER
+            test_type=TestType.TWO_SIDED
         )
         method = FrequentistMethod(config)
         result = method.run_test(treatment_stat, control_stat)
@@ -68,22 +68,17 @@ class FrequentistMethod:
         Raises:
             StatisticError: If inputs are invalid or test fails
         """
-        # Create new test instance
         if self.config.test_type == TestType.TWO_SIDED:
             test = TwoSidedTTest(self.config.alpha)
         else:
             raise StatisticError(f"Unknown test type: {self.config.test_type}")
 
-        # Prepare kwargs with scaling factor if needed
-        test_kwargs = dict(kwargs)
-
-        # Run the test
         try:
             return test.run_test(
                 treatment_stat=treatment_stat,
                 control_stat=control_stat,
                 difference_type=self.config.difference_type,
-                **test_kwargs,
+                **kwargs,
             )
         except Exception as e:
             raise StatisticError(f"Test execution failed: {str(e)}") from e
