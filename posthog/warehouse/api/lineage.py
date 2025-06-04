@@ -7,6 +7,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 import uuid
+from typing import Optional
 
 
 def join_components_greedily(components):
@@ -85,7 +86,7 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 node_id = component
                 if node_id not in seen_nodes:
                     seen_nodes.add(node_id)
-                    uuid_obj = None
+                    uuid_obj: Optional[uuid.UUID] = None
                     saved_query = None
                     try:
                         uuid_obj = uuid.UUID(component)
