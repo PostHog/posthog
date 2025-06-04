@@ -175,7 +175,7 @@ class TestReplaySummarizer:
             ),
         ):
             async_gen = summarizer.stream_recording_summary()
-            results = [chunk async for chunk in async_gen]
+            results = [chunk async for chunk in async_gen]  # type: ignore
             assert len(results) == 1
             assert results[0] == mock_valid_llm_yaml_response
 
@@ -216,9 +216,9 @@ class TestReplaySummarizer:
         """
         Convert events into JSON-serializable format by converting tuples to lists and datetimes to ISO strings.
         """
-        serializable_events = []
+        serializable_events: list[Any] = []
         for event in events:
-            serializable_event = []
+            serializable_event: list[Any] = []
             for value in event:
                 if isinstance(value, datetime):
                     serializable_event.append(value.isoformat())
@@ -270,6 +270,7 @@ class TestReplaySummarizer:
         assert "FOCUS_AREA" not in system_prompt
         assert "FOCUS_AREA" not in summary_prompt
         if should_contain_focus_area:
+            assert focus_area is not None
             assert focus_area in system_prompt
             assert focus_area in summary_prompt
         # Verify that prompt variables were replaced with actual data

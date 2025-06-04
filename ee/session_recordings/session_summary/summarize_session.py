@@ -37,7 +37,7 @@ class ReplaySummarizer:
         prompt_data: SessionSummaryPromptData,
         url_mapping_reversed: dict[str, str],
         window_mapping_reversed: dict[str, str],
-        extra_summary_context: ExtraSummaryContext,
+        extra_summary_context: ExtraSummaryContext | None,
     ) -> tuple[str, str]:
         # Keep shortened URLs for the prompt to reduce the number of tokens
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
@@ -47,7 +47,7 @@ class ReplaySummarizer:
             template_dir,
             f"system-prompt.djt",
             {
-                "FOCUS_AREA": extra_summary_context.focus_area,
+                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
             },
         )
         summary_example = load_custom_template(template_dir, f"example.yml")
@@ -60,12 +60,12 @@ class ReplaySummarizer:
                 "URL_MAPPING": json.dumps(short_url_mapping_reversed),
                 "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
                 "SUMMARY_EXAMPLE": summary_example,
-                "FOCUS_AREA": extra_summary_context.focus_area,
+                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
             },
         )
         return summary_prompt, system_prompt
 
-    def summarize_recording(self, extra_summary_context: ExtraSummaryContext) -> Generator[str, None, None]:
+    def summarize_recording(self, extra_summary_context: ExtraSummaryContext | None) -> Generator[str, None, None]:
         timer = ServerTimingsGathered()
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
@@ -146,15 +146,12 @@ class ReplaySummarizer:
         )
         return session_summary_generator
 
-    def stream_recording_summary(self, extra_summary_context: ExtraSummaryContext | None = None):
-        if extra_summary_context is None:
-            extra_summary_context = ExtraSummaryContext(
-                # TODO: Remove after test
-                focus_area="new error tracking product?"
-            )
+    def stream_recording_summary(
+        self, extra_summary_context: ExtraSummaryContext | None = None
+    ) -> SyncIterableToAsync | Generator[str, None, None]:
         if SERVER_GATEWAY_INTERFACE == "ASGI":
             return self._astream(extra_summary_context)
         return self.summarize_recording(extra_summary_context)
 
-    def _astream(self, extra_summary_context: ExtraSummaryContext):
+    def _astream(self, extra_summary_context: ExtraSummaryContext | None) -> SyncIterableToAsync:
         return SyncIterableToAsync(self.summarize_recording(extra_summary_context))
