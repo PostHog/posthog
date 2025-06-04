@@ -52,7 +52,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
-from .hog_flow import HogFlow, HogFlowInvocation, HogFlowInvocationResult
+from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
 from .insight import Insight, InsightViewed
@@ -144,6 +144,7 @@ __all__ = [
     "GroupTypeMapping",
     "HogFunction",
     "HogFunctionTemplate",
+    "HogFlow",
     "Link",
     "HostDefinition",
     "Insight",
