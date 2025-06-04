@@ -12,49 +12,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { BillingType } from '~/types'
 
+import { PUBLIC_EMAIL_DOMAINS } from './constants'
 import type { startupProgramLogicType } from './startupProgramLogicType'
-
-const PUBLIC_EMAIL_DOMAINS = [
-    'gmail.com',
-    'yahoo.com',
-    'hotmail.com',
-    'outlook.com',
-    'aol.com',
-    'protonmail.com',
-    'icloud.com',
-    'mail.com',
-    'zoho.com',
-    'yandex.com',
-    'gmx.com',
-    'live.com',
-    'mail.ru',
-]
-
-export const RAISED_OPTIONS = [
-    { label: 'Bootstrapped', value: '0' },
-    { label: 'Under $100k', value: '99999' },
-    { label: 'From $100k to $500k', value: '499999' },
-    { label: 'From $500k to $1m', value: '999999' },
-    { label: 'From $1m to $5m', value: '4999999' },
-    { label: '$5m or more', value: '5000000' },
-]
-
-export const YC_BATCH_OPTIONS = [
-    { label: 'Select your batch', value: '' },
-    { label: 'Summer 2025', value: 'Summer 2025' },
-    { label: 'Spring 2025', value: 'Spring 2025' },
-    { label: 'Winter 2025', value: 'Winter 2025' },
-    { label: 'Fall 2024', value: 'Fall 2024' },
-    { label: 'Summer 2024', value: 'Summer 2024' },
-    { label: 'Winter 2024', value: 'Winter 2024' },
-    { label: 'Summer 2023', value: 'Summer 2023' },
-    { label: 'Winter 2023', value: 'Winter 2023' },
-    { label: 'Summer 2022', value: 'Summer 2022' },
-    { label: 'Winter 2022', value: 'Winter 2022' },
-    { label: 'Summer 2021', value: 'Summer 2021' },
-    { label: 'Winter 2021', value: 'Winter 2021' },
-    { label: 'Earlier batches', value: 'Earlier' },
-]
 
 export enum StartupProgramType {
     YC = 'YC',

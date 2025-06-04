@@ -13,7 +13,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { RAISED_OPTIONS, startupProgramLogic, YC_BATCH_OPTIONS } from './startupProgramLogic'
+import { RAISED_OPTIONS, YC_BATCH_OPTIONS } from './constants'
+import { startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
