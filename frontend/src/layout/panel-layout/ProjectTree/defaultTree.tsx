@@ -4,6 +4,7 @@ import {
     IconApps,
     IconBook,
     IconChevronRight,
+    IconCursor,
     IconDatabase,
     IconFunnels,
     IconGraph,
@@ -42,7 +43,10 @@ const iconTypes: Record<FilsSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconAI />,
         iconColor: ['var(--product-max-ai-light)'],
     },
-    cursorClick: {
+    cursor: {
+        icon: <IconCursor />,
+    },
+    heatmap: {
         icon: <IconApp />,
         iconColor: ['var(--product-heatmaps-light)', 'var(--product-heatmaps-dark)'],
     },
@@ -283,7 +287,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            iconType: 'cursorClick',
+            iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
             visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
