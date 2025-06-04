@@ -109,9 +109,6 @@ services:
             SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            OTEL_SERVICE_NAME: 'posthog'
-            OTEL_EXPORTER_OTLP_ENDPOINT: ''
-            OTEL_SDK_DISABLED: 'true'
         depends_on:
             - db
             - redis

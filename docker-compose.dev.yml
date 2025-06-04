@@ -196,19 +196,3 @@ services:
                 condition: service_started
             db:
                 condition: service_healthy
-
-    otel-collector:
-        extends:
-            file: docker-compose.base.yml
-            service: otel-collector
-        depends_on:
-            - jaeger
-
-    jaeger:
-        extends:
-            file: docker-compose.base.yml
-            service: jaeger
-
-networks:
-    otel_network:
-        driver: bridge

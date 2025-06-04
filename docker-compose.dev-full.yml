@@ -92,7 +92,6 @@ services:
             - '2080:2080'
         environment:
             - PORT=2080
-            - OTEL_SDK_DISABLED=true
 
     worker:
         extends:
@@ -262,19 +261,3 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
-
-    otel-collector:
-        extends:
-            file: docker-compose.base.yml
-            service: otel-collector
-        depends_on:
-            - jaeger
-
-    jaeger:
-        extends:
-            file: docker-compose.base.yml
-            service: jaeger
-
-networks:
-    otel_network:
-        driver: bridge

@@ -92,16 +92,8 @@ then
     git checkout $latestReleaseTag
 elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
-    echo "Fetching latest changes from origin"
-    git fetch origin
-    current_branch=$(git branch --show-current)
-    if [ -n "$current_branch" ]; then
-        echo "Updating branch '$current_branch' to latest from origin"
-        git reset --hard origin/$current_branch
-    else
-        echo "On detached HEAD: $(git rev-parse --short HEAD)"
-    fi
-    echo "Now on commit: $(git rev-parse --short HEAD)"
+    echo "Pulling latest from current branch: $(git branch --show-current)"
+    git pull
 elif [[ "$POSTHOG_APP_TAG" =~ ^[0-9a-f]{40}$ ]]
 then
     echo "Checking out specific commit hash: $POSTHOG_APP_TAG"

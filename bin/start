@@ -8,23 +8,6 @@ export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.de
 export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
 export API_QUERIES_PER_TEAM='{"1": 100}'
 
-# OpenTelemetry Environment Variables
-export OTEL_SERVICE_NAME="posthog-local-dev"
-export OTEL_PYTHON_LOG_LEVEL="debug"
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" # Collector's OTLP gRPC port is mapped to host
-export OTEL_TRACES_EXPORTER="otlp"
-export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
-export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
-export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
-export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
-if [[ "$*" == *"--enable-tracing"* ]]; then
-    export OTEL_SDK_DISABLED="false"
-    export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
-    export OTEL_TRACES_SAMPLER_ARG="1"
-else
-    export OTEL_SDK_DISABLED="true"
-fi
-
 if [ -f .env ]; then
     set -o allexport
     source .env
