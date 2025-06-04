@@ -204,10 +204,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
     })
 
     describe('isAddBreakdownDisabled', () => {
-        function mockFeatureFlag(): void {
-            jest.spyOn(breakdownLogic, 'multipleBreakdownsEnabled').mockReturnValue(true)
-        }
-
         it('no breakdowns', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
