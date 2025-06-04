@@ -5,8 +5,8 @@ from django.core.cache import cache
 
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
-# The remote config stuff plus plugin, hog function and error tracking suppression rule queries
-CONFIG_REFRESH_QUERY_COUNT = 6
+# The remote config stuff plus plugin and hog function queries
+CONFIG_REFRESH_QUERY_COUNT = 5
 
 
 class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
