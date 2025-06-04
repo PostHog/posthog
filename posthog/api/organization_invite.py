@@ -18,7 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
-from posthog.permissions import UserCanInvitePermission
+from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
 
 
 class OrganizationInviteManager:
@@ -297,7 +297,10 @@ class OrganizationInviteViewSet(
 
     def dangerously_get_permissions(self):
         if self.action == "create":
-            create_permissions = [permission() for permission in [permissions.IsAuthenticated, UserCanInvitePermission]]
+            create_permissions = [
+                permission()
+                for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
+            ]
 
             return create_permissions
 
