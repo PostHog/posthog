@@ -82,6 +82,8 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
             is_within_the_last_day=within_the_last_day(recording.start_time),
             now=datetime.now(),
             number_of_blocks=len(listed_blocks.block_urls) if listed_blocks else 0,
+            team_id=recording.team_id,
+            session_id=recording.session_id,
         )
         # KLUDGE: i want to be able to cache for longer but believe i'm seeing incorrect caching behaviour
         # so i'm setting it to alway be 5 seconds for now, and adding a log to see if the 24 hour cache is incorrect
