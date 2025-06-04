@@ -743,7 +743,7 @@ describe('Hog Executor', () => {
                 {
                   "body": "{"Messages":[{"From":{"Email":"info@foobar.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
                   "headers": {
-                    "Authorization": "Basic OmZlMzk5ZmJhMDZjODU0NzQ2NjM5MGZjNzU0ZjVlMzAy",
+                    "Authorization": "Basic Og==",
                     "Content-Type": "application/json",
                   },
                   "method": "POST",
