@@ -33,7 +33,7 @@ import {
 import { AvailableFeature, GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
-import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogicgp'
+import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 
 let uniqueNode = 0
 
