@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     InfiniteListLogicProps,
     ListFuse,
@@ -85,7 +86,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         actions: [
             taxonomicFilterLogic(props),
-            ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived', 'setEventOrdering'],
+            ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived'],
+            taxonomicFilterPreferencesLogic,
+            ['setEventOrdering'],
         ],
     })),
     actions({

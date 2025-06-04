@@ -3,6 +3,7 @@ import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducer
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
     ListStorage,
@@ -111,6 +112,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
+            taxonomicFilterPreferencesLogic,
+            ['eventOrdering'],
         ],
     })),
     actions(() => ({
@@ -132,16 +135,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             groupType,
             results,
         }),
-        setEventOrdering: (order: 'name' | '-last_seen_at' | null) => ({ order }),
     })),
     reducers(({ props, selectors }) => ({
-        eventOrdering: [
-            null as 'name' | '-last_seen_at' | null,
-            { persist: true },
-            {
-                setEventOrdering: (_state, { order }) => order,
-            },
-        ],
         searchQuery: [
             props.initialSearchQuery || '',
             {
