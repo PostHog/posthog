@@ -390,7 +390,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         }
                                         if (last_run_at === 'never' && !status) {
                                             return (
-                                                <Tooltip title="This is a view,so it is never run">
+                                                <Tooltip title="This is a view, so it is never run">
                                                     <span className="text-secondary">N/A</span>
                                                 </Tooltip>
                                             )
