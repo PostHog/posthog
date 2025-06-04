@@ -271,19 +271,20 @@ export function ProjectTree({
                         <MenuSeparator />
                     </>
                 ) : null}
-
-                {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
+                {item.record?.path ? (
                     root === 'shortcuts://' ? (
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                item.record && deleteShortcut(item.record?.id)
-                            }}
-                            data-attr="tree-item-menu-remove-from-shortcuts-button"
-                        >
-                            <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
-                        </MenuItem>
+                        item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/') ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    item.record && deleteShortcut(item.record?.id)
+                                }}
+                                data-attr="tree-item-menu-remove-from-shortcuts-button"
+                            >
+                                <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                            </MenuItem>
+                        ) : null
                     ) : (
                         <MenuItem
                             asChild
@@ -408,8 +409,8 @@ export function ProjectTree({
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
                 }
-                if (item?.id.startsWith('project-load-more/')) {
-                    const path = item.id.split('/').slice(1).join('/')
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
                     if (path) {
                         loadFolder(path)
                     }
