@@ -213,7 +213,7 @@ export function DataManagementScene(): JSX.Element {
             return (
                 <>
                     <PageHeader buttons={<>{tabs[tab].buttons}</>} />
-                    {tabs[tab || DataManagementTab.Actions].content}
+                    {tabs[tab].content}
                 </>
             )
         }
