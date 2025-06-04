@@ -4,15 +4,7 @@ from uuid import UUID
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import (
-    exceptions,
-    mixins,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets, permissions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -303,10 +295,13 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
-    def get_permissions(self):
+    def dangerously_get_permissions(self):
         if self.action == "create":
-            return [UserCanInvitePermission()]
-        return super().get_permissions()
+            create_permissions = [permission() for permission in [permissions.IsAuthenticated, UserCanInvitePermission]]
+
+            return create_permissions
+
+        raise NotImplementedError()
 
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)

@@ -24,6 +24,8 @@ from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 from rest_framework.exceptions import AuthenticationFailed
+from posthog.constants import AvailableFeature
+
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -625,8 +627,13 @@ class UserCanInvitePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view) -> bool:
-        # should I check if is_rbac_supported to check the role
         user = request.user
+        org_invite_settings_available = self.user.organization.is_feature_available(
+            AvailableFeature.ORGANIZATION_INVITE_SETTINGS
+        )
+
+        if not org_invite_settings_available:
+            return True
 
         try:
             membership = OrganizationMembership.objects.get(
@@ -642,3 +649,15 @@ class UserCanInvitePermission(BasePermission):
             return True
 
         return members_can_invite
+
+
+class OrganizationInviteSettingsPermission(BasePermission):
+    """
+    Only Admins+ can update org invite settings
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        user = request.user
+        membership = user.organization_memberships.get(organization=user.organization)
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
