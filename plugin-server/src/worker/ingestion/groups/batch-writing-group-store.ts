@@ -429,11 +429,13 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
     ): Promise<GroupUpdate | null> {
         const cacheKey = this.getCacheKey(teamId, groupKey)
 
-        // Check cache first
-        if (this.isGroupCached(teamId, groupKey)) {
-            const cachedGroup = this.getCachedGroup(teamId, groupKey)
-            if (cachedGroup !== undefined) {
-                return cachedGroup
+        if (this.options.batchWritingEnabled) {
+            // Check cache first
+            if (this.isGroupCached(teamId, groupKey)) {
+                const cachedGroup = this.getCachedGroup(teamId, groupKey)
+                if (cachedGroup !== undefined) {
+                    return cachedGroup
+                }
             }
         }
 
