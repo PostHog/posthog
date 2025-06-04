@@ -866,7 +866,9 @@ class Producer:
             if filters_str:
                 filters_str = f"AND {filters_str}"
 
-            query = query_template.safe_substitute(fields=query_fields, filters=filters_str)
+            query = query_template.safe_substitute(
+                fields=query_fields, filters=filters_str, order="ORDER BY _inserted_at, event"
+            )
 
         parameters["team_id"] = team_id
         parameters = {**parameters, **extra_query_parameters}
