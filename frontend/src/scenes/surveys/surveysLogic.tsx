@@ -103,6 +103,7 @@ export const surveysLogic = kea<surveysLogicType>([
         actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
+        setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
@@ -185,6 +186,12 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     reducers({
+        isAppearanceModalOpen: [
+            false,
+            {
+                setIsAppearanceModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
         tab: [
             SurveysTabs.Active as SurveysTabs,
             {

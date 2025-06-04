@@ -525,29 +525,6 @@ def fetch_plugin_log_entries(
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
-def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str, Any], *, is_staff: bool):
-    if not plugin.public_jobs:
-        raise ValidationError("Plugin has no public jobs")
-    if job_type not in plugin.public_jobs:
-        raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
-
-    payload_spec = plugin.public_jobs[job_type].get("payload", {})
-    for key, field_options in payload_spec.items():
-        if field_options.get("required", False) and key not in payload:
-            raise ValidationError(f"Missing required job field: {key}")
-        if (
-            field_options.get("staff_only", False)
-            and not is_staff
-            and key in payload
-            and payload.get(key) != field_options.get("default")
-        ):
-            raise ValidationError(f"Field is only settable for admins: {key}")
-
-    for key in payload:
-        if key not in payload_spec:
-            raise ValidationError(f"Unknown field for job: {key}")
-
-
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
     if created and not is_cloud() and can_install_plugins(instance):

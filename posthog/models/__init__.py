@@ -38,6 +38,8 @@ from .error_tracking import (
     ErrorTrackingSymbolSet,
     ErrorTrackingIssueAssignment,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
+    ErrorTrackingSuppressionRule,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -101,6 +103,7 @@ from .web_experiment import WebExperiment
 
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
+from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
     "AlertConfiguration",
@@ -133,6 +136,8 @@ __all__ = [
     "ErrorTrackingSymbolSet",
     "ErrorTrackingIssueAssignment",
     "ErrorTrackingAssignmentRule",
+    "ErrorTrackingGroupingRule",
+    "ErrorTrackingSuppressionRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -167,6 +172,11 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OAuthAccessToken",
+    "OAuthApplication",
+    "OAuthGrant",
+    "OAuthIDToken",
+    "OAuthRefreshToken",
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",

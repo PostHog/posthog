@@ -1,27 +1,44 @@
-import { IconCdCase, IconDocument, IconUser } from '@posthog/icons'
+import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { getTreeFilterTypes } from '~/products'
+import { fileSystemTypes } from '~/products'
+import { FileSystemType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
-// Match with FileSystemViewSet
-const productTypesMapped: [string, string][] = Object.entries(getTreeFilterTypes()).map(
-    ([key, value]): [string, string] => [key, value.name]
-)
+const missingProductTypes: { value: string; label: string; icon?: React.ReactNode; flag?: string }[] = [
+    { value: 'destination', label: 'Destinations', icon: <IconPlug /> },
+    { value: 'site_app', label: 'Site apps', icon: <IconPlug /> },
+    { value: 'source', label: 'Sources', icon: <IconPlug /> },
+    { value: 'transformation', label: 'Transformations', icon: <IconPlug /> },
+]
+
+// TODO: This is a duplicate of TreeFiltersDropdownMenu.tsx
+const productTypesMapped = [
+    ...Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
+        ([key, value]): { value: string; label: string; icon: React.ReactNode; flag?: string } => ({
+            value: value.filterKey || key,
+            label: value.name,
+            icon: value.icon,
+            flag: value.flag,
+        })
+    ),
+    ...missingProductTypes,
+]
 
 interface TreeSearchFieldProps {
     root?: string
-    logicKey?: string
-    uniqueKey: string
     placeholder?: string
 }
 
-export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: TreeSearchFieldProps): JSX.Element {
+export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JSX.Element {
     const { panelTreeRef } = useValues(panelLayoutLogic)
-    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
+    const { searchTerm } = useValues(projectTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
@@ -38,6 +55,7 @@ export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: Tree
         <SearchAutocomplete
             inputPlaceholder={placeholder}
             includeNegation
+            defaultValue={searchTerm}
             searchData={
                 root === 'project://'
                     ? [
@@ -58,7 +76,10 @@ export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: Tree
                                   hint: 'Search by type',
                                   icon: <IconCdCase />,
                               },
-                              productTypesMapped.map(([value, label]) => ({ value, label })),
+                              productTypesMapped.filter(
+                                  (productType) =>
+                                      !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
+                              ),
                               'enter a type',
                           ],
                           [

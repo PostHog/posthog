@@ -85,6 +85,7 @@ export function SurveyTemplates(): JSX.Element {
                                                     ...template.appearance,
                                                     ...surveyAppearance,
                                                     disabledButtonOpacity: '1',
+                                                    maxWidth: '300px',
                                                 },
                                             } as Survey
                                         }

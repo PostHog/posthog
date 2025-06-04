@@ -7,7 +7,7 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { forwardRef, Fragment, useRef, useState } from 'react'
+import { forwardRef, Fragment, useEffect, useRef, useState } from 'react'
 
 type Category = { label: string; value: string; hint?: string; icon?: React.ReactNode }
 type Suggestion = { label: string; value: string; hint?: string; icon?: React.ReactNode }
@@ -22,15 +22,26 @@ export interface SearchAutocompleteProps {
     searchData?: [Category, Suggestion[] | undefined, Hint?][]
     autoFocus?: boolean
     includeNegation?: boolean
+    defaultValue?: string
 }
 
 // Handles structured autocomplete with support for category:value and negation (! or -) inputs
 export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteProps>(
     (
-        { inputPlaceholder, onChange, onSelect, searchData, autoFocus, onClear, onKeyDown, includeNegation = false },
+        {
+            inputPlaceholder,
+            onChange,
+            onSelect,
+            searchData,
+            autoFocus,
+            onClear,
+            onKeyDown,
+            includeNegation = false,
+            defaultValue,
+        },
         ref
     ): JSX.Element => {
-        const [value, setValue] = useState('')
+        const [value, setValue] = useState(defaultValue ?? '')
         const [open, setOpen] = useState(false)
         const [suggestions, setSuggestions] = useState<Suggestion[]>([])
         const [currentHint, setCurrentHint] = useState<string | undefined>(undefined)
@@ -215,6 +226,10 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             }
         }
 
+        useEffect(() => {
+            setValue(defaultValue ?? '')
+        }, [defaultValue])
+
         return (
             <ListBox className="w-full" virtualFocus>
                 <PopoverPrimitive open={open} onOpenChange={setOpen}>
@@ -233,6 +248,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 aria-controls="suggestions-list"
                                 aria-autocomplete="list"
                                 size="small"
+                                data-attr="tree-search-autocomplete-input"
                                 prefix={
                                     <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
                                         <IconSearch className="size-4" />
@@ -248,6 +264,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                                 setSuggestions(baseCategories)
                                                 onClear()
                                             }}
+                                            data-attr="tree-search-autocomplete-clear-button"
                                             className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
                                             tooltip="Clear search"
                                         >
@@ -279,7 +296,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                         >
                             <ul className="flex flex-col gap-px p-1">
                                 <ListBox.Item asChild key={value} aria-disabled="true">
-                                    <ButtonPrimitive menuItem disabled>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabled
+                                        data-attr="tree-search-autocomplete-type-to-search-disabled-button"
+                                    >
                                         <IconSearch className="size-4" />
                                         {value ? value : 'Type to search...'}
                                     </ButtonPrimitive>
@@ -291,7 +312,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                             <div className="-mx-1 my-1 h-px bg-border-primary" />
                                         ) : null}
                                         <ListBox.Item asChild>
-                                            <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
+                                            <ButtonPrimitive
+                                                onClick={() => handleSuggestionClick(item)}
+                                                menuItem
+                                                data-attr={`tree-search-autocomplete-suggestion-${item.value}-button`}
+                                            >
                                                 <div className="flex items-center justify-center size-4 text-tertiary">
                                                     {item.icon}
                                                 </div>
@@ -306,7 +331,12 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                     </Fragment>
                                 ))}
                                 {currentHint && (
-                                    <ButtonPrimitive menuItem className="px-2 py-1 text-sm text-tertiary" disabled>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        className="px-2 py-1 text-sm text-tertiary"
+                                        disabled
+                                        data-attr="tree-search-autocomplete-hint-disabled-button"
+                                    >
                                         <IconInfo /> {currentHint}
                                     </ButtonPrimitive>
                                 )}
