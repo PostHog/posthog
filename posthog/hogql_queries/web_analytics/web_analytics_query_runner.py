@@ -1,3 +1,4 @@
+import random
 import typing
 from abc import ABC
 from datetime import timedelta, datetime
@@ -474,7 +475,7 @@ WHERE
 
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
-        return f"{original}_{self.team.path_cleaning_filters}"
+        return f"{original}_{self.team.path_cleaning_filters}_{random.randint(0, 1000000)}"
 
     @cached_property
     def events_session_property(self):

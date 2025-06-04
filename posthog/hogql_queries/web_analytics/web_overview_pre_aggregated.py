@@ -46,13 +46,17 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 "unique_sessions_current": self._uniq_merge_if("sessions_uniq_state", current_period_filter),
                 "unique_sessions_previous": self._uniq_merge_if("sessions_uniq_state", previous_period_filter),
                 "avg_session_duration_current": self._safe_avg_sessions(
-                    "total_session_duration_state", current_period_filter
+                    "total_session_duration_state", "total_session_count_state", current_period_filter
                 ),
                 "avg_session_duration_previous": self._safe_avg_sessions(
-                    "total_session_duration_state", previous_period_filter
+                    "total_session_duration_state", "total_session_count_state", previous_period_filter
                 ),
-                "bounce_rate_current": self._safe_avg_sessions("bounces_count_state", current_period_filter),
-                "bounce_rate_previous": self._safe_avg_sessions("bounces_count_state", previous_period_filter),
+                "bounce_rate_current": self._safe_avg_sessions(
+                    "bounces_count_state", "sessions_uniq_state", current_period_filter
+                ),
+                "bounce_rate_previous": self._safe_avg_sessions(
+                    "bounces_count_state", "sessions_uniq_state", previous_period_filter
+                ),
             },
         )
 
@@ -82,21 +86,25 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
             ],
         )
 
-    def _safe_avg_sessions(self, metric_state: str, period_filter: ast.Expr) -> ast.Call:
-        sessions_count = self._uniq_merge_if("sessions_uniq_state", period_filter)
+    def _safe_avg_sessions(self, metric_state: str, denominator_state: str, period_filter: ast.Expr) -> ast.Call:
         metric_sum = self._sum_merge_if(metric_state, period_filter)
+
+        if denominator_state == "sessions_uniq_state":
+            denominator_count = self._uniq_merge_if(denominator_state, period_filter)
+        else:
+            denominator_count = self._sum_merge_if(denominator_state, period_filter)
 
         return ast.Call(
             name="if",
             args=[
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
-                    left=sessions_count,
+                    left=denominator_count,
                     right=ast.Constant(value=0),
                 ),
                 ast.Call(
                     name="divide",
-                    args=[metric_sum, sessions_count],
+                    args=[metric_sum, denominator_count],
                 ),
                 ast.Constant(value=0),
             ],

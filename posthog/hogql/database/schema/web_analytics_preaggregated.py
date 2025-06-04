@@ -77,6 +77,7 @@ WEB_STATS_SPECIFIC_FIELDS = {
 WEB_BOUNCES_SPECIFIC_FIELDS = {
     "bounces_count_state": DatabaseField(name="bounces_count_state"),
     "total_session_duration_state": DatabaseField(name="total_session_duration_state"),
+    "total_session_count_state": DatabaseField(name="total_session_count_state"),
 }
 
 

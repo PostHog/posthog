@@ -142,7 +142,8 @@ WEB_BOUNCES_COLUMNS = """
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
     bounces_count_state AggregateFunction(sum, UInt64),
-    total_session_duration_state AggregateFunction(sum, Int64)
+    total_session_duration_state AggregateFunction(sum, Int64),
+    total_session_count_state AggregateFunction(sum, UInt64)
 """
 
 
@@ -630,7 +631,8 @@ def WEB_BOUNCES_INSERT_SQL(
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
         sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state,
-        sumState(session_duration) AS total_session_duration_state
+        sumState(session_duration) AS total_session_duration_state,
+        sumState(total_session_count_state) AS total_session_count_state
     FROM
     (
         SELECT
@@ -675,6 +677,7 @@ def WEB_BOUNCES_INSERT_SQL(
             events__session.session_id AS session_id,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
+            sum(toUInt64(1)) AS total_session_count_state,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
         FROM events AS e
