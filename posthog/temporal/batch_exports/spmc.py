@@ -59,6 +59,8 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.warehouse.util import database_sync_to_async
 
+# TODO - remove
+
 
 class RecordBatchQueue(asyncio.Queue):
     """A queue of pyarrow RecordBatch instances limited by bytes."""
