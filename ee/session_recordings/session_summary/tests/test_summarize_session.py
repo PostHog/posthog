@@ -1,5 +1,7 @@
 from typing import Any
 from unittest.mock import MagicMock, patch
+import json
+from datetime import datetime
 
 import pytest
 
@@ -8,6 +10,7 @@ from ee.session_recordings.session_summary.summarize_session import ExtraSummary
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
 
 class AsyncIterator:
@@ -207,3 +210,101 @@ class TestReplaySummarizer:
                 page=0,
                 limit=3000,
             )
+
+    @staticmethod
+    def _make_events_json_serializable(events: list[tuple[Any, ...]]) -> list[list[Any]]:
+        """
+        Convert events into JSON-serializable format by converting tuples to lists and datetimes to ISO strings.
+        """
+        serializable_events = []
+        for event in events:
+            serializable_event = []
+            for value in event:
+                if isinstance(value, datetime):
+                    serializable_event.append(value.isoformat())
+                elif isinstance(value, tuple):
+                    serializable_event.append(list(value))
+                else:
+                    serializable_event.append(value)
+            serializable_events.append(serializable_event)
+        return serializable_events
+
+    def test_generate_prompt(
+        self,
+        summarizer: ReplaySummarizer,
+        mock_session_metadata: SessionSummaryMetadata,
+        mock_raw_events: list[tuple[Any, ...]],
+        mock_raw_events_columns: list[str],
+        mock_url_mapping: dict[str, str],
+        mock_window_mapping: dict[str, str],
+    ):
+        """Test that _generate_prompt generates the correct prompts with the provided data."""
+
+        # Create prompt data
+        prompt_data = SessionSummaryPromptData(
+            columns=mock_raw_events_columns,
+            results=self._make_events_json_serializable(mock_raw_events),
+            metadata=mock_session_metadata,
+            url_mapping=mock_url_mapping,
+            window_id_mapping=mock_window_mapping,
+        )
+        # Reverse mappings for easier reference in the prompt
+        url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
+        window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
+        focus_area = "unexpected focus area that won't be in the prompt naturally"
+        extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
+        # Generate prompts
+        summary_prompt, system_prompt = summarizer._generate_prompt(
+            prompt_data=prompt_data,
+            url_mapping_reversed=url_mapping_reversed,
+            window_mapping_reversed=window_mapping_reversed,
+            extra_summary_context=extra_summary_context,
+        )
+        # Verify system prompt contains focus area
+        assert focus_area in system_prompt
+        # Verify that prompt variables were replaced with actual data
+        assert "EVENTS_DATA" not in summary_prompt
+        assert "SESSION_METADATA" not in summary_prompt
+        assert "URL_MAPPING" not in summary_prompt
+        assert "WINDOW_ID_MAPPING" not in summary_prompt
+        assert "SUMMARY_EXAMPLE" not in summary_prompt
+        assert "FOCUS_AREA" not in summary_prompt
+
+        # Verify events data matches
+        events_data_start = summary_prompt.find("<events_input>\n```\n") + len("<events_input>\n```\n")
+        events_data_end = summary_prompt.find("\n```\n</events_input>")
+        events_data = json.loads(summary_prompt[events_data_start:events_data_end].strip())
+        assert events_data == self._make_events_json_serializable(mock_raw_events)
+
+        # Verify URL mapping data matches
+        url_mapping_start = summary_prompt.find("<url_mapping_input>\n```\n") + len("<url_mapping_input>\n```\n")
+        url_mapping_end = summary_prompt.find("\n```\n</url_mapping_input>")
+        url_mapping_data = json.loads(summary_prompt[url_mapping_start:url_mapping_end].strip())
+        assert url_mapping_data == url_mapping_reversed
+
+        # Verify window mapping data matches
+        window_mapping_start = summary_prompt.find("<window_mapping_input>\n```\n") + len(
+            "<window_mapping_input>\n```\n"
+        )
+        window_mapping_end = summary_prompt.find("\n```\n</window_mapping_input>")
+        window_mapping_data = json.loads(summary_prompt[window_mapping_start:window_mapping_end].strip())
+        assert window_mapping_data == window_mapping_reversed
+
+        # Verify session metadata matches
+        session_metadata_start = summary_prompt.find("<session_metadata_input>\n```\n") + len(
+            "<session_metadata_input>\n```\n"
+        )
+        session_metadata_end = summary_prompt.find("\n```\n</session_metadata_input>")
+        session_metadata_data = json.loads(summary_prompt[session_metadata_start:session_metadata_end].strip())
+        assert session_metadata_data == mock_session_metadata.to_dict()
+
+        # # Verify the data is properly formatted
+        # assert json.loads(summary_prompt.split("EVENTS_DATA")[1].split("```")[1].strip()) == prompt_data.results
+        # assert (
+        #     json.loads(summary_prompt.split("SESSION_METADATA")[1].split("```")[1].strip())
+        #     == prompt_data.metadata.to_dict()
+        # )
+        # assert json.loads(summary_prompt.split("URL_MAPPING")[1].split("```")[1].strip()) == url_mapping_reversed
+        # assert (
+        #     json.loads(summary_prompt.split("WINDOW_ID_MAPPING")[1].split("```")[1].strip()) == window_mapping_reversed
+        # )
