@@ -278,8 +278,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
         # 1 update team, 1 load hog functions, 1 update hog functions
-        # 8 unrelated due to RemoteConfig refresh
-        with self.assertNumQueries(3 + 8):
+        # 7 unrelated due to RemoteConfig refresh
+        with self.assertNumQueries(3 + 7):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

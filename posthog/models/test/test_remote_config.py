@@ -16,7 +16,7 @@ from posthog.test.base import BaseTest
 from django.core.cache import cache
 from django.utils import timezone
 
-CONFIG_REFRESH_QUERY_COUNT = 6
+CONFIG_REFRESH_QUERY_COUNT = 5
 
 
 class _RemoteConfigBase(BaseTest):
