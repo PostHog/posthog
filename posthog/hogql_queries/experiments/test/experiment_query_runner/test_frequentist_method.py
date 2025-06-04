@@ -7,6 +7,7 @@ from posthog.schema import (
     ExperimentMetricResult,
     ExperimentQuery,
     ExperimentMeanMetric,
+    ExperimentVariantResultFrequentist,
 )
 from posthog.test.base import (
     flush_persons_and_events,
@@ -55,8 +56,12 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
 
         control_variant = result.baseline
         test_variant = result.variants[0]
+        assert isinstance(test_variant, ExperimentVariantResultFrequentist)
 
         self.assertEqual(control_variant.sum, 20)
         self.assertEqual(test_variant.sum, 20)
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.confidence_interval, [-1.9807682951982126, 1.9807682951982126])
+        self.assertFalse(test_variant.significant)
+        self.assertEqual(test_variant.p_value, 1.0)
