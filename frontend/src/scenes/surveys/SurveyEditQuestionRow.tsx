@@ -109,16 +109,6 @@ export function SurveyEditQuestionHeader({
     )
 }
 
-function canQuestionHaveBranchingInput(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return (
-        question.type === SurveyQuestionType.Rating ||
-        question.type === SurveyQuestionType.SingleChoice ||
-        question.type === SurveyQuestionType.MultipleChoice
-    )
-}
-
 function canQuestionSkipSubmitButton(
     question: SurveyQuestion
 ): question is RatingSurveyQuestion | MultipleSurveyQuestion {
@@ -152,8 +142,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     }
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
-
-    const canHaveBranchingInput = canQuestionHaveBranchingInput(question)
 
     return (
         <Group name={`questions.${index}`} key={index}>
@@ -403,7 +391,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     name="buttonText"
                     label="Submit button text"
                     className="flex-1 flex gap-1 justify-center"
-                    info="When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                    info={
+                        canSkipSubmitButton
+                            ? "When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                            : undefined
+                    }
                 >
                     <>
                         {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
@@ -413,6 +405,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         ? survey.appearance?.submitButtonText ?? 'Submit'
                                         : question.buttonText
                                 }
+                                onChange={(val) => handleQuestionValueChange('buttonText', val)}
                             />
                         )}
                         {canSkipSubmitButton && (
@@ -437,7 +430,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         )}
                     </>
                 </LemonField>
-                {canHaveBranchingInput && <QuestionBranchingInput questionIndex={index} question={question} />}
+                <QuestionBranchingInput questionIndex={index} question={question} />
             </div>
         </Group>
     )

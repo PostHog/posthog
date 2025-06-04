@@ -24,13 +24,42 @@ export interface ConvertProps {
     allShortcuts?: boolean
 }
 
-export function getItemId(item: FileSystemImport | FileSystemEntry): string {
-    return item.type === 'folder' ? `project://${item.path}` : `project/${item.id || item.path}`
+export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
+    const root = protocol.replace(/\/+/, '').replace(':', '')
+    return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
+}
+
+export function protocolTitle(str: string): string {
+    return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
+}
+
+export function splitProtocolPath(url: string): [string, string] {
+    const folders = url ? splitPath(url) : []
+    const urlWithProtocol = folders.length > 0 && folders[0].endsWith(':') && url.startsWith(`${folders[0]}//`)
+    if (urlWithProtocol) {
+        return [folders[0] + '//', joinPath(folders.slice(1))]
+    }
+    return ['products://', url]
+}
+
+export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
+    const parts = splitPath(url)
+    if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
+        if (parts.length > 1) {
+            return parts[parts.length - 1]
+        }
+        return protocolTitle(parts[0].slice(0, -1))
+    }
+    if (parts.length > 0) {
+        return parts[parts.length - 1]
+    }
+    return defaultName
 }
 
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
     const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
     const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+
     if (parentA === parentB) {
         if (a.type === 'folder' && b.type !== 'folder') {
             return -1
@@ -67,7 +96,7 @@ export function convertFileSystemEntryToTreeDataItem({
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
         const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
-        const nodeId = getItemId(item)
+        const nodeId = getItemId(item, root)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
@@ -79,6 +108,8 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
+            tags: item.tags,
+            visualOrder: item.visualOrder,
         }
         if (item && disabledReason?.(item)) {
             node.disabledReason = disabledReason(item)
@@ -115,11 +146,12 @@ export function convertFileSystemEntryToTreeDataItem({
         )
         if (!folderNode) {
             const id = `${root}${fullPath}`
+            const [protocol] = splitProtocolPath(id)
             folderNode = {
                 id,
                 name: folderName,
                 displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
-                record: { type: 'folder', id: null, path: fullPath },
+                record: { type: 'folder', id: null, protocol, path: fullPath },
                 children: [],
                 checked: checkedItems[id],
             }
@@ -203,6 +235,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.children.push({
                     id: `${root}-load-more/${item.path}`,
                     name: 'Load more...',
+                    displayName: <>Load more...</>,
                     icon: <IconPlus />,
                     disableSelect: true,
                 })
@@ -210,6 +243,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.children.push({
                     id: `${root}-loading/${item.path}`,
                     name: 'Loading...',
+                    displayName: <>Loading...</>,
                     icon: <Spinner />,
                     disableSelect: true,
                     type: 'loading-indicator',
@@ -244,7 +278,11 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
     }
-    sortNodes(rootNodes)
+
+    if (root !== 'products://' && root !== 'persons://') {
+        sortNodes(rootNodes)
+    }
+
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
             folderNode.children.push({

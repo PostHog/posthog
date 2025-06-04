@@ -33,6 +33,7 @@ export const PlayerFrame = (): JSX.Element => {
         window.addEventListener('resize', windowResize)
 
         return () => {
+            player.replayer.off('resize', updatePlayerDimensions as Handler)
             window.removeEventListener('resize', windowResize)
         }
     }, [player?.replayer])

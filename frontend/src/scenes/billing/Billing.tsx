@@ -51,21 +51,29 @@ export function Billing(): JSX.Element {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { location, searchParams } = useValues(router)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
-    if (preflight && !isCloudOrDev) {
-        router.actions.push(urls.default())
-    }
+    useEffect(() => {
+        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+            router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
+            return
+        }
+    }, [featureFlags, location.pathname, searchParams])
 
     useEffect(() => {
         if (billing) {
             reportBillingShown()
         }
     }, [!!billing])
+
+    if (preflight && !isCloudOrDev) {
+        router.actions.push(urls.default())
+    }
 
     if (!billing && billingLoading) {
         return (

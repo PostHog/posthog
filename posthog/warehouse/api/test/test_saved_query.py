@@ -37,6 +37,32 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
 
+    def test_upsert(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "soft_update": True,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
             response = self.client.post(
@@ -143,6 +169,27 @@ class TestSavedQuery(APIBaseTest):
         json = response.json()
 
         assert json["count"] == 1
+
+    def test_listing_many_queries(self):
+        for i in range(150):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"saved_query_{i}",
+                query={
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+        )
+
+        assert response.status_code == 200
+        json = response.json()
+
+        assert json["count"] == 150
+        assert len(json["results"]) == 150
 
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(
@@ -806,3 +853,20 @@ class TestSavedQuery(APIBaseTest):
             )
 
             mock_delete_saved_query_schedule.assert_called_once_with(str(db_saved_query.id))
+
+    def test_create_with_existing_name(self):
+        DataWarehouseTable.objects.create(
+            team=self.team, name="some_event_table", format="Parquet", url_pattern="s3://bucket/path"
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "some_event_table",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "A table with this name already exists."

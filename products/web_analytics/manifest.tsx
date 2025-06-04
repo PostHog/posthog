@@ -1,3 +1,4 @@
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -8,6 +9,7 @@ export const manifest: ProductManifest = {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
         webAnalyticsPageReports: (): string => `/web/page-reports`,
+        webAnalyticsMarketing: (): string => `/web/marketing`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [
@@ -15,6 +17,7 @@ export const manifest: ProductManifest = {
             path: 'Web analytics',
             iconType: 'pieChart',
             href: urls.webAnalytics(),
+            visualOrder: PRODUCT_VISUAL_ORDER.webAnalytics,
         },
     ],
 }

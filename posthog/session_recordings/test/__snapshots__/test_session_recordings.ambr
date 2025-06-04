@@ -620,6 +620,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -628,7 +629,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -783,6 +785,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -791,7 +794,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -810,6 +814,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -818,7 +823,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -905,6 +911,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -2035,6 +2042,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2043,7 +2051,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -2116,6 +2125,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2124,7 +2134,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -2143,6 +2154,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2151,7 +2163,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -2320,6 +2333,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -2756,6 +2770,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2764,7 +2779,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -2837,6 +2853,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2845,7 +2862,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -2864,6 +2882,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2872,7 +2891,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -2978,6 +2998,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -3432,6 +3453,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -3440,7 +3462,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -3513,6 +3536,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -3521,7 +3545,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -3540,6 +3565,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -3548,7 +3574,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -3635,6 +3662,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -4135,6 +4163,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4143,7 +4172,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -4170,6 +4200,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4178,7 +4209,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -4251,6 +4283,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4259,7 +4292,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -4278,6 +4312,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4286,7 +4321,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -4373,6 +4409,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -4848,6 +4885,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4856,7 +4894,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -4929,6 +4968,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4937,7 +4977,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -4962,6 +5003,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4970,7 +5012,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -4989,6 +5032,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -4997,7 +5041,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -5084,6 +5129,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -5251,6 +5297,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -5259,7 +5306,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -5316,6 +5364,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -5324,7 +5373,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -5413,6 +5463,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -5856,6 +5907,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -5864,7 +5916,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -5937,6 +5990,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -5945,7 +5999,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -5964,6 +6019,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -5972,7 +6028,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -6036,6 +6093,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -6044,7 +6102,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -6092,6 +6151,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -6379,6 +6439,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -6387,7 +6448,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -6520,6 +6582,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -6528,7 +6591,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -6601,6 +6665,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -6609,7 +6674,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -6628,6 +6694,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -6636,7 +6703,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -6723,6 +6791,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7167,6 +7236,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -7175,7 +7245,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -7248,6 +7319,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -7256,7 +7328,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -7275,6 +7348,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -7283,7 +7357,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -7370,6 +7445,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7805,6 +7881,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -7813,7 +7890,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -7883,6 +7961,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7961,6 +8040,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -7969,7 +8049,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -7988,6 +8069,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -7996,7 +8078,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -8083,6 +8166,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",

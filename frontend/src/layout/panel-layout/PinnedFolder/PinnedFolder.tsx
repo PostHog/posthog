@@ -8,6 +8,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
@@ -19,20 +20,21 @@ export function PinnedFolder(): JSX.Element {
             {!isLayoutNavCollapsed && (
                 <div className="flex justify-between items-center pl-3 pr-1 relative">
                     <div className="flex items-center gap-1">
-                        <span className="text-xs font-semibold text-quaternary">{pinnedFolder}</span>
+                        <span className="text-xs font-semibold text-quaternary">{formatUrlAsName(pinnedFolder)}</span>
                     </div>
                     <ButtonPrimitive
                         onClick={showModal}
                         iconOnly
                         tooltip="Change pinned folder"
                         tooltipPlacement="right"
+                        data-attr="tree-navbar-pinned-folder-change-button"
                     >
                         <IconGear className="size-3 text-secondary" />
                     </ButtonPrimitive>
                 </div>
             )}
-            <div className="mt-[-0.25rem] h-full">
-                <ProjectTree root={pinnedFolder} onlyTree />
+            <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
+                <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
             {modalVisible ? (
                 <LemonModal
@@ -43,15 +45,24 @@ export function PinnedFolder(): JSX.Element {
                         typeof selectedFolder === 'string' ? (
                             <>
                                 <div className="flex-1" />
-                                <LemonButton type="primary" onClick={() => setPinnedFolder(selectedFolder)}>
-                                    Select {selectedFolder || 'Project root'}
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => setPinnedFolder(selectedFolder)}
+                                    data-attr="tree-navbar-pinned-folder-change-select-button"
+                                >
+                                    Select {formatUrlAsName(selectedFolder, 'Project root')}
                                 </LemonButton>
                             </>
                         ) : null
                     }
                 >
                     <div className="w-192 max-w-full">
-                        <FolderSelect value={selectedFolder} onChange={setSelectedFolder} includeProtocol />
+                        <FolderSelect
+                            value={selectedFolder}
+                            onChange={setSelectedFolder}
+                            includeProtocol
+                            className="h-[60vh] min-h-[200px]"
+                        />
                     </div>
                 </LemonModal>
             ) : null}

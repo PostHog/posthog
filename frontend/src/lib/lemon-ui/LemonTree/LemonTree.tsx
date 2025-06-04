@@ -30,6 +30,7 @@ import {
 } from './LemonTreeUtils'
 
 export type LemonTreeSelectMode = 'default' | 'multi' | 'folder-only'
+export type LemonTreeSize = 'default' | 'narrow'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -42,6 +43,8 @@ export type TreeDataItem = {
     record?: Record<string, any>
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => SideAction
+    /** The icon to render for the item's side action. Ellipsis by default. */
+    itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
     /** The icon to use for the item. */
     icon?: React.ReactNode
     /** The children of the item. */
@@ -67,6 +70,12 @@ export type TreeDataItem = {
      * @param open - boolean to indicate if it's a folder and it's open state
      */
     onClick?: (open?: boolean) => void
+
+    /** Tags for the item */
+    tags?: string[]
+
+    /** Order of object in tree */
+    visualOrder?: number
 }
 export type TreeMode = 'tree' | 'table'
 
@@ -105,7 +114,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
-    /** The mode of the tree. */
+    /** The select mode of the tree. */
     selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
      * this takes precedence over showFolderActiveState, and selectedId state */
@@ -116,6 +125,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
+    /** The icon for the side action, defaults to ellipsis */
+    itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
@@ -165,7 +176,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
      *
      * narrow: icon, no text, side action hidden
      */
-    size?: 'default' | 'narrow'
+    size?: LemonTreeSize
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -184,6 +195,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     onDragEnd?: (dragEvent: DragEndEvent) => void
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
+    /** Whether to disable the scrollable shadows. */
+    disableScroll?: boolean
 }
 
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
@@ -231,6 +244,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             isItemDroppable,
             depth = 0,
             itemSideAction,
+            itemSideActionIcon,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -369,7 +383,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-disabled={!!item.disabledReason}
                             aria-haspopup={!!itemContextMenu?.(item)}
                             aria-roledescription="tree item"
-                            aria-rolemap={`item-${item.id}`}
                             aria-label={ariaLabel}
                             tooltip={
                                 isDragging || isEmptyFolder || mode === 'table' ? undefined : renderItemTooltip?.(item)
@@ -470,7 +483,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         }}
                                     >
                                         {/* Folder lines */}
-                                        {depth !== 0 && (
+                                        {depth !== 0 && size !== 'narrow' && (
                                             <div
                                                 className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
@@ -541,7 +554,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 isSideActionRight
                                                                 className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
                                                             >
-                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                                {itemSideActionIcon?.(item) ?? (
+                                                                    <IconEllipsis className="size-3 text-tertiary" />
+                                                                )}
                                                             </ButtonPrimitive>
                                                         </DropdownMenuTrigger>
 
@@ -583,6 +598,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             renderItemTooltip={renderItemTooltip}
                                             renderItemIcon={renderItemIcon}
                                             itemSideAction={itemSideAction}
+                                            itemSideActionIcon={itemSideActionIcon}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
                                             isItemDraggable={isItemDraggable}
@@ -646,6 +662,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isItemDraggable,
             isItemDroppable,
             itemSideAction,
+            itemSideActionIcon,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -660,6 +677,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeHeader,
             tableModeRow,
             size = 'default',
+            disableScroll = false,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -759,8 +777,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const nodeArray = nodes instanceof Array ? nodes : [nodes]
 
                 nodeArray.forEach((node) => {
-                    // if folderSelectMode we don't return folder items
-                    if (selectMode !== 'folder-only') {
+                    // For folder-only mode, only include folders; for other modes, include all items
+                    if (selectMode === 'folder-only') {
+                        // Only include folders in folder-only mode
+                        if (node.record?.type === 'folder' || node.children) {
+                            items.push(node)
+                        }
+                    } else {
+                        // Include all items in default/multi mode
                         items.push(node)
                     }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
@@ -916,9 +940,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     item.onClick(willBeOpen)
                 }
 
-                setSelectedId(item?.id)
+                if (selectMode === 'folder-only') {
+                    setSelectedId(item?.id)
+                }
             },
-            [expandedItemIdsState, onFolderClick, onItemClick, focusContent]
+            [expandedItemIdsState, onFolderClick, onItemClick, focusContent, selectMode]
         )
 
         /** Focus the element from the tree item ID. */
@@ -1290,6 +1316,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     onKeyDown={handleKeyDown}
                     className="flex-1"
                     innerClassName="relative overflow-x-auto"
+                    disableScroll={disableScroll}
+                    hideShadows={disableScroll}
                     styledScrollbars
                     style={
                         {
@@ -1339,6 +1367,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
+                            itemSideActionIcon={itemSideActionIcon}
                             isItemEditing={isItemEditing}
                             onItemNameChange={onItemNameChange}
                             className={cn('p-1', {
