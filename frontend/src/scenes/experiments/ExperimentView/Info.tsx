@@ -1,4 +1,4 @@
-import { IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -11,13 +11,14 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ProgressStatus } from '~/types'
+import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
+import { StatsMethodModal } from './StatsMethodModal'
 
 export function Info(): JSX.Element {
     const {
@@ -27,6 +28,7 @@ export function Info(): JSX.Element {
         metricResultsLoading,
         secondaryMetricResultsLoading,
         isDescriptionModalOpen,
+        statsMethod,
     } = useValues(experimentLogic)
     const {
         updateExperiment,
@@ -35,6 +37,7 @@ export function Info(): JSX.Element {
         openDescriptionModal,
         closeDescriptionModal,
         openEditConclusionModal,
+        openStatsEngineModal,
     } = useActions(experimentLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -99,7 +102,23 @@ export function Info(): JSX.Element {
                         <div className="text-xs font-semibold uppercase tracking-wide">
                             <span>Stats Engine</span>
                         </div>
-                        <div className="flex gap-1">Bayesian</div>
+                        <div className="inline-flex deprecated-space-x-2">
+                            <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
+                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREQUENTIST] && (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            openStatsEngineModal()
+                                        }}
+                                        icon={<IconGear />}
+                                        tooltip="Change stats engine"
+                                    />
+                                    <StatsMethodModal />
+                                </>
+                            )}
+                        </div>
                     </div>
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
                         <div className="block">
