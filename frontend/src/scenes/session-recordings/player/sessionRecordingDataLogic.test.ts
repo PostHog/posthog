@@ -9,6 +9,7 @@ import {
     parseEncodedSnapshots,
     processAllSnapshots,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
+import { SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,7 +18,13 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
+import {
+    AvailableFeature,
+    RecordingSnapshot,
+    SessionRecordingSnapshotSource,
+    SessionRecordingSnapshotSourceResponse,
+    SnapshotSourceType,
+} from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
@@ -294,7 +301,12 @@ describe('sessionRecordingDataLogic', () => {
         const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] | undefined => {
             return processAllSnapshots(
                 sources,
-                { 'blob-1': { source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' }, snapshots } },
+                {
+                    'blob-1': {
+                        source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' },
+                        snapshots,
+                    },
+                } as unknown as Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> | null,
                 fakeViewportForTimestamp,
                 '12345'
             )['processed'].snapshots
