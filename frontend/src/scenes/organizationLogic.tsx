@@ -18,7 +18,12 @@ import { userLogic } from './userLogic'
 export type OrganizationUpdatePayload = Partial<
     Pick<
         OrganizationType,
-        'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa' | 'is_ai_data_processing_approved'
+        | 'name'
+        | 'logo_media_id'
+        | 'is_member_join_email_enabled'
+        | 'enforce_2fa'
+        | 'members_can_invite'
+        | 'is_ai_data_processing_approved'
     >
 >
 
