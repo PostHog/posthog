@@ -96,7 +96,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                             label: (
                                 <div className="flex flex-row gap-2">
                                     {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
-                                    <span>Last seen</span>
+                                    <span>Recently seen</span>
                                 </div>
                             ),
                             tooltip: 'Show the most recent events first',
@@ -119,7 +119,17 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                         },
                     ]}
                 >
-                    <LemonButton icon={<IconSort />} size="small" title="Choose a sorting option for events" />
+                    <LemonButton
+                        icon={<IconSort />}
+                        size="small"
+                        tooltip={`Sorting by ${
+                            eventOrdering === '-last_seen_at'
+                                ? 'recently seen'
+                                : eventOrdering === 'name'
+                                ? 'name'
+                                : 'recently seen and then name'
+                        }`}
+                    />
                 </LemonMenu>
             </div>
         )

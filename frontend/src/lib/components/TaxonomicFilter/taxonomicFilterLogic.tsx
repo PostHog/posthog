@@ -137,6 +137,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     reducers(({ props, selectors }) => ({
         eventOrdering: [
             null as 'name' | '-last_seen_at' | null,
+            { persist: true },
             {
                 setEventOrdering: (_state, { order }) => order,
             },
