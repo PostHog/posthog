@@ -392,7 +392,7 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
     const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
 
     // Remove widget-specific fields if survey type is not Widget
-    if (survey.type !== 'widget' && sanitizedAppearance) {
+    if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
         delete sanitizedAppearance.widgetType
         delete sanitizedAppearance.widgetLabel
         delete sanitizedAppearance.widgetColor
