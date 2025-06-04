@@ -6,7 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
-from django.test.utils import freeze_time
+from freezegun import freeze_time
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
@@ -3572,7 +3572,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        results_by_breakdown = {}
+        results_by_breakdown: dict[str, list] = {}
         for r in result:
             breakdown_value = r["breakdown_value"]
             if breakdown_value not in results_by_breakdown:
