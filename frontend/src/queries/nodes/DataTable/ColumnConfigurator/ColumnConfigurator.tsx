@@ -29,10 +29,11 @@ import {
     taxonomicGroupFilterToHogQL,
     trimQuotes,
 } from '~/queries/utils'
-import { GroupTypeIndex, PropertyFilterType } from '~/types'
+import { AvailableFeature, GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 
 let uniqueNode = 0
 
@@ -113,6 +114,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
     const { context } = useValues(columnConfiguratorLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const newColumn = window.prompt('Edit column', column)
@@ -227,7 +229,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                             data-attr="events-table-save-columns-as-default-toggle"
                             bordered
                             checked={saveAsDefault}
-                            onChange={toggleSaveAsDefault}
+                            onChange={() => {
+                                guardAvailableFeature(AvailableFeature.INGESTION_TAXONOMY, () => toggleSaveAsDefault())
+                            }}
                             disabledReason={restrictionReason}
                         />
                     )}
