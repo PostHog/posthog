@@ -29,7 +29,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 )
 
 from posthog.hogql_queries.experiments.utils import (
-    get_frequentist_experiment_result_legacy_format,
+    get_frequentist_experiment_result_new_format,
     get_legacy_funnels_variant_results,
     get_legacy_trends_variant_results,
     get_new_variant_results,
@@ -58,6 +58,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentMetricResult,
     ExperimentQueryResponse,
     ExperimentStatsBase,
     ExperimentSignificanceCode,
@@ -627,7 +628,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return sorted_results
 
-    def calculate(self) -> ExperimentQueryResponse:
+    def calculate(self) -> ExperimentQueryResponse | ExperimentMetricResult:
         sorted_results = self._evaluate_experiment_query()
 
         if self.stats_method == "frequentist":
@@ -637,7 +638,7 @@ class ExperimentQueryRunner(QueryRunner):
 
             control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
 
-            return get_frequentist_experiment_result_legacy_format(
+            return get_frequentist_experiment_result_new_format(
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
