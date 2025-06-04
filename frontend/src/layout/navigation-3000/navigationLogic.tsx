@@ -237,7 +237,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         initiateNewItemInCategory: ({ category: categoryKey }) => {
             let category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
             if (!category) {
-                // Only the SQL editor uses this component, with the tree view, the category key doesnt get properly set, so lets fallback
+                // Only the SQL editor uses this component, with the tree view, the activeNavbarItem doesnt get properly set, so lets fallback
                 category = (
                     values.navbarItemIdMapping[Scene.SQLEditor] as SidebarNavbarItem
                 )?.logic.values.contents?.find((item) => item.key === categoryKey)
