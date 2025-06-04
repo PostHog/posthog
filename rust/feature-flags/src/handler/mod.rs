@@ -1,11 +1,11 @@
 pub mod authentication;
 pub mod billing;
+pub mod config_response_builder;
 pub mod cookieless;
 pub mod decoding;
 pub mod evaluation;
 pub mod flags;
 pub mod properties;
-pub mod response_builder;
 pub mod session_recording;
 pub mod types;
 
@@ -57,7 +57,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     )
     .await;
 
-    let response = response_builder::build_response(flags_response, &context, &team).await?;
+    let response = config_response_builder::build_response(flags_response, &context, &team).await?;
 
     billing::record_usage(&context, &filtered_flags, team.id).await;
 

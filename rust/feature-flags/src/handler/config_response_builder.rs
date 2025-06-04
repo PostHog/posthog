@@ -12,6 +12,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use super::{session_recording, types::RequestContext};
 
+/// Isolates the specific fields needed to build config responses from a RequestContext.
+/// This allows us to extract only the relevant dependencies (config, database client,
+/// redis client, and headers) rather than carrying around the entire RequestContext.
 pub struct ConfigContext {
     pub config: Config,
     pub reader: Arc<dyn common_database::Client + Send + Sync>,
@@ -29,9 +32,6 @@ impl ConfigContext {
         }
     }
 
-    /// This constructor allows you to create a ConfigContext without going through
-    /// the full RequestContext, which is useful for testing config field logic
-    /// in isolation.
     pub fn new(
         config: Config,
         reader: Arc<dyn common_database::Client + Send + Sync>,
@@ -166,7 +166,7 @@ mod tests {
             SessionRecordingField,
         },
         config::{Config, FlexBool, TeamIdCollection},
-        handler::{response_builder::apply_core_config_fields, session_recording},
+        handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
     };
     use serde_json::json;
