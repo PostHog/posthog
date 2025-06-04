@@ -322,7 +322,7 @@ def org_quota_limited_until(
             "quota_limiting_suspended_until": None,
         }
 
-    # 3. medium / medium high trust
+    # 3. medium / medium high / high trust
     elif trust_score in [7, 10, 15]:
         grace_period_days = GRACE_PERIOD_DAYS[trust_score]
 
