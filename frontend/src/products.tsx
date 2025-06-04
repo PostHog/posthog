@@ -559,6 +559,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.revenueAnalytics(),
         visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
         tags: ['beta'],
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
     },
     {
         path: 'Session replay',
@@ -589,5 +590,10 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+    {
+        path: 'Revenue settings',
+        iconType: 'handMoney',
+        href: urls.revenueSettings(),
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+    },
 ]
