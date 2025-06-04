@@ -110,8 +110,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                         await promiseRetry(
                             () => this.updateGroupOptimistically(update),
                             'updateGroupOptimistically',
-                            3, // max retries
-                            1000 // initial retry interval
+                            10, // max retries
+                            50 // initial retry interval
                         )
                     } catch (error) {
                         logger.error('Failed to update group after max retries', {
@@ -140,6 +140,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         )
 
         if (actualVersion !== undefined) {
+            this.incrementDatabaseOperation('upsertGroupClickhouse-updateGroupOptimistically')
             await this.db.upsertGroupClickhouse(
                 update.team_id,
                 update.group_type_index,
@@ -262,6 +263,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         timestamp: DateTime,
         forUpdate: boolean
     ): Promise<void> {
+        this.incrementDatabaseOperation('upsertGroup')
         const [propertiesUpdate, createdAt, actualVersion] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'upsertGroup',
@@ -270,6 +272,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         )
 
         if (propertiesUpdate.updated) {
+            this.incrementDatabaseOperation('upsertGroupClickhouse')
             await this.db.upsertGroupClickhouse(
                 teamId,
                 groupTypeIndex,
@@ -348,6 +351,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         tag: string,
         tx: any
     ): Promise<number> {
+        this.incrementDatabaseOperation('updateGroup')
         const updatedVersion = await this.db.updateGroup(
             teamId,
             groupTypeIndex,
@@ -444,6 +448,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         if (!fetchPromise) {
             fetchPromise = (async () => {
                 try {
+                    this.incrementDatabaseOperation('fetchGroup')
                     const existingGroup = await this.db.fetchGroup(teamId, groupTypeIndex, groupKey, tx, { forUpdate })
                     if (this.options.batchWritingEnabled) {
                         if (existingGroup) {
