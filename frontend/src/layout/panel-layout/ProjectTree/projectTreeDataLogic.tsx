@@ -8,6 +8,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -100,6 +101,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             false as boolean,
             {
                 loadUnfiledItems: async () => {
+                    if (!getCurrentTeamIdOrNone()) {
+                        return false
+                    }
                     const response = await api.fileSystem.unfiled()
                     if (response.results?.length > 0) {
                         actions.loadFolder('Unfiled')
