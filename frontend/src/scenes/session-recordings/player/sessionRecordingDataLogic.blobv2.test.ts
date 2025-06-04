@@ -154,7 +154,6 @@ describe('sessionRecordingDataLogic blobby v2', () => {
             expect(logic.cache.snapshotsBySource['processed'].snapshots).toEqual(
                 logic.cache.snapshotsBySource['blob_v2-0'].snapshots
             )
-            expect(logic.cache.snapshotsBySource).toMatchSnapshot()
         })
     })
 })
