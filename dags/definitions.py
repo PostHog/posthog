@@ -59,6 +59,8 @@ defs = dagster.Definitions(
         web_preaggregated_ddl.web_analytics_preaggregated_tables,
         web_preaggregated_ddl.web_analytics_preaggregated_hourly_tables,
         web_preaggregated_ddl.web_analytics_combined_views,
+        web_preaggregated_daily.web_stats_daily_export,
+        web_preaggregated_daily.web_bounces_daily_export,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
         web_preaggregated_hourly.web_stats_hourly,
