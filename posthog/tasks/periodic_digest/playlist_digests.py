@@ -138,6 +138,7 @@ def get_teams_with_interesting_playlists(end: datetime) -> list[CountedPlaylist]
         )
         .exclude(deleted=True)
         .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
+        .exclude(name="Unnamed")
         .annotate(
             pinned_item_count=Count("playlist_items"),
             # count views in the last 4 weeks
