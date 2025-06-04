@@ -41,7 +41,7 @@ export function TreeSortDropdownMenu({ setSortMethod, sortMethod }: SortDropdown
                         </ButtonPrimitive>
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="recent" asChild>
-                        <ButtonPrimitive menuItem data-attr="tree-filters-dropdown-menu-alphabetical-button">
+                        <ButtonPrimitive menuItem data-attr="tree-filters-dropdown-menu-recent-button">
                             <DropdownMenuItemIndicator intent="checkbox" />
                             Recently added
                         </ButtonPrimitive>
