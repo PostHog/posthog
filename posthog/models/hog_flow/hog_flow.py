@@ -23,9 +23,7 @@ class HogFlow(UUIDModel):
         ]
 
         constraints = [
-            # Unique version # per team
-            models.UniqueConstraint(fields=["team", "version"], name="unique_version"),
-            # todo: allow only 1 draft per flow
+            models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
         ]
 
     class State(models.TextChoices):
@@ -34,7 +32,7 @@ class HogFlow(UUIDModel):
         ARCHIVED = "archived"
 
     class ExitCondition(models.TextChoices):
-        CONVERION = "exit_on_conversion"
+        CONVERSION = "exit_on_conversion"
         TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
         TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
         ONLY_AT_END = "exit_only_at_end"
@@ -47,6 +45,7 @@ class HogFlow(UUIDModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
     checked_out_by = models.ForeignKey(
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="checked_out_hogflows"
     )
@@ -54,7 +53,7 @@ class HogFlow(UUIDModel):
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(default=dict)
     conversion = models.JSONField(default=dict)
-    exit_condition = models.CharField(max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERION)
+    exit_condition = models.CharField(max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)
