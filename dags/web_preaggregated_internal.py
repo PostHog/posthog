@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 from collections.abc import Callable
 
 import dagster
-from dagster import Field, Array
+from dagster import AssetMaterialization, Field, Array, MetadataValue
 from clickhouse_driver import Client
 from dags.common import JobOwners
 from posthog.clickhouse.client import sync_execute
@@ -117,6 +117,66 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
         table_name="web_stats_daily",
         sql_generator=WEB_STATS_INSERT_SQL,
     )
+
+
+@dagster.asset(
+    name="web_bounces_daily_simplified_export",
+    group_name="web_analytics",
+    deps=["web_analytics_bounces_daily"],
+    metadata={"export_file": "web_bounces_daily_simplified.native"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_bounces_daily_simplified_export(context: dagster.AssetExecutionContext):
+    """
+    Exports web_bounces_daily_simplified data directly to S3 using ClickHouse's native S3 export.
+    """
+    from posthog.settings.object_storage import (
+        OBJECT_STORAGE_BUCKET,
+        OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+        OBJECT_STORAGE_ACCESS_KEY_ID,
+        OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    )
+
+    export_filename = f"web_bounces_daily_simplified_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.native"
+
+    s3_path = f"http://objectstorage:19000/{OBJECT_STORAGE_BUCKET}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_filename}"
+
+    # ClickHouse S3 export query
+    export_query = f"""
+    INSERT INTO FUNCTION s3(
+        '{s3_path}',
+        '{OBJECT_STORAGE_ACCESS_KEY_ID}',
+        '{OBJECT_STORAGE_SECRET_ACCESS_KEY}',
+        'Native'
+    )
+    SELECT
+        day_bucket,
+        team_id,
+        uniqMerge(persons_uniq_state) AS unique_persons,
+        uniqMerge(sessions_uniq_state) AS unique_sessions,
+        sumMerge(pageviews_count_state) AS total_pageviews,
+        sumMerge(bounces_count_state) AS total_bounces,
+        sumMerge(total_session_duration_state) AS total_session_duration
+    FROM web_bounces_daily
+    GROUP BY day_bucket, team_id
+    ORDER BY day_bucket, team_id
+    """
+
+    sync_execute(export_query)
+
+    # Emit a materialization so Dagster records this asset was created
+    yield AssetMaterialization(
+        asset_key=context.asset_key,
+        description="Exported web_bounces_daily_simplified directly to S3",
+        metadata={
+            "export_file": MetadataValue.text(export_filename),
+            "s3_path": MetadataValue.text(s3_path),
+            "bucket": MetadataValue.text(OBJECT_STORAGE_BUCKET),
+            "folder": MetadataValue.text(OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER),
+        },
+    )
+
+    context.log.info(f"Successfully exported web_bounces_daily_simplified to S3: {s3_path}")
 
 
 recreate_web_pre_aggregated_data_job = dagster.define_asset_job(
