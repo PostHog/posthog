@@ -76,7 +76,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 select=[
                     ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
                     ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
-                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
                     ast.Alias(
                         alias="invoice_id", expr=ast.Constant(value=None)
