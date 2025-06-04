@@ -76,7 +76,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
             ['playlists', 'playlistsLoading'],
         ],
-        actions: [navigationLogic, ['closeAccountPopover']],
+        actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
     actions({
         hideSidebar: true,
@@ -167,6 +167,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
+                setScene: (state, { scene }) => scene || state,
             },
         ],
         isSearchShown: [
@@ -234,12 +235,21 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     }),
     listeners(({ actions, values }) => ({
         initiateNewItemInCategory: ({ category: categoryKey }) => {
-            const category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
+            let category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
             if (!category) {
-                throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
-            } else if (!category.onAdd || typeof category.onAdd !== 'function') {
+                // Only the SQL editor uses this component, with the tree view, the category key doesnt get properly set, so lets fallback
+                category = (
+                    values.navbarItemIdMapping[Scene.SQLEditor] as SidebarNavbarItem
+                )?.logic.values.contents?.find((item) => item.key === categoryKey)
+                if (!category) {
+                    throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
+                }
+            }
+
+            if (!category.onAdd || typeof category.onAdd !== 'function') {
                 throw new Error(`Sidebar category '${categoryKey}' doesn't support onAdd`)
             }
+
             if (category.onAdd.length === 0) {
                 ;(category.onAdd as () => void)() // If a zero-arg function, call it immediately
             } else {
