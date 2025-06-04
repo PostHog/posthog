@@ -13,6 +13,15 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class ActionContextForMax(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, float]
+    name: Optional[str] = None
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -956,6 +965,15 @@ class Status2(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
+
+
+class EventContextForMax(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, float]
+    name: Optional[str] = None
 
 
 class EventDefinition(BaseModel):
@@ -8584,7 +8602,9 @@ class MaxContextShape(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actions: Optional[dict[str, ActionContextForMax]] = None
     dashboards: Optional[dict[str, DashboardContextForMax]] = None
+    events: Optional[dict[str, EventContextForMax]] = None
     global_info: Optional[GlobalInfo] = None
     insights: Optional[dict[str, InsightContextForMax]] = None
 
