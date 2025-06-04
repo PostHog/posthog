@@ -26,12 +26,8 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."session_cookie_age"
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  LEFT OUTER JOIN "posthog_organization" ON ("posthog_user"."current_organization_id" = "posthog_organization"."id")
   WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
@@ -244,7 +240,27 @@
 # name: TestActionApi.test_listing_actions_is_not_nplus1.14
   '''
   SELECT "posthog_organization"."id",
-         "posthog_organization"."available_product_features"
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -347,12 +363,8 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."session_cookie_age"
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  LEFT OUTER JOIN "posthog_organization" ON ("posthog_user"."current_organization_id" = "posthog_organization"."id")
   WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
@@ -577,7 +589,27 @@
 # name: TestActionApi.test_listing_actions_is_not_nplus1.22
   '''
   SELECT "posthog_organization"."id",
-         "posthog_organization"."available_product_features"
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -774,7 +806,27 @@
 # name: TestActionApi.test_listing_actions_is_not_nplus1.6
   '''
   SELECT "posthog_organization"."id",
-         "posthog_organization"."available_product_features"
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -877,12 +929,8 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."session_cookie_age"
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  LEFT OUTER JOIN "posthog_organization" ON ("posthog_user"."current_organization_id" = "posthog_organization"."id")
   WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
