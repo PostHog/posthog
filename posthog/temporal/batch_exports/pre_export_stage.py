@@ -244,7 +244,10 @@ class BatchExportInsertIntoS3StageInputs:
 
 @activity.defn
 async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInputs):
-    """Write record batches to S3 staging area."""
+    """Write record batches to S3 staging area.
+
+    TODO - update sessions model query
+    """
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     await logger.ainfo(
@@ -355,8 +358,6 @@ async def _get_query(
             parameters["include_events"] = list(parameters["include_events"])
         else:
             parameters["include_events"] = []
-
-        # TODO - update all queries to export to S3
 
         # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
         # may not be able to handle the load from all batch exports
