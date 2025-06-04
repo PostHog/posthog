@@ -10,7 +10,7 @@ from ee.models.license import License
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.models.feature import AvailableFeature
+from posthog.constants import AvailableFeature
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
