@@ -12,6 +12,8 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 from posthog.models.personal_api_key import PersonalAPIKey
+from django.db.models.signals import post_save
+from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
@@ -393,3 +395,12 @@ def organization_membership_saved(sender: Any, instance: OrganizationMembership,
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=Organization)
+def cache_organization_session_age(sender, instance, **kwargs):
+    """Cache organization's session_cookie_age in Redis when it changes."""
+    if instance.session_cookie_age is not None:
+        cache.set(f"org_session_age:{instance.id}", instance.session_cookie_age)
+    else:
+        cache.delete(f"org_session_age:{instance.id}")

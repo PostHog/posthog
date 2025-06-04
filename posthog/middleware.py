@@ -26,6 +26,7 @@ from django_prometheus.middleware import (
 )
 from rest_framework import status
 from statshog.defaults.django import statsd
+from django.core.cache import cache
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
@@ -650,15 +651,14 @@ class SessionAgeMiddleware:
             # Get session creation time
             session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
             if session_created_at:
-                # Get timeout from current organization
-                current_org = request.user.current_organization
-                session_age = (
-                    current_org.session_cookie_age
-                    if current_org
-                    and hasattr(current_org, "session_cookie_age")
-                    and current_org.session_cookie_age is not None
-                    else settings.SESSION_COOKIE_AGE
-                )
+                # Get timeout from Redis cache first, fallback to settings
+                org_id = request.user.current_organization_id
+                session_age = None
+                if org_id:
+                    session_age = cache.get(f"org_session_age:{org_id}")
+
+                if session_age is None:
+                    session_age = settings.SESSION_COOKIE_AGE
 
                 current_time = time.time()
                 if current_time - session_created_at > session_age:

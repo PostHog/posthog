@@ -8,6 +8,7 @@ from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
 from django.conf import settings
+from django.core.cache import cache
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -626,6 +627,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 class TestSessionAgeMiddleware(APIBaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()
         # Patch time.time before login to ensure session creation time is correct
         self.time_patcher = patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
         self.time_patcher.start()
@@ -634,6 +636,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
     def tearDown(self):
         super().tearDown()
+        cache.clear()
         # Ensure any remaining patches are stopped
         self.time_patcher.stop()
 
@@ -669,10 +672,9 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_org_specific_session_timeout(self, mock_time):
-        # Set org-specific timeout
-        self.organization.session_cookie_age = 50
-        self.organization.save()
+    def test_org_specific_session_timeout_from_cache(self, mock_time):
+        # Set org-specific timeout in cache
+        cache.set(f"org_session_age:{self.organization.id}", 50)
 
         # Initial request sets session creation time
         response = self.client.get("/")
@@ -690,11 +692,15 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_session_timeout_after_switching_org(self, mock_time):
+    def test_session_timeout_after_switching_org_with_cache(self, mock_time):
         # Create another org with different timeout
         other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
         other_team = Team.objects.create(organization=other_org, name="Other Team")
         self.user.organizations.add(other_org)
+
+        # Set cache for both orgs
+        cache.set(f"org_session_age:{self.organization.id}", 50)
+        cache.set(f"org_session_age:{other_org.id}", 30)
 
         # Initial request sets session creation time
         response = self.client.get("/")
