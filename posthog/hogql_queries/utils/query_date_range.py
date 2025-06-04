@@ -80,16 +80,15 @@ class QueryDateRange:
             raise ValueError("IntervalType.WEEK cannot be used with interval_count > 1")
 
     def date_to(self) -> datetime:
-        date_to = self.now_with_timezone
-        delta_mapping = None
+        if not (self._date_range and self._date_range.date_to):
+            return self.now_with_timezone
 
-        if self._date_range and self._date_range.date_to:
-            date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
-                self._date_range.date_to,
-                self._timezone_info,
-                always_truncate=False,
-                now=self.now_with_timezone,
-            )
+        date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
+            self._date_range.date_to,
+            self._timezone_info,
+            always_truncate=False,
+            now=self.now_with_timezone,
+        )
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None

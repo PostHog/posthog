@@ -647,8 +647,12 @@ def get_compare_period_dates(
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
-        new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
-        new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
+        new_date_to = (new_date_from + diff).replace(
+            minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     elif interval != "minute":
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -669,7 +673,9 @@ def get_compare_period_dates(
             # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
             # of relative date ranges:
             new_date_from += datetime.timedelta(days=1)
-        new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
+        new_date_to = (new_date_from + diff).replace(
+            hour=date_to.hour, minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     return new_date_from, new_date_to
 
 

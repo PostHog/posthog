@@ -5448,7 +5448,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
         self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)
 
-    def test_trends_daily_compare_to_previous_period(self):
+    def _compare_trends_test(self, query: TrendsQuery):
         """
         Test a TrendsQuery with daily aggregation that has compare to previous period enabled.
         It uses a -7d window, sets the team's timezone to US/Pacific, and generates events at 9PM and 11PM each day.
@@ -5458,7 +5458,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         # Create a person
-        person = _create_person(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["test_user"],
             properties={},
@@ -5492,10 +5492,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"key": "value"},
             )
 
-        # Freeze time at 10PM Pacific time
         with freeze_time(freeze_time_at.isoformat()):
-            # Run the query with a -7d window and compare to previous period enabled
-            query_runner = TrendsQueryRunner(
+            response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
                     date_to=None,
@@ -5505,27 +5503,52 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     compare_filters=CompareFilter(compare=True),
                 ),
                 team=self.team,
+            ).calculate()
+
+        # Verify the response
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+
+        # Check that both results have compare=True
+        self.assertEqual(True, response.results[0]["compare"])
+        self.assertEqual(True, response.results[1]["compare"])
+
+        # Check compare labels
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
+
+        # Check that each period has 8 days of data (includes one extra day)
+        self.assertEqual(8, len(response.results[0]["data"]))
+        self.assertEqual(8, len(response.results[1]["data"]))
+
+        # Each day should have 2 events (9PM and 11PM)
+        for value in response.results[0]["data"][:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(1, response.results[0]["data"][-1])
+
+        for value in response.results[1]["data"][:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(1, response.results[1]["data"][-1])
+
+    def test_trends_daily_compare_to_previous_period(self):
+        self._compare_trends_test(
+            self._create_trends_query(
+                date_from="-7d",
+                date_to=None,
+                interval="day",
+                series=[EventsNode(event="$pageview")],
+                trends_filters=TrendsFilter(display="ActionsLineGraph"),
+                compare_filters=CompareFilter(compare=True),
             )
-            response = query_runner.calculate()
+        )
 
-            # Verify the response
-            self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
-
-            # Check that both results have compare=True
-            self.assertEqual(True, response.results[0]["compare"])
-            self.assertEqual(True, response.results[1]["compare"])
-
-            # Check compare labels
-            self.assertEqual("current", response.results[0]["compare_label"])
-            self.assertEqual("previous", response.results[1]["compare_label"])
-
-            # Check that each period has 8 days of data (includes one extra day)
-            self.assertEqual(8, len(response.results[0]["data"]))
-            self.assertEqual(8, len(response.results[1]["data"]))
-
-            # Each day should have 2 events (9PM and 11PM)
-            for value in response.results[0]["data"]:
-                self.assertEqual(2, value)
-
-            for value in response.results[1]["data"]:
-                self.assertEqual(2, value)
+    def test_trends_daily_compare_to_7_days_ago(self):
+        self._compare_trends_test(
+            self._create_trends_query(
+                date_from="-7d",
+                date_to=None,
+                interval="day",
+                series=[EventsNode(event="$pageview")],
+                trends_filters=TrendsFilter(display="ActionsLineGraph"),
+                compare_filters=CompareFilter(compare=True, compare_to="-7d"),
+            )
+        )
