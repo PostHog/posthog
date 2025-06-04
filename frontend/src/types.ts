@@ -351,7 +351,7 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
-export type HedgehogSkin = 'default' | 'spiderhog'
+export type HedgehogSkin = 'default' | 'spiderhog' | 'robohog'
 
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
@@ -413,6 +413,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    members_can_invite?: boolean
     metadata?: OrganizationMetadata
     member_count: number
 }
@@ -3054,6 +3055,12 @@ export enum SurveyType {
 }
 
 export enum SurveyPosition {
+    TopLeft = 'top_left',
+    TopCenter = 'top_center',
+    TopRight = 'top_right',
+    MiddleLeft = 'middle_left',
+    MiddleCenter = 'middle_center',
+    MiddleRight = 'middle_right',
     Left = 'left',
     Center = 'center',
     Right = 'right',
@@ -3618,6 +3625,11 @@ export interface ExperimentHoldoutType {
     updated_at: string | null
 }
 
+export enum ExperimentStatsMethod {
+    Bayesian = 'bayesian',
+    Frequentist = 'frequentist',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3664,6 +3676,7 @@ export interface Experiment {
     holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
+        method?: ExperimentStatsMethod
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -4409,6 +4422,7 @@ export enum NotebookNodeType {
     Properties = 'ph-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
+    Latex = 'ph-latex',
 }
 
 export type NotebookNodeResource = {
@@ -4575,11 +4589,19 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
     sync_time_of_day: string | null
-    status?: string
+    status?: ExternalDataSchemaStatus
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
+}
+
+export enum ExternalDataSchemaStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    Paused = 'Paused',
+    Cancelled = 'Cancelled',
 }
 
 export enum ExternalDataJobStatus {
@@ -4587,6 +4609,7 @@ export enum ExternalDataJobStatus {
     Completed = 'Completed',
     Failed = 'Failed',
     BillingLimits = 'Billing limits',
+    BillingLimitTooLow = 'Billing limit too low',
 }
 
 export interface ExternalDataJob {
@@ -4622,6 +4645,7 @@ export type BatchExportServiceS3 = {
         endpoint_url: string | null
         file_format: string
         max_file_size_mb: number | null
+        use_virtual_style_addressing: boolean
     }
 }
 
@@ -5135,6 +5159,7 @@ export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
 export type HogFunctionTypeType =
     | 'destination'
     | 'internal_destination'
+    | 'source_webhook'
     | 'site_destination'
     | 'site_app'
     | 'transformation'
@@ -5169,7 +5194,11 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
+
+// Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case
+export type HogFunctionConfigurationContextId = 'standard' | 'error-tracking' | 'activity-log' | 'insight-alerts'
+
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
@@ -5191,6 +5220,7 @@ export type HogFunctionSubTemplateType = Pick<
     'filters' | 'inputs' | 'masking' | 'mappings' | 'type'
 > & {
     template_id: HogFunctionTemplateType['id']
+    context_id: HogFunctionConfigurationContextId
     sub_template_id: HogFunctionSubTemplateIdType
     name?: string
     description?: string
@@ -5273,6 +5303,12 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
+    // Only applies to sources
+    request?: {
+        body: Record<string, any>
+        headers: Record<string, string>
+        ip?: string
+    }
 }
 
 export type HogFunctionTestInvocationResult = {
@@ -5433,7 +5469,7 @@ export interface ProductManifest {
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
-    treeItemsDataManagement?: FileSystemImport[]
+    treeItemsMetadata?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {
