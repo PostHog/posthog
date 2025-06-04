@@ -177,9 +177,19 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+
+    suppression_rules = []
+    # errors mean the database is unavailable, no-op in this case
+    if team.autocapture_exceptions_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                suppression_rules = get_suppression_rules(team)
+        except Exception:
+            pass
+
     response["errorTracking"] = {
         "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
-        "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
+        "suppressionRules": suppression_rules,
     }
 
     site_apps = []

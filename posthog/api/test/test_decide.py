@@ -3175,7 +3175,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
         self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(response["autocaptureExceptions"], False)
+        self.assertEqual(response["autocaptureExceptions"], True)
 
         response = self._post_decide(
             api_version=2, origin="https://random.example.com", simulate_database_timeout=True
@@ -3196,7 +3196,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["capturePerformance"],
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
-        self.assertEqual(response["autocaptureExceptions"], False)
+        self.assertEqual(response["autocaptureExceptions"], True)
         self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
