@@ -244,6 +244,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             [] as FileSystemEntry[],
             {
                 loadShortcuts: async () => {
+                    if (!getCurrentTeamIdOrNone()) {
+                        return []
+                    }
+
                     const response = await api.fileSystemShortcuts.list()
                     return response.results
                 },
