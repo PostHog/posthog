@@ -644,6 +644,7 @@ class ExperimentQueryRunner(QueryRunner):
             )
 
         else:
+            variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
             match self.metric:
                 case ExperimentMeanMetric():
                     trends_variants = get_legacy_trends_variant_results(sorted_results)
