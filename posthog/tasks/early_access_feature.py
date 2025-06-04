@@ -14,6 +14,13 @@ POSTHOG_TEAM_ID = 2
 # Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
 @shared_task(ignore_result=True, max_retries=1)
 def send_events_for_early_access_feature_stage_change(feature_id: str, from_stage: str, to_stage: str) -> None:
+    # This is for debugging purposes
+    posthoganalytics.capture(
+        "early_access_feature_stage_change_celery_task",
+        "early_access_feature_stage_change_celery_task_run",
+        {"feature_id": feature_id, "from_stage": from_stage, "to_stage": to_stage},
+    )
+
     print(  # noqa: T201
         f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {feature_id} from {from_stage} to {to_stage}"
     )
@@ -22,6 +29,9 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     team_id = instance.team.id
 
     send_events_for_change = (team_id == POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG or is_ci()
+
+    print(f"[CELERY][EARLY ACCESS FEATURE] Team ID: {team_id}")  # noqa: T201
+    print(f"[CELERY][EARLY ACCESS FEATURE] Send events for change: {send_events_for_change}")  # noqa: T201
 
     if not send_events_for_change:
         print(  # noqa: T201
@@ -46,7 +56,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         return
 
     enrolled_persons = Person.objects.filter(
-        **{f"properties__$feature_enrollment/{feature_flag.key}": True, "team_id": instance.team_id}
+        **{f"properties__$feature_enrollment/{feature_flag.key}": True, "team_id": team_id}
     )
 
     print(f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature {feature_id}")  # noqa: T201
