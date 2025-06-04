@@ -16,6 +16,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -144,8 +145,6 @@ function HogFunctionTemplateInput(props: {
             />
         )
     }
-
-    console.log('props.input', props.input)
 
     return (
         <CodeEditorInline
@@ -524,15 +523,20 @@ export function HogFunctionInputWithSchema({
                                             >
                                                 Supports templating
                                             </LemonButton>
-                                            <LemonSelect
-                                                size="xsmall"
-                                                value={value?.templating ?? 'hog'}
-                                                onChange={(templating) => onChange({ value: value?.value, templating })}
-                                                options={[
-                                                    { label: 'Hog', value: 'hog' },
-                                                    { label: 'Liquid', value: 'liquid' },
-                                                ]}
-                                            />
+
+                                            <FlaggedFeature flag="cdp-hog-input-liquid">
+                                                <LemonSelect
+                                                    size="xsmall"
+                                                    value={value?.templating ?? 'hog'}
+                                                    onChange={(templating) =>
+                                                        onChange({ value: value?.value, templating })
+                                                    }
+                                                    options={[
+                                                        { label: 'Hog', value: 'hog' },
+                                                        { label: 'Liquid', value: 'liquid' },
+                                                    ]}
+                                                />
+                                            </FlaggedFeature>
                                         </div>
                                     )}
 
