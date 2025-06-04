@@ -116,6 +116,7 @@ export function processAllSnapshots(
             sourceResult.push(snapshot)
         }
 
+        snapshotsBySource[sourceKey] = snapshotsBySource[sourceKey] || {}
         snapshotsBySource[sourceKey].snapshots = sourceResult
         snapshotsBySource[sourceKey].processed = true
         // doing push.apply to mutate the original array
