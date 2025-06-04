@@ -627,8 +627,8 @@ class UserCanInvitePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view) -> bool:
-        user = request.user
-        org_invite_settings_available = self.user.organization.is_feature_available(
+        user = cast(User, request.user)
+        org_invite_settings_available = user.organization.is_feature_available(
             AvailableFeature.ORGANIZATION_INVITE_SETTINGS
         )
 
@@ -636,13 +636,11 @@ class UserCanInvitePermission(BasePermission):
             return True
 
         try:
-            membership = OrganizationMembership.objects.get(
-                user=cast(User, user), organization=user.current_organization
-            )
+            membership = OrganizationMembership.objects.get(user=cast(User, user), organization=user.organization)
         except OrganizationMembership.DoesNotExist:
             raise NotFound("Organization not found.")
 
-        members_can_invite = user.current_organization.members_can_invite
+        members_can_invite = bool(user.organization.members_can_invite)
         user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
 
         if user_is_admin:
@@ -657,7 +655,7 @@ class OrganizationInviteSettingsPermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view) -> bool:
-        user = request.user
+        user = cast(User, request.user)
         membership = user.organization_memberships.get(organization=user.organization)
 
         return membership.level >= OrganizationMembership.Level.ADMIN
