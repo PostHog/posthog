@@ -794,6 +794,7 @@ class Producer:
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
         filters: list[dict[str, str | list[str]]] | None = None,
+        order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -866,10 +867,10 @@ class Producer:
             if filters_str:
                 filters_str = f"AND {filters_str}"
 
-            if str(team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
+            if str(team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS or not order_columns:
                 order = ""
             else:
-                order = "ORDER BY _inserted_at, event"
+                order = f"ORDER BY {','.join(order_columns)}"
 
             query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order=order)
 
