@@ -8,6 +8,7 @@ import dateutil.parser
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
+from parameterized import parameterized
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -65,54 +66,58 @@ class TestEventDefinitionAPI(APIBaseTest):
                 0,
             )
 
-    def test_list_event_definitions_ordering(self):
-        response = self.client.get("/api/projects/@current/event_definitions/?ordering=name")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
-            ("$pageview", "2020-01-01T22:56:00Z"),
-            ("entered_free_trial", "2020-01-01T23:00:00Z"),
-            ("installed_app", "2020-01-01T00:00:00Z"),
-            ("purchase", "2019-12-30T00:00:00Z"),
-            ("rated_app", "2019-12-21T00:00:00Z"),
-            ("watched_movie", None),
+    @parameterized.expand(
+        [
+            (
+                "ordering=name",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
+            (
+                "ordering=-name",
+                [
+                    ("watched_movie", None),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                ],
+            ),
+            (
+                "ordering=-last_seen_at::date&ordering=name",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
+            (
+                "ordering=-last_seen_at::date&ordering=-name",
+                [
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
         ]
-
-        response = self.client.get("/api/projects/@current/event_definitions/?ordering=-name")
+    )
+    def test_list_event_definitions_ordering(self, query_params, expected_results):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
-            ("watched_movie", None),
-            ("rated_app", "2019-12-21T00:00:00Z"),
-            ("purchase", "2019-12-30T00:00:00Z"),
-            ("installed_app", "2020-01-01T00:00:00Z"),
-            ("entered_free_trial", "2020-01-01T23:00:00Z"),
-            ("$pageview", "2020-01-01T22:56:00Z"),
-        ]
-
-        response = self.client.get(
-            "/api/projects/@current/event_definitions/?ordering=-last_seen_at::date&ordering=name"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
-            ("$pageview", "2020-01-01T22:56:00Z"),
-            ("entered_free_trial", "2020-01-01T23:00:00Z"),
-            ("installed_app", "2020-01-01T00:00:00Z"),
-            ("purchase", "2019-12-30T00:00:00Z"),
-            ("rated_app", "2019-12-21T00:00:00Z"),
-            ("watched_movie", None),
-        ]
-
-        response = self.client.get(
-            "/api/projects/@current/event_definitions/?ordering=-last_seen_at::date&ordering=-name"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == [
-            ("installed_app", "2020-01-01T00:00:00Z"),
-            ("entered_free_trial", "2020-01-01T23:00:00Z"),
-            ("$pageview", "2020-01-01T22:56:00Z"),
-            ("purchase", "2019-12-30T00:00:00Z"),
-            ("rated_app", "2019-12-21T00:00:00Z"),
-            ("watched_movie", None),
-        ]
+        assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == expected_results
 
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
