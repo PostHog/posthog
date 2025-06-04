@@ -1,5 +1,5 @@
-import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -17,7 +17,6 @@ export function ExternalDataSourceConfiguration({
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources } = useValues(marketingAnalyticsSettingsLogic)
-    const { updateSource } = useActions(marketingAnalyticsSettingsLogic)
 
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
@@ -56,20 +55,6 @@ export function ExternalDataSourceConfiguration({
                                 >
                                     {item.prefix || item.source_type}
                                 </Link>
-                            )
-                        },
-                    },
-                    {
-                        key: 'revenue_analytics_enabled',
-                        title: 'Enabled?',
-                        render: (_, item: ExternalDataSource) => {
-                            return (
-                                <LemonSwitch
-                                    checked={item.revenue_analytics_enabled}
-                                    onChange={(checked) =>
-                                        updateSource({ ...item, revenue_analytics_enabled: checked })
-                                    }
-                                />
                             )
                         },
                     },

@@ -25,7 +25,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             dataWarehouseSettingsLogic,
             ['dataWarehouseSources'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
+        actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
         updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsSchema, columnName: string | null) => ({
