@@ -229,6 +229,13 @@ class TestReplaySummarizer:
             serializable_events.append(serializable_event)
         return serializable_events
 
+    @pytest.mark.parametrize(
+        "focus_area,should_contain_focus_area",
+        [
+            ("unexpected focus area that won't be in the prompt naturally", True),
+            (None, False),
+        ],
+    )
     def test_generate_prompt(
         self,
         summarizer: ReplaySummarizer,
@@ -237,10 +244,10 @@ class TestReplaySummarizer:
         mock_raw_events_columns: list[str],
         mock_url_mapping: dict[str, str],
         mock_window_mapping: dict[str, str],
+        focus_area: str | None,
+        should_contain_focus_area: bool,
     ):
         """Test that _generate_prompt generates the correct prompts with the provided data."""
-
-        # Create prompt data
         prompt_data = SessionSummaryPromptData(
             columns=mock_raw_events_columns,
             results=self._make_events_json_serializable(mock_raw_events),
@@ -251,7 +258,6 @@ class TestReplaySummarizer:
         # Reverse mappings for easier reference in the prompt
         url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
         window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
-        focus_area = "unexpected focus area that won't be in the prompt naturally"
         extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         # Generate prompts
         summary_prompt, system_prompt = summarizer._generate_prompt(
@@ -260,28 +266,28 @@ class TestReplaySummarizer:
             window_mapping_reversed=window_mapping_reversed,
             extra_summary_context=extra_summary_context,
         )
-        # Verify system prompt contains focus area
-        assert focus_area in system_prompt
+        # Verify focus area presence
+        assert "FOCUS_AREA" not in system_prompt
+        assert "FOCUS_AREA" not in summary_prompt
+        if should_contain_focus_area:
+            assert focus_area in system_prompt
+            assert focus_area in summary_prompt
         # Verify that prompt variables were replaced with actual data
         assert "EVENTS_DATA" not in summary_prompt
         assert "SESSION_METADATA" not in summary_prompt
         assert "URL_MAPPING" not in summary_prompt
         assert "WINDOW_ID_MAPPING" not in summary_prompt
         assert "SUMMARY_EXAMPLE" not in summary_prompt
-        assert "FOCUS_AREA" not in summary_prompt
-
         # Verify events data matches
         events_data_start = summary_prompt.find("<events_input>\n```\n") + len("<events_input>\n```\n")
         events_data_end = summary_prompt.find("\n```\n</events_input>")
         events_data = json.loads(summary_prompt[events_data_start:events_data_end].strip())
         assert events_data == self._make_events_json_serializable(mock_raw_events)
-
         # Verify URL mapping data matches
         url_mapping_start = summary_prompt.find("<url_mapping_input>\n```\n") + len("<url_mapping_input>\n```\n")
         url_mapping_end = summary_prompt.find("\n```\n</url_mapping_input>")
         url_mapping_data = json.loads(summary_prompt[url_mapping_start:url_mapping_end].strip())
         assert url_mapping_data == url_mapping_reversed
-
         # Verify window mapping data matches
         window_mapping_start = summary_prompt.find("<window_mapping_input>\n```\n") + len(
             "<window_mapping_input>\n```\n"
@@ -289,7 +295,6 @@ class TestReplaySummarizer:
         window_mapping_end = summary_prompt.find("\n```\n</window_mapping_input>")
         window_mapping_data = json.loads(summary_prompt[window_mapping_start:window_mapping_end].strip())
         assert window_mapping_data == window_mapping_reversed
-
         # Verify session metadata matches
         session_metadata_start = summary_prompt.find("<session_metadata_input>\n```\n") + len(
             "<session_metadata_input>\n```\n"
@@ -297,14 +302,3 @@ class TestReplaySummarizer:
         session_metadata_end = summary_prompt.find("\n```\n</session_metadata_input>")
         session_metadata_data = json.loads(summary_prompt[session_metadata_start:session_metadata_end].strip())
         assert session_metadata_data == mock_session_metadata.to_dict()
-
-        # # Verify the data is properly formatted
-        # assert json.loads(summary_prompt.split("EVENTS_DATA")[1].split("```")[1].strip()) == prompt_data.results
-        # assert (
-        #     json.loads(summary_prompt.split("SESSION_METADATA")[1].split("```")[1].strip())
-        #     == prompt_data.metadata.to_dict()
-        # )
-        # assert json.loads(summary_prompt.split("URL_MAPPING")[1].split("```")[1].strip()) == url_mapping_reversed
-        # assert (
-        #     json.loads(summary_prompt.split("WINDOW_ID_MAPPING")[1].split("```")[1].strip()) == window_mapping_reversed
-        # )
