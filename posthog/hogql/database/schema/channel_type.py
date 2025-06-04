@@ -47,7 +47,7 @@ class ChannelTypeExprs:
 
 def create_initial_domain_type(
     name: str, timings: Optional[HogQLTimings] = None, properties_path: Optional[list[str]] = None
-):
+) -> ExpressionField:
     if timings is None:
         timings = HogQLTimings()
 
@@ -72,7 +72,7 @@ def create_initial_domain_type(
 
 
 @cache
-def _initial_domain_type_expr():
+def _initial_domain_type_expr() -> ast.Expr:
     return parse_expr(
         """
 if(
@@ -89,7 +89,7 @@ def create_initial_channel_type(
     custom_rules: Optional[list[CustomChannelRule]] = None,
     timings: Optional[HogQLTimings] = None,
     properties_path: Optional[list[str]] = None,
-):
+) -> ExpressionField:
     if not properties_path:
         properties_path = ["properties"]
     return ExpressionField(
