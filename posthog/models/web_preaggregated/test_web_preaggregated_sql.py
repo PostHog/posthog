@@ -95,7 +95,7 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql = print_ast(hogql_query, context=context, dialect="clickhouse")
 
-        assert "web_bounces_daily FINAL" in sql
+        assert "web_bounces_combined FINAL" in sql
 
     def test_replacing_merge_tree_version_column(self):
         table_sql = WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False)

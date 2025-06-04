@@ -36,7 +36,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
                 NULL AS revenue,
                 NULL AS previous_revenue
-        FROM web_bounces_daily FINAL
+        FROM web_bounces_combined FINAL
         """,
             placeholders={
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
@@ -58,7 +58,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
         assert isinstance(query, ast.SelectQuery)
 
-        filters = self._get_filters(table_name="web_bounces_daily")
+        filters = self._get_filters(table_name="web_bounces_combined")
         if filters:
             query.where = filters
 

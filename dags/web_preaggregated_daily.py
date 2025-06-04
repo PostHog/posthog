@@ -5,6 +5,7 @@ import structlog
 import dagster
 from dagster import DailyPartitionsDefinition, RetryPolicy, Backoff, Jitter, BackfillPolicy
 from clickhouse_driver import Client
+from dags import web_preaggregated_hourly
 from dags.common import JobOwners
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
@@ -16,8 +17,10 @@ from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
     DISTRIBUTED_WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_COMBINED_VIEW_SQL,
     WEB_BOUNCES_DAILY_SQL,
     WEB_BOUNCES_INSERT_SQL,
+    WEB_STATS_COMBINED_VIEW_SQL,
     WEB_STATS_DAILY_SQL,
     DISTRIBUTED_WEB_STATS_DAILY_SQL,
     WEB_STATS_INSERT_SQL,
@@ -180,6 +183,23 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
         table_name="web_stats_daily",
         sql_generator=WEB_STATS_INSERT_SQL,
     )
+
+@dagster.asset(
+    name="web_analytics_combined_views",
+    group_name="web_analytics",
+    description="Creates combined views that automatically merge daily and hourly data using toStartOfDay(now()) boundary.",
+    deps=["web_analytics_preaggregated_tables", web_preaggregated_hourly.web_analytics_preaggregated_hourly_tables],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_analytics_combined_views(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> bool:
+    def create_views(client: Client):
+        client.execute(WEB_STATS_COMBINED_VIEW_SQL())
+        client.execute(WEB_BOUNCES_COMBINED_VIEW_SQL())
+
+    cluster.map_all_hosts(create_views).result()
+    return True
 
 
 # Daily incremental job with asset-level concurrency control

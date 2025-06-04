@@ -32,7 +32,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         filter_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=[table_name, "day_bucket"]),
+                left=ast.Field(chain=[table_name, "period_bucket"]),
                 right=ast.Constant(
                     value=(
                         self.runner.query_compare_to_date_range.date_from()
@@ -43,7 +43,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=[table_name, "day_bucket"]),
+                left=ast.Field(chain=[table_name, "period_bucket"]),
                 right=ast.Constant(value=self.runner.query_date_range.date_to()),
             ),
         ]
@@ -78,19 +78,19 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             previous_date_from = current_date_from
             previous_date_to = current_date_to
 
-        # Create the field reference for day_bucket
-        day_bucket_field = ast.Field(chain=[table_name, "day_bucket"] if table_name else ["day_bucket"])
+        # Create the field reference for period_bucket
+        period_bucket_field = ast.Field(chain=[table_name, "period_bucket"] if table_name else ["period_bucket"])
 
         current_period_filter = ast.And(
             exprs=[
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=day_bucket_field,
+                    left=period_bucket_field,
                     right=ast.Constant(value=current_date_from),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=day_bucket_field,
+                    left=period_bucket_field,
                     right=ast.Constant(value=current_date_to),
                 ),
             ]
@@ -100,12 +100,12 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             exprs=[
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=day_bucket_field,
+                    left=period_bucket_field,
                     right=ast.Constant(value=previous_date_from),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=day_bucket_field,
+                    left=period_bucket_field,
                     right=ast.Constant(value=previous_date_to),
                 ),
             ]
