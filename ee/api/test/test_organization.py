@@ -10,6 +10,7 @@ from ee.models.license import License
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
+from posthog.models.feature import AvailableFeature
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -300,3 +301,15 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             [team["name"] for team in response.json()["teams"]],
             [self.team.name],  # "FORBIDDEN" excluded
         )
+
+    def test_member_cannot_update_members_can_invite_on_org(self):
+        """Test that members cannot update members_can_invite when ORGANIZATION_INVITE_SETTINGS is available."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.save()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"members_can_invite": True})
+        self.assertEqual(response.status_code, 403)
