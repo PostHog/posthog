@@ -53,49 +53,7 @@ class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     def get_queryset(self):
-        # Optimize user queries by preloading essential fields and related organization data.
-        # This prevents N+1 queries in authentication middleware and other common user operations.
-        # We explicitly list all required fields since Django's select_related() doesn't support
-        # automatic field selection for related models.
-        return (
-            super()
-            .get_queryset()
-            .defer(*DEFERED_ATTRS)
-            .select_related("current_organization")
-            .only(
-                # User attributes
-                "id",
-                "password",
-                "last_login",
-                "first_name",
-                "last_name",
-                "is_staff",
-                "date_joined",
-                "uuid",
-                "current_organization_id",
-                "current_team_id",
-                "email",
-                "pending_email",
-                "temporary_token",
-                "distinct_id",
-                "is_email_verified",
-                "has_seen_product_intro_for",
-                "strapi_id",
-                "is_active",
-                "role_at_organization",
-                "theme_mode",
-                "partial_notification_settings",
-                "anonymize_data",
-                "toolbar_mode",
-                "hedgehog_config",
-                "events_column_config",
-                "email_opt_in",
-                # Current organization attributes
-                "current_organization__id",
-                "current_organization__name",
-                "current_organization__session_cookie_age",
-            )
-        )
+        return super().get_queryset().defer(*DEFERED_ATTRS)
 
     model: type["User"]
 
