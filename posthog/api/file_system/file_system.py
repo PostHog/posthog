@@ -219,12 +219,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Show all objects belonging to the project, except for hog functions, which are scoped by team.
         """
         queryset = self._scope_by_project(queryset)
-        assert "team_id" in self.parent_query_kwargs
+        # type !~ 'hog_function/.*' or team = $current
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
 
     def _filter_queryset_by_parents_lookups(self, queryset):
-        return queryset.filter(team__project_id=self.team.project_id)
+        return self._scope_by_project(queryset)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
