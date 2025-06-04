@@ -1,16 +1,18 @@
+import { IconPlus } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
-    getDefaultTreeMetadata,
+    getDefaultTreeData,
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
@@ -242,12 +244,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
-                    const response = await api.fileSystemShortcuts.create({
-                        path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
-                        type: item.type,
-                        ref: item.ref,
-                        href: item.href,
-                    })
+                    const shortcutItem =
+                        item.type === 'folder'
+                            ? {
+                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  type: 'folder',
+                                  ref: item.path,
+                              }
+                            : {
+                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  type: item.type,
+                                  ref: item.ref,
+                                  href: item.href,
+                              }
+                    const response = await api.fileSystemShortcuts.create(shortcutItem)
                     return [...values.shortcutData, response]
                 },
                 deleteShortcut: async ({ id }) => {
@@ -559,11 +569,79 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return groupItems
             },
         ],
+        getShortcutTreeItems: [
+            (s) => [s.shortcutData, s.viableItems, s.folderStates, s.users],
+            (
+                shortcutData,
+                viableItems,
+                folderStates,
+                users
+            ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+                return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
+                    const newShortcutData = []
+                    for (const shortcut of shortcutData) {
+                        const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
+                            root: 'shortcuts://',
+                            imports: [shortcut],
+                            checkedItems: {},
+                            folderStates,
+                            users,
+                            foldersFirst: true,
+                            disabledReason: onlyFolders
+                                ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
+                                : undefined,
+                        })[0]
+
+                        if (shortcut.type === 'folder' && shortcut.ref) {
+                            const allImports = viableItems.filter((item) => item.path.startsWith(shortcut.ref + '/'))
+                            let converted: TreeDataItem[] = convertFileSystemEntryToTreeDataItem({
+                                root: 'project://',
+                                imports: allImports.map((item) => ({ ...item, protocol: 'project://' })),
+                                checkedItems: {},
+                                folderStates,
+                                users,
+                                foldersFirst: true,
+                                searchTerm,
+                                disabledReason: onlyFolders
+                                    ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
+                                    : undefined,
+                            })
+                            for (let i = 0; i < splitPath(shortcut.ref).length; i++) {
+                                converted = converted[0]?.children || []
+                            }
+                            if (folderStates[shortcut.ref] === 'has-more') {
+                                converted.push({
+                                    id: `project://-load-more/${shortcut.ref}`,
+                                    name: 'Load more...',
+                                    displayName: <>Load more...</>,
+                                    icon: <IconPlus />,
+                                    disableSelect: true,
+                                })
+                            } else if (folderStates[shortcut.ref] === 'loading') {
+                                converted.push({
+                                    id: `project://-loading/${shortcut.ref}`,
+                                    name: 'Loading...',
+                                    displayName: <>Loading...</>,
+                                    icon: <Spinner />,
+                                    disableSelect: true,
+                                    type: 'loading-indicator',
+                                })
+                            }
+
+                            newShortcutData.push({ ...shortcutTreeItem, children: converted })
+                        } else {
+                            newShortcutData.push(shortcutTreeItem)
+                        }
+                    }
+                    return newShortcutData
+                }
+            },
+        ],
         getStaticTreeItems: [
-            (s) => [s.featureFlags, s.shortcutData, s.groupItems],
+            (s) => [s.featureFlags, s.getShortcutTreeItems, s.groupItems],
             (
                 featureFlags,
-                shortcutData,
+                getShortcutTreeItems,
                 groupItems
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 const convert = (
@@ -592,10 +670,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
-                        ['metadata://', getDefaultTreeMetadata()],
+                        ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
-                        ['shortcuts://', shortcutData],
                     ]
                     const staticItems = data.map(([protocol, files]) => ({
                         id: protocol,
@@ -604,6 +681,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         record: { type: 'folder', protocol, path: '' },
                         children: convert(files, protocol, searchTerm, onlyFolders),
                     }))
+                    staticItems.push({
+                        id: 'shortcuts://',
+                        name: 'Shortcuts',
+                        displayName: <>Shortcuts</>,
+                        record: { type: 'folder', protocol: 'shortcuts://', path: '' },
+                        children: getShortcutTreeItems(searchTerm, onlyFolders),
+                    })
                     return staticItems
                 }
             },

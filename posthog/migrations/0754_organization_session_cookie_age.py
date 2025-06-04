@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0749_modify_errortrackingstackframe_symbolset_relation"),
+        ("posthog", "0753_remove_posthog_person_email_index"),
     ]
 
     operations = [
