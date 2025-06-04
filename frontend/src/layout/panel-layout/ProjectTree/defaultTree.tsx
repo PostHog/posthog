@@ -35,7 +35,7 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemImport, FilsSystemIconType } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineStage } from '~/types'
+import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 
 const iconTypes: Record<FilsSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
@@ -216,7 +216,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeMetadata = (): FileSystemImport[] => [
+export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
@@ -239,6 +239,24 @@ export const getDefaultTreeMetadata = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
+    {
+        path: `Sources`,
+        type: 'hog_function/source',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Sources),
+    } as FileSystemImport,
+    {
+        path: `Transformations`,
+        type: 'hog_function/transformation',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Transformations),
+    } as FileSystemImport,
+    {
+        path: `Destinations`,
+        type: 'hog_function/destination',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Destinations),
+    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>

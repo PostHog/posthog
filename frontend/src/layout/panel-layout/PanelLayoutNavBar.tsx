@@ -94,15 +94,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (!isLayoutPanelVisible) {
-            showLayoutPanel(true)
-        } else {
-            showLayoutPanel(false)
-            clearActivePanelIdentifier()
-        }
-
         if (activePanelIdentifier !== item) {
             setActivePanelIdentifier(item)
+            showLayoutPanel(true)
+        } else if (activePanelIdentifier === item) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
         }
     }
 
@@ -196,12 +193,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
-            identifier: 'Metadata',
-            id: 'Metadata',
+            identifier: 'Data',
+            id: 'Data',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Metadata')
+                    handlePanelTriggerClick('Data')
                 }
             },
             showChevron: true,
@@ -552,7 +549,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutNavBar(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-200)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                     />
                 )}
 
@@ -562,7 +559,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutPanel(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-200)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                     />
                 )}
             </div>
