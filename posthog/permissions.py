@@ -617,3 +617,28 @@ class ProjectSecretAPITokenPermission(BasePermission):
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
         )
+
+
+class UserCanInvitePermission(BasePermission):
+    """
+    Only allows Admins+, and Members if members_can_invite flag is True
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        # should I check if is_rbac_supported to check the role
+        user = request.user
+
+        try:
+            membership = OrganizationMembership.objects.get(
+                user=cast(User, user), organization=user.current_organization
+            )
+        except OrganizationMembership.DoesNotExist:
+            raise NotFound("Organization not found.")
+
+        members_can_invite = user.current_organization.members_can_invite
+        user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
+
+        if user_is_admin:
+            return True
+
+        return members_can_invite

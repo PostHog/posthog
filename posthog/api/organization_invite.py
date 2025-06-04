@@ -26,6 +26,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
+from posthog.permissions import UserCanInvitePermission
 
 
 class OrganizationInviteManager:
@@ -302,6 +303,11 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
+    def get_permissions(self):
+        if self.action == "create":
+            return [UserCanInvitePermission()]
+        return super().get_permissions()
+
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
 
@@ -324,7 +330,12 @@ class OrganizationInviteViewSet(
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["organization_member:write"],
+        permission_classes=[UserCanInvitePermission],
+    )
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
         user = cast(User, self.request.user)
