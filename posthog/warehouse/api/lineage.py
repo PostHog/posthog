@@ -67,11 +67,12 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             for component in components:
                 try:
-                    uuid_obj = uuid.UUID(component)
-                    uuid_nodes.add(uuid_obj)
+                    component_uuid = uuid.UUID(component)
+                    uuid_nodes.add(component_uuid)
                 except ValueError:
                     continue
 
+        # gather all saved queries in one go to avoid n+1 queries
         saved_queries = {str(query.id): query for query in DataWarehouseSavedQuery.objects.filter(id__in=uuid_nodes)}
 
         for path in paths:
@@ -86,11 +87,11 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 node_id = component
                 if node_id not in seen_nodes:
                     seen_nodes.add(node_id)
-                    uuid_obj: Optional[uuid.UUID] = None
+                    node_uuid: Optional[uuid.UUID] = None
                     saved_query = None
                     try:
-                        uuid_obj = uuid.UUID(component)
-                        saved_query = saved_queries.get(str(uuid_obj))
+                        node_uuid = uuid.UUID(component)
+                        saved_query = saved_queries.get(str(node_uuid))
                         name = saved_query.name if saved_query else component
                     except ValueError:
                         name = component
@@ -98,7 +99,7 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     dag["nodes"].append(
                         {
                             "id": node_id,
-                            "type": "view" if uuid_obj else "table",
+                            "type": "view" if node_uuid else "table",
                             "name": name,
                             "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
                             "last_run_at": saved_query.last_run_at if saved_query else None,
