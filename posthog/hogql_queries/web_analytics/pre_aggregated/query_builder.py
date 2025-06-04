@@ -1,5 +1,4 @@
 from typing import Optional
-from datetime import datetime, UTC
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -19,11 +18,6 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 return False
 
         if query.conversionGoal:
-            return False
-
-        # Only work for fixed-dates that don't include current-date in the filters while we test the pre-aggregated tables
-        today = datetime.now(UTC).date()
-        if self.runner.query_date_range.date_to().date() >= today:
             return False
 
         return True

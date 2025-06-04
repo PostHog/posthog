@@ -825,18 +825,18 @@ def WEB_BOUNCES_INSERT_SQL(
     """
 
 
-def create_combined_view_sql(table_name, on_cluster=True):
+def create_combined_view_sql(table_prefix, on_cluster=True):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster)} AS
-    SELECT * FROM {table_name}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
+    CREATE VIEW IF NOT EXISTS {table_prefix}_combined {ON_CLUSTER_CLAUSE(on_cluster)} AS
+    SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
-    SELECT * FROM {table_name}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
+    SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
     """
 
 
 def WEB_STATS_COMBINED_VIEW_SQL():
-    return create_combined_view_sql("web_stats_combined")
+    return create_combined_view_sql("web_stats")
 
 
 def WEB_BOUNCES_COMBINED_VIEW_SQL():
-    return create_combined_view_sql("web_bounces_combined")
+    return create_combined_view_sql("web_bounces")
