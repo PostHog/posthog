@@ -9690,7 +9690,7 @@
                     "type": "string"
                 },
                 "iconType": {
-                    "type": "string"
+                    "$ref": "#/definitions/FilsSystemIconType"
                 },
                 "id": {
                     "type": "string"
@@ -9734,6 +9734,35 @@
             },
             "required": ["path"],
             "type": "object"
+        },
+        "FilsSystemIconType": {
+            "enum": [
+                "plug",
+                "cohort",
+                "insight",
+                "definitions",
+                "warning",
+                "errorTracking",
+                "ai",
+                "cursor",
+                "heatmap",
+                "database",
+                "folder",
+                "handMoney",
+                "live",
+                "notification",
+                "pieChart",
+                "piggyBank",
+                "sql",
+                "insightFunnel",
+                "insightTrends",
+                "insightRetention",
+                "insightUserPaths",
+                "insightLifecycle",
+                "insightStickiness",
+                "insightHogQL"
+            ],
+            "type": "string"
         },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
