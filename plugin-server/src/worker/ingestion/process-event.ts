@@ -28,7 +28,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { upsertGroup } from './properties-updater'
+import { GroupStoreForDistinctIdBatch } from './groups/group-store-for-distinct-id-batch'
 import { captureIngestionWarning } from './utils'
 
 // for e.g. internal events we don't want to be available for users in the UI
@@ -71,7 +71,8 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean
+        processPerson: boolean,
+        groupStoreForDistinctId: GroupStoreForDistinctIdBatch
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(
@@ -100,7 +101,8 @@ export class EventsProcessor {
                     distinctId,
                     properties,
                     timestamp,
-                    processPerson
+                    processPerson,
+                    groupStoreForDistinctId
                 )
                 processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
@@ -145,7 +147,8 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         timestamp: DateTime,
-        processPerson: boolean
+        processPerson: boolean,
+        groupStoreForDistinctId: GroupStoreForDistinctIdBatch
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
 
@@ -171,7 +174,7 @@ export class EventsProcessor {
             properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, team.project_id, properties, timestamp)
+                await this.upsertGroup(team.id, team.project_id, properties, timestamp, groupStoreForDistinctId)
             }
         }
 
@@ -284,7 +287,8 @@ export class EventsProcessor {
         teamId: TeamId,
         projectId: ProjectId,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        groupStoreForDistinctIdBatch: GroupStoreForDistinctIdBatch
     ): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
@@ -292,10 +296,8 @@ export class EventsProcessor {
 
         const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
         const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
-
         if (groupTypeIndex !== null) {
-            await upsertGroup(
-                this.db,
+            await groupStoreForDistinctIdBatch.upsertGroup(
                 teamId,
                 projectId,
                 groupTypeIndex,

@@ -10,7 +10,6 @@ from posthog.session_recordings.session_recording_v2_service import (
     list_blocks,
     load_blocks,
     FIVE_SECONDS,
-    ONE_DAY_IN_SECONDS,
     listing_cache_key,
 )
 
@@ -160,7 +159,8 @@ class TestSessionRecordingV2Service(TestCase):
 
         self.assertEqual(result, mock_blocks)
         expected_cache_key = listing_cache_key(self.recording)
-        mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=ONE_DAY_IN_SECONDS)
+        # cache is forced to 5 seconds always
+        mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=FIVE_SECONDS)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
