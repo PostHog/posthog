@@ -161,7 +161,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             view,
             insight,
         }),
-        loadUpstream: (modelId: string, modelType: string) => ({ modelId, modelType }),
+        loadUpstream: (modelId: string) => ({ modelId }),
         deleteTab: (tab: QueryTab) => ({ tab }),
         _deleteTab: (tab: QueryTab) => ({ tab }),
         removeTab: (tab: QueryTab) => ({ tab }),
@@ -1154,7 +1154,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (editingView) {
                 actions.resetDataModelingJobs()
                 actions.loadDataModelingJobs(editingView.id)
-                actions.loadUpstream(editingView.id, 'saved_query')
+                actions.loadUpstream(editingView.id)
             }
         },
     })),

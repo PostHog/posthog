@@ -54,6 +54,24 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         dag: dict[str, list] = {"nodes": [], "edges": []}
 
         seen_nodes = set()
+        uuid_nodes = set()
+
+        for path in paths:
+            if isinstance(path.path, list):
+                components = path.path
+            else:
+                components = path.path.split(".")
+
+            components = join_components_greedily(components)
+
+            for component in components:
+                try:
+                    uuid_obj = uuid.UUID(component)
+                    uuid_nodes.add(uuid_obj)
+                except ValueError:
+                    continue
+
+        saved_queries = {str(query.id): query for query in DataWarehouseSavedQuery.objects.filter(id__in=uuid_nodes)}
 
         for path in paths:
             if isinstance(path.path, list):
@@ -71,9 +89,9 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     saved_query = None
                     try:
                         uuid_obj = uuid.UUID(component)
-                        saved_query = DataWarehouseSavedQuery.objects.get(id=uuid_obj)
-                        name = saved_query.name
-                    except (ValueError, DataWarehouseSavedQuery.DoesNotExist):
+                        saved_query = saved_queries.get(str(uuid_obj))
+                        name = saved_query.name if saved_query else component
+                    except ValueError:
                         name = component
 
                     dag["nodes"].append(
