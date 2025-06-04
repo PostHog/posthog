@@ -461,8 +461,8 @@ describe('getViewRecordingFiltersLegacy', () => {
         )
         expect(filters).toEqual([
             {
-                id: 'storybook-click',
-                name: 'storybook-click',
+                id: '$pageview',
+                name: '$pageview',
                 type: 'events',
                 properties: [
                     {
