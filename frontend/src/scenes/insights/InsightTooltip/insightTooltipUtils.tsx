@@ -135,7 +135,7 @@ export function invertDataSource(
                     {pillValues.map((pill, index) => (
                         <>
                             <span key={pill}>{midEllipsis(pill, 60)}</span>
-                            {index < pillValues.length - 1 && ' '}
+                            {index < pillValues.length - 1 && ' · '}
                         </>
                     ))}
                 </>
