@@ -111,7 +111,6 @@ function JsonConfigField(props: {
 }
 
 function EmailTemplateField({
-    schema,
     value,
     onChange,
 }: {
