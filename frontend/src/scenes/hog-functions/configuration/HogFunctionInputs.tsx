@@ -15,6 +15,7 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,6 +34,7 @@ import {
 import { EmailTemplater } from '../email-templater/EmailTemplater'
 import { HogFunctionInputIntegration } from '../integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from '../integrations/HogFunctionInputIntegrationField'
+import { HogFunctionTemplateSuggestionsButton } from './components/HogFunctionTemplateSuggestions'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { formatJsonValue, hogFunctionInputLogic } from './HogFunctionInputLogic'
 
@@ -131,6 +133,8 @@ function HogFunctionTemplateInput(props: {
 }): JSX.Element {
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
+    const templating = props.input.templating ?? 'hog'
+
     if (!props.templating) {
         return (
             <LemonInput
@@ -142,13 +146,25 @@ function HogFunctionTemplateInput(props: {
     }
 
     return (
-        <CodeEditorInline
-            value={props.input.value ?? ''}
-            onChange={(val) => props.onChange?.({ ...props.input, value: val ?? '' })}
-            language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
-            globals={sampleGlobalsWithInputs}
-            className={props.className}
-        />
+        <span className={clsx('relative', props.className)}>
+            <CodeEditorInline
+                value={props.input.value ?? ''}
+                onChange={(val) => props.onChange?.({ ...props.input, value: val ?? '' })}
+                language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
+                globals={sampleGlobalsWithInputs}
+            />
+            <span className="absolute top-0 right-0">
+                <HogFunctionTemplateSuggestionsButton
+                    templating={templating}
+                    value={props.input.value}
+                    onOptionSelect={(option) => {
+                        // TODO: Improve this - we shouldn't just append but rather be clever and wrap the last selected text in the template
+                        // etc.
+                        props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
+                    }}
+                />
+            </span>
+        </span>
     )
 }
 
