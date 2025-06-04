@@ -11,6 +11,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { TeamMembershipLevel } from 'lib/constants'
 import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -32,8 +33,7 @@ import {
 import { AvailableFeature, GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
-import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogicgp'
 
 let uniqueNode = 0
 
