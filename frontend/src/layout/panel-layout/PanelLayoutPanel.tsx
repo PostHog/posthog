@@ -24,6 +24,10 @@ interface PanelLayoutPanelProps {
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
+        isLayoutPanelPinned: {
+            true: 'relative',
+            false: 'absolute',
+        },
         projectTreeMode: {
             tree: '',
             table: 'absolute top-0 left-0 bottom-0',
@@ -93,6 +97,7 @@ export function PanelLayoutPanel({
                     isLayoutNavCollapsed,
                     isMobileLayout,
                     panelWillHide,
+                    isLayoutPanelPinned,
                 })
             )}
             ref={containerRef}
@@ -106,6 +111,7 @@ export function PanelLayoutPanel({
                             iconOnly
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                             tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
                                 <IconPinFilled className="size-3 text-tertiary" />
@@ -139,6 +145,10 @@ export function PanelLayoutPanel({
 
     return (
         <ResizableElement
+            className={cn({
+                relative: isLayoutPanelPinned,
+                'absolute left-full h-full': !isLayoutPanelPinned,
+            })}
             key="panel-layout-panel"
             defaultWidth={computedPanelWidth}
             onResize={(width) => {
@@ -149,6 +159,7 @@ export function PanelLayoutPanel({
             innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
+            data-attr="tree-panel-resizer"
         >
             {panelContents}
         </ResizableElement>

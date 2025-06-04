@@ -11,8 +11,13 @@ from sentry_sdk import get_traceparent, push_scope, set_tag
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter, get_app_org_rate_limiter
+from posthog.clickhouse.client.limit import (
+    get_api_personal_rate_limiter,
+    get_app_org_rate_limiter,
+    get_app_dashboard_queries_rate_limiter,
+)
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
@@ -402,12 +407,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
         )
 
-        return RevenueAnalyticsOverviewQueryRunner(
+        return RevenueAnalyticsGrowthRateQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -415,12 +420,25 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrowthRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-            RevenueAnalyticsGrowthRateQueryRunner,
+    if kind == "RevenueAnalyticsInsightsQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_insights_query_runner import (
+            RevenueAnalyticsInsightsQueryRunner,
         )
 
-        return RevenueAnalyticsGrowthRateQueryRunner(
+        return RevenueAnalyticsInsightsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
+        )
+
+        return RevenueAnalyticsOverviewQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -623,6 +641,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     is_query_service: bool = False
+    workload: Optional[Workload] = None
 
     def __init__(
         self,
@@ -632,12 +651,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        workload: Optional[Workload] = None,
         extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
+        self.workload = workload
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -862,17 +883,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 tag_queries(chargeable=1)
 
             with get_app_org_rate_limiter().run(
-                org_id=self.team.organization_id, task_id=self.query_id, team_id=self.team.id
+                org_id=self.team.organization_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
+                is_api=get_query_tag_value("access_method") == "personal_api_key",
             ):
-                fresh_response_dict = {
-                    **self.calculate().model_dump(),
-                    "is_cached": False,
-                    "last_refresh": last_refresh,
-                    "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                    "cache_key": cache_key,
-                    "timezone": self.team.timezone,
-                    "cache_target_age": target_age,
-                }
+                with get_app_dashboard_queries_rate_limiter().run(
+                    org_id=self.team.organization_id,
+                    dashboard_id=dashboard_id,
+                    task_id=self.query_id,
+                    team_id=self.team.id,
+                    is_api=get_query_tag_value("access_method") == "personal_api_key",
+                ):
+                    fresh_response_dict = {
+                        **self.calculate().model_dump(),
+                        "is_cached": False,
+                        "last_refresh": last_refresh,
+                        "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                        "cache_key": cache_key,
+                        "timezone": self.team.timezone,
+                        "cache_target_age": target_age,
+                    }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)

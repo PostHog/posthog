@@ -134,6 +134,7 @@ class Organization(UUIDModel):
     is_member_join_email_enabled = models.BooleanField(default=True)
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    members_can_invite = models.BooleanField(default=True, null=True, blank=True)
 
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
@@ -164,6 +165,8 @@ class Organization(UUIDModel):
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
+
+    is_platform = models.BooleanField(default=False, null=True, blank=True)
 
     def __str__(self):
         return self.name

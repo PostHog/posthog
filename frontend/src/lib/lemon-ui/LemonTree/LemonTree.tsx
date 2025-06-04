@@ -73,6 +73,9 @@ export type TreeDataItem = {
 
     /** Tags for the item */
     tags?: string[]
+
+    /** Order of object in tree */
+    visualOrder?: number
 }
 export type TreeMode = 'tree' | 'table'
 
@@ -774,8 +777,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const nodeArray = nodes instanceof Array ? nodes : [nodes]
 
                 nodeArray.forEach((node) => {
-                    // if folderSelectMode we don't return folder items
-                    if (selectMode !== 'folder-only') {
+                    // For folder-only mode, only include folders; for other modes, include all items
+                    if (selectMode === 'folder-only') {
+                        // Only include folders in folder-only mode
+                        if (node.record?.type === 'folder' || node.children) {
+                            items.push(node)
+                        }
+                    } else {
+                        // Include all items in default/multi mode
                         items.push(node)
                     }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
@@ -931,9 +940,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     item.onClick(willBeOpen)
                 }
 
-                setSelectedId(item?.id)
+                if (selectMode === 'folder-only') {
+                    setSelectedId(item?.id)
+                }
             },
-            [expandedItemIdsState, onFolderClick, onItemClick, focusContent]
+            [expandedItemIdsState, onFolderClick, onItemClick, focusContent, selectMode]
         )
 
         /** Focus the element from the tree item ID. */

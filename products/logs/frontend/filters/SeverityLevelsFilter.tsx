@@ -8,10 +8,12 @@ import { LogMessage } from '~/queries/schema/schema-general'
 import { logsLogic } from '../logsLogic'
 
 const options: Record<LogMessage['severity_text'], string> = {
+    trace: 'Trace',
     info: 'Info',
     debug: 'Debug',
     warn: 'Warn',
     error: 'Error',
+    fatal: 'Fatal',
 }
 
 export const SeverityLevelsFilter = (): JSX.Element => {
@@ -45,7 +47,7 @@ export const SeverityLevelsFilter = (): JSX.Element => {
                     active: severityLevels.includes(key as LogMessage['severity_text']),
                 }))}
             >
-                <LemonButton icon={<IconFilter />} size="small" type="secondary">
+                <LemonButton icon={<IconFilter />} size="small" type="secondary" className="whitespace-nowrap">
                     {displayLevels}
                 </LemonButton>
             </LemonMenu>
