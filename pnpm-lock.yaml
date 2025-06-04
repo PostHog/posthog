@@ -885,8 +885,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.249.2
-        version: 1.249.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.249.3
+        version: 1.249.3(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -14132,8 +14132,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.249.2:
-    resolution: {integrity: sha512-OMXCO/IfcJBjYTuebVynMbp8Kq329yKEQSCAnkqLmi8W2Bt5bi7S5xxMwDM3Pm7818Uh0C40XMG3rAtYozId6Q==}
+  posthog-js@1.249.3:
+    resolution: {integrity: sha512-+DMUJYADNakPU05tGdJFoWbpyb5gDwRczT2+gFI72Th3315Wl+k7hKwBpzq2zvH5+jKOHjE0SKD/fzf1AFInkw==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -16375,8 +16375,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.272.0:
-    resolution: {integrity: sha512-W2Az/9+1MyMCqimjK8YjyWg5kWvycDGL27gvpY7+j01GQhLvrEJzaYF8FwH2+qvqSaDluhkPQfOkLOK3c4N8Pg==}
+  unlayer-types@1.273.0:
+    resolution: {integrity: sha512-sm0MMgG1+D3l+wfggNY2wLSTngFpgwQ+XfBNuVckXpsUqPD8/bI3WdGPp7AdldqK8FDfD2Cz0g0nNtHApuvbww==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -32708,7 +32708,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.249.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.249.3(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -33218,7 +33218,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.272.0
+      unlayer-types: 1.273.0
 
   react-error-overlay@6.0.9: {}
 
@@ -35337,7 +35337,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.272.0: {}
+  unlayer-types@1.273.0: {}
 
   unpipe@1.0.0: {}
 
