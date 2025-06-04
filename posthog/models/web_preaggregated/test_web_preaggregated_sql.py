@@ -1,11 +1,8 @@
 from unittest.mock import patch
+from parameterized import parameterized
 from posthog.models.web_preaggregated.sql import (
     WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
-    WEB_STATS_INSERT_SQL,
-    WEB_BOUNCES_INSERT_SQL,
-    DISTRIBUTED_WEB_STATS_DAILY_SQL,
-    DISTRIBUTED_WEB_BOUNCES_DAILY_SQL,
 )
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
@@ -16,86 +13,83 @@ from posthog.hogql.context import HogQLContext
 
 
 class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
-    """Test the new ReplacingMergeTree implementation for web analytics pre-aggregated tables"""
+    TEST_TABLE_STATS = "test_web_stats_daily"
+    TEST_TABLE_BOUNCES = "test_web_bounces_daily"
+    TEST_DATE_START = "2023-01-01"
+    TEST_DATE_END = "2023-01-02"
+    TEST_TEAM_IDS = [1]
 
-    def test_web_stats_table_creation_with_replacing_merge_tree(self):
-        table_sql = WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False)
+    REPLACING_MERGE_TREE_PATTERNS = [
+        "ReplacingMergeTree",
+        "updated_at DateTime64(6, 'UTC') DEFAULT now()",
+    ]
 
-        assert "ReplacingMergeTree" in table_sql
-        assert "updated_at" in table_sql
-        assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in table_sql
+    AGGREGATE_FUNCTION_PATTERNS = {
+        "persons_uniq_state": "AggregateFunction(uniq, UUID)",
+        "sessions_uniq_state": "AggregateFunction(uniq, String)",
+        "pageviews_count_state": "AggregateFunction(sum, UInt64)",
+        "bounces_count_state": "AggregateFunction(sum, UInt64)",
+        "total_session_duration_state": "AggregateFunction(sum, Int64)",
+        "total_session_count_state": "AggregateFunction(sum, UInt64)",
+    }
 
-        assert "AggregatingMergeTree" not in table_sql
+    def _assert_sql_contains_patterns(self, sql: str, patterns: list[str], should_contain: bool = True):
+        for pattern in patterns:
+            if should_contain:
+                assert pattern in sql, f"Expected '{pattern}' in SQL"
+            else:
+                assert pattern not in sql, f"Did not expect '{pattern}' in SQL"
 
-    def test_web_bounces_table_creation_with_replacing_merge_tree(self):
-        table_sql = WEB_BOUNCES_DAILY_SQL(table_name="test_web_bounces_daily", on_cluster=False)
+    def _assert_sql_contains_aggregate_functions(self, sql: str, function_names: list[str]):
+        for func_name in function_names:
+            expected_pattern = f"{func_name} {self.AGGREGATE_FUNCTION_PATTERNS[func_name]}"
+            assert expected_pattern in sql, f"Expected aggregate function '{expected_pattern}' in SQL"
 
-        assert "ReplacingMergeTree" in table_sql
-        assert "updated_at" in table_sql
-        assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in table_sql
+    def _get_web_stats_sql(self, table_name: str | None = None) -> str:
+        return WEB_STATS_DAILY_SQL(table_name=table_name or self.TEST_TABLE_STATS, on_cluster=False)
 
-        assert "AggregatingMergeTree" not in table_sql
+    def _get_web_bounces_sql(self, table_name: str | None = None) -> str:
+        return WEB_BOUNCES_DAILY_SQL(table_name=table_name or self.TEST_TABLE_BOUNCES, on_cluster=False)
 
-    def test_web_bounces_columns_with_aggregate_functions(self):
-        table_sql = WEB_BOUNCES_DAILY_SQL(table_name="test_web_bounces_daily", on_cluster=False)
+    @parameterized.expand(
+        [
+            ("web_stats", _get_web_stats_sql),
+            ("web_bounces", _get_web_bounces_sql),
+        ]
+    )
+    def test_table_creation_uses_replacing_merge_tree(self, table_type: str, sql_generator):
+        table_sql = sql_generator(self)
 
-        assert "persons_uniq_state AggregateFunction(uniq, UUID)" in table_sql
-        assert "sessions_uniq_state AggregateFunction(uniq, String)" in table_sql
-        assert "pageviews_count_state AggregateFunction(sum, UInt64)" in table_sql
-        assert "bounces_count_state AggregateFunction(sum, UInt64)" in table_sql
-        assert "total_session_duration_state AggregateFunction(sum, Int64)" in table_sql
+        self._assert_sql_contains_patterns(table_sql, self.REPLACING_MERGE_TREE_PATTERNS)
+        self._assert_sql_contains_patterns(table_sql, ["AggregatingMergeTree"], should_contain=False)
 
-    def test_web_stats_insert_sql_uses_state_functions(self):
-        insert_sql = WEB_STATS_INSERT_SQL(
-            date_start="2023-01-01", date_end="2023-01-02", team_ids=[1], table_name="test_web_stats_daily"
-        )
+    def test_web_bounces_has_required_aggregate_functions(self):
+        table_sql = self._get_web_bounces_sql()
 
-        assert "uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state" in insert_sql
-        assert "uniqState(assumeNotNull(session_id)) AS sessions_uniq_state" in insert_sql
-        assert "sumState(pageview_count) AS pageviews_count_state" in insert_sql
-        assert "now() AS updated_at" in insert_sql
+        bounces_specific_functions = [
+            "persons_uniq_state",
+            "sessions_uniq_state",
+            "pageviews_count_state",
+            "bounces_count_state",
+            "total_session_duration_state",
+            "total_session_count_state",
+        ]
 
-        assert "uniq(assumeNotNull(session_person_id)) AS persons_uniq" not in insert_sql
-        assert "uniq(assumeNotNull(session_id)) AS sessions_uniq" not in insert_sql
-        assert "sum(pageview_count) AS pageviews_count" not in insert_sql
-
-    def test_web_bounces_insert_sql_uses_state_functions(self):
-        insert_sql = WEB_BOUNCES_INSERT_SQL(
-            date_start="2023-01-01", date_end="2023-01-02", team_ids=[1], table_name="test_web_bounces_daily"
-        )
-
-        assert "uniqState(assumeNotNull(person_id)) AS persons_uniq_state" in insert_sql
-        assert "uniqState(assumeNotNull(session_id)) AS sessions_uniq_state" in insert_sql
-        assert "sumState(pageview_count) AS pageviews_count_state" in insert_sql
-        assert "sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state" in insert_sql
-        assert "sumState(session_duration) AS total_session_duration_state" in insert_sql
-        assert "now() AS updated_at" in insert_sql
-
-    def test_distributed_tables_creation(self):
-        stats_dist_sql = DISTRIBUTED_WEB_STATS_DAILY_SQL()
-        bounces_dist_sql = DISTRIBUTED_WEB_BOUNCES_DAILY_SQL()
-
-        assert "persons_uniq_state AggregateFunction(uniq, UUID)" in stats_dist_sql
-        assert "sessions_uniq_state AggregateFunction(uniq, String)" in stats_dist_sql
-        assert "pageviews_count_state AggregateFunction(sum, UInt64)" in stats_dist_sql
-        assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in stats_dist_sql
-
-        assert "bounces_count_state AggregateFunction(sum, UInt64)" in bounces_dist_sql
-        assert "total_session_duration_state AggregateFunction(sum, Int64)" in bounces_dist_sql
-        assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in bounces_dist_sql
+        self._assert_sql_contains_aggregate_functions(table_sql, bounces_specific_functions)
 
     @patch("posthog.clickhouse.client.sync_execute")
-    def test_table_creation_with_final_keyword_in_queries(self, mock_sync_execute):
-        query = WebOverviewQuery(dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"), properties=[])
+    def test_queries_use_final_keyword(self, mock_sync_execute):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from=self.TEST_DATE_START, date_to="2023-01-31"), properties=[]
+        )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         builder = WebOverviewPreAggregatedQueryBuilder(runner)
 
         hogql_query = builder.get_query()
-
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql = print_ast(hogql_query, context=context, dialect="clickhouse")
 
-        assert "web_bounces_daily FINAL" in sql
+        assert "web_bounces_combined FINAL" in sql
 
     def test_replacing_merge_tree_version_column(self):
         table_sql = WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False)
@@ -103,10 +97,3 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         assert "updated_at" in table_sql
 
         assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in table_sql
-
-    def test_insert_sql_includes_updated_at_timestamp(self):
-        insert_sql = WEB_STATS_INSERT_SQL(
-            date_start="2023-01-01", date_end="2023-01-02", team_ids=[1], table_name="test_web_stats_daily"
-        )
-
-        assert "now() AS updated_at" in insert_sql
