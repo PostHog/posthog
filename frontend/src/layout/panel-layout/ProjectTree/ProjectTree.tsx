@@ -43,6 +43,7 @@ import { SessionReplayMenu } from './menus/SessionReplayMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
+import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -123,6 +124,7 @@ export function ProjectTree({
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const showFilterDropdown = root === 'project://'
+    const showSortDropdown = root === 'project://'
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -572,6 +574,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
+                            // @ts-expect-error
                             const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
@@ -711,15 +714,18 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
+            searchField={
+                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                </BindLogic>
+            }
             filterDropdown={
                 showFilterDropdown ? (
                     <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 ) : null
             }
-            searchField={
-                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
-                </BindLogic>
+            sortDropdown={
+                showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
             panelActions={
                 root === 'project://' ? (
@@ -791,29 +797,6 @@ export function ProjectTree({
                 <>
                     <div role="status" aria-live="polite" className="sr-only">
                         Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
-                    </div>
-
-                    <div className="flex gap-1 items-center p-1 border-b border-tertiary">
-                        <ButtonPrimitive
-                            variant="default"
-                            size="sm"
-                            onClick={() => setSortMethod('folder')}
-                            aria-label="Sort by alphabetical order"
-                            tooltip="Sort by alphabetical order"
-                            className={cn('border-transparent', { 'text-accent': sortMethod === 'folder' })}
-                        >
-                            Alphabetical
-                        </ButtonPrimitive>
-                        <ButtonPrimitive
-                            variant="default"
-                            size="sm"
-                            onClick={() => setSortMethod('recent')}
-                            aria-label="Sort by creation date"
-                            tooltip="Sort by creation date"
-                            className={cn('border-transparent', { 'text-accent': sortMethod === 'recent' })}
-                        >
-                            Recent
-                        </ButtonPrimitive>
                     </div>
                 </>
             ) : null}
