@@ -1077,10 +1077,14 @@ export type SessionRecordingSnapshotParams =
 
 export interface SessionRecordingSnapshotSourceResponse {
     // v1 loaded each source separately
-    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'> | 'processed'
     // with v2 we can load multiple sources at once
     sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
+    // we process snapshots to make them rrweb vanilla playable
+    // this flag lets us skip reprocessing a source
+    // the processed source is implicitly processed
+    processed?: boolean
 }
 
 export interface SessionRecordingSnapshotResponse {

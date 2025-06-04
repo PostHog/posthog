@@ -291,13 +291,13 @@ describe('sessionRecordingDataLogic', () => {
             href: '',
         })
 
-        const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
+        const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] | undefined => {
             return processAllSnapshots(
                 sources,
                 { 'blob-1': { source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' }, snapshots } },
                 fakeViewportForTimestamp,
                 '12345'
-            )
+            )['processed'].snapshots
         }
 
         it('should remove duplicate snapshots and sort by timestamp', () => {
