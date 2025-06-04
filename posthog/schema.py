@@ -1050,6 +1050,11 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentStatsMethod(StrEnum):
+    BAYESIAN = "bayesian"
+    FREQUENTIST = "frequentist"
+
+
 class ExperimentVariantFunnelsBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9322,6 +9327,56 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
+class CachedExperimentQueryResponse2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    is_cached: bool
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    last_refresh: datetime
+    lower_bound_percentile: Optional[float] = None
+    metric_type: Literal["mean"] = "mean"
+    name: Optional[str] = None
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    timezone: str
+    upper_bound_percentile: Optional[float] = None
+
+
+class CachedExperimentQueryResponse3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    is_cached: bool
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    last_refresh: datetime
+    metric_type: Literal["funnel"] = "funnel"
+    name: Optional[str] = None
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    series: list[Union[EventsNode, ActionsNode]]
+    timezone: str
+
+
 class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10175,7 +10230,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class CachedExperimentQueryResponse(BaseModel):
+class CachedExperimentQueryResponse1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10201,6 +10256,12 @@ class CachedExperimentQueryResponse(BaseModel):
     stats_version: Optional[int] = None
     timezone: str
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
+class CachedExperimentQueryResponse(
+    RootModel[Union[CachedExperimentQueryResponse1, CachedExperimentQueryResponse2, CachedExperimentQueryResponse3]]
+):
+    root: Union[CachedExperimentQueryResponse1, CachedExperimentQueryResponse2, CachedExperimentQueryResponse3]
 
 
 class Response17(BaseModel):
@@ -10264,6 +10325,7 @@ class ExperimentQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentQueryResponse] = None
+    stats_method: Optional[ExperimentStatsMethod] = None
 
 
 class ExperimentTrendsQuery(BaseModel):

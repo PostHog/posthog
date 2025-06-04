@@ -137,6 +137,7 @@ export interface ExperimentLogicProps {
 interface MetricLoadingConfig {
     metrics: any[]
     experimentId: Experiment['id']
+    statsMethod: ExperimentStatsMethod
     refresh?: boolean
     onSetResults: (
         results: (
@@ -153,6 +154,7 @@ interface MetricLoadingConfig {
 const loadMetrics = async ({
     metrics,
     experimentId,
+    statsMethod,
     refresh,
     onSetResults,
     onSetErrors,
@@ -176,11 +178,13 @@ const loadMetrics = async ({
                         kind: NodeKind.ExperimentQuery,
                         metric: metric,
                         experiment_id: experimentId,
+                        stats_method: statsMethod,
                     }
                 } else {
                     queryWithExperimentId = {
                         ...metric,
                         experiment_id: experimentId,
+                        stats_method: statsMethod,
                     }
                 }
                 const response = await performQuery(queryWithExperimentId, undefined, refresh ? 'force_async' : 'async')
@@ -1378,6 +1382,7 @@ export const experimentLogic = kea<experimentLogicType>([
             await loadMetrics({
                 metrics,
                 experimentId: values.experimentId,
+                statsMethod: values.statsMethod,
                 refresh,
                 onSetResults: actions.setMetricResults,
                 onSetErrors: actions.setPrimaryMetricsResultErrors,
@@ -1401,6 +1406,7 @@ export const experimentLogic = kea<experimentLogicType>([
             await loadMetrics({
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
+                statsMethod: values.statsMethod,
                 refresh,
                 onSetResults: actions.setSecondaryMetricResults,
                 onSetErrors: actions.setSecondaryMetricsResultErrors,

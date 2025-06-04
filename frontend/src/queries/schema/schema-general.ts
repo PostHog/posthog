@@ -17,6 +17,7 @@ import {
     EventType,
     ExperimentHoldoutType,
     ExperimentMetricMathType,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -2238,6 +2239,7 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     metric: ExperimentMetric
     experiment_id?: integer
     name?: string
+    stats_method?: ExperimentStatsMethod
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -2278,7 +2280,9 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
 }
 
-export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+export type CachedExperimentQueryResponse =
+    | CachedQueryResponse<ExperimentQueryResponse>
+    | CachedQueryResponse<ExperimentMetric>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
