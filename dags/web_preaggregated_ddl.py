@@ -62,10 +62,15 @@ def web_analytics_preaggregated_hourly_tables(
 def web_analytics_combined_views(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
+    def drop_views(client: Client):
+        client.execute("DROP VIEW IF EXISTS web_stats_combined SYNC")
+        client.execute("DROP VIEW IF EXISTS web_bounces_combined SYNC")
+
     def create_views(client: Client):
         client.execute(WEB_STATS_COMBINED_VIEW_SQL())
         client.execute(WEB_BOUNCES_COMBINED_VIEW_SQL())
 
+    cluster.map_all_hosts(drop_views).result()
     cluster.map_all_hosts(create_views).result()
     return True
 
