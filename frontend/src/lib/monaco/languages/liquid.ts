@@ -2,7 +2,7 @@ import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
-    wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
+    wordPattern: /(-?\d*\.\d\w*)|([^`~!@#$%^&*()\-=+[\]{}|;:'",.<>/?\s]+)/g,
     comments: {
         lineComment: '//',
         blockComment: ['/*', '*/'],
@@ -61,19 +61,19 @@ export const language: () => languages.IMonarchLanguage = () => ({
 
     operators: ['==', '!=', '>', '<', '>=', '<=', 'contains', 'and', 'or'],
 
-    symbols: /[=><!~?:&|+\-*\/\^]+/,
+    symbols: /[=><!~?:&|+\-*/^]+/,
 
     tokenizer: {
         root: [
             // Liquid tags
-            [/\{\%/, { token: 'delimiter.liquid', next: '@liquidTag' }],
+            [/\{%/, { token: 'delimiter.liquid', next: '@liquidTag' }],
             // Liquid variables
             [/\{\{/, { token: 'delimiter.liquid', next: '@liquidVariable' }],
             // Regular text
             [/[^{]+/, 'text'],
         ],
 
-        liquidTag: [[/\%\}/, { token: 'delimiter.liquid', next: '@pop' }], { include: '@liquidContent' }],
+        liquidTag: [[/%\}/, { token: 'delimiter.liquid', next: '@pop' }], { include: '@liquidContent' }],
 
         liquidVariable: [[/\}\}/, { token: 'delimiter.liquid', next: '@pop' }], { include: '@liquidContent' }],
 
@@ -101,7 +101,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
             ],
 
             // Numbers
-            [/\d*\.\d+([eE][\-+]?\d+)?/, 'number.float'],
+            [/\d*\.\d+([eE][-+]?\d+)?/, 'number.float'],
             [/0[xX][0-9a-fA-F]+/, 'number.hex'],
             [/\d+/, 'number'],
 
