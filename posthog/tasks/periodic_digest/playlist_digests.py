@@ -128,17 +128,17 @@ def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
 
 def get_teams_with_interesting_playlists(end: datetime) -> list[CountedPlaylist]:
     qs = (
-        SessionRecordingPlaylist.objects.exclude(
-            name__isnull=True,
-            derived_name__isnull=True,
-        )
-        .exclude(
-            name="",
-            derived_name=None,
-        )
-        .exclude(deleted=True)
+        SessionRecordingPlaylist.objects.exclude(deleted=True)
         .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
-        .exclude(name="Unnamed")
+        .exclude(
+            (Q(name__isnull=True) | Q(name="Unnamed") | Q(name=""))
+            & (
+                Q(derived_name__isnull=True)
+                | Q(derived_name="(Untitled)")
+                | Q(derived_name="Unnamed")
+                | Q(derived_name="")
+            )
+        )
         .annotate(
             pinned_item_count=Count("playlist_items"),
             # count views in the last 4 weeks
@@ -166,12 +166,13 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[Counted
             created_at__lte=end,
         )
         .exclude(
-            name__isnull=True,
-            derived_name__isnull=True,
-        )
-        .exclude(
-            name="",
-            derived_name=None,
+            (Q(name__isnull=True) | Q(name="Unnamed") | Q(name=""))
+            & (
+                Q(derived_name__isnull=True)
+                | Q(derived_name="(Untitled)")
+                | Q(derived_name="Unnamed")
+                | Q(derived_name="")
+            )
         )
         .exclude(deleted=True)
         .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
