@@ -91,31 +91,25 @@ export function SupportForm(): JSX.Element | null {
         if (focusedField === 'name' && nameInputRef.current) {
             nameInputRef.current.focus()
             // Position cursor at the end of the text only on first focus
-            if (!initializedFields.current['name']) {
-                const length = nameInputRef.current.value?.length || 0
-                if (length > 0) {
-                    nameInputRef.current.setSelectionRange(length, length)
-                }
+            if (!initializedFields.current['name'] && nameInputRef.current.value !== undefined) {
+                const length = nameInputRef.current.value.length
+                nameInputRef.current.setSelectionRange(length, length)
                 initializedFields.current['name'] = true
             }
         } else if (focusedField === 'email' && emailInputRef.current) {
             emailInputRef.current.focus()
             // Position cursor at the end of the text only on first focus
-            if (!initializedFields.current['email']) {
-                const length = emailInputRef.current.value?.length || 0
-                if (length > 0) {
-                    emailInputRef.current.setSelectionRange(length, length)
-                }
+            if (!initializedFields.current['email'] && emailInputRef.current.value !== undefined) {
+                const length = emailInputRef.current.value.length
+                emailInputRef.current.setSelectionRange(length, length)
                 initializedFields.current['email'] = true
             }
         } else if (focusedField === 'message' && messageInputRef.current) {
             messageInputRef.current.focus()
             // Position cursor at the end of the text only on first focus
-            if (!initializedFields.current['message']) {
-                const length = messageInputRef.current.value?.length || 0
-                if (length > 0) {
-                    messageInputRef.current.setSelectionRange(length, length)
-                }
+            if (!initializedFields.current['message'] && messageInputRef.current.value !== undefined) {
+                const length = messageInputRef.current.value.length
+                messageInputRef.current.setSelectionRange(length, length)
                 initializedFields.current['message'] = true
             }
         }
