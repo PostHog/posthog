@@ -95,7 +95,14 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
-    surveys_opt_in = get_surveys_opt_in(team) and get_surveys_count(team) > 0
+    # errors mean the database is unavailable, rely on team setting in this case
+    surveys_opt_in = get_surveys_opt_in(team)
+    if surveys_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                surveys_opt_in = get_surveys_count(team) > 0
+        except Exception:
+            pass
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)

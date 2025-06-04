@@ -3152,7 +3152,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "inject_web_apps": True,
             "recording_domains": ["https://*.example.com"],
             "capture_performance_opt_in": True,
-            # "autocapture_exceptions_opt_in": True,
+            "autocapture_exceptions_opt_in": True,
             "surveys_opt_in": True,
         }
         self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
