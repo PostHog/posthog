@@ -20,6 +20,7 @@ from posthog.schema import (
     EventPropertyFilter,
     ExperimentEventExposureConfig,
     ExperimentQuery,
+    ExperimentQueryResponse,
     ExperimentSignificanceCode,
     ExperimentVariantTrendsBaseStats,
     ExperimentMeanMetric,
@@ -568,6 +569,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         self.assertEqual(query_runner.stats_version, 2)
         result = query_runner.calculate()
+
+        # Make mypy happy
+        assert isinstance(result, ExperimentQueryResponse)
 
         self.assertEqual(len(result.variants), 2)
         for variant in result.variants:
