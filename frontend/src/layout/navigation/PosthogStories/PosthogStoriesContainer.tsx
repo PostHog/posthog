@@ -36,10 +36,10 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                             }}
                         >
                             <div
-                                className={`w-16 h-16 rounded-full overflow-hidden relative ${
+                                className={`w-15 h-15 rounded-full overflow-hidden relative ${
                                     hasViewedEntireGroup
                                         ? 'border-2 border-primary'
-                                        : 'p-[3px] bg-gradient-to-tr from-[#f09433] via-[#e6683c] via-[#dc2743] via-[#cc2366] to-[#bc1888]'
+                                        : 'p-[1px] bg-gradient-to-tr from-[#f09433] via-[#e6683c] via-[#dc2743] via-[#cc2366] to-[#bc1888]'
                                 }`}
                             >
                                 <div className="w-full h-full rounded-full overflow-hidden bg-white">

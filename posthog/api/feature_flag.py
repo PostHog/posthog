@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import logging
 from typing import Any, Optional, cast
@@ -21,6 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
+from posthog.models.experiment import Experiment
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -120,7 +122,7 @@ class FeatureFlagSerializer(
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
 
-    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    experiment_set = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -240,6 +242,11 @@ class FeatureFlagSerializer(
             .exists()
         ):
             raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) & underscores (_) are allowed.", code="invalid_key"
+            )
 
         return value
 
@@ -606,6 +613,12 @@ class FeatureFlagSerializer(
         representation["filters"] = filters
         return representation
 
+    def get_experiment_set(self, obj):
+        # Use the prefetched active experiments
+        if hasattr(obj, "_active_experiments"):
+            return [exp.id for exp in obj._active_experiments]
+        return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+
     def _update_super_groups_for_key_change(self, validated_key: str, old_key: str, filters: dict) -> dict:
         if not (validated_key and validated_key != old_key and "super_groups" in filters):
             return filters
@@ -727,10 +740,14 @@ class FeatureFlagViewSet(
         return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        # Always prefetch experiment_set since it's used in both list and retrieve
+        queryset = queryset.prefetch_related(
+            Prefetch("experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments")
+        )
+
         if self.action == "list":
             queryset = (
                 queryset.filter(deleted=False)
-                .prefetch_related("experiment_set")
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related("surveys_linked_flag")

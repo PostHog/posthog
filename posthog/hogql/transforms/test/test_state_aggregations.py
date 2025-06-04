@@ -1029,7 +1029,10 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
 
         original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
 
-        self.assertEqual(original_result, transformed_result)
+        # Results should be equivalent (order might differ, so we sort)
+        original_sorted = sorted(original_result)
+        transformed_sorted = sorted(transformed_result)
+        self.assertEqual(original_sorted, transformed_sorted)
 
     def test_grouped_union_all_tuples_with_db(self):
         original_query_str = """

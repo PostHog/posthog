@@ -48,6 +48,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
+        CONSUMER_AUTO_CREATE_TOPICS: true,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -248,6 +249,8 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
+        GROUP_BATCH_WRITING_ENABLED: false,
+        GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
         DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
