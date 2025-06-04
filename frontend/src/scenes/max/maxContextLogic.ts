@@ -1,5 +1,5 @@
 import { IconPageChart } from '@posthog/icons'
-import { BuiltLogic, kea } from 'kea'
+import { actions, BuiltLogic, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
@@ -62,13 +62,13 @@ const actionToMaxContext = (action: ActionType): ActionContextForMax => {
     }
 }
 
-export const maxContextLogic = kea<maxContextLogicType>({
-    path: ['lib', 'ai', 'maxContextLogic'],
-    connect: () => ({
+export const maxContextLogic = kea<maxContextLogicType>([
+    path(['lib', 'ai', 'maxContextLogic']),
+    connect(() => ({
         values: [breadcrumbsLogic({ hashParams: {} }), ['documentTitle']],
-        actions: [],
-    }),
-    actions: {
+        actions: [sceneLogic, ['setScene as sceneLogicSetScene'], router, ['locationChanged']],
+    })),
+    actions({
         enableCurrentPageContext: true,
         disableCurrentPageContext: true,
         addOrUpdateContextInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
@@ -91,8 +91,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
             item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | string
         ) => ({ value, groupType, item }),
         resetContext: true,
-    },
-    reducers: {
+    }),
+    reducers({
         useCurrentPageContext: [
             false,
             {
@@ -187,13 +187,13 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 clearNavigationContext: () => null,
             },
         ],
-    },
-    listeners: ({ actions, values }) => ({
-        [router.actionTypes.locationChanged]: () => {
+    }),
+    listeners(({ actions, values }) => ({
+        locationChanged: () => {
             actions.clearActiveInsights()
             actions.clearActiveDashboard()
         },
-        [sceneLogic.actionTypes.setScene]: () => {
+        sceneLogicSetScene: () => {
             // Scene has been set, now update navigation with proper title
             setTimeout(() => {
                 actions.setNavigationContext(router.values.location.pathname, values.documentTitle)
@@ -280,13 +280,13 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 dashboardLogicInstance.unmount()
             }
         },
-    }),
-    events: ({ actions, values }) => ({
+    })),
+    events(({ actions, values }) => ({
         afterMount: () => {
             actions.setNavigationContext(router.values.location.pathname, values.documentTitle)
         },
-    }),
-    selectors: {
+    })),
+    selectors({
         contextOptions: [
             (s: any) => [s.activeInsights, s.activeDashboard],
             (
@@ -417,5 +417,5 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 )
             },
         ],
-    },
-})
+    }),
+])
