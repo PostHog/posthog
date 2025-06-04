@@ -685,6 +685,7 @@ class ExperimentQueryRunner(QueryRunner):
                             probabilities,
                         )
                     }
+                    variants = trends_variants
 
                 case ExperimentFunnelMetric():
                     funnel_variants = get_legacy_funnels_variant_results(sorted_results)
@@ -709,6 +710,7 @@ class ExperimentQueryRunner(QueryRunner):
                             probabilities,
                         )
                     }
+                    variants = funnel_variants
 
                 case _:
                     raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
@@ -717,7 +719,7 @@ class ExperimentQueryRunner(QueryRunner):
             kind="ExperimentQuery",
             insight=[],
             metric=self.metric,
-            variants=trends_variants or funnel_variants,
+            variants=variants,
             probability=probability,
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
