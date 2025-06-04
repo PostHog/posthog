@@ -1,4 +1,4 @@
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -27,6 +27,7 @@ export const manifest: ProductManifest = {
             href: urls.revenueAnalytics(),
             visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
             tags: ['beta'],
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
     ],
     treeItemsMetadata: [
@@ -34,6 +35,7 @@ export const manifest: ProductManifest = {
             path: 'Revenue settings',
             iconType: 'handMoney',
             href: urls.revenueSettings(),
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
     ],
 }

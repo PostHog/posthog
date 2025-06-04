@@ -4,12 +4,13 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
-import { Editor, EditorRef as _EditorRef } from 'react-email-editor'
-import { MergeTags } from 'unlayer-types'
+import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
 
 import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
+
+export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
 // Helping kea-typegen navigate the exported type
 export interface EditorRef extends _EditorRef {}
@@ -98,8 +99,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         logicProps: [() => [(_, props) => props], (props): EmailTemplaterLogicProps => props],
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
-            (personPropertyDefinitions: PropertyDefinition[]): MergeTags => {
-                const tags: MergeTags = {}
+            (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
+                const tags: UnlayerMergeTags = {}
 
                 // Add person properties as merge tags
                 personPropertyDefinitions.forEach((property: PropertyDefinition) => {
