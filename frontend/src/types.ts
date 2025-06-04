@@ -3629,6 +3629,11 @@ export interface ExperimentHoldoutType {
     updated_at: string | null
 }
 
+export enum ExperimentStatsMethod {
+    Bayesian = 'bayesian',
+    Frequentist = 'frequentist',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3675,6 +3680,7 @@ export interface Experiment {
     holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
+        method?: ExperimentStatsMethod
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -4420,6 +4426,7 @@ export enum NotebookNodeType {
     Properties = 'ph-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
+    Latex = 'ph-latex',
 }
 
 export type NotebookNodeResource = {

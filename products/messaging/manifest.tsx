@@ -76,7 +76,7 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.messagingCampaign(ref),
             iconColor: ['var(--product-messaging-light)'],
             filterKey: 'campaign',
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     },
     treeItemsNew: [
@@ -90,7 +90,7 @@ export const manifest: ProductManifest = {
             path: `Campaign`,
             type: 'hog_function/campaign',
             href: urls.messagingCampaignNew(),
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
     treeItemsProducts: [
@@ -108,7 +108,7 @@ export const manifest: ProductManifest = {
             type: 'hog_function/campaign',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
 }
