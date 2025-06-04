@@ -9690,7 +9690,7 @@
                     "type": "string"
                 },
                 "iconType": {
-                    "$ref": "#/definitions/FilsSystemIconType"
+                    "$ref": "#/definitions/FileSystemIconType"
                 },
                 "id": {
                     "type": "string"
@@ -9735,7 +9735,7 @@
             "required": ["path"],
             "type": "object"
         },
-        "FilsSystemIconType": {
+        "FileSystemIconType": {
             "enum": [
                 "plug",
                 "cohort",

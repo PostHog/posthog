@@ -35,10 +35,10 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemImport, FilsSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 
-const iconTypes: Record<FilsSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
         icon: <IconAI />,
         iconColor: ['var(--product-max-ai-light)'],

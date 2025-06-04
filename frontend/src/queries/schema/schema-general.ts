@@ -2071,7 +2071,7 @@ export interface FileSystemEntry {
     visualOrder?: number
 }
 
-export type FilsSystemIconType =
+export type FileSystemIconType =
     | 'plug'
     | 'cohort'
     | 'insight'
@@ -2099,7 +2099,7 @@ export type FilsSystemIconType =
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
-    iconType?: FilsSystemIconType
+    iconType?: FileSystemIconType
     flag?: string
     /** Order of object in tree */
     visualOrder?: number
