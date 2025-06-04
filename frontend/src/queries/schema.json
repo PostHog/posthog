@@ -2856,113 +2856,256 @@
             "type": "object"
         },
         "CachedExperimentQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "cache_key": {
+                            "type": "string"
+                        },
+                        "cache_target_age": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "calculation_trigger": {
+                            "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                            "type": "string"
+                        },
+                        "credible_intervals": {
+                            "additionalProperties": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
+                            },
+                            "type": "object"
+                        },
+                        "insight": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "is_cached": {
+                            "type": "boolean"
+                        },
+                        "kind": {
+                            "const": "ExperimentQuery",
+                            "type": "string"
+                        },
+                        "last_refresh": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        },
+                        "next_allowed_client_refresh": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "p_value": {
                             "type": "number"
                         },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "stats_version": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "timezone": {
+                            "type": "string"
+                        },
+                        "variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
+                        }
                     },
+                    "required": [
+                        "cache_key",
+                        "credible_intervals",
+                        "insight",
+                        "is_cached",
+                        "kind",
+                        "last_refresh",
+                        "metric",
+                        "next_allowed_client_refresh",
+                        "p_value",
+                        "probability",
+                        "significance_code",
+                        "significant",
+                        "timezone",
+                        "variants"
+                    ],
                     "type": "object"
                 },
-                "insight": {
-                    "items": {
-                        "type": "object"
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "cache_key": {
+                            "type": "string"
+                        },
+                        "cache_target_age": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "calculation_trigger": {
+                            "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                            "type": "string"
+                        },
+                        "conversion_window": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "conversion_window_unit": {
+                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                        },
+                        "is_cached": {
+                            "type": "boolean"
+                        },
+                        "kind": {
+                            "const": "ExperimentMetric",
+                            "type": "string"
+                        },
+                        "last_refresh": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "lower_bound_percentile": {
+                            "type": "number"
+                        },
+                        "metric_type": {
+                            "const": "mean",
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "next_allowed_client_refresh": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "source": {
+                            "$ref": "#/definitions/ExperimentMetricSource"
+                        },
+                        "timezone": {
+                            "type": "string"
+                        },
+                        "upper_bound_percentile": {
+                            "type": "number"
+                        }
                     },
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "ExperimentQuery",
-                    "type": "string"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
+                    "required": [
+                        "cache_key",
+                        "is_cached",
+                        "kind",
+                        "last_refresh",
+                        "metric_type",
+                        "next_allowed_client_refresh",
+                        "source",
+                        "timezone"
+                    ],
                     "type": "object"
                 },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "variants": {
-                    "anyOf": [
-                        {
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "cache_key": {
+                            "type": "string"
+                        },
+                        "cache_target_age": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "calculation_trigger": {
+                            "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                            "type": "string"
+                        },
+                        "conversion_window": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "conversion_window_unit": {
+                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                        },
+                        "is_cached": {
+                            "type": "boolean"
+                        },
+                        "kind": {
+                            "const": "ExperimentMetric",
+                            "type": "string"
+                        },
+                        "last_refresh": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "metric_type": {
+                            "const": "funnel",
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "next_allowed_client_refresh": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "series": {
                             "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                "$ref": "#/definitions/ExperimentFunnelMetricStep"
                             },
                             "type": "array"
                         },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                            },
-                            "type": "array"
+                        "timezone": {
+                            "type": "string"
                         }
-                    ]
+                    },
+                    "required": [
+                        "cache_key",
+                        "is_cached",
+                        "kind",
+                        "last_refresh",
+                        "metric_type",
+                        "next_allowed_client_refresh",
+                        "series",
+                        "timezone"
+                    ],
+                    "type": "object"
                 }
-            },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "metric",
-                "next_allowed_client_refresh",
-                "p_value",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
-            ],
-            "type": "object"
+            ]
         },
         "CachedExperimentTrendsQueryResponse": {
             "additionalProperties": false,
@@ -9349,6 +9492,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentQueryResponse"
+                },
+                "stats_method": {
+                    "$ref": "#/definitions/ExperimentStatsMethod"
                 }
             },
             "required": ["kind", "metric"],
@@ -9431,6 +9577,10 @@
         },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
+            "type": "string"
+        },
+        "ExperimentStatsMethod": {
+            "enum": ["bayesian", "frequentist"],
             "type": "string"
         },
         "ExperimentTrendsQuery": {
