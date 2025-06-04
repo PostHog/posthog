@@ -195,6 +195,7 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
             )
             capture_exception(e)
+            return None
 
     def delete(self, bucket: str, key: str) -> None:
         response = {}
