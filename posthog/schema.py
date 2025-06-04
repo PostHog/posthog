@@ -1113,30 +1113,31 @@ class FileSystemEntry(BaseModel):
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
-class FileSystemImport(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    field_loading: Optional[bool] = Field(
-        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
-    )
-    created_at: Optional[str] = Field(
-        default=None, description="Timestamp when file was added. Used to check persistence"
-    )
-    flag: Optional[str] = None
-    href: Optional[str] = Field(default=None, description="Object's URL")
-    iconType: Optional[str] = None
-    id: Optional[str] = None
-    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
-    path: str = Field(..., description="Object's name and folder")
-    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
-    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
-    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
-    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    type: Optional[str] = Field(
-        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
-    )
-    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
+class FileSystemIconType(StrEnum):
+    PLUG = "plug"
+    COHORT = "cohort"
+    INSIGHT = "insight"
+    DEFINITIONS = "definitions"
+    WARNING = "warning"
+    ERROR_TRACKING = "errorTracking"
+    AI = "ai"
+    CURSOR = "cursor"
+    HEATMAP = "heatmap"
+    DATABASE = "database"
+    FOLDER = "folder"
+    HAND_MONEY = "handMoney"
+    LIVE = "live"
+    NOTIFICATION = "notification"
+    PIE_CHART = "pieChart"
+    PIGGY_BANK = "piggyBank"
+    SQL = "sql"
+    INSIGHT_FUNNEL = "insightFunnel"
+    INSIGHT_TRENDS = "insightTrends"
+    INSIGHT_RETENTION = "insightRetention"
+    INSIGHT_USER_PATHS = "insightUserPaths"
+    INSIGHT_LIFECYCLE = "insightLifecycle"
+    INSIGHT_STICKINESS = "insightStickiness"
+    INSIGHT_HOG_QL = "insightHogQL"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -2834,6 +2835,32 @@ class ExperimentMetricBaseProperties(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
+
+
+class FileSystemImport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    flag: Optional[str] = None
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    iconType: Optional[FileSystemIconType] = None
+    id: Optional[str] = None
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
+    type: Optional[str] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
 class FunnelCorrelationResult(BaseModel):
