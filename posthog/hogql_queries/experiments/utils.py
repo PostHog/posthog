@@ -26,6 +26,10 @@ def split_baseline_and_test_variants(
     variants: list[V],
 ) -> tuple[V, list[V]]:
     control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+    if not control_variants:
+        raise ValueError("No control variant found")
+    if len(control_variants) > 1:
+        raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
     test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
 
