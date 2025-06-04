@@ -338,7 +338,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         expandedSearchFolders: [
-            ['/', 'project://Unfiled'] as string[],
+            ['/', 'project://', 'project://Unfiled'] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
                 loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {
@@ -399,7 +399,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         sortMethod: [
-            'alphabetical' as ProjectTreeSortMethod,
+            'folder' as ProjectTreeSortMethod,
             {
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },
@@ -435,7 +435,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
+                    imports: viableItems.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -451,7 +451,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
             (recentResults, recentResultsLoading, folderStates, checkedItems, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: recentResults.results,
+                    imports: recentResults.results.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -499,7 +499,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 users
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: searchResults.results,
+                    imports: searchResults.results.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -595,7 +595,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         id: 'project://',
                         name: 'project://',
                         displayName: <>Project</>,
-                        record: { type: 'folder', path: '' },
+                        record: { type: 'folder', protocol: 'project://', path: '' },
                         children: searchTerm
                             ? searchResultsLoading && searchTreeItems.length === 0
                                 ? folderLoading
@@ -624,7 +624,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (rootWithProtocol) {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
-                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    const firstFolder = fullFileSystem.find((item) => item.id === protocol)
                     if (firstFolder) {
                         if (ref) {
                             const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
@@ -656,7 +656,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 // no client side filtering under project://
-                if (!searchTerm || root.startsWith('project://')) {
+                if (!searchTerm || !root || root.startsWith('project://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()

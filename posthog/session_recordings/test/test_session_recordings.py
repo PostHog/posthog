@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+import re
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import ANY, MagicMock, call, patch
@@ -892,19 +893,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
 
         # default headers if the object store does nothing
-        assert response.headers.__dict__ == {
-            "_store": {
-                "content-type": ("Content-Type", "application/json"),
-                "cache-control": ("Cache-Control", "max-age=3600"),
-                "content-disposition": ("Content-Disposition", "inline"),
-                "allow": ("Allow", "GET, HEAD, OPTIONS"),
-                "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
-                "content-length": ("Content-Length", "15"),
-                "vary": ("Vary", "Origin"),
-                "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
-                "referrer-policy": ("Referrer-Policy", "same-origin"),
-                "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
-            }
+        headers = response.headers.__dict__["_store"]
+        server_timing_headers = headers.pop("server-timing")[1]
+        assert re.match(r"get_recording;dur=\d+\.\d+, stream_blob_to_client;dur=\d+\.\d+", server_timing_headers)
+        assert headers == {
+            "content-type": ("Content-Type", "application/json"),
+            "cache-control": ("Cache-Control", "max-age=3600"),
+            "content-disposition": ("Content-Disposition", "inline"),
+            "allow": ("Allow", "GET, HEAD, OPTIONS"),
+            "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
+            "content-length": ("Content-Length", "15"),
+            "vary": ("Vary", "Origin"),
+            "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
+            "referrer-policy": ("Referrer-Policy", "same-origin"),
+            "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
         }
 
     @patch(
@@ -997,20 +999,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert mock_get_session_recording.call_count == 1
         assert _mock_exists.call_count == 1
 
-    @parameterized.expand(
-        [
-            (
-                "version=2024-04-30",
-                "version=2024-04-30",
-                b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}',
-            ),
-            (
-                "version=None",
-                None,
-                b'{"snapshots":[{"some":"\xf0\x90\x90\xb7 probably from console logs"},{"some":"more data"}]}',
-            ),
-        ]
-    )
+    @parameterized.expand([("2024-04-30"), (None)])
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -1020,9 +1009,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_can_get_session_recording_realtime(
         self,
-        _name: str,
-        version: str | None,
-        expected_response: str,
+        version_param,
         _mock_stream_from,
         mock_realtime_snapshots,
         mock_get_session_recording,
@@ -1034,7 +1021,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         see: https://posthog.sentry.io/issues/4981128697/
         """
 
-        version_param = f"&{version}" if version else ""
+        expected_response = b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}'
+
+        version_param = f"&version={version_param}" if version_param else ""
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=realtime{version_param}"
 
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
@@ -1317,7 +1306,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
+        personal_api_key_object: PersonalAPIKey = PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
@@ -1332,8 +1321,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        assert mock_capture.call_args_list[1] == call(
-            self.user.distinct_id,
+        assert mock_capture.call_args_list[0] == call(
+            personal_api_key_object.secure_value,
             "snapshots_api_called_with_personal_api_key",
             {
                 "key_label": "X",
@@ -1342,7 +1331,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "session_requested": session_id,
                 # none because it's all mock data
                 "recording_start_time": None,
-                "source": None,
+                "source": "listing",
             },
         )
 
@@ -1371,3 +1360,260 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+
+    @parameterized.expand(
+        [
+            ("blob", True, status.HTTP_200_OK),
+            # not a 400, 404 because we didn't mock the right things for a 200
+            ("blob_v2", True, status.HTTP_404_NOT_FOUND),
+            ("realtime", True, status.HTTP_200_OK),
+            (None, True, status.HTTP_200_OK),  # No source parameter
+            ("invalid_source", False, status.HTTP_400_BAD_REQUEST),
+            ("", False, status.HTTP_400_BAD_REQUEST),
+            ("BLOB", False, status.HTTP_400_BAD_REQUEST),  # Case-sensitive
+            ("real-time", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
+    def test_snapshots_source_parameter_validation(
+        self,
+        source_value,
+        is_valid,
+        expected_status,
+        _mock_stream_from,
+        mock_realtime_snapshots,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
+    ):
+        session_id = str(uuid.uuid4())
+
+        # Setup mocks
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_presigned_url.return_value = "https://test.com/"
+        mock_realtime_snapshots.return_value = ['{"test": "data"}']
+
+        # Build URL with source parameter
+        if source_value is None:
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        else:
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source={source_value}"
+
+        # Add blob_key for blob sources to avoid other validation errors
+        if source_value in ("blob", "blob_v2"):
+            url += "&blob_key=1682608337071"
+
+        response = self.client.get(url)
+
+        assert (
+            response.status_code == expected_status
+        ), f"Expected status {expected_status}, got {response.status_code} for source '{source_value}' (type: {type(source_value)}) with response.json() {response.json()}"
+
+        if not is_valid:
+            # For invalid sources, we expect a validation error
+            response_data = response.json()
+            assert "detail" in response_data or "error" in response_data
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    def test_blob_v2_with_blob_keys_works(
+        self,
+        mock_client,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """Test that blob_v2 with blob_keys parameter works correctly"""
+        session_id = str(uuid.uuid4())
+
+        # Mock the session recording
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        # Mock blocks - need at least 3 blocks for our test
+        mock_blocks = [
+            MagicMock(url="http://test.com/block0"),
+            MagicMock(url="http://test.com/block1"),
+            MagicMock(url="http://test.com/block2"),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        # Mock the client fetch_block method
+        mock_client_instance = MagicMock()
+        mock_client.return_value = mock_client_instance
+        mock_client_instance.fetch_block.side_effect = [
+            '{"timestamp": 1000, "type": "snapshot1"}',
+            '{"timestamp": 2000, "type": "snapshot2"}',
+        ]
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.headers.get("content-type") == "application/jsonl"
+
+        # Verify the client was called with correct block URLs
+        assert mock_client_instance.fetch_block.call_count == 2
+        mock_client_instance.fetch_block.assert_any_call("http://test.com/block0")
+        mock_client_instance.fetch_block.assert_any_call("http://test.com/block1")
+
+    @parameterized.expand([("0", ""), ("", "1")])
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    def test_blob_v2_must_send_end_key_if_sending_start_key(
+        self,
+        start_key,
+        end_key,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.return_value = [MagicMock(url="http://test.com/block0")]
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key={start_key}&end_blob_key={end_key}"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Must provide both start_blob_key and end_blob_key" in response.json()["detail"]
+
+    @parameterized.expand(
+        [(0, "a"), ("a", 1)],
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_with_non_integer_blob_keys_returns_400(
+        self,
+        start_key,
+        end_key,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key={start_key}&end_blob_key={end_key}"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Blob key must be an integer" in response.json()["detail"]
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_with_too_many_blob_keys_returns_400(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """Test that requesting more than 100 blob keys returns 400"""
+        session_id = str(uuid.uuid4())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=12&end_blob_key=113"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot request more than 100 blob keys" in response.json()["detail"]
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_personal_api_key_cannot_request_more_than_20_blob_keys(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=12&end_blob_key=33"
+
+        response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Cannot request more than 20 blob keys at once" in response.json()["detail"]
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_cannot_provide_both_blob_key_and_blob_keys(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """Test that providing both blob_key and blob_keys returns 400"""
+        session_id = str(uuid.uuid4())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&blob_key=0&start_blob_key=1"
+
+        # Attempting to provide both blob_key and start_blob_key
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Must provide a single blob key or start and end blob keys, not both" in response.json()["detail"]
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    def test_blob_v2_block_index_out_of_range_returns_404(
+        self,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """Test that requesting block indices out of range returns 404"""
+        session_id = str(uuid.uuid4())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        # Mock only 2 blocks available (indices 0 and 1)
+        mock_blocks = [
+            MagicMock(url="http://test.com/block0"),
+            MagicMock(url="http://test.com/block1"),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=3"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "Block index out of range" in response.json()["detail"]

@@ -401,7 +401,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <h3>Notifications</h3>
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
-                            logicKey="early-access-feature"
                             type="destination"
                             filters={destinationFilters}
                             subTemplateIds={['early-access-feature-enrollment']}
