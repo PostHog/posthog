@@ -375,7 +375,7 @@ export function BatchExportConfigurationTests({
         )
     }
 
-    if (!batchExportConfigTest) {
+    if (!batchExportConfigTest || !batchExportConfigTest.steps) {
         return null
     }
 
