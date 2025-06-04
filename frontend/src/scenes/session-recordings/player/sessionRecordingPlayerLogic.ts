@@ -30,6 +30,7 @@ import { RefObject } from 'react'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { ExportedSessionType } from 'scenes/session-recordings/file-playback/types'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
@@ -241,7 +242,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         syncSnapshotsWithPlayer: true,
-        exportRecordingToFile: (type?: 'posthog' | 'rrweb') => ({ type }),
+        exportRecordingToFile: (type?: ExportedSessionType) => ({ type }),
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
