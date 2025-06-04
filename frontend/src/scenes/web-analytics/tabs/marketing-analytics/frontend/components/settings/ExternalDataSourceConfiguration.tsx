@@ -9,7 +9,7 @@ import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
-const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']
+const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']
 
 export function ExternalDataSourceConfiguration({
     buttonRef,
@@ -20,7 +20,7 @@ export function ExternalDataSourceConfiguration({
     const { updateSource } = useActions(marketingAnalyticsSettingsLogic)
 
     const revenueSources =
-        dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
+        dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
 
     return (
         <div>
