@@ -44,7 +44,7 @@ export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'>
     }
 }
 
-const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Promise<ModifiedResponse<Data>> => {
+const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: string): ModifiedResponse<Data> => {
     const headers = new Headers() as ModifiedResponse['headers']
     Object.entries(response.headers).forEach(([key, value]) => {
         headers.set(key, value)
@@ -54,7 +54,6 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
         return Object.fromEntries(headers.entries())
     }
 
-    const text = await response.text()
     let json = undefined as Data
 
     try {
@@ -229,22 +228,16 @@ export class SegmentDestinationExecutorService {
                         })
                         // Simulate a mini bit of fetch delay
                         await new Promise((resolve) => setTimeout(resolve, 200))
-                        return convertFetchResponse({
-                            status: 200,
-                            headers: {},
-                            json: () =>
-                                Promise.resolve({
-                                    status: 'OK',
-                                    message: 'Test function',
-                                }),
-                            text: () =>
-                                Promise.resolve(
-                                    JSON.stringify({
-                                        status: 'OK',
-                                        message: 'Test function',
-                                    })
-                                ),
-                        } as FetchResponse)
+                        return convertFetchResponse(
+                            {
+                                status: 200,
+                                headers: {},
+                            } as FetchResponse,
+                            JSON.stringify({
+                                status: 'OK',
+                                message: 'Test function',
+                            })
+                        )
                     }
 
                     if (config.debug_mode) {
@@ -254,9 +247,9 @@ export class SegmentDestinationExecutorService {
                     const [fetchError, fetchResponse] = await tryCatch(() =>
                         this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
                     )
+                    const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
 
                     if (fetchError || !fetchResponse || fetchResponse.status >= 400) {
-                        const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
                         if (
                             !(
                                 retriesPossible &&
@@ -268,9 +261,9 @@ export class SegmentDestinationExecutorService {
                         }
                         addLog(
                             'warn',
-                            `HTTP request failed with status ${
-                                fetchResponse?.status ?? 'unknown'
-                            } (${fetchResponseText}). ${retriesPossible ? 'Scheduling retry...' : ''}`
+                            `HTTP request failed with status ${fetchResponse?.status} (${
+                                fetchResponseText ?? 'unknown'
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
                         // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
@@ -278,9 +271,9 @@ export class SegmentDestinationExecutorService {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
-                                }: Request failed with status ${
-                                    fetchResponse?.status ?? 'unknown'
-                                } (${fetchResponseText})`
+                                }: Request failed with status ${fetchResponse?.status} (${
+                                    fetchResponseText ?? 'unknown'
+                                })`
                             )
                         }
                     }
@@ -295,7 +288,7 @@ export class SegmentDestinationExecutorService {
                         throw new Error('HTTP request failed')
                     }
 
-                    const convertedResponse = await convertFetchResponse(fetchResponse)
+                    const convertedResponse = convertFetchResponse(fetchResponse, fetchResponseText)
                     if (config.debug_mode) {
                         addLog(
                             'debug',
