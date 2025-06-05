@@ -36,14 +36,13 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, results, hasRemoteDataSource } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
-    const hasOnlyDefaultItems = results?.length === 1 && (!results[0].id || results[0].id === '')
-    const showLoading = isLoading && (!results || results.length === 0 || hasOnlyDefaultItems) && hasRemoteDataSource
+    const showLoading = isLoading && hasRemoteDataSource
 
     return (
         <LemonTag
@@ -76,71 +75,72 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
     const { eventOrdering } = useValues(taxonomicFilterPreferencesLogic)
     const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
 
-    if (openTab === TaxonomicFilterGroupType.Events) {
-        const currentGroup = taxonomicGroups.find((g) => g.type === openTab)
-
-        return (
-            <div className="flex flex-row justify-between items-center w-full">
-                <span>{currentGroup?.name || openTab}</span>
-                <FlaggedFeature flag="taxonomic-event-sorting" match={true}>
-                    <LemonMenu
-                        items={[
-                            {
-                                label: (
-                                    <div className="flex flex-row gap-2">
-                                        {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
-                                        <span>Name</span>
-                                    </div>
-                                ),
-                                tooltip: 'Sort events alphabetically',
-                                onClick: () => {
-                                    setEventOrdering('name')
+    return (
+        <div className="flex flex-row justify-between items-center w-full relative">
+            {openTab === TaxonomicFilterGroupType.Events ? (
+                <>
+                    <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
+                    <FlaggedFeature flag="taxonomic-event-sorting" match={true}>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: (
+                                        <div className="flex flex-row gap-2">
+                                            {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
+                                            <span>Name</span>
+                                        </div>
+                                    ),
+                                    tooltip: 'Sort events alphabetically',
+                                    onClick: () => {
+                                        setEventOrdering('name')
+                                    },
                                 },
-                            },
-                            {
-                                label: (
-                                    <div className="flex flex-row gap-2">
-                                        {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
-                                        <span>Recently seen</span>
-                                    </div>
-                                ),
-                                tooltip: 'Show the most recent events first',
-                                onClick: () => {
-                                    setEventOrdering('-last_seen_at')
+                                {
+                                    label: (
+                                        <div className="flex flex-row gap-2">
+                                            {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
+                                            <span>Recently seen</span>
+                                        </div>
+                                    ),
+                                    tooltip: 'Show the most recent events first',
+                                    onClick: () => {
+                                        setEventOrdering('-last_seen_at')
+                                    },
                                 },
-                            },
-                            {
-                                label: (
-                                    <div className="flex flex-row gap-2">
-                                        {!eventOrdering ? <IconCheck /> : <IconBlank />}
-                                        <span>Both</span>
-                                    </div>
-                                ),
-                                tooltip:
-                                    'Sorts events by the day they were last seen, and then by name. The default option.',
-                                onClick: () => {
-                                    setEventOrdering(null)
+                                {
+                                    label: (
+                                        <div className="flex flex-row gap-2">
+                                            {!eventOrdering ? <IconCheck /> : <IconBlank />}
+                                            <span>Both</span>
+                                        </div>
+                                    ),
+                                    tooltip:
+                                        'Sorts events by the day they were last seen, and then by name. The default option.',
+                                    onClick: () => {
+                                        setEventOrdering(null)
+                                    },
                                 },
-                            },
-                        ]}
-                    >
-                        <LemonButton
-                            icon={<IconSort />}
-                            size="small"
-                            tooltip={`Sorting by ${
-                                eventOrdering === '-last_seen_at'
-                                    ? 'recently seen'
-                                    : eventOrdering === 'name'
-                                    ? 'name'
-                                    : 'recently seen and then name'
-                            }`}
-                        />
-                    </LemonMenu>
-                </FlaggedFeature>
-            </div>
-        )
-    }
-    return <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>
+                            ]}
+                        >
+                            <LemonButton
+                                icon={<IconSort />}
+                                size="small"
+                                tooltip={`Sorting by ${
+                                    eventOrdering === '-last_seen_at'
+                                        ? 'recently seen'
+                                        : eventOrdering === 'name'
+                                        ? 'name'
+                                        : 'recently seen and then name'
+                                }`}
+                            />
+                        </LemonMenu>
+                    </FlaggedFeature>
+                </>
+            ) : (
+                <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>
+            )}
+        </div>
+    )
 }
 
 export function InfiniteSelectResults({
