@@ -127,7 +127,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # with one
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
-    # When a symbol set it loaded, last_used is set, so we can track how often
+    # When a symbol set is loaded, last_used is set, so we can track how often
     # symbol sets are used, and cleanup ones not used for a long time
     last_used = models.DateTimeField(null=True, blank=True)
 
