@@ -1,101 +1,12 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch, MagicMock
 from posthog.tasks.warehouse import (
-    capture_workspace_rows_synced_by_team,
     validate_data_warehouse_table_columns,
-    capture_external_data_rows_synced,
 )
-from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
-from freezegun import freeze_time
-import datetime
 
 from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestWarehouse(APIBaseTest):
-    @patch(
-        "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
-        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
-    )
-    @freeze_time("2023-11-07")
-    def test_capture_workspace_rows_synced_by_team_month_cutoff(self) -> None:
-        # external_data_workspace_last_synced_at unset
-
-        source = ExternalDataSource.objects.create(
-            source_id="test_id",
-            connection_id="fake connectino_id",
-            destination_id="fake destination_id",
-            team=self.team,
-            status="Running",
-            source_type="Stripe",
-        )
-
-        with freeze_time("2023-11-07T16:50:49Z"):
-            ExternalDataJob.objects.create(
-                pipeline=source,
-                workflow_id="fake_workflow_id",
-                team=self.team,
-                status="Running",
-                rows_synced=100000,
-                pipeline_version=ExternalDataJob.PipelineVersion.V1,
-            )
-
-        capture_workspace_rows_synced_by_team(self.team.pk)
-
-        self.team.refresh_from_db()
-        self.assertEqual(
-            self.team.external_data_workspace_last_synced_at,
-            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
-        )
-
-    @patch(
-        "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
-        datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
-    )
-    @freeze_time("2023-11-07")
-    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(self) -> None:
-        self.team.external_data_workspace_last_synced_at = datetime.datetime(
-            2023, 10, 30, 19, 32, 41, tzinfo=datetime.UTC
-        )
-        self.team.save()
-
-        source = ExternalDataSource.objects.create(
-            source_id="test_id",
-            connection_id="fake connectino_id",
-            destination_id="fake destination_id",
-            team=self.team,
-            status="Running",
-            source_type="Stripe",
-        )
-
-        with freeze_time("2023-10-30T18:32:41Z"):
-            ExternalDataJob.objects.create(
-                pipeline=source,
-                workflow_id="fake_workflow_id",
-                team=self.team,
-                status="Completed",
-                rows_synced=97747,
-                pipeline_version=ExternalDataJob.PipelineVersion.V1,
-            )
-
-        with freeze_time("2023-11-07T16:50:49Z"):
-            ExternalDataJob.objects.create(
-                pipeline=source,
-                workflow_id="fake_workflow_id",
-                team=self.team,
-                status="Completed",
-                rows_synced=93353,
-                pipeline_version=ExternalDataJob.PipelineVersion.V1,
-            )
-
-        capture_workspace_rows_synced_by_team(self.team.pk)
-
-        self.team.refresh_from_db()
-        self.assertEqual(
-            self.team.external_data_workspace_last_synced_at,
-            datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
-        )
-
     def test_validate_data_warehouse_table_columns(self) -> None:
         table = DataWarehouseTable.objects.create(
             name="table_name",
@@ -110,27 +21,3 @@ class TestWarehouse(APIBaseTest):
         table.refresh_from_db()
 
         assert table.columns.get("some_columns").get("valid") is True
-
-    @patch("posthog.tasks.warehouse.capture_workspace_rows_synced_by_team.delay")
-    def test_capture_external_data_rows_synced(self, mock_capture_workspace_rows_synced_by_team: MagicMock) -> None:
-        ExternalDataSource.objects.create(
-            source_id="test_id",
-            connection_id="fake connectino_id",
-            destination_id="fake destination_id",
-            team=self.team,
-            status="Running",
-            source_type="Stripe",
-        )
-
-        ExternalDataSource.objects.create(
-            source_id="another_id",
-            connection_id="fake connectino_id",
-            destination_id="fake destination_id",
-            team=self.team,
-            status="Running",
-            source_type="Stripe",
-        )
-
-        capture_external_data_rows_synced()
-
-        assert mock_capture_workspace_rows_synced_by_team.call_count == 1
