@@ -497,7 +497,7 @@ LIMIT 1000000
                     values.snapshotSources?.filter((s) => {
                         const sourceKey = keyForSource(s)
                         return (
-                            !cache.snapshotsBySource?.[sourceKey].sourceLoaded && s.source !== SnapshotSourceType.file
+                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
                         )
                     }) || []
 
@@ -511,7 +511,7 @@ LIMIT 1000000
             } else {
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
                     const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey].sourceLoaded && s.source !== SnapshotSourceType.file
+                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
                 })
 
                 if (nextSourceToLoad) {
