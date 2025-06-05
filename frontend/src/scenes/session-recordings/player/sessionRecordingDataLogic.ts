@@ -831,12 +831,13 @@ LIMIT 1000000
                 if (!sources || !cache.snapshotsBySource) {
                     return []
                 }
-                return processAllSnapshots(
+                const processedSnapshots = processAllSnapshots(
                     sources,
                     cache.snapshotsBySource || {},
                     viewportForTimestamp,
                     sessionRecordingId
                 )
+                return processedSnapshots['processed'].snapshots || []
             },
         ],
 
