@@ -1,10 +1,9 @@
 from celery import shared_task
 import structlog
-from posthog.cloud_utils import is_ci, is_cloud
+from posthog.cloud_utils import is_cloud
 from posthog.models import EarlyAccessFeature
 from posthog.models.person.person import Person
 import posthoganalytics
-from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -13,24 +12,15 @@ POSTHOG_TEAM_ID = 2
 
 # Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
 @shared_task(ignore_result=True, max_retries=1)
-def send_events_for_early_access_feature_stage_change(feature_id: str, from_stage: str, to_stage: str) -> None:
-    # This is for debugging purposes
-    posthoganalytics.capture(
-        "early_access_feature_stage_change_celery_task",
-        "early_access_feature_stage_change_celery_task_run",
-        {"feature_id": feature_id, "from_stage": from_stage, "to_stage": to_stage},
-    )
-
-    print(  # noqa: T201
-        f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {feature_id} from {from_stage} to {to_stage}"
-    )
-    instance = EarlyAccessFeature.objects.get(id=feature_id)
-
-    team_id = instance.team.id
-
-    send_events_for_change = (team_id == POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG or is_ci()
-
+def send_events_for_early_access_feature_stage_change(
+    feature_id: str, team_id_str: str, from_stage: str, to_stage: str
+) -> None:
+    print(f"[CELERY][EARLY ACCESS FEATURE] Running send_events_for_early_access_feature_stage_change")  # noqa: T201
+    team_id = int(team_id_str)
     print(f"[CELERY][EARLY ACCESS FEATURE] Team ID: {team_id}")  # noqa: T201
+
+    send_events_for_change = team_id == POSTHOG_TEAM_ID if is_cloud() else True
+
     print(f"[CELERY][EARLY ACCESS FEATURE] Send events for change: {send_events_for_change}")  # noqa: T201
 
     if not send_events_for_change:
@@ -38,6 +28,11 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             f"[CELERY][EARLY ACCESS FEATURE] Skipping sending events for early access feature stage change for feature because it's not the PostHog team"
         )
         return
+
+    print(  # noqa: T201
+        f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {feature_id} from {from_stage} to {to_stage}"
+    )
+    instance = EarlyAccessFeature.objects.get(id=feature_id)
 
     feature_flag = instance.feature_flag
 
