@@ -254,6 +254,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
+
+        // Messaging
+        MAILJET_PUBLIC_KEY: '',
+        MAILJET_SECRET_KEY: '',
+
         DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
