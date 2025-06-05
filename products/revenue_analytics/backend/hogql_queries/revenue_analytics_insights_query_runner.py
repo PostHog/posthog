@@ -7,7 +7,11 @@ from posthog.schema import (
 )
 from posthog.utils import format_label_date
 
-from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from .revenue_analytics_query_runner import (
+    RevenueAnalyticsQueryRunner,
+    RevenueAnalyticsInvoiceItemView,
+    RevenueAnalyticsProductView,
+)
 
 NO_PRODUCT_PLACEHOLDER = "<none>"
 
@@ -18,8 +22,8 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
     cached_response: CachedRevenueAnalyticsInsightsQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
-        subqueries = self._get_subqueries()
-        if subqueries is None:
+        subquery = self._get_subquery()
+        if subquery is None:
             return ast.SelectQuery.empty()
 
         return ast.SelectQuery(
@@ -28,9 +32,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                 ast.Alias(alias="day_start", expr=ast.Field(chain=["day_start"])),
                 ast.Alias(alias="breakdown_by", expr=ast.Field(chain=["breakdown_by"])),
             ],
-            select_from=ast.JoinExpr(
-                table=ast.SelectSetQuery.create_from_queries(subqueries, set_operator="UNION ALL"),
-            ),
+            select_from=ast.JoinExpr(table=subquery),
             group_by=[ast.Field(chain=["day_start"]), ast.Field(chain=["breakdown_by"])],
             # Return sorted by day_start, and then for each individual day we put the maximum first
             # This will allow us to return the list sorted according to the numbers in the last day
@@ -40,150 +42,131 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                 ast.OrderExpr(expr=ast.Field(chain=["value"]), order="DESC"),
                 ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
             ],
-            limit=ast.Constant(
-                value=10000
-            ),  # Need a huge limit because we need (dates x products)-many rows to be returned
+            # Need a huge limit because we need (dates x breakdown)-many rows to be returned
+            limit=ast.Constant(value=10000),
         )
 
-    def _get_subqueries(self) -> list[ast.SelectQuery] | None:
+    def _get_subquery(self) -> ast.SelectQuery | None:
         if self.query.groupBy == "all":
-            return self._get_subqueries_by_all()
+            return self._get_subquery_by_all()
         elif self.query.groupBy == "product":
-            return self._get_subqueries_by_product()
+            return self._get_subquery_by_product()
         elif self.query.groupBy == "cohort":
             pass  # TODO: Implement this
 
         raise ValueError(f"Invalid group by: {self.query.groupBy}")
 
-    def _get_subqueries_by_all(self) -> list[ast.SelectQuery] | None:
-        queries: list[ast.SelectQuery] = []
-        for view_name, selects in self.revenue_selects().items():
-            if selects["charge"] is None:
-                continue
+    def _get_subquery_by_all(self) -> ast.SelectQuery | None:
+        _, _, invoice_item_subquery, _ = self.revenue_subqueries
+        if invoice_item_subquery is None:
+            return None
 
-            queries.append(
-                ast.SelectQuery(
-                    select=[
-                        ast.Alias(alias="breakdown_by", expr=ast.Constant(value=view_name)),
-                        ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
-                        ast.Alias(
-                            alias="day_start",
-                            expr=ast.Call(
-                                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                                args=[ast.Field(chain=["timestamp"])],
-                            ),
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="breakdown_by",
+                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
+                ),
+                ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
+                ast.Alias(
+                    alias="day_start",
+                    expr=ast.Call(
+                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                        args=[ast.Field(chain=["timestamp"])],
+                    ),
+                ),
+            ],
+            select_from=self.append_joins(
+                ast.JoinExpr(
+                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                    table=invoice_item_subquery,
+                ),
+                self.joins_for_properties,
+            ),
+            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
+        )
+
+    def _get_subquery_by_product(self) -> ast.SelectQuery | None:
+        _, _, invoice_item_subquery, product_subquery = self.revenue_subqueries
+        if invoice_item_subquery is None:
+            return None
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="breakdown_by",
+                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
+                ),
+                ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
+                ast.Alias(
+                    alias="day_start",
+                    expr=ast.Call(
+                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                        args=[ast.Field(chain=["timestamp"])],
+                    ),
+                ),
+            ],
+            select_from=self.append_joins(
+                ast.JoinExpr(
+                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                    table=invoice_item_subquery,
+                ),
+                self.joins_for_properties,
+            ),
+            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
+        )
+
+        # Join with product to get access to the `product_name`
+        # and also change the `breakdown_by` to include that
+        if product_subquery is not None:
+            # This `if` is required to make mypy happy
+            if (
+                query.select
+                and query.select[0]
+                and isinstance(query.select[0], ast.Alias)
+                and query.select[0].alias == "breakdown_by"
+            ):
+                query.select[0].expr = ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
+                        ast.Constant(value=" - "),
+                        ast.Call(
+                            name="coalesce",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"]),
+                                ast.Constant(value=NO_PRODUCT_PLACEHOLDER),
+                            ],
                         ),
                     ],
-                    select_from=ast.JoinExpr(table=selects["charge"]),
-                    where=self.timestamp_where_clause(),
                 )
-            )
 
-        if len(queries) == 0:
-            return None
-        return queries
-
-    def _get_subqueries_by_product(self) -> list[ast.SelectQuery] | None:
-        queries: list[ast.SelectQuery] = []
-        for view_name, selects in self.revenue_selects().items():
-            if selects["charge"] is None:
-                continue
-
-            charge_alias = f"charge_{view_name}"
-
-            query = ast.SelectQuery(
-                select=[
-                    ast.Alias(alias="breakdown_by", expr=ast.Constant(value=view_name)),
-                    ast.Alias(alias="amount", expr=ast.Field(chain=[charge_alias, "amount"])),
-                    ast.Alias(
-                        alias="day_start",
-                        expr=ast.Call(
-                            name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                            args=[ast.Field(chain=[charge_alias, "timestamp"])],
-                        ),
-                    ),
-                ],
-                select_from=ast.JoinExpr(alias=charge_alias, table=selects["charge"]),
-                where=self.timestamp_where_clause(chain=[charge_alias, "timestamp"]),
-            )
-
-            # Join with invoice and product to get access to the `product_name`
+            # We wanna include a join with the product table to get the product name
             # and also change the `breakdown_by` to include that
-            if selects["invoice_item"] is not None and selects["product"] is not None:
-                invoice_item_alias = f"invoice_item_{view_name}"
-                product_alias = f"product_{view_name}"
+            # However, because we're already likely joining with the product because
+            # we might be filtering on item, we need to be extra safe here and guarantee
+            # there's no join with the product table before adding this one
+            if query.select_from is not None:
+                has_product_join = False
+                current_join: ast.JoinExpr | None = query.select_from
+                while current_join is not None:
+                    if current_join.alias == RevenueAnalyticsProductView.get_generic_view_alias():
+                        has_product_join = True
+                        break
+                    current_join = current_join.next_join
 
-                # If checks to make mypy happy
-                if (
-                    query.select
-                    and query.select[0]
-                    and isinstance(query.select[0], ast.Alias)
-                    and query.select[0].alias == "breakdown_by"
-                ):  # Make mypy happy
-                    query.select[0].expr = ast.Call(
-                        name="concat",
-                        args=[
-                            ast.Constant(value=view_name),
-                            ast.Constant(value=" - "),
-                            ast.Call(
-                                name="coalesce",
-                                args=[
-                                    ast.Field(chain=[product_alias, "name"]),
-                                    ast.Constant(value=NO_PRODUCT_PLACEHOLDER),
-                                ],
-                            ),
-                        ],
+                if not has_product_join:
+                    query.select_from = self.append_joins(
+                        query.select_from,
+                        [self.create_product_join(product_subquery)],
                     )
 
-                if (
-                    query.select
-                    and query.select[1]
-                    and isinstance(query.select[1], ast.Alias)
-                    and query.select[1].alias == "amount"
-                ):
-                    query.select[1].expr = ast.Alias(
-                        alias="amount", expr=ast.Field(chain=[invoice_item_alias, "amount"])
-                    )
-
-                if query.select_from is not None:
-                    query.select_from.next_join = ast.JoinExpr(
-                        table=selects["invoice_item"],
-                        alias=invoice_item_alias,
-                        join_type="LEFT OUTER JOIN",
-                        constraint=ast.JoinConstraint(
-                            constraint_type="ON",
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[charge_alias, "invoice_id"]),
-                                right=ast.Field(chain=[invoice_item_alias, "id"]),
-                            ),
-                        ),
-                        next_join=ast.JoinExpr(
-                            table=selects["product"],
-                            alias=product_alias,
-                            join_type="LEFT OUTER JOIN",
-                            constraint=ast.JoinConstraint(
-                                constraint_type="ON",
-                                expr=ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=[invoice_item_alias, "product_id"]),
-                                    right=ast.Field(chain=[product_alias, "id"]),
-                                ),
-                            ),
-                        ),
-                    )
-
-            queries.append(query)
-
-        if len(queries) == 0:
-            return None
-        return queries
+        return query
 
     def calculate(self):
-        query = self.to_query()
         response = execute_hogql_query(
             query_type="revenue_analytics_insights_query",
-            query=query,
+            query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
