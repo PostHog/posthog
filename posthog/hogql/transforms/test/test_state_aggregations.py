@@ -1022,7 +1022,7 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
             'recent' as data_source
         FROM events
         WHERE timestamp >= '2023-01-02'
-        ORDER BY data_source ASC
+        ORDER BY data_source DESC
         """
 
         original_query_ast = parse_select(original_query_str)

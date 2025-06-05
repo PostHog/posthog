@@ -5,7 +5,6 @@ import structlog
 
 from contextlib import contextmanager
 
-
 PH_US_API_KEY = "sTMFPsFhdP1Ssg"
 PH_US_HOST = "https://us.i.posthog.com"
 
@@ -15,7 +14,7 @@ PH_EU_HOST = "https://eu.i.posthog.com"
 logger = structlog.get_logger(__name__)
 
 
-def get_regional_client():
+def get_regional_ph_client():
     if not is_cloud():
         return
 
