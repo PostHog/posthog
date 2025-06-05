@@ -12,7 +12,6 @@ use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
-use redis;
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
