@@ -1,4 +1,4 @@
-import { IconFolder, IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -194,7 +194,6 @@ export const QueryDatabase = (): JSX.Element => {
                             <TreeNodeDisplayIcon
                                 item={item}
                                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
-                                defaultNodeIcon={<IconFolder />}
                             />
                         )
                     }}

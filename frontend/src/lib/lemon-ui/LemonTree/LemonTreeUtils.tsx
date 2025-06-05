@@ -87,7 +87,7 @@ export const TreeNodeDisplayIcon = ({
     const isFolder = item.record?.type === 'folder' || (item.children && item.children.length > 0)
     const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
-    let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
+    let iconElement: React.ReactNode | undefined = item.icon || defaultNodeIcon
 
     if (isFolder) {
         // use provided icon as the default icon for folder nodes

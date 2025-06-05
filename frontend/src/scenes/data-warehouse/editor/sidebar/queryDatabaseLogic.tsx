@@ -1,4 +1,4 @@
-import { IconDatabase, IconDocument } from '@posthog/icons'
+import { IconDatabase, IconDocument, IconPlug } from '@posthog/icons'
 import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
@@ -193,11 +193,13 @@ const createSourceFolderNode = (
 const createTopLevelFolderNode = (
     type: 'sources' | 'views',
     children: TreeDataItem[],
-    isSearch = false
+    isSearch = false,
+    icon?: React.ReactNode
 ): TreeDataItem => ({
     id: isSearch ? `search-${type}` : type,
     name: type === 'sources' ? 'Sources' : 'Views',
     type: 'node',
+    icon: icon,
     record: {
         type,
     },
@@ -400,7 +402,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (sourcesChildren.length > 0) {
                     expandedIds.push('search-sources')
-                    searchResults.push(createTopLevelFolderNode('sources', sourcesChildren, true))
+                    searchResults.push(createTopLevelFolderNode('sources', sourcesChildren, true, <IconPlug />))
                 }
 
                 if (viewsChildren.length > 0) {
@@ -476,7 +478,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
 
                 return [
-                    createTopLevelFolderNode('sources', sourcesChildren),
+                    createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     createTopLevelFolderNode('views', viewsChildren),
                 ]
             },
