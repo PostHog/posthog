@@ -50,7 +50,7 @@ export const UnsubscribeSurveyModal = ({
         process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
-    const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
+    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     const includesPipelinesAddon =
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
@@ -217,9 +217,9 @@ export const UnsubscribeSurveyModal = ({
                             <LemonTextArea
                                 data-attr="unsubscribe-reason-survey-textarea"
                                 placeholder={unsubscribeReasonQuestions}
-                                value={surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]}
+                                value={surveyResponse['$survey_response']}
                                 onChange={(value) => {
-                                    setSurveyResponse(SurveyEventProperties.SURVEY_RESPONSE, value)
+                                    setSurveyResponse('$survey_response', value)
                                 }}
                             />
                         )}
