@@ -148,7 +148,7 @@ interface MetricLoadingConfig {
             | null
         )[]
     ) => void
-    onSetResultsNew: (results: CachedNewExperimentQueryResponse[]) => void
+    onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
     onTimeout: (experimentId: Experiment['id'], metric: any) => void
 }
@@ -158,7 +158,7 @@ const loadMetrics = async ({
     experimentId,
     refresh,
     onSetLegacyResults,
-    onSetResultsNew,
+    onSetResults,
     onSetErrors,
     onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
@@ -216,7 +216,7 @@ const loadMetrics = async ({
                     }
                 }
                 onSetLegacyResults([...results])
-                onSetResultsNew([...newResults])
+                onSetResults([...newResults])
             } catch (error: any) {
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
@@ -234,7 +234,7 @@ const loadMetrics = async ({
 
                 results[index] = null
                 onSetLegacyResults([...results])
-                onSetResultsNew([...newResults])
+                onSetResults([...newResults])
             }
         })
     )
@@ -1462,7 +1462,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 experimentId: values.experimentId,
                 refresh,
                 onSetLegacyResults: actions.setLegacyMetricResults,
-                onSetResultsNew: actions.setMetricResults,
+                onSetResults: actions.setMetricResults,
                 onSetErrors: actions.setPrimaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
@@ -1487,7 +1487,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 experimentId: values.experimentId,
                 refresh,
                 onSetLegacyResults: actions.setLegacySecondaryMetricResults,
-                onSetResultsNew: actions.setSecondaryMetricResults,
+                onSetResults: actions.setSecondaryMetricResults,
                 onSetErrors: actions.setSecondaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
