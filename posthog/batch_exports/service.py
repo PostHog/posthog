@@ -161,6 +161,9 @@ class S3BatchExportInputs(BaseBatchExportInputs):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
 
+        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
+            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
+
 
 @dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
