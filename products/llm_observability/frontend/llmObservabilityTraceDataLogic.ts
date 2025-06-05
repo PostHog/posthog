@@ -136,7 +136,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
 
                 const query = searchQuery.toLowerCase().trim()
 
-                // Score events by relevance
+                // Score events by relevance (sort of doing a random scoring for now but i feel like this is directionally correct)
                 const scoredEvents = filteredEvents.map((event) => {
                     let score = 0
 

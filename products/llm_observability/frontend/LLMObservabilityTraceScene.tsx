@@ -177,7 +177,6 @@ function TraceSidebar({
     const { setSearchQuery, setEventId } = useActions(llmObservabilityTraceLogic)
 
     useEffect(() => {
-        // On first render, let's focus the selected tree node in the center
         if (eventId && ref.current) {
             const selectedNode = ref.current.querySelector(`[aria-current=true]`)
             if (selectedNode) {
@@ -186,7 +185,6 @@ function TraceSidebar({
         }
     }, [eventId])
 
-    // Auto-select most relevant event when search is performed
     useEffect(() => {
         if (mostRelevantEvent && searchQuery.trim()) {
             setEventId(mostRelevantEvent.id)
