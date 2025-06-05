@@ -51,7 +51,7 @@ import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/act
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
-import { DashboardsMenu } from './ProjectTree/menus/DashboardsMenu'
+import { DashboardsMenuItems } from './ProjectTree/menus/DashboardsMenuItems'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
@@ -176,11 +176,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
-            dropdownMenu: (
+            dropdownMenuItems: (
                 <>
                     <DropdownMenuLabel>Pinned dashboards</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DashboardsMenu />
+                    <DashboardsMenuItems />
                 </>
             ),
         },
@@ -358,8 +358,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
                                                             hasSideActionRight:
-                                                                item.dropdownMenu && !isLayoutNavCollapsed,
-                                                            fullWidth: item.dropdownMenu && !isLayoutNavCollapsed,
+                                                                item.dropdownMenuItems && !isLayoutNavCollapsed,
+                                                            fullWidth: item.dropdownMenuItems && !isLayoutNavCollapsed,
                                                         }}
                                                         to={item.to}
                                                         tooltip={item.tooltip}
@@ -378,7 +378,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className="truncate">{item.id}</span>
                                                         )}
                                                     </Link>
-                                                    {item.dropdownMenu && !isLayoutNavCollapsed && (
+                                                    {item.dropdownMenuItems && !isLayoutNavCollapsed && (
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
                                                                 <ButtonPrimitive
@@ -397,7 +397,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 side="bottom"
                                                                 className="max-w-[250px]"
                                                             >
-                                                                {item.dropdownMenu}
+                                                                {item.dropdownMenuItems}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     )}
