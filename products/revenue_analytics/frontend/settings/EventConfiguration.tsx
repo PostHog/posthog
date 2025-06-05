@@ -9,7 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
-import { CurrencyDropdown } from './CurrencyDropdown'
+import { CurrencyDropdown } from '../../../../frontend/src/lib/components/BaseCurrency/CurrencyDropdown'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {

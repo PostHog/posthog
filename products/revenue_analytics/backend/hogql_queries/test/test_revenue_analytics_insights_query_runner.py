@@ -151,9 +151,10 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             last_synced_at="2024-01-01",
         )
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
+        self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
     def tearDown(self):
         self.products_cleanup_filesystem()

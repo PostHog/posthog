@@ -77,7 +77,6 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
         invoice_table = cast(DataWarehouseTable, invoice_schema.table)
         team = invoice_table.team
-        revenue_config = team.revenue_analytics_config
 
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and
@@ -118,7 +117,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",
