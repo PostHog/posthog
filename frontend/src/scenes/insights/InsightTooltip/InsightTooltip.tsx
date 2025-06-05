@@ -82,15 +82,15 @@ export function InsightTooltip({
     embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
-    formula,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
     groupTypeLabel = 'people',
     breakdownFilter,
 }: InsightTooltipProps): JSX.Element {
-    // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group/multi-formula happening, itemize entities as columns to save vertical space..
-    // If only a single entity exists, itemize entity counts as rows.
+    // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
+    // and the insight has a breakdown or compare option enabled. This gives us space for labels
+    // in the first column of each row.
     const itemizeEntitiesAsColumns =
         (seriesData?.length ?? 0) > 1 &&
         (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
@@ -139,12 +139,13 @@ export function InsightTooltip({
                     title:
                         (colIdx === 0 ? rightTitle : undefined) ||
                         (!concreteTooltipTitle &&
+                            numDataPoints > 1 &&
                             renderSeries(
                                 <InsightLabel
                                     action={seriesColumn.action}
                                     fallbackName={seriesColumn.label}
-                                    hideBreakdown
                                     showSingleName
+                                    hideBreakdown
                                     hideCompare
                                     hideIcon
                                     allowWrap
@@ -204,8 +205,8 @@ export function InsightTooltip({
                 <InsightLabel
                     action={datum.action}
                     fallbackName={datum.label}
-                    hideBreakdown
                     showSingleName
+                    hideBreakdown
                     hideCompare
                     hideIcon
                     allowWrap

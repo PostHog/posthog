@@ -57,7 +57,6 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     date?: string
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
-    formula?: boolean
     breakdownFilter?: BreakdownFilter | undefined | null
     groupTypeLabel?: string
     timezone?: string | null
