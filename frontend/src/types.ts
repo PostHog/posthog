@@ -1086,6 +1086,9 @@ export interface SessionRecordingSnapshotSourceResponse {
     // this flag lets us skip reprocessing a source
     // the processed source is implicitly processed
     processed?: boolean
+    // we only want to load each source from the API once
+    // this flag is set when the API has loaded the source
+    sourceLoaded?: boolean
 }
 
 export interface SessionRecordingSnapshotResponse {
