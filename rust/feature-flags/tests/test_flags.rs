@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
-use feature_flags::config::{FlexBool, DEFAULT_TEST_CONFIG};
+use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
     insert_new_team_in_redis, insert_person_for_team_in_pg, setup_pg_reader_client,
@@ -1664,7 +1664,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let json_data = res.json::<Value>().await?;
     println!("json_data: {:?}", json_data);
     assert!(json_data.get("supportedCompression").is_none());
-    assert!(json_data.get("autocaptureOptOut").is_none());
+    assert_eq!(json_data["autocapture_opt_out"], json!(false));
 
     // With config param
     let res = server
@@ -1733,7 +1733,6 @@ async fn test_config_basic_fields() -> Result<()> {
         json_data["supportedCompression"],
         json!(["gzip", "gzip-js"])
     );
-    assert_eq!(json_data["hasFeatureFlags"], json!(true)); // Has flags
     assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
     assert_eq!(json_data["isAuthenticated"], json!(false));
     assert_eq!(
@@ -1741,42 +1740,6 @@ async fn test_config_basic_fields() -> Result<()> {
         json!({"enable_collect_everything": true})
     );
     assert_eq!(json_data["toolbarParams"], json!({}));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_config_has_feature_flags_when_empty() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "user_distinct_id".to_string();
-
-    let client = setup_redis_client(Some(config.redis_url.clone()));
-    let pg_client = setup_pg_reader_client(None).await;
-    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
-
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
-        .await
-        .unwrap();
-
-    // No flags inserted for this team
-    let server = ServerHandle::for_config(config).await;
-
-    let payload = json!({
-        "token": token,
-        "distinct_id": distinct_id,
-    });
-
-    let res = server
-        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
-        .await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let json_data = res.json::<Value>().await?;
-    assert_eq!(json_data["hasFeatureFlags"], json!(false)); // No flags
 
     Ok(())
 }
@@ -1976,7 +1939,6 @@ async fn test_config_optional_team_features() -> Result<()> {
     assert_eq!(json_data["flagsPersistenceDefault"], json!(false));
 
     // Test fields that should be null when not set
-    assert!(json_data["autocaptureOptOut"].is_null());
     assert!(json_data["captureDeadClicks"].is_null());
 
     // Test elements chain as string (should be enabled by default in test config)
@@ -2079,7 +2041,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
         json_data["supportedCompression"],
         json!(["gzip", "gzip-js"])
     );
-    assert_eq!(json_data["hasFeatureFlags"], json!(true));
+    assert_eq!(json_data["autocapture_opt_out"], json!(false));
     assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
     assert_eq!(json_data["isAuthenticated"], json!(false));
 
@@ -2136,7 +2098,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
            RETURNING id"#,
     )
     .bind("Test Site App")
-    .bind(format!("test://plugin/site_app/{}", chrono::Utc::now().timestamp()))
+    .bind(format!("test://plugin/site_app/{}", uuid::Uuid::new_v4()))
     .bind("019026a4-be80-0000-5bf3-171d00629163")
     .fetch_one(&mut *conn)
     .await
@@ -2341,6 +2303,577 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
 
     // Should NOT include the script config since team is not allowed
     assert!(session_recording["scriptConfig"].is_null());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_comprehensive_enterprise_team() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.debug = FlexBool(false);
+    config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
+    config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None;
+    config.element_chain_as_string_excluded_teams = TeamIdCollection::None;
+    config.session_replay_rrweb_script = "console.log('Enterprise script')".to_string();
+    config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
+
+    let distinct_id = "enterprise_user".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Configure team with all enterprise features enabled
+    team.session_recording_opt_in = true;
+    team.inject_web_apps = Some(true);
+    team.autocapture_exceptions_opt_in = Some(true);
+    team.autocapture_web_vitals_opt_in = Some(true);
+    team.capture_performance_opt_in = Some(true);
+    team.surveys_opt_in = Some(true);
+    team.heatmaps_opt_in = Some(true);
+    team.flags_persistence_default = Some(true);
+    team.capture_dead_clicks = Some(true);
+    team.autocapture_opt_out = Some(false);
+
+    // Set allowed web vitals metrics
+    team.autocapture_web_vitals_allowed_metrics = Some(sqlx::types::Json(json!([
+        "CLS", "FCP", "LCP", "FID", "TTFB"
+    ])));
+
+    // Update team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Add a site app plugin
+    let mut conn = pg_client.get_connection().await.unwrap();
+    let plugin_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_plugin 
+           (name, description, url, config_schema, tag, source, plugin_type, is_global, is_preinstalled, is_stateless, capabilities, from_json, from_web, organization_id, updated_at, created_at)
+           VALUES ($1, 'Enterprise Site App', $2, '[]', '', '', 'source', false, false, false, '{}', false, false, $3::uuid, NOW(), NOW())
+           RETURNING id"#,
+    )
+    .bind("Enterprise Site App")
+    .bind(format!("test://plugin/site_app/{}", uuid::Uuid::new_v4()))
+    .bind("019026a4-be80-0000-5bf3-171d00629163")
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    let source_uuid = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"INSERT INTO posthog_pluginsourcefile 
+           (id, plugin_id, filename, source, transpiled, status, updated_at)
+           VALUES ($1::uuid, $2, 'site.ts', 'function enterpriseFeature(){}', 'function enterpriseFeature(){}', 'TRANSPILED', NOW())"#,
+    )
+    .bind(source_uuid)
+    .bind(plugin_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"INSERT INTO posthog_pluginconfig 
+           (plugin_id, team_id, enabled, "order", config, web_token, updated_at, created_at)
+           VALUES ($1, $2, true, 1, '{}', 'enterprise_site_app_token', NOW(), NOW())"#,
+    )
+    .bind(plugin_id)
+    .bind(team.id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify all enterprise features are enabled
+    assert_eq!(
+        json_data["supportedCompression"],
+        json!(["gzip", "gzip-js"])
+    );
+    assert_eq!(json_data["autocapture_opt_out"], json!(false));
+    assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
+    assert_eq!(json_data["isAuthenticated"], json!(false));
+    assert_eq!(
+        json_data["config"],
+        json!({"enable_collect_everything": true})
+    );
+    assert_eq!(json_data["toolbarParams"], json!({}));
+
+    // Analytics should be enabled
+    assert!(json_data["analytics"].is_object());
+    assert_eq!(
+        json_data["analytics"]["endpoint"],
+        json!("https://analytics.posthog.com")
+    );
+
+    // Elements chain as string should be enabled
+    assert_eq!(json_data["elementsChainAsString"], json!(true));
+
+    // Performance capture should have both features enabled
+    let capture_performance = &json_data["capturePerformance"];
+    assert!(capture_performance.is_object());
+    assert_eq!(capture_performance["network_timing"], json!(true));
+    assert_eq!(capture_performance["web_vitals"], json!(true));
+    assert_eq!(
+        capture_performance["web_vitals_allowed_metrics"],
+        json!(["CLS", "FCP", "LCP", "FID", "TTFB"])
+    );
+
+    // Autocapture exceptions should be enabled
+    assert_eq!(
+        json_data["autocaptureExceptions"],
+        json!({"endpoint": "/e/"})
+    );
+
+    // Optional features should all be enabled
+    assert_eq!(json_data["surveys"], json!(true));
+    assert_eq!(json_data["heatmaps"], json!(true));
+    assert_eq!(json_data["flagsPersistenceDefault"], json!(true));
+    assert_eq!(json_data["captureDeadClicks"], json!(true));
+
+    // Session recording should be fully configured with script
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+    assert_eq!(session_recording["endpoint"], "/s/");
+    assert_eq!(session_recording["recorderVersion"], "v2");
+    assert!(session_recording["scriptConfig"].is_object());
+    assert_eq!(
+        session_recording["scriptConfig"]["script"],
+        "console.log('Enterprise script')"
+    );
+
+    // Site apps should be populated
+    assert!(json_data["siteApps"].is_array());
+    let site_apps = json_data["siteApps"].as_array().unwrap();
+    assert_eq!(site_apps.len(), 1);
+    assert!(site_apps[0]["url"]
+        .as_str()
+        .unwrap()
+        .contains("enterprise_site_app_token"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_comprehensive_minimal_team() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.debug = FlexBool(true); // Debug mode disables analytics
+    config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
+    config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // Exclude all teams
+    config.element_chain_as_string_excluded_teams = TeamIdCollection::All; // Exclude all teams
+    config.session_replay_rrweb_script = "".to_string(); // No script
+
+    let distinct_id = "minimal_user".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Configure team with minimal features (everything disabled/None)
+    team.session_recording_opt_in = false;
+    team.inject_web_apps = Some(false);
+    team.autocapture_exceptions_opt_in = Some(false);
+    team.autocapture_web_vitals_opt_in = Some(false);
+    team.capture_performance_opt_in = Some(false);
+    team.surveys_opt_in = Some(false);
+    team.heatmaps_opt_in = Some(false);
+    team.flags_persistence_default = Some(false);
+    team.capture_dead_clicks = Some(false);
+    team.autocapture_opt_out = Some(true);
+    team.autocapture_web_vitals_allowed_metrics = None;
+
+    // Update team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify minimal configuration
+    assert_eq!(
+        json_data["supportedCompression"],
+        json!(["gzip", "gzip-js"])
+    );
+    assert_eq!(json_data["autocapture_opt_out"], json!(true)); // Explicitly enabled
+    assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
+    assert_eq!(json_data["isAuthenticated"], json!(false));
+    assert_eq!(
+        json_data["config"],
+        json!({"enable_collect_everything": true})
+    );
+    assert_eq!(json_data["toolbarParams"], json!({}));
+
+    // Analytics should be disabled (debug mode + excluded)
+    assert!(json_data["analytics"].is_null());
+
+    // Elements chain as string should be disabled (excluded)
+    assert!(json_data["elementsChainAsString"].is_null());
+
+    // Performance capture should be disabled
+    assert_eq!(json_data["capturePerformance"], json!(false));
+
+    // Autocapture exceptions should be disabled
+    assert_eq!(json_data["autocaptureExceptions"], json!(false));
+
+    // Optional features should all be disabled
+    assert_eq!(json_data["surveys"], json!(false));
+    assert_eq!(json_data["heatmaps"], json!(false));
+    assert_eq!(json_data["flagsPersistenceDefault"], json!(false));
+    assert_eq!(json_data["captureDeadClicks"], json!(false));
+
+    // Session recording should be disabled
+    assert_eq!(json_data["sessionRecording"], json!(false));
+
+    // Site apps should be empty (inject_web_apps is false)
+    assert_eq!(json_data["siteApps"], json!([]));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_mixed_feature_combinations() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.debug = FlexBool(false);
+    config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
+    config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None;
+    config.element_chain_as_string_excluded_teams = TeamIdCollection::TeamIds(vec![999]); // Different team excluded
+    config.session_replay_rrweb_script = "console.log('Mixed script')".to_string();
+
+    let distinct_id = "mixed_user".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Configure team with mixed features (some enabled, some disabled)
+    team.session_recording_opt_in = true;
+    team.inject_web_apps = Some(false); // Disabled
+    team.autocapture_exceptions_opt_in = Some(true); // Enabled
+    team.autocapture_web_vitals_opt_in = Some(false); // Disabled
+    team.capture_performance_opt_in = Some(true); // Enabled (only network timing)
+    team.surveys_opt_in = None; // Default (should be false)
+    team.heatmaps_opt_in = Some(true); // Enabled
+    team.flags_persistence_default = None; // Default (should be false)
+    team.capture_dead_clicks = None; // Default (should be null)
+    team.autocapture_opt_out = None; // Default (should be false)
+
+    // Only allow script for specific teams (include our team)
+    config.session_replay_rrweb_script_allowed_teams = format!("{},5,10", team.id).parse().unwrap();
+
+    // Update team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Analytics should be enabled (not in debug, not excluded, has endpoint)
+    assert!(json_data["analytics"].is_object());
+    assert_eq!(
+        json_data["analytics"]["endpoint"],
+        json!("https://analytics.posthog.com")
+    );
+
+    // Elements chain as string should be enabled (team not in exclusion list)
+    assert_eq!(json_data["elementsChainAsString"], json!(true));
+
+    // Performance capture should have network timing only
+    let capture_performance = &json_data["capturePerformance"];
+    assert!(capture_performance.is_object());
+    assert_eq!(capture_performance["network_timing"], json!(true));
+    assert_eq!(capture_performance["web_vitals"], json!(false));
+    assert!(capture_performance["web_vitals_allowed_metrics"].is_null());
+
+    // Autocapture exceptions should be enabled
+    assert_eq!(
+        json_data["autocaptureExceptions"],
+        json!({"endpoint": "/e/"})
+    );
+
+    // Mixed optional features
+    assert_eq!(json_data["surveys"], json!(false)); // None -> false
+    assert_eq!(json_data["heatmaps"], json!(true)); // Explicitly enabled
+    assert_eq!(json_data["flagsPersistenceDefault"], json!(false)); // None -> false
+    assert!(json_data["captureDeadClicks"].is_null()); // None -> null
+    assert_eq!(json_data["autocapture_opt_out"], json!(false)); // None -> false
+
+    // Session recording should be enabled with script (team is allowed)
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+    assert_eq!(session_recording["endpoint"], "/s/");
+    assert_eq!(session_recording["recorderVersion"], "v2");
+    assert!(session_recording["scriptConfig"].is_object());
+    assert_eq!(
+        session_recording["scriptConfig"]["script"],
+        "console.log('Mixed script')"
+    );
+
+    // Site apps should be empty (inject_web_apps is false)
+    assert_eq!(json_data["siteApps"], json!([]));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_team_exclusions_and_overrides() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.debug = FlexBool(false);
+    config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
+
+    let distinct_id = "exclusion_test_user".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Configure team
+    team.session_recording_opt_in = true;
+    team.autocapture_exceptions_opt_in = Some(true);
+    team.autocapture_web_vitals_opt_in = Some(true);
+    team.capture_performance_opt_in = Some(true);
+
+    // Set up exclusions that include our team
+    config.new_analytics_capture_excluded_team_ids =
+        TeamIdCollection::TeamIds(vec![team.id, 999, 1000]);
+    config.element_chain_as_string_excluded_teams =
+        TeamIdCollection::TeamIds(vec![team.id, 999, 1000]);
+    config.session_replay_rrweb_script = "console.log('Excluded script')".to_string();
+    config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".parse().unwrap(); // Team not allowed
+
+    // Update team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Analytics should be disabled (team is excluded)
+    assert!(json_data["analytics"].is_null());
+
+    // Elements chain as string should be disabled (team is excluded)
+    assert!(json_data["elementsChainAsString"].is_null());
+
+    // Performance capture should still work (not affected by exclusions)
+    let capture_performance = &json_data["capturePerformance"];
+    assert!(capture_performance.is_object());
+    assert_eq!(capture_performance["network_timing"], json!(true));
+    assert_eq!(capture_performance["web_vitals"], json!(true));
+
+    // Autocapture exceptions should still work (not affected by exclusions)
+    assert_eq!(
+        json_data["autocaptureExceptions"],
+        json!({"endpoint": "/e/"})
+    );
+
+    // Session recording should be enabled but without script (team not allowed for script)
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+    assert_eq!(session_recording["endpoint"], "/s/");
+    assert_eq!(session_recording["recorderVersion"], "v2");
+    assert!(session_recording["scriptConfig"].is_null()); // No script for excluded team
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "consistency_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Configure team with some features enabled
+    team.autocapture_exceptions_opt_in = Some(true);
+    team.surveys_opt_in = Some(true);
+    team.heatmaps_opt_in = Some(true);
+
+    // Update team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Test legacy response with config
+    let res = server
+        .send_flags_request(payload.to_string(), None, Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let legacy_data = res.json::<Value>().await?;
+
+    // Test v2 response with config
+    let v2_res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, v2_res.status());
+    let v2_data = v2_res.json::<Value>().await?;
+
+    // Config fields should be identical between legacy and v2
+    assert_eq!(
+        legacy_data["supportedCompression"],
+        v2_data["supportedCompression"]
+    );
+    assert_eq!(
+        legacy_data["autocapture_opt_out"],
+        v2_data["autocapture_opt_out"]
+    );
+    assert_eq!(
+        legacy_data["defaultIdentifiedOnly"],
+        v2_data["defaultIdentifiedOnly"]
+    );
+    assert_eq!(legacy_data["isAuthenticated"], v2_data["isAuthenticated"]);
+    assert_eq!(legacy_data["config"], v2_data["config"]);
+    assert_eq!(legacy_data["toolbarParams"], v2_data["toolbarParams"]);
+    assert_eq!(
+        legacy_data["autocaptureExceptions"],
+        v2_data["autocaptureExceptions"]
+    );
+    assert_eq!(legacy_data["surveys"], v2_data["surveys"]);
+    assert_eq!(legacy_data["heatmaps"], v2_data["heatmaps"]);
+    assert_eq!(legacy_data["sessionRecording"], v2_data["sessionRecording"]);
+    assert_eq!(legacy_data["siteApps"], v2_data["siteApps"]);
+
+    // But flag format should be different
+    assert!(legacy_data.get("featureFlags").is_some());
+    assert!(legacy_data.get("flags").is_none());
+    assert!(v2_data.get("flags").is_some());
+    assert!(v2_data.get("featureFlags").is_none());
 
     Ok(())
 }
