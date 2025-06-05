@@ -122,11 +122,13 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadMetricResults(true)
 
-            await expectLogic(logic).toDispatchActions(['setMetricResultsLoading', 'setMetricResults']).toMatchValues({
-                legacyMetricResults: [],
-                metricResultsLoading: true,
-                primaryMetricsResultErrors: [],
-            })
+            await expectLogic(logic)
+                .toDispatchActions(['setMetricResultsLoading', 'setLegacyMetricResults'])
+                .toMatchValues({
+                    legacyMetricResults: [],
+                    metricResultsLoading: true,
+                    primaryMetricsResultErrors: [],
+                })
 
             await promise
 
@@ -196,7 +198,7 @@ describe('experimentLogic', () => {
             const promise = logic.asyncActions.loadSecondaryMetricResults(true)
 
             await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
+                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setLegacySecondaryMetricResults'])
                 .toMatchValues({
                     legacySecondaryMetricResults: [],
                     secondaryMetricResultsLoading: true,

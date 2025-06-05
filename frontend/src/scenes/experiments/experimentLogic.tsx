@@ -455,7 +455,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openPrimaryMetricModal: (index: number) => ({ index }),
         closePrimaryMetricModal: true,
         setMetricResultsLoading: (loading: boolean) => ({ loading }),
-        setMetricResults: (
+        setLegacyMetricResults: (
             results: (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -463,7 +463,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        setMetricResultsNew: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
+        setMetricResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadMetricResults: (refresh?: boolean) => ({ refresh }),
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
         setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
@@ -471,7 +471,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openSecondaryMetricModal: (index: number) => ({ index }),
         closeSecondaryMetricModal: true,
         setSecondaryMetricResultsLoading: (loading: boolean) => ({ loading }),
-        setSecondaryMetricResults: (
+        setLegacySecondaryMetricResults: (
             results: (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -479,7 +479,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        setSecondaryMetricResultsNew: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
+        setSecondaryMetricResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadSecondaryMetricResults: (refresh?: boolean) => ({ refresh }),
         setSecondaryMetricsResultErrors: (errors: any[]) => ({ errors }),
         openPrimaryMetricSourceModal: true,
@@ -774,13 +774,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[],
             {
-                setMetricResults: (_, { results }) => results,
+                setLegacyMetricResults: (_, { results }) => results,
             },
         ],
         metricResults: [
             [] as CachedNewExperimentQueryResponse[],
             {
-                setMetricResultsNew: (_, { results }) => results,
+                setMetricResults: (_, { results }) => results,
                 loadMetricResults: () => [],
                 loadExperiment: () => [],
             },
@@ -799,13 +799,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[],
             {
-                setSecondaryMetricResults: (_, { results }) => results,
+                setLegacySecondaryMetricResults: (_, { results }) => results,
             },
         ],
         secondaryMetricResultsNew: [
             [] as CachedNewExperimentQueryResponse[],
             {
-                setSecondaryMetricResultsNew: (_, { results }) => results,
+                setSecondaryMetricResults: (_, { results }) => results,
                 loadSecondaryMetricResults: () => [],
                 loadExperiment: () => [],
             },
@@ -1137,8 +1137,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 conclusion_comment: null,
             })
             values.experiment && actions.reportExperimentReset(values.experiment)
-            actions.setMetricResults([])
-            actions.setSecondaryMetricResults([])
+            actions.setLegacyMetricResults([])
+            actions.setLegacySecondaryMetricResults([])
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
@@ -1446,8 +1446,8 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadMetricResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setMetricResultsLoading(true)
+            actions.setLegacyMetricResults([])
             actions.setMetricResults([])
-            actions.setMetricResultsNew([])
 
             let metrics = values.experiment?.metrics
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1461,8 +1461,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetResults: actions.setMetricResults,
-                onSetResultsNew: actions.setMetricResultsNew,
+                onSetResults: actions.setLegacyMetricResults,
+                onSetResultsNew: actions.setMetricResults,
                 onSetErrors: actions.setPrimaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
@@ -1471,8 +1471,8 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadSecondaryMetricResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setSecondaryMetricResultsLoading(true)
+            actions.setLegacySecondaryMetricResults([])
             actions.setSecondaryMetricResults([])
-            actions.setSecondaryMetricResultsNew([])
 
             let secondaryMetrics = values.experiment?.metrics_secondary
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1486,8 +1486,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetResults: actions.setSecondaryMetricResults,
-                onSetResultsNew: actions.setSecondaryMetricResultsNew,
+                onSetResults: actions.setLegacySecondaryMetricResults,
+                onSetResultsNew: actions.setSecondaryMetricResults,
                 onSetErrors: actions.setSecondaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
