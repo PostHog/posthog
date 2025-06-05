@@ -7,6 +7,16 @@ declare module '@storybook/types' {
     }
 }
 
+/** Sync with posthog/settings/feature_flags.py */
+const PERSISTED_FEATURE_FLAGS = [    "simplify-actions",
+    "historical-exports-v2",
+    "ingestion-warnings-enabled",
+    "persons-hogql-query",
+    "datanode-concurrency-limit",
+    "session-table-property-filters",
+    "query-async",
+    "artificial-hog"]
+
 /** Global story decorator that allows setting feature flags.
  *
  * ```ts
@@ -20,9 +30,7 @@ declare module '@storybook/types' {
  * ```
  */
 export const withFeatureFlags: Decorator = (Story, { parameters }) => {
-    if (parameters.featureFlags) {
-        setFeatureFlags(parameters.featureFlags)
-    }
+    setFeatureFlags([...PERSISTED_FEATURE_FLAGS, ...(parameters.featureFlags || [])])
 
     return <Story />
 }
