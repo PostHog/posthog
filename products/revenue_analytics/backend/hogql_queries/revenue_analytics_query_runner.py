@@ -60,7 +60,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     # Recursively appends joins to the initial join
     # by using the `next_join` field of the last dangling join
-    def append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> list[ast.JoinExpr]:
+    def append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
         base_join = initial_join
         for current_join in joins:
             while base_join.next_join is not None:
@@ -68,7 +68,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             base_join.next_join = current_join
         return initial_join
 
-    def create_product_join(self, product_subquery: ast.SelectQuery) -> ast.JoinExpr:
+    def create_product_join(self, product_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
         return ast.JoinExpr(
             alias=RevenueAnalyticsProductView.get_generic_view_alias(),
             table=product_subquery,

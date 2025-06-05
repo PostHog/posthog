@@ -59,7 +59,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
         revenue_config = team.revenue_analytics_config
 
-        queries: list[tuple[str, ast.SelectQuery]] = []
+        queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
             prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
 

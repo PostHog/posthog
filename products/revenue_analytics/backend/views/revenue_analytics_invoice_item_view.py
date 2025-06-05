@@ -69,7 +69,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
         revenue_config = team.revenue_analytics_config
 
-        queries: list[tuple[str, ast.SelectQuery]] = []
+        queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
             comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
                 revenue_config, event, do_currency_conversion=False

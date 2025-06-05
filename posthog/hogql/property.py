@@ -470,7 +470,7 @@ def property_to_expr(
             expr = ast.Call(name="argMinMerge", args=[field])
 
         if property.type == "revenue_analytics":
-            expr = create_expr_for_revenue_analytics_property(property)
+            expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
 
         is_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
