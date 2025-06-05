@@ -1,11 +1,11 @@
-import { Node } from '~/queries/schema/schema-general'
+import { QuerySchema } from '~/queries/schema/schema-general'
 
 export interface InsightContextForMax {
     id: string | number
     name?: string
     description?: string
 
-    query: Node // The actual query node, e.g., TrendsQuery, HogQLQuery
+    query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
 
     insight_type?: string
 }
