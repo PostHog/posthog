@@ -1,7 +1,8 @@
-import { IconAIText, IconChat, IconMessage, IconReceipt } from '@posthog/icons'
+import { IconAIText, IconChat, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
+    LemonInput,
     LemonTable,
     LemonTag,
     LemonTagProps,
@@ -172,6 +173,8 @@ function TraceSidebar({
     tree: TraceTreeNode[]
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
+    const { searchQuery, mostRelevantEvent } = useValues(llmObservabilityTraceDataLogic)
+    const { setSearchQuery, setEventId } = useActions(llmObservabilityTraceLogic)
 
     useEffect(() => {
         // On first render, let's focus the selected tree node in the center
@@ -183,6 +186,13 @@ function TraceSidebar({
         }
     }, [eventId])
 
+    // Auto-select most relevant event when search is performed
+    useEffect(() => {
+        if (mostRelevantEvent && searchQuery.trim()) {
+            setEventId(mostRelevantEvent.id)
+        }
+    }, [mostRelevantEvent, searchQuery, setEventId])
+
     return (
         <aside
             className="border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
@@ -190,6 +200,15 @@ function TraceSidebar({
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
+            <div className="p-2">
+                <LemonInput
+                    placeholder="Search trace..."
+                    prefix={<IconSearch />}
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                />
+            </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
