@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0754_organization_is_platform"),
+        ("posthog", "0756_errortrackingsymbolset_last_used"),
     ]
 
     operations = [
