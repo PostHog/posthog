@@ -3,12 +3,43 @@ use envconfig::Envconfig;
 use once_cell::sync::Lazy;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TeamIdsToTrack {
+pub struct FlexBool(pub bool);
+
+impl FromStr for FlexBool {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Ok(FlexBool(true)),
+            "false" | "0" | "no" | "off" | "" => Ok(FlexBool(false)),
+            _ => Err(format!("Invalid boolean value: {}", s)),
+        }
+    }
+}
+
+impl From<FlexBool> for bool {
+    fn from(flex: FlexBool) -> Self {
+        flex.0
+    }
+}
+
+impl Deref for FlexBool {
+    type Target = bool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamIdCollection {
     All,
+    None,
     TeamIds(Vec<i32>),
 }
 
@@ -29,13 +60,15 @@ impl std::fmt::Display for ParseTeamIdsError {
 
 impl std::error::Error for ParseTeamIdsError {}
 
-impl FromStr for TeamIdsToTrack {
+impl FromStr for TeamIdCollection {
     type Err = ParseTeamIdsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        if s.eq_ignore_ascii_case("all") {
-            Ok(TeamIdsToTrack::All)
+        if s.eq_ignore_ascii_case("all") || s == "*" {
+            Ok(TeamIdCollection::All)
+        } else if s.eq_ignore_ascii_case("none") {
+            Ok(TeamIdCollection::None)
         } else {
             let mut team_ids = Vec::new();
             for part in s.split(',').map(|p| p.trim()) {
@@ -63,7 +96,7 @@ impl FromStr for TeamIdsToTrack {
                     team_ids.push(id);
                 }
             }
-            Ok(TeamIdsToTrack::TeamIds(team_ids))
+            Ok(TeamIdCollection::TeamIds(team_ids))
         }
     }
 }
@@ -98,7 +131,7 @@ pub struct Config {
     pub enable_metrics: bool,
 
     #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
-    pub team_ids_to_track: TeamIdsToTrack,
+    pub team_ids_to_track: TeamIdCollection,
 
     #[envconfig(from = "CACHE_MAX_COHORT_ENTRIES", default = "100000")]
     pub cache_max_cohort_entries: u64,
@@ -118,6 +151,24 @@ pub struct Config {
 
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
+
+    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "")]
+    pub new_analytics_capture_endpoint: String,
+
+    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", default = "none")]
+    pub new_analytics_capture_excluded_team_ids: TeamIdCollection,
+
+    #[envconfig(from = "ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", default = "none")]
+    pub element_chain_as_string_excluded_teams: TeamIdCollection,
+
+    #[envconfig(from = "DEBUG", default = "false")]
+    pub debug: FlexBool,
+
+    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT", default = "")]
+    pub session_replay_rrweb_script: String,
+
+    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "none")]
+    pub session_replay_rrweb_script_allowed_teams: TeamIdCollection,
 }
 
 impl Config {
@@ -133,13 +184,19 @@ impl Config {
             acquire_timeout_secs: 5,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
-            team_ids_to_track: TeamIdsToTrack::All,
+            team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
+            new_analytics_capture_endpoint: "".to_string(),
+            new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
+            element_chain_as_string_excluded_teams: TeamIdCollection::None,
+            debug: FlexBool(false),
+            session_replay_rrweb_script: "".to_string(),
+            session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
         }
     }
 
@@ -165,6 +222,14 @@ impl Config {
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
         }
     }
+
+    pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
+        match teams_to_exclude {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
 }
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
@@ -175,6 +240,7 @@ mod tests {
 
     #[test]
     fn test_default_config() {
+        std::env::set_var("DEBUG", "false");
         let config = Config::init_from_env().unwrap();
         assert_eq!(
             config.address,
@@ -191,7 +257,15 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
+        assert_eq!(
+            config.new_analytics_capture_excluded_team_ids,
+            TeamIdCollection::None
+        );
+        assert_eq!(
+            config.element_chain_as_string_excluded_teams,
+            TeamIdCollection::None
+        );
     }
 
     #[test]
@@ -209,7 +283,15 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
+        assert_eq!(
+            config.new_analytics_capture_excluded_team_ids,
+            TeamIdCollection::None
+        );
+        assert_eq!(
+            config.element_chain_as_string_excluded_teams,
+            TeamIdCollection::None
+        );
     }
 
     #[test]
@@ -227,42 +309,65 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
+        assert_eq!(
+            config.new_analytics_capture_excluded_team_ids,
+            TeamIdCollection::None
+        );
+        assert_eq!(
+            config.element_chain_as_string_excluded_teams,
+            TeamIdCollection::None
+        );
     }
 
     #[test]
     fn test_team_ids_to_track_all() {
-        let team_ids: TeamIdsToTrack = "all".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::All);
+        let team_ids: TeamIdCollection = "all".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::All);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_wildcard() {
+        let team_ids: TeamIdCollection = "*".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::All);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_none() {
+        let team_ids: TeamIdCollection = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::None);
     }
 
     #[test]
     fn test_team_ids_to_track_single_ids() {
-        let team_ids: TeamIdsToTrack = "1,5,7,13".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 5, 7, 13]));
+        let team_ids: TeamIdCollection = "1,5,7,13".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::TeamIds(vec![1, 5, 7, 13]));
     }
 
     #[test]
     fn test_team_ids_to_track_ranges() {
-        let team_ids: TeamIdsToTrack = "1:3".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 2, 3]));
+        let team_ids: TeamIdCollection = "1:3".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::TeamIds(vec![1, 2, 3]));
     }
 
     #[test]
     fn test_team_ids_to_track_mixed() {
-        let team_ids: TeamIdsToTrack = "1:3,5,7:9".parse().unwrap();
-        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 2, 3, 5, 7, 8, 9]));
+        let team_ids: TeamIdCollection = "1:3,5,7:9".parse().unwrap();
+        assert_eq!(
+            team_ids,
+            TeamIdCollection::TeamIds(vec![1, 2, 3, 5, 7, 8, 9])
+        );
     }
 
     #[test]
     fn test_invalid_range() {
-        let result: Result<TeamIdsToTrack, _> = "5:3".parse();
+        let result: Result<TeamIdCollection, _> = "5:3".parse();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_number() {
-        let result: Result<TeamIdsToTrack, _> = "abc".parse();
+        let result: Result<TeamIdCollection, _> = "abc".parse();
         assert!(result.is_err());
     }
 }

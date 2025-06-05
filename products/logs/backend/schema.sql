@@ -21,14 +21,24 @@ CREATE TABLE default.logs
     `instrumentation_scope` String DEFAULT '',
     `event_name` String DEFAULT '',
     `message` String DEFAULT '',
-    `attributes_map_custom` Map(LowCardinality(String), String) ALIAS attributes,
+
+    -- optimised attribute maps per type to allow e.g. > and < filtering to work
+    `attributes_map_str` Map(LowCardinality(String), String) MATERIALIZED mapApply((k, v) -> (k || '__str', JSONExtract(v, 'Dynamic')::String),attributes),
+    `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> isNotNull(v), mapApply((k, v) -> (k || '__float', toFloat64OrNull(JSONExtract(v, 'Dynamic')::String)), attributes)),
+    `attributes_map_datetime` Map(LowCardinality(String), DateTime64) MATERIALIZED mapFilter((k, v) -> isNotNull(v), mapApply((k, v) -> (k || '__datetime', parseDateTimeBestEffortOrNull(JSONExtract(v, 'Dynamic')::String)), attributes)),
+
     INDEX idx_trace_id trace_id TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_severity_text severity_text TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_resource_id resource_id TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_res_attr_key mapKeys(resource_attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_res_attr_value mapValues(resource_attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-    INDEX idx_log_attr_key mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-    INDEX idx_log_attr_value mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_log_attr_str_key mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_log_attr_str_value mapValues(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_log_attr_str_value_n3 mapValues(attributes_map_str) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+    INDEX idx_log_attr_float_key mapKeys(attributes_map_float) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_log_attr_float_value mapValues(attributes_map_float) TYPE minmax GRANULARITY 1,
+    INDEX idx_log_attr_datetime_key mapKeys(attributes_map_datetime) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_log_attr_datetime_value mapValues(attributes_map_datetime) TYPE minmax GRANULARITY 1,
     INDEX idx_body body TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 1,
     INDEX idx_message message TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 1,
     INDEX idx_body_n3 body TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
@@ -75,9 +85,9 @@ AS SELECT
     team_id AS team_id,
     toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
     service_name AS service_name,
-    groupArrayDistinctArrayState(arrayFilter(x -> length(x) < 256, mapKeys(attributes))) AS attribute_keys,
-    groupArrayDistinctArrayState(CAST(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes), 'Array(Tuple(String, String))')) AS attribute_values,
-    groupArrayDistinctArrayState(arrayFilter(x -> length(x) < 256, mapKeys(resource_attributes))) AS resource_attribute_keys,
+    groupArrayDistinctArrayState(arrayFilter(x -> (length(x) < 256), mapKeys(attributes))) AS attribute_keys,
+    groupArrayDistinctArrayState(CAST(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), mapApply((k, v) -> (k, JSONExtract(v, 'Dynamic')::String),attributes)), 'Array(Tuple(String, String))')) AS attribute_values,
+    groupArrayDistinctArrayState(arrayFilter(x -> (length(x) < 256), mapKeys(resource_attributes))) AS resource_attribute_keys,
     groupArrayDistinctArrayState(CAST(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), resource_attributes), 'Array(Tuple(String, String))')) AS resource_attribute_values
 FROM default.logs
 GROUP BY
