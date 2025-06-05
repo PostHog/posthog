@@ -7,7 +7,6 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconPin,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -22,7 +21,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -325,9 +323,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
-                                                            hasSideActionRight:
-                                                                item.dropdownMenuItems && !isLayoutNavCollapsed,
-                                                            fullWidth: item.dropdownMenuItems && !isLayoutNavCollapsed,
                                                         }}
                                                         to={item.to}
                                                         tooltip={item.tooltip}
@@ -346,29 +341,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className="truncate">{item.id}</span>
                                                         )}
                                                     </Link>
-                                                    {item.dropdownMenuItems && !isLayoutNavCollapsed && (
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <ButtonPrimitive
-                                                                    isSideActionRight
-                                                                    iconOnly
-                                                                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
-                                                                >
-                                                                    <IconPin className="size-3 text-tertiary" />
-                                                                </ButtonPrimitive>
-                                                            </DropdownMenuTrigger>
-
-                                                            {/* The Dropdown content menu */}
-                                                            <DropdownMenuContent
-                                                                loop
-                                                                align="end"
-                                                                side="bottom"
-                                                                className="max-w-[250px]"
-                                                            >
-                                                                {item.dropdownMenuItems}
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    )}
                                                 </ButtonGroupPrimitive>
                                             )}
                                         </ListBox.Item>
