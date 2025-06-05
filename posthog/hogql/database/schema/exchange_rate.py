@@ -1,10 +1,10 @@
 from typing import Union
 
+from posthog.caching.test.test_stale_utils import Team
 from posthog.hogql import ast
 from posthog.schema import (
     RevenueAnalyticsEventItem,
 )
-from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
     StringDatabaseField,
@@ -44,9 +44,7 @@ def convert_currency_call(
 
 
 # Given an event config and the base config, figure out what the currency should look like
-def currency_expression_for_events(
-    config: TeamRevenueAnalyticsConfig, event_config: RevenueAnalyticsEventItem
-) -> ast.Expr:
+def currency_expression_for_events(config: Team, event_config: RevenueAnalyticsEventItem) -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not event_config.revenueCurrencyProperty:
         return ast.Constant(value=config.base_currency)
@@ -67,7 +65,7 @@ def currency_expression_for_events(
 # - Check whether the event is the one we're looking for
 # - Convert the revenue to the base currency if needed
 def revenue_comparison_and_value_exprs_for_events(
-    config: TeamRevenueAnalyticsConfig,
+    config: Team,
     event_config: RevenueAnalyticsEventItem,
     do_currency_conversion: bool = True,
     amount_expr: ast.Expr | None = None,
@@ -118,7 +116,7 @@ def revenue_comparison_and_value_exprs_for_events(
 
 
 # This sums up the revenue from all events in the group
-def revenue_sum_expression_for_events(config: Union[TeamRevenueAnalyticsConfig, None]) -> ast.Expr:
+def revenue_sum_expression_for_events(config: Union[Team, None]) -> ast.Expr:
     if not config or not config.events:
         return ast.Constant(value=None)
 
@@ -144,7 +142,7 @@ def revenue_sum_expression_for_events(config: Union[TeamRevenueAnalyticsConfig, 
 
 # This returns an expression that you can add to a `where` clause
 # to know if we have a event with valid revenue
-def revenue_where_expr_for_events(config: Union[TeamRevenueAnalyticsConfig, None]) -> ast.Expr:
+def revenue_where_expr_for_events(config: Union[Team, None]) -> ast.Expr:
     if not config or not config.events:
         return ast.Constant(value=False)
 
