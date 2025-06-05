@@ -50,6 +50,10 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
         context.log.info("Skipping Slack notification in non-prod environment")
         return
 
+    if tags.get("disable_slack_notifications"):
+        context.log.debug("Skipping Slack notification for %s, notifications are disabled", job_name)
+        return
+
     # Construct Dagster URL based on environment
     dagster_domain = (
         f"dagster.prod-{settings.CLOUD_DEPLOYMENT.lower()}.posthog.dev"
