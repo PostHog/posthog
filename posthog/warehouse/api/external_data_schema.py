@@ -55,7 +55,7 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import IncrementalField
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
@@ -364,6 +364,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
+            ]
+        elif source.source_type == ExternalDataSource.Type.DOIT:
+            incremental_columns = [
+                {
+                    "field": "timestamp",
+                    "field_type": IncrementalFieldType.Timestamp,
+                    "label": "timestamp",
+                    "type": IncrementalFieldType.Timestamp,
+                }
             ]
 
         else:
