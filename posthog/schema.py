@@ -1113,6 +1113,33 @@ class FileSystemEntry(BaseModel):
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
+class FileSystemIconType(StrEnum):
+    PLUG = "plug"
+    COHORT = "cohort"
+    INSIGHT = "insight"
+    DEFINITIONS = "definitions"
+    WARNING = "warning"
+    ERROR_TRACKING = "errorTracking"
+    AI = "ai"
+    CURSOR = "cursor"
+    HEATMAP = "heatmap"
+    DATABASE = "database"
+    FOLDER = "folder"
+    HAND_MONEY = "handMoney"
+    LIVE = "live"
+    NOTIFICATION = "notification"
+    PIE_CHART = "pieChart"
+    PIGGY_BANK = "piggyBank"
+    SQL = "sql"
+    INSIGHT_FUNNEL = "insightFunnel"
+    INSIGHT_TRENDS = "insightTrends"
+    INSIGHT_RETENTION = "insightRetention"
+    INSIGHT_USER_PATHS = "insightUserPaths"
+    INSIGHT_LIFECYCLE = "insightLifecycle"
+    INSIGHT_STICKINESS = "insightStickiness"
+    INSIGHT_HOG_QL = "insightHogQL"
+
+
 class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1125,7 +1152,7 @@ class FileSystemImport(BaseModel):
     )
     flag: Optional[str] = None
     href: Optional[str] = Field(default=None, description="Object's URL")
-    iconType: Optional[str] = None
+    iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")

@@ -2071,9 +2071,35 @@ export interface FileSystemEntry {
     visualOrder?: number
 }
 
+export type FileSystemIconType =
+    | 'plug'
+    | 'cohort'
+    | 'insight'
+    | 'definitions'
+    | 'warning'
+    | 'errorTracking'
+    | 'ai'
+    | 'cursor'
+    | 'heatmap'
+    | 'database'
+    | 'folder'
+    | 'handMoney'
+    | 'live'
+    | 'notification'
+    | 'pieChart'
+    | 'piggyBank'
+    | 'sql'
+    | 'insightFunnel'
+    | 'insightTrends'
+    | 'insightRetention'
+    | 'insightUserPaths'
+    | 'insightLifecycle'
+    | 'insightStickiness'
+    | 'insightHogQL'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
-    iconType?: string
+    iconType?: FileSystemIconType
     flag?: string
     /** Order of object in tree */
     visualOrder?: number

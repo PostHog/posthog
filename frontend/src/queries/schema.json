@@ -9807,6 +9807,35 @@
             "required": ["id", "path"],
             "type": "object"
         },
+        "FileSystemIconType": {
+            "enum": [
+                "plug",
+                "cohort",
+                "insight",
+                "definitions",
+                "warning",
+                "errorTracking",
+                "ai",
+                "cursor",
+                "heatmap",
+                "database",
+                "folder",
+                "handMoney",
+                "live",
+                "notification",
+                "pieChart",
+                "piggyBank",
+                "sql",
+                "insightFunnel",
+                "insightTrends",
+                "insightRetention",
+                "insightUserPaths",
+                "insightLifecycle",
+                "insightStickiness",
+                "insightHogQL"
+            ],
+            "type": "string"
+        },
         "FileSystemImport": {
             "additionalProperties": false,
             "properties": {
@@ -9826,7 +9855,7 @@
                     "type": "string"
                 },
                 "iconType": {
-                    "type": "string"
+                    "$ref": "#/definitions/FileSystemIconType"
                 },
                 "id": {
                     "type": "string"
