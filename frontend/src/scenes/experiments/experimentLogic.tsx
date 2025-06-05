@@ -162,14 +162,14 @@ const loadMetrics = async ({
     onSetErrors,
     onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
-    const results: (
+    const legacyResults: (
         | CachedLegacyExperimentQueryResponse
         | CachedExperimentTrendsQueryResponse
         | CachedExperimentFunnelsQueryResponse
         | null
     )[] = []
 
-    const newResults: CachedNewExperimentQueryResponse[] = []
+    const results: CachedNewExperimentQueryResponse[] = []
     const currentErrors = new Array(metrics.length).fill(null)
 
     return await Promise.all(
@@ -198,25 +198,25 @@ const loadMetrics = async ({
                     const typedResponse = convertToTypedExperimentResponse(response as CachedExperimentQueryResponse)
                     if (typedResponse) {
                         if (isLegacyExperimentResponse(typedResponse)) {
-                            results[index] = {
+                            legacyResults[index] = {
                                 ...typedResponse,
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
                             } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
                         } else if (isNewExperimentResponse(typedResponse)) {
-                            newResults[index] = typedResponse
+                            results[index] = typedResponse
                         }
                     }
                 } else {
                     // For trends/funnels queries, keep original response
-                    results[index] = {
+                    legacyResults[index] = {
                         ...response,
                         fakeInsightId: Math.random().toString(36).substring(2, 15),
                     } as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse) & {
                         fakeInsightId: string
                     }
                 }
-                onSetLegacyResults([...results])
-                onSetResults([...newResults])
+                onSetLegacyResults([...legacyResults])
+                onSetResults([...results])
             } catch (error: any) {
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
@@ -232,9 +232,9 @@ const loadMetrics = async ({
                     onTimeout(experimentId, metric)
                 }
 
-                results[index] = null
-                onSetLegacyResults([...results])
-                onSetResults([...newResults])
+                legacyResults[index] = null
+                onSetLegacyResults([...legacyResults])
+                onSetResults([...results])
             }
         })
     )
