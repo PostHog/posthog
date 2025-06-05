@@ -81,7 +81,6 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
             <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
                 <Tooltip title="Annotations can be scoped to the project or organization, or to individual insights or dashboards. Project and organization scoped annotations are shown in the recording timeline.">
                     <div className="flex flex-row items-center gap-2">
-                        {' '}
                         <IconInfo className="text-muted text-xs" />
                         Scope: {toSentenceCase(item.data.scope)}
                     </div>
