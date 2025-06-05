@@ -408,7 +408,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const groups = state.filters.groups.map((group) =>
                         !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
                     )
-                    return { ...state, filters: { ...state.filters, groups, multivariate: multivariateOptions } }
+                    const oldPayloads = state.filters.payloads ?? {}
+                    const payloads = Object.keys(oldPayloads).reduce((newPayloads, variantKey) => {
+                        if (variantsSet.has(variantKey)) {
+                            return { ...newPayloads, [variantKey]: oldPayloads[variantKey] }
+                        }
+                        return newPayloads
+                    }, {})
+                    return {
+                        ...state,
+                        filters: { ...state.filters, groups, payloads, multivariate: multivariateOptions },
+                    }
                 },
                 setRemoteConfigEnabled: (state, { enabled }) => {
                     if (!state) {
