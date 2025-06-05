@@ -3070,6 +3070,13 @@ class LogMessage(BaseModel):
     uuid: str
 
 
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
+
+
 class MatchedRecording(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

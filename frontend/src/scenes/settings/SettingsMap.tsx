@@ -23,6 +23,7 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
+import { NonNativeExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/NonNativeExternalDataSourceConfiguration'
 
 import { Realm } from '~/types'
 
@@ -263,6 +264,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
                 flag: 'REVENUE_ANALYTICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        settings: [
+            {
+                id: 'marketing-analytics-external-data-sources',
+                title: 'External data sources',
+                component: <NonNativeExternalDataSourceConfiguration />,
             },
         ],
     },

@@ -17,6 +17,7 @@ import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
@@ -34,6 +35,7 @@ export enum DataManagementTab {
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
+    MarketingAnalytics = 'marketing-analytics',
 }
 
 const tabs: Record<
@@ -122,6 +124,19 @@ const tabs: Record<
         content: <IngestionWarningsView />,
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
+    },
+    [DataManagementTab.MarketingAnalytics]: {
+        url: urls.marketingAnalytics(),
+        label: (
+            <>
+                Marketing{' '}
+                <LemonTag type="warning" size="small" className="ml-2">
+                    BETA
+                </LemonTag>
+            </>
+        ),
+        content: <MarketingAnalyticsSettings />,
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
 }
 

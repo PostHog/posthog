@@ -1,5 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SourceMap } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -3162,4 +3163,8 @@ export interface EventsHeatMapStructuredResult {
     rowAggregations: EventsHeatMapRowAggregationResult[]
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
+}
+
+export interface MarketingAnalyticsConfig {
+    sources_map?: Record<string, SourceMap>
 }

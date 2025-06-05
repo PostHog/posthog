@@ -12633,6 +12633,18 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarketingAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "sources_map": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/SourceMap"
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {
@@ -18393,6 +18405,19 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SourceMap": {
+            "additionalProperties": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "not": {}
+                    }
+                ]
+            },
             "type": "object"
         },
         "StepOrderValue": {
