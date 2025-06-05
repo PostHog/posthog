@@ -1,6 +1,6 @@
 import { ProjectId } from '~/src/types'
 
-import { addGroupProperties } from '../../../src/worker/ingestion/groups'
+import { addGroupProperties } from './groups'
 
 describe('addGroupProperties()', () => {
     let mockGroupTypeManager: any

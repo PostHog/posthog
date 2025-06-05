@@ -1,12 +1,22 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { useEffect } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 import { PipelineNode } from './types'
 
 export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
     const logic = pipelineNodeMetricsLogic({ id: pipelineNode.id })
-    const { appMetricsResponse } = useValues(logic)
+    const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
+    const { loadMetrics } = useActions(logic)
+    const { ref: inViewRef, inView } = useInView()
+
+    useEffect(() => {
+        if (inView && !appMetricsResponse && !appMetricsResponseLoading) {
+            loadMetrics()
+        }
+    }, [inView])
 
     // The metrics response has last 7 days time wise, we're showing the
     // sparkline graph by day, so ignore the potential 8th day
@@ -31,12 +41,14 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
     }
 
     return (
-        <Sparkline
-            loading={appMetricsResponse === null}
-            labels={dates}
-            data={displayData}
-            className="max-w-24 h-8"
-            maximumIndicator={false}
-        />
+        <div ref={inViewRef}>
+            <Sparkline
+                loading={appMetricsResponse === null}
+                labels={dates}
+                data={displayData}
+                className="h-8 max-w-24"
+                maximumIndicator={false}
+            />
+        </div>
     )
 }

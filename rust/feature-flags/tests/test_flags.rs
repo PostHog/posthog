@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
-use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::config::{FlexBool, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
     insert_new_team_in_redis, insert_person_for_team_in_pg, setup_pg_reader_client,
@@ -79,7 +79,7 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), version)
+        .send_flags_request(payload.to_string(), version, None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -154,8 +154,9 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), Some(version))
+        .send_flags_request(payload.to_string(), Some(version), None)
         .await;
+
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -248,7 +249,9 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
         "distinct_id": "",
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     assert_eq!(
         res.text().await?,
@@ -269,7 +272,9 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
         "token": token,
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     assert_eq!(
         res.text().await?,
@@ -287,7 +292,9 @@ async fn it_rejects_missing_token() -> Result<()> {
         "distinct_id": "user1",
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
         res.text().await?,
@@ -306,7 +313,9 @@ async fn it_rejects_invalid_token() -> Result<()> {
         "distinct_id": "user1",
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
         res.text().await?,
@@ -321,7 +330,9 @@ async fn it_handles_malformed_json() -> Result<()> {
     let server = ServerHandle::for_config(config).await;
 
     let payload = "{invalid_json}";
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
 
     let response_text = res.text().await?;
@@ -357,7 +368,9 @@ async fn it_handles_quota_limiting() -> Result<()> {
         "groups": {"group1": "group1"}
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
     let response_body = res.json::<LegacyFlagsResponse>().await?;
 
@@ -395,7 +408,7 @@ async fn it_handles_quota_limiting_v2() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), Some("2"))
+        .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
     let response_body = res.json::<FlagsResponse>().await?;
@@ -478,7 +491,9 @@ async fn it_handles_multivariate_flags() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -558,10 +573,13 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
+    println!("json_data: {:?}", json_data);
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -581,7 +599,9 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -661,7 +681,9 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -689,7 +711,9 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -775,7 +799,9 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
 
     assert_eq!(StatusCode::OK, res.status());
 
@@ -889,7 +915,9 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             "distinct_id": distinct_id
         });
 
-        let res = server.send_flags_request(payload.to_string(), None).await;
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let json_data = res.json::<Value>().await?;
@@ -916,7 +944,9 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             }
         });
 
-        let res = server.send_flags_request(payload.to_string(), None).await;
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let json_data = res.json::<Value>().await?;
@@ -943,7 +973,9 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             }
         });
 
-        let res = server.send_flags_request(payload.to_string(), None).await;
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let json_data = res.json::<Value>().await?;
@@ -1019,7 +1051,9 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1117,7 +1151,9 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1141,7 +1177,9 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1165,7 +1203,9 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1273,7 +1313,9 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1308,7 +1350,9 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1413,7 +1457,9 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string(), None).await;
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -1488,7 +1534,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), Some("3"))
+        .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1510,6 +1556,791 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
             }
         })
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let token = format!("test_token_{}", rand::thread_rng().gen::<u64>());
+    let team_id = 12345;
+
+    let server = ServerHandle::for_config_with_mock_redis(
+        config.clone(),
+        vec![token.clone()],
+        vec![(token.clone(), team_id)],
+    )
+    .await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user1",
+        "groups": {"group1": "group1"}
+    });
+
+    // Legacy response (no version param)
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let legacy: LegacyFlagsResponse = res.json().await?;
+    assert_eq!(
+        legacy.quota_limited,
+        Some(vec![ServiceName::FeatureFlags.as_string()])
+    );
+
+    // V2 response (version=2)
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let v2: FlagsResponse = res.json().await?;
+    assert_eq!(
+        v2.quota_limited,
+        Some(vec![ServiceName::FeatureFlags.as_string()])
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_only_includes_config_fields_when_requested() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Without config param
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    if res.status() != StatusCode::OK {
+        let text = res.text().await?;
+        panic!("Non-200 response \nBody: {}", text);
+    }
+    let json_data = res.json::<Value>().await?;
+    println!("json_data: {:?}", json_data);
+    assert!(json_data.get("supportedCompression").is_none());
+    assert!(json_data.get("autocaptureOptOut").is_none());
+
+    // With config param
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    let json_data = res.json::<Value>().await?;
+    assert!(json_data.get("supportedCompression").is_some());
+    // You can check for other config fields as well
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_basic_fields() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Test basic config fields
+    assert_eq!(
+        json_data["supportedCompression"],
+        json!(["gzip", "gzip-js"])
+    );
+    assert_eq!(json_data["hasFeatureFlags"], json!(true)); // Has flags
+    assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
+    assert_eq!(json_data["isAuthenticated"], json!(false));
+    assert_eq!(
+        json_data["config"],
+        json!({"enable_collect_everything": true})
+    );
+    assert_eq!(json_data["toolbarParams"], json!({}));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_has_feature_flags_when_empty() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // No flags inserted for this team
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["hasFeatureFlags"], json!(false)); // No flags
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_analytics_enabled() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.debug = FlexBool(false);
+    config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
+    // default config has new_analytics_capture_excluded_team_ids as All (exclude nobody)
+
+    let distinct_id = "user_distinct_id".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    println!("json_data: {:?}", json_data);
+
+    assert!(json_data["analytics"].is_object());
+    assert_eq!(
+        json_data["analytics"]["endpoint"],
+        json!("https://analytics.posthog.com")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.debug = FlexBool(true); // Debug mode disables analytics
+    config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
+
+    let distinct_id = "user_distinct_id".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert!(json_data["analytics"].is_null());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_capture_performance_combinations() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // With default team settings (None), both should be false
+    assert_eq!(json_data["capturePerformance"], json!(false));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_autocapture_exceptions() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Default team should have autocapture_exceptions disabled
+    assert_eq!(json_data["autocaptureExceptions"], json!(false));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_optional_team_features() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Test default values for optional team features
+    assert_eq!(json_data["surveys"], json!(false));
+    assert_eq!(json_data["heatmaps"], json!(false));
+    assert_eq!(json_data["flagsPersistenceDefault"], json!(false));
+
+    // Test fields that should be null when not set
+    assert!(json_data["autocaptureOptOut"].is_null());
+    assert!(json_data["captureDeadClicks"].is_null());
+
+    // Test elements chain as string (should be enabled by default in test config)
+    assert_eq!(json_data["elementsChainAsString"], json!(true));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_site_apps_empty_by_default() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Site apps should be empty array by default (inject_web_apps is false/None)
+    assert_eq!(json_data["siteApps"], json!([]));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_included_in_legacy_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Test legacy response (no version) with config=true
+    let res = server
+        .send_flags_request(payload.to_string(), None, Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Legacy response SHOULD include config fields when requested
+    assert_eq!(
+        json_data["supportedCompression"],
+        json!(["gzip", "gzip-js"])
+    );
+    assert_eq!(json_data["hasFeatureFlags"], json!(true));
+    assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
+    assert_eq!(json_data["isAuthenticated"], json!(false));
+
+    // And should include legacy flag format
+    assert!(json_data.get("featureFlags").is_some());
+    assert_eq!(json_data["featureFlags"]["test-flag"], json!(true));
+    assert_eq!(json_data["errorsWhileComputingFlags"], json!(false));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Enable inject_web_apps on the team object
+    team.inject_web_apps = Some(true);
+
+    // Update the team in Redis with inject_web_apps enabled
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    // Insert team in PG
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a plugin
+    let mut conn = pg_client.get_connection().await.unwrap();
+    let plugin_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_plugin 
+           (name, description, url, config_schema, tag, source, plugin_type, is_global, is_preinstalled, is_stateless, capabilities, from_json, from_web, organization_id, updated_at, created_at)
+           VALUES ($1, 'Test Site App', $2, '[]', '', '', 'source', false, false, false, '{}', false, false, $3::uuid, NOW(), NOW())
+           RETURNING id"#,
+    )
+    .bind("Test Site App")
+    .bind(format!("test://plugin/site_app/{}", chrono::Utc::now().timestamp()))
+    .bind("019026a4-be80-0000-5bf3-171d00629163")
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Insert plugin source file (site.ts with TRANSPILED status)
+    let source_uuid = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"INSERT INTO posthog_pluginsourcefile 
+           (id, plugin_id, filename, source, transpiled, status, updated_at)
+           VALUES ($1::uuid, $2, 'site.ts', 'function test(){}', 'function test(){}', 'TRANSPILED', NOW())"#,
+    )
+    .bind(source_uuid)
+    .bind(plugin_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    // Insert plugin config to connect the plugin to the team
+    sqlx::query(
+        r#"INSERT INTO posthog_pluginconfig 
+           (plugin_id, team_id, enabled, "order", config, web_token, updated_at, created_at)
+           VALUES ($1, $2, true, 1, '{}', 'test_site_app_token', NOW(), NOW())"#,
+    )
+    .bind(plugin_id)
+    .bind(team.id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Site apps should be populated
+    assert!(json_data["siteApps"].is_array());
+    let site_apps = json_data["siteApps"].as_array().unwrap();
+
+    assert_eq!(site_apps.len(), 1);
+
+    let site_app = &site_apps[0];
+    assert!(site_app["url"].as_str().unwrap().starts_with("/site_app/"));
+    assert!(site_app["url"]
+        .as_str()
+        .unwrap()
+        .contains("test_site_app_token"));
+    assert_eq!(site_app["type"], "site_app");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    // Configure rrweb script for all teams
+    config.session_replay_rrweb_script =
+        "console.log('Custom session recording script')".to_string();
+    config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Enable session recording on the team object
+    team.session_recording_opt_in = true;
+
+    // Update the team in Redis with session recording enabled
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    // Insert team in PG
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    println!(
+        "Response JSON: {}",
+        serde_json::to_string_pretty(&json_data)?
+    );
+
+    // Session recording should be configured
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+
+    assert_eq!(session_recording["endpoint"], "/s/");
+    assert_eq!(session_recording["recorderVersion"], "v2");
+
+    // Should include the custom rrweb script
+    assert!(session_recording["scriptConfig"].is_object());
+    assert_eq!(
+        session_recording["scriptConfig"]["script"],
+        "console.log('Custom session recording script')"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_session_recording_team_not_allowed_for_script() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    // Configure rrweb script only for specific teams (not including our test team)
+    config.session_replay_rrweb_script = "console.log('Restricted script')".to_string();
+    config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".parse().unwrap(); // Our team won't be in this list
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Enable session recording on the team object
+    team.session_recording_opt_in = true;
+
+    // Update the team in Redis with session recording enabled
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    // Insert team in PG
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    println!(
+        "Response JSON: {}",
+        serde_json::to_string_pretty(&json_data)?
+    );
+
+    // Session recording should be configured but WITHOUT the script
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+
+    assert_eq!(session_recording["endpoint"], "/s/");
+    assert_eq!(session_recording["recorderVersion"], "v2");
+
+    // Should NOT include the script config since team is not allowed
+    assert!(session_recording["scriptConfig"].is_null());
 
     Ok(())
 }
