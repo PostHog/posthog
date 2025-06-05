@@ -251,7 +251,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     sources.forEach((s) => {
                         const k = keyForSource(s)
                         // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || { snapshots: [] }
+                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
+                        cache.snapshotsBySource[k].sourceLoaded = true
                     })
 
                     return { sources: sources }
@@ -495,7 +496,9 @@ LIMIT 1000000
                 const nextSourcesToLoad =
                     values.snapshotSources?.filter((s) => {
                         const sourceKey = keyForSource(s)
-                        return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                        return (
+                            !cache.snapshotsBySource?.[sourceKey].sourceLoaded && s.source !== SnapshotSourceType.file
+                        )
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
@@ -508,7 +511,7 @@ LIMIT 1000000
             } else {
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
                     const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                    return !cache.snapshotsBySource?.[sourceKey].sourceLoaded && s.source !== SnapshotSourceType.file
                 })
 
                 if (nextSourceToLoad) {
