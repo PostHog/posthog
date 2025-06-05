@@ -205,10 +205,6 @@ const loadMetrics = async ({
                         } else if (isNewExperimentResponse(typedResponse)) {
                             newResults[index] = typedResponse
                         }
-                    } else {
-                        // Handle case where response doesn't match expected pattern
-                        console.warn('Experiment response does not match legacy or new format:', response)
-                        results[index] = null
                     }
                 } else {
                     // For trends/funnels queries, keep original response

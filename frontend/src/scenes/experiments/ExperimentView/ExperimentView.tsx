@@ -37,7 +37,7 @@ const ResultsTab = (): JSX.Element => {
         metricResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
-    const hasSomeResults = metricResults?.some((result) => result && result?.insight)
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
