@@ -6,9 +6,9 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.warehouse.types import IncrementalFieldType
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
-DOIT_INCREMENTAL_FIELDS = [
+DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "field": "timestamp",
         "field_type": IncrementalFieldType.Timestamp,
