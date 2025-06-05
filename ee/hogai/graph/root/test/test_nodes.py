@@ -12,11 +12,13 @@ from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
 from posthog.schema import (
+    ActionContextForMax,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
     DashboardContextForMax,
     EntityType,
+    EventContextForMax,
     EventsNode,
     FunnelsQuery,
     GlobalInfo,
@@ -812,7 +814,9 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards={"456": dashboard}, insights=None, global_info=None)
+        ui_context = MaxContextShape(
+            dashboards={"456": dashboard}, insights=None, events=None, actions=None, global_info=None
+        )
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -821,6 +825,8 @@ Query results: 42 events"""
         self.assertIn("Dashboard Insight: Test insight", result["ui_context_dashboard"])
         self.assertIn("Dashboard insight results", result["ui_context_dashboard"])
         self.assertEqual(result["ui_context_insights"], "")
+        self.assertEqual(result["ui_context_events"], "")
+        self.assertEqual(result["ui_context_actions"], "")
         self.assertEqual(result["ui_context_navigation"], "")
 
     @patch("ee.hogai.graph.root.nodes.QueryRunner")
@@ -837,13 +843,79 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights={"123": insight}, global_info=None)
+        ui_context = MaxContextShape(
+            dashboards=None, insights={"123": insight}, events=None, actions=None, global_info=None
+        )
 
         result = self.mixin._format_ui_context(ui_context)
 
         self.assertIn("Standalone Insight: Test standalone insight", result["ui_context_insights"])
         self.assertIn("Standalone insight results", result["ui_context_insights"])
         self.assertEqual(result["ui_context_dashboard"], "")
+
+    def test_format_ui_context_with_events(self):
+        # Create mock events
+        event1 = EventContextForMax(id=1, name="page_view")
+        event2 = EventContextForMax(id=2, name="button_click")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(
+            dashboards=None, insights=None, events={"1": event1, "2": event2}, actions=None, global_info=None
+        )
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view", "button_click"', result["ui_context_events"])
+        self.assertIn("<events_context>", result["ui_context_events"])
+
+    def test_format_ui_context_with_events_with_descriptions(self):
+        # Create mock events with descriptions
+        event1 = EventContextForMax(id=1, name="page_view", description="User viewed a page")
+        event2 = EventContextForMax(id=2, name="button_click", description="User clicked a button")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(
+            dashboards=None, insights=None, events={"1": event1, "2": event2}, actions=None, global_info=None
+        )
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn(
+            '"page_view: User viewed a page", "button_click: User clicked a button"', result["ui_context_events"]
+        )
+        self.assertIn("<events_context>", result["ui_context_events"])
+
+    def test_format_ui_context_with_actions(self):
+        # Create mock actions
+        action1 = ActionContextForMax(id=1, name="Sign Up")
+        action2 = ActionContextForMax(id=2, name="Purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(
+            dashboards=None, insights=None, events=None, actions={"1": action1, "2": action2}, global_info=None
+        )
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up", "Purchase"', result["ui_context_actions"])
+        self.assertIn("<actions_context>", result["ui_context_actions"])
+
+    def test_format_ui_context_with_actions_with_descriptions(self):
+        # Create mock actions with descriptions
+        action1 = ActionContextForMax(id=1, name="Sign Up", description="User creates account")
+        action2 = ActionContextForMax(id=2, name="Purchase", description="User makes a purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(
+            dashboards=None, insights=None, events=None, actions={"1": action1, "2": action2}, global_info=None
+        )
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn(
+            '"Sign Up: User creates account", "Purchase: User makes a purchase"', result["ui_context_actions"]
+        )
+        self.assertIn("<actions_context>", result["ui_context_actions"])
 
     def test_format_ui_context_with_navigation(self):
         # Create mock navigation
@@ -853,7 +925,7 @@ Query results: 42 events"""
         global_info = GlobalInfo(navigation=navigation)
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, global_info=global_info)
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=None, global_info=global_info)
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -869,7 +941,7 @@ Query results: 42 events"""
         global_info = GlobalInfo(navigation=navigation)
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, global_info=global_info)
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=None, global_info=global_info)
 
         result = self.mixin._format_ui_context(ui_context)
 

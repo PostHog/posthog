@@ -5,7 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxMocks } from './testUtils'
@@ -51,6 +51,18 @@ describe('maxContextLogic', () => {
         insights: [expectedTransformedInsight],
     }
 
+    const mockEvent: EventDefinition = {
+        id: 'event-1',
+        name: 'Test Event',
+        description: 'Test event description',
+    } as EventDefinition
+
+    const mockAction: ActionType = {
+        id: 1,
+        name: 'Test Action',
+        description: 'Test action description',
+    } as ActionType
+
     beforeEach(() => {
         useMocks(maxMocks)
         initKeaTests()
@@ -85,14 +97,20 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextInsights: {},
                 contextDashboards: {},
+                contextEvents: {},
+                contextActions: {},
             })
 
             logic.actions.addOrUpdateContextInsight('test-key', mockInsight)
             logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
+            logic.actions.addOrUpdateContextEvent('event-1', mockEvent)
+            logic.actions.addOrUpdateContextAction('1', mockAction)
 
             await expectLogic(logic).toMatchValues({
                 contextInsights: { 'test-key': expectedTransformedInsight },
                 contextDashboards: { '1': expectedTransformedDashboard },
+                contextEvents: { 'event-1': mockEvent },
+                contextActions: { '1': mockAction },
             })
         })
 
@@ -148,6 +166,8 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextInsights: {},
                 contextDashboards: {},
+                contextEvents: {},
+                contextActions: {},
                 useCurrentPageContext: false,
             })
         })
@@ -215,8 +235,13 @@ describe('maxContextLogic', () => {
 
         it('calculates taxonomic group types correctly', async () => {
             await expectLogic(logic).toMatchValues({
-                mainTaxonomicGroupType: TaxonomicFilterGroupType.Insights,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Insights, TaxonomicFilterGroupType.Dashboards],
+                mainTaxonomicGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Insights,
+                    TaxonomicFilterGroupType.Dashboards,
+                ],
             })
 
             logic.actions.addOrUpdateActiveInsight('active', mockInsight)
@@ -226,6 +251,8 @@ describe('maxContextLogic', () => {
                 mainTaxonomicGroupType: TaxonomicFilterGroupType.MaxAIContext,
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.MaxAIContext,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.Insights,
                     TaxonomicFilterGroupType.Dashboards,
                 ],
@@ -241,6 +268,8 @@ describe('maxContextLogic', () => {
 
             logic.actions.addOrUpdateContextInsight('insight-key', contextInsight)
             logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
+            logic.actions.addOrUpdateContextEvent('event-1', mockEvent)
+            logic.actions.addOrUpdateContextAction('1', mockAction)
             logic.actions.setNavigationContext('/test', 'Test Page')
 
             await expectLogic(logic).toMatchValues({
@@ -268,6 +297,20 @@ describe('maxContextLogic', () => {
                                     insight_type: 'TrendsQuery',
                                 },
                             ],
+                        },
+                    },
+                    events: {
+                        'event-1': {
+                            id: 'event-1',
+                            name: 'Test Event',
+                            description: 'Test event description',
+                        },
+                    },
+                    actions: {
+                        '1': {
+                            id: 1,
+                            name: 'Test Action',
+                            description: 'Test action description',
                         },
                     },
                     global_info: {
@@ -350,6 +393,34 @@ describe('maxContextLogic', () => {
                 )
             }).toMatchValues({
                 useCurrentPageContext: true,
+            })
+        })
+
+        it('handles taxonomic filter change for events', async () => {
+            await expectLogic(logic).toMatchValues({
+                contextEvents: {},
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.handleTaxonomicFilterChange('event-1', TaxonomicFilterGroupType.Events, mockEvent)
+            }).toMatchValues({
+                contextEvents: {
+                    'event-1': mockEvent,
+                },
+            })
+        })
+
+        it('handles taxonomic filter change for actions', async () => {
+            await expectLogic(logic).toMatchValues({
+                contextActions: {},
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.handleTaxonomicFilterChange(1, TaxonomicFilterGroupType.Actions, mockAction)
+            }).toMatchValues({
+                contextActions: {
+                    '1': mockAction,
+                },
             })
         })
     })

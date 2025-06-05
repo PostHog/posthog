@@ -1,6 +1,22 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "ActionContextForMax": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -8309,6 +8325,22 @@
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
+        "EventContextForMax": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
@@ -12568,8 +12600,14 @@
         "MaxContextShape": {
             "additionalProperties": false,
             "properties": {
+                "actions": {
+                    "$ref": "#/definitions/MultiActionContextContainer"
+                },
                 "dashboards": {
                     "$ref": "#/definitions/MultiDashboardContextContainer"
+                },
+                "events": {
+                    "$ref": "#/definitions/MultiEventContextContainer"
                 },
                 "global_info": {
                     "additionalProperties": false,
@@ -12702,9 +12740,21 @@
             "required": ["use_as_profile", "color", "accessories"],
             "type": "object"
         },
+        "MultiActionContextContainer": {
+            "additionalProperties": {
+                "$ref": "#/definitions/ActionContextForMax"
+            },
+            "type": "object"
+        },
         "MultiDashboardContextContainer": {
             "additionalProperties": {
                 "$ref": "#/definitions/DashboardContextForMax"
+            },
+            "type": "object"
+        },
+        "MultiEventContextContainer": {
+            "additionalProperties": {
+                "$ref": "#/definitions/EventContextForMax"
             },
             "type": "object"
         },

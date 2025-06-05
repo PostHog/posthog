@@ -17,12 +17,32 @@ export interface DashboardContextForMax {
     insights: InsightContextForMax[]
 }
 
+export interface EventContextForMax {
+    id: string | number
+    name?: string
+    description?: string
+}
+
+export interface ActionContextForMax {
+    id: string | number
+    name?: string
+    description?: string
+}
+
 export interface MultiDashboardContextContainer {
     [dashboardKey: string]: DashboardContextForMax
 }
 
 export interface MultiInsightContextContainer {
     [insightKey: string]: InsightContextForMax
+}
+
+export interface MultiEventContextContainer {
+    [eventKey: string]: EventContextForMax
+}
+
+export interface MultiActionContextContainer {
+    [actionKey: string]: ActionContextForMax
 }
 
 export interface MaxNavigationContext {
@@ -34,6 +54,8 @@ export interface MaxNavigationContext {
 export interface MaxContextShape {
     dashboards?: MultiDashboardContextContainer
     insights?: MultiInsightContextContainer
+    events?: MultiEventContextContainer
+    actions?: MultiActionContextContainer
 
     // General information that's always good to have, if available
     global_info?: {

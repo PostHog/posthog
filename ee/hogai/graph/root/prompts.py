@@ -56,6 +56,8 @@ You can acknowledge that you are using this context to answer the user's questio
 
 {{{ui_context_dashboard}}}
 {{{ui_context_insights}}}
+{{{ui_context_events}}}
+{{{ui_context_actions}}}
 {{{ui_context_navigation}}}
 
 </user_context>

@@ -1,14 +1,24 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
-import { MultiDashboardContextContainer, MultiInsightContextContainer } from './maxTypes'
+import {
+    MultiActionContextContainer,
+    MultiDashboardContextContainer,
+    MultiEventContextContainer,
+    MultiInsightContextContainer,
+} from './maxTypes'
 
 interface ContextTagsProps {
     insights?: MultiInsightContextContainer
     dashboards?: MultiDashboardContextContainer
+    events?: MultiEventContextContainer
+    actions?: MultiActionContextContainer
     useCurrentPageContext?: boolean
     onRemoveInsight?: (key: string) => void
     onRemoveDashboard?: (key: string) => void
+    onRemoveEvent?: (key: string) => void
+    onRemoveAction?: (key: string) => void
     onDisableCurrentPageContext?: () => void
     className?: string
 }
@@ -16,9 +26,13 @@ interface ContextTagsProps {
 export function ContextTags({
     insights,
     dashboards,
+    events,
+    actions,
     useCurrentPageContext,
     onRemoveInsight,
     onRemoveDashboard,
+    onRemoveEvent,
+    onRemoveAction,
     onDisableCurrentPageContext,
     className,
 }: ContextTagsProps): JSX.Element | null {
@@ -68,6 +82,40 @@ export function ContextTags({
                     onClose={onRemoveInsight ? () => onRemoveInsight(key) : undefined}
                 >
                     {insight.name || `Insight ${insight.id}`}
+                </LemonTag>
+            )
+        })
+    }
+
+    // Events
+    if (events) {
+        Object.entries(events).forEach(([key, event]) => {
+            tags.push(
+                <LemonTag
+                    key={`event-${key}`}
+                    size="xsmall"
+                    icon={<IconEvent />}
+                    closable={!!onRemoveEvent}
+                    onClose={onRemoveEvent ? () => onRemoveEvent(key) : undefined}
+                >
+                    {event.name}
+                </LemonTag>
+            )
+        })
+    }
+
+    // Actions
+    if (actions) {
+        Object.entries(actions).forEach(([key, action]) => {
+            tags.push(
+                <LemonTag
+                    key={`action-${key}`}
+                    size="xsmall"
+                    icon={<IconAction />}
+                    closable={!!onRemoveAction}
+                    onClose={onRemoveAction ? () => onRemoveAction(key) : undefined}
+                >
+                    {action.name || `Action ${action.id}`}
                 </LemonTag>
             )
         })
