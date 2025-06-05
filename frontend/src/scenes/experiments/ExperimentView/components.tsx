@@ -50,9 +50,9 @@ import {
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
+import { experimentResultBreakdownLogic } from '../experimentResultBreakdownLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { metricToQuery } from '../utils'
-import { getExperimentInsightColour } from '../utils'
+import { getExperimentInsightColour, metricToQuery } from '../utils'
 
 export function VariantTag({
     experimentId,
@@ -143,19 +143,30 @@ export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.E
 export function ResultsQuery({
     result,
     showTable,
+    experiment,
 }: {
     result: ExperimentQueryResponse | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     showTable: boolean
+    experiment?: Experiment
 }): JSX.Element {
-    if (!result) {
+    /**
+     * we need to do some checks here...
+     */
+    const { breakdownResults } = useValues(experimentResultBreakdownLogic({ experiment, metric: result.metric }))
+
+    if (!result || !breakdownResults) {
         return <></>
     }
 
-    if (result.kind === NodeKind.ExperimentQuery) {
-        return <></>
-    }
+    const query =
+        result.kind === NodeKind.ExperimentQuery
+            ? breakdownResults?.query
+            : result.kind === NodeKind.ExperimentTrendsQuery
+            ? result.count_query
+            : result.funnels_query
 
-    const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
+    const insight = result.kind === NodeKind.ExperimentQuery ? breakdownResults?.insight : result?.insight
+
     const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
     return (
@@ -176,7 +187,7 @@ export function ResultsQuery({
                             kind: NodeKind.InsightVizNode,
                             source: query,
                         } as InsightVizNode,
-                        result: result?.insight,
+                        result: insight,
                         disable_baseline: true,
                     },
                     doNotLoad: true,
