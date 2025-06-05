@@ -118,7 +118,10 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
-    orig_workload = workload
+    if not workload:
+        workload = Workload.DEFAULT
+        # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
+        logging.warning(f"workload is None", traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -186,8 +189,6 @@ def sync_execute(
             # these disruptions
             settings["use_hedged_requests"] = "0"
         start_time = perf_counter()
-        if not workload:
-            logging.warning(f"workload is None, was {orig_workload}", traceback.format_exc())
         try:
             QUERY_STARTED_COUNTER.labels(
                 team_id=str(tags.get("team_id", "0")),
