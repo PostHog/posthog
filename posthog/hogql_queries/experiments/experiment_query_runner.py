@@ -58,7 +58,6 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
-    ExperimentMetricResult,
     ExperimentQueryResponse,
     ExperimentStatsBase,
     ExperimentSignificanceCode,
@@ -628,7 +627,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return sorted_results
 
-    def calculate(self) -> ExperimentQueryResponse | ExperimentMetricResult:
+    def calculate(self) -> ExperimentQueryResponse:
         sorted_results = self._evaluate_experiment_query()
 
         if self.stats_method == "frequentist":

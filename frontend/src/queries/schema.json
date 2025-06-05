@@ -3573,6 +3573,109 @@
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
+        "CachedLegacyExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "insight": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "stats_version": {
+                    "$ref": "#/definitions/integer"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "variants": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "probability",
+                "significant",
+                "timezone",
+                "variants"
+            ],
+            "type": "object"
+        },
         "CachedLifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -3716,6 +3819,79 @@
                 "next_allowed_client_refresh",
                 "results",
                 "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedNewExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "stats_version": {
+                    "$ref": "#/definitions/integer"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "baseline",
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "timezone",
+                "variant_results"
             ],
             "type": "object"
         },
@@ -12254,6 +12430,71 @@
             "required": ["uuid", "created_at", "properties", "distinct_id"],
             "type": "object"
         },
+        "LegacyExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "insight": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "stats_version": {
+                    "$ref": "#/definitions/integer"
+                },
+                "variants": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["variants", "probability", "significant"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12786,6 +13027,42 @@
         "MultipleBreakdownType": {
             "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
+        },
+        "NewExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "stats_version": {
+                    "$ref": "#/definitions/integer"
+                },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["baseline", "variant_results"],
+            "type": "object"
         },
         "NodeKind": {
             "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm --filter=@posthog/frontend run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm -w run schema:build:python\"",

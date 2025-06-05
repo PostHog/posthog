@@ -9888,6 +9888,22 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class LegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    p_value: Optional[float] = None
+    probability: dict[str, float]
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
 class LifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9958,6 +9974,17 @@ class LogsQuery(BaseModel):
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
     severityLevels: list[LogSeverityLevel]
+
+
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    stats_version: Optional[int] = None
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -10260,6 +10287,57 @@ class CachedExperimentQueryResponse(BaseModel):
         Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
     ] = None
     variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
+
+
+class CachedLegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: datetime
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    next_allowed_client_refresh: datetime
+    p_value: Optional[float] = None
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: bool
+    stats_version: Optional[int] = None
+    timezone: str
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: datetime
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    stats_version: Optional[int] = None
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class Response17(BaseModel):
