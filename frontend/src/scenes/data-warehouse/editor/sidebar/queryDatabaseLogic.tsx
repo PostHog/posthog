@@ -1,5 +1,6 @@
 import { IconDatabase, IconDocument, IconPlug } from '@posthog/icons'
 import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
@@ -232,9 +233,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'dataWarehouseTablesMap',
                 'viewsMapById',
                 'managedViews',
+                'databaseLoading',
             ],
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
         ],
         actions: [
             viewLinkLogic,
@@ -426,6 +428,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.managedViews,
                 s.searchTerm,
                 s.searchTreeData,
+                s.databaseLoading,
+                s.dataWarehouseSavedQueriesLoading,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -433,7 +437,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 searchTerm: string,
-                searchTreeData: TreeDataItem[]
+                searchTreeData: TreeDataItem[],
+                databaseLoading: boolean,
+                dataWarehouseSavedQueriesLoading: boolean
             ): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchTreeData
@@ -441,41 +447,69 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const sourcesChildren: TreeDataItem[] = []
 
-                // Add PostHog tables
-                if (posthogTables.length > 0) {
-                    sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables))
+                // Add loading indicator for sources if still loading
+                if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
+                    sourcesChildren.push({
+                        id: 'sources-loading/',
+                        name: 'Loading...',
+                        displayName: <>Loading...</>,
+                        icon: <Spinner />,
+                        disableSelect: true,
+                        type: 'loading-indicator',
+                    })
+                } else {
+                    // Add PostHog tables
+                    if (posthogTables.length > 0) {
+                        sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables))
+                    }
+
+                    // Group data warehouse tables by source type
+                    const tablesBySourceType = dataWarehouseTables.reduce(
+                        (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, table) => {
+                            const sourceType = table.source?.source_type || 'Self-managed'
+                            if (!acc[sourceType]) {
+                                acc[sourceType] = []
+                            }
+                            acc[sourceType].push(table)
+                            return acc
+                        },
+                        {}
+                    )
+
+                    // Add data warehouse tables
+                    Object.entries(tablesBySourceType).forEach(([sourceType, tables]) => {
+                        sourcesChildren.push(createSourceFolderNode(sourceType, tables))
+                    })
                 }
-
-                // Group data warehouse tables by source type
-                const tablesBySourceType = dataWarehouseTables.reduce(
-                    (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, table) => {
-                        const sourceType = table.source?.source_type || 'Self-managed'
-                        if (!acc[sourceType]) {
-                            acc[sourceType] = []
-                        }
-                        acc[sourceType].push(table)
-                        return acc
-                    },
-                    {}
-                )
-
-                // Add data warehouse tables
-                Object.entries(tablesBySourceType).forEach(([sourceType, tables]) => {
-                    sourcesChildren.push(createSourceFolderNode(sourceType, tables))
-                })
 
                 // Create views children
                 const viewsChildren: TreeDataItem[] = []
 
-                // Add saved queries
-                dataWarehouseSavedQueries.forEach((view) => {
-                    viewsChildren.push(createViewNode(view))
-                })
+                // Add loading indicator for views if still loading
+                if (
+                    dataWarehouseSavedQueriesLoading &&
+                    dataWarehouseSavedQueries.length === 0 &&
+                    managedViews.length === 0
+                ) {
+                    viewsChildren.push({
+                        id: 'views-loading/',
+                        name: 'Loading...',
+                        displayName: <>Loading...</>,
+                        icon: <Spinner />,
+                        disableSelect: true,
+                        type: 'loading-indicator',
+                    })
+                } else {
+                    // Add saved queries
+                    dataWarehouseSavedQueries.forEach((view) => {
+                        viewsChildren.push(createViewNode(view))
+                    })
 
-                // Add managed views
-                managedViews.forEach((view) => {
-                    viewsChildren.push(createViewNode(view))
-                })
+                    // Add managed views
+                    managedViews.forEach((view) => {
+                        viewsChildren.push(createViewNode(view))
+                    })
+                }
 
                 return [
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
