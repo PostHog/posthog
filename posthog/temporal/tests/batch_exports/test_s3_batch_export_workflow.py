@@ -373,8 +373,8 @@ async def assert_clickhouse_records_in_s3(
 
     # sort records before comparing (we don't care about order of records in the export)
     if sort_key in schema_column_names:
-        s3_data = sorted(s3_data, key=lambda x: x[sort_key])
-        expected_records = sorted(expected_records, key=lambda x: x[sort_key])
+        s3_data = sorted(s3_data, key=operator.itemgetter(sort_key))
+        expected_records = sorted(expected_records, key=operator.itemgetter(sort_key))
 
     # check schema of first record (ignoring sessions model for now)
     if isinstance(batch_export_model, BatchExportModel) and batch_export_model.name in ["events", "persons"]:
@@ -384,10 +384,6 @@ async def assert_clickhouse_records_in_s3(
         # de-duplicate based on uuid
         s3_data = list({record["uuid"]: record for record in s3_data}.values())
     assert len(s3_data) == len(expected_records)
-
-    # Ordering is not guaranteed, so we sort before comparing.
-    s3_data.sort(key=operator.itemgetter(sort_key))
-    expected_records.sort(key=operator.itemgetter(sort_key))
 
     first_value_matches = s3_data[0] == expected_records[0]
     assert first_value_matches
