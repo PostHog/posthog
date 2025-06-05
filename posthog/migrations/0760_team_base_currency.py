@@ -169,6 +169,8 @@ class Migration(migrations.Migration):
                 ],
                 default="USD",
                 max_length=3,
+                null=True,
+                blank=True,
             ),
         ),
     ]

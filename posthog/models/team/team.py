@@ -416,6 +416,8 @@ class Team(UUIDClassicModel):
         max_length=3,
         choices=CURRENCY_CODE_CHOICES,
         default=DEFAULT_CURRENCY,
+        null=True,
+        blank=True,
     )
 
     @cached_property
