@@ -204,7 +204,6 @@ class S3EnsureBucketTestStep(DestinationTestStep):
             aws_secret_access_key=self.aws_secret_access_key,
             endpoint_url=self.endpoint_url,
         ) as client:
-            assert self.bucket_name is not None
             try:
                 await client.head_bucket(Bucket=self.bucket_name)
             except ClientError as err:
@@ -558,10 +557,7 @@ def try_load_private_key(
     private_key: str | None = None, private_key_passphrase: str | None = None
 ) -> tuple[bytes | None, DestinationTestStepResult | None]:
     """Attempt to load a private key, return a failed result if an error occurs."""
-    from posthog.temporal.batch_exports.snowflake_batch_export import (
-        InvalidPrivateKeyError,
-        load_private_key,
-    )
+    from posthog.temporal.batch_exports.snowflake_batch_export import InvalidPrivateKeyError, load_private_key
 
     if private_key is None:
         return (None, None)
@@ -620,11 +616,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import snowflake.connector
-        from snowflake.connector.errors import (
-            DatabaseError,
-            InterfaceError,
-            OperationalError,
-        )
+        from snowflake.connector.errors import DatabaseError, InterfaceError, OperationalError
 
         private_key, result = try_load_private_key(self.private_key, self.private_key_passphrase)
         if result is not None:

@@ -599,6 +599,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
 
 def resolve_batch_exports_model(
     team_id: int,
+    is_backfill: bool,
     batch_export_model: BatchExportModel | None = None,
     batch_export_schema: BatchExportSchema | None = None,
 ):
@@ -939,7 +940,6 @@ class Producer:
                     query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_id = uuid.uuid4()
-                await self.logger.ainfo(f"Executing query with ID = {query_id}")
 
                 if isinstance(query_or_model, RecordBatchModel):
                     query, query_parameters = await query_or_model.as_query_with_parameters(

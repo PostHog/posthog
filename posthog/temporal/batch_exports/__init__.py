@@ -29,9 +29,6 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportWorkflow,
     insert_into_postgres_activity,
 )
-from posthog.temporal.batch_exports.pre_export_stage import (
-    insert_into_s3_stage_activity,
-)
 from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportWorkflow,
     insert_into_redshift_activity,
@@ -39,7 +36,6 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
 from posthog.temporal.batch_exports.s3_batch_export import (
     S3BatchExportWorkflow,
     insert_into_s3_activity,
-    insert_into_s3_activity_from_stage,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
@@ -76,6 +72,4 @@ ACTIVITIES = [
     get_event_counts,
     update_batch_export_runs,
     check_for_missing_batch_export_runs,
-    insert_into_s3_stage_activity,
-    insert_into_s3_activity_from_stage,
 ]

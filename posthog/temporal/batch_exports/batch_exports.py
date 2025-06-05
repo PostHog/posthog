@@ -1,3 +1,4 @@
+import collections
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -6,6 +7,7 @@ import typing
 import uuid
 
 import pyarrow as pa
+import structlog
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -43,6 +45,8 @@ from posthog.temporal.common.logger import (
     get_internal_logger,
 )
 from posthog.warehouse.util import database_sync_to_async
+
+logger = structlog.get_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
