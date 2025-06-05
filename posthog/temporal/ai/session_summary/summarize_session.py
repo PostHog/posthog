@@ -1,5 +1,7 @@
 import asyncio
 from dataclasses import dataclass
+import json
+import uuid
 import aiohttp
 import temporalio
 import datetime as dt
@@ -61,6 +63,12 @@ class SummarizeSessionWorkflow(PostHogWorkflow):
     #         },
     #     )
     #     return summary_prompt, system_prompt
+
+    @staticmethod
+    def parse_inputs(inputs: dict[str, str]) -> SessionSummaryInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs)
+        return SessionSummaryInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: SessionSummaryInputs) -> str:
@@ -182,11 +190,13 @@ def excectute_test_summarize_session(inputs: SessionSummaryInputs) -> str:
         )
     )
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
+    # TODO: Generate a proper id
+    random_id = str(uuid.uuid4())
     result = asyncio.run(
         client.execute_workflow(
             "summarize-session",
             inputs,
-            id="123",
+            id=random_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             retry_policy=retry_policy,
