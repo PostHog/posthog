@@ -78,7 +78,6 @@ def consolidate_base_currency(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0752_organization_members_can_invite"),
         ("posthog", "0759_add_errortrackingsymbolset_last_used_index"),
     ]
 
