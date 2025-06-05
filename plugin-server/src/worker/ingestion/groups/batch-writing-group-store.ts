@@ -33,17 +33,18 @@ export interface BatchWritingGroupStoreOptions {
     optimisticUpdateRetryInterval: number
 }
 
+const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
+    batchWritingEnabled: false,
+    maxConcurrentUpdates: 10,
+    maxOptimisticUpdateRetries: 5,
+    optimisticUpdateRetryInterval: 50,
+}
+
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
     constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
-        this.options = {
-            batchWritingEnabled: false,
-            maxConcurrentUpdates: 10,
-            maxOptimisticUpdateRetries: 5,
-            optimisticUpdateRetryInterval: 50,
-            ...options,
-        }
+        this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
     forBatch(): GroupStoreForBatch {
@@ -63,8 +64,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     private databaseOperationCounts: Map<string, number>
     private fetchPromises: Map<string, Promise<GroupUpdate | null>>
     private cacheMetrics: CacheMetrics
+    private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, private options: BatchWritingGroupStoreOptions) {
+    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+        this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new Map()
         this.databaseOperationCounts = new Map()
         this.fetchPromises = new Map()
