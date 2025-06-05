@@ -63,7 +63,7 @@ export const internalMultipleChoiceSurveyLogic = kea<internalMultipleChoiceSurve
         handleSurveys: ({ surveys }) => {
             const survey = surveys.find((s: Survey) => s.id === props.surveyId)
             if (survey) {
-                posthog.capture('survey shown', {
+                posthog.capture(SurveyEventName.SHOWN, {
                     $survey_id: props.surveyId,
                 })
                 actions.setSurvey(survey)
@@ -82,7 +82,7 @@ export const internalMultipleChoiceSurveyLogic = kea<internalMultipleChoiceSurve
             if (values.openChoice) {
                 payload.$survey_response.push(values.openChoice)
             }
-            posthog.capture('survey sent', payload)
+            posthog.capture(SurveyEventName.SENT, payload)
 
             actions.setShowThankYouMessage(true)
             setTimeout(() => actions.setSurvey(null as unknown as Survey), 5000)

@@ -148,6 +148,7 @@ interface MetricLoadingConfig {
             | null
         )[]
     ) => void
+    onSetResultsNew: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
     onTimeout: (experimentId: Experiment['id'], metric: any) => void
 }
@@ -157,6 +158,7 @@ const loadMetrics = async ({
     experimentId,
     refresh,
     onSetResults,
+    onSetResultsNew,
     onSetErrors,
     onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
@@ -167,6 +169,7 @@ const loadMetrics = async ({
         | null
     )[] = []
 
+    const newResults: CachedNewExperimentQueryResponse[] = []
     const currentErrors = new Array(metrics.length).fill(null)
 
     return await Promise.all(
@@ -198,6 +201,11 @@ const loadMetrics = async ({
                             ...typedResponse,
                             fakeInsightId: Math.random().toString(36).substring(2, 15),
                         } as TypedExperimentResponse & { fakeInsightId: string }
+
+                        // If this is a new format response, also populate newResults
+                        if (isNewExperimentResponse(typedResponse)) {
+                            newResults[index] = typedResponse
+                        }
                     } else {
                         // Handle case where response doesn't match expected pattern
                         console.warn('Experiment response does not match legacy or new format:', response)
@@ -213,6 +221,7 @@ const loadMetrics = async ({
                     }
                 }
                 onSetResults([...results])
+                onSetResultsNew([...newResults])
             } catch (error: any) {
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
@@ -230,6 +239,7 @@ const loadMetrics = async ({
 
                 results[index] = null
                 onSetResults([...results])
+                onSetResultsNew([...newResults])
             }
         })
     )
@@ -458,6 +468,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
+        setMetricResultsNew: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadMetricResults: (refresh?: boolean) => ({ refresh }),
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
         setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
@@ -473,6 +484,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
+        setSecondaryMetricResultsNew: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadSecondaryMetricResults: (refresh?: boolean) => ({ refresh }),
         setSecondaryMetricsResultErrors: (errors: any[]) => ({ errors }),
         openPrimaryMetricSourceModal: true,
@@ -770,6 +782,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 setMetricResults: (_, { results }) => results,
             },
         ],
+        metricResultsNew: [
+            [] as CachedNewExperimentQueryResponse[],
+            {
+                setMetricResultsNew: (_, { results }) => results,
+                loadMetricResults: () => [],
+                loadExperiment: () => [],
+            },
+        ],
         secondaryMetricResultsLoading: [
             false,
             {
@@ -785,6 +805,14 @@ export const experimentLogic = kea<experimentLogicType>([
             )[],
             {
                 setSecondaryMetricResults: (_, { results }) => results,
+            },
+        ],
+        secondaryMetricResultsNew: [
+            [] as CachedNewExperimentQueryResponse[],
+            {
+                setSecondaryMetricResultsNew: (_, { results }) => results,
+                loadSecondaryMetricResults: () => [],
+                loadExperiment: () => [],
             },
         ],
         editingPrimaryMetricIndex: [
@@ -1424,6 +1452,7 @@ export const experimentLogic = kea<experimentLogicType>([
         loadMetricResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setMetricResultsLoading(true)
             actions.setMetricResults([])
+            actions.setMetricResultsNew([])
 
             let metrics = values.experiment?.metrics
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1438,6 +1467,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 experimentId: values.experimentId,
                 refresh,
                 onSetResults: actions.setMetricResults,
+                onSetResultsNew: actions.setMetricResultsNew,
                 onSetErrors: actions.setPrimaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
@@ -1447,6 +1477,7 @@ export const experimentLogic = kea<experimentLogicType>([
         loadSecondaryMetricResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setSecondaryMetricResultsLoading(true)
             actions.setSecondaryMetricResults([])
+            actions.setSecondaryMetricResultsNew([])
 
             let secondaryMetrics = values.experiment?.metrics_secondary
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1461,6 +1492,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 experimentId: values.experimentId,
                 refresh,
                 onSetResults: actions.setSecondaryMetricResults,
+                onSetResultsNew: actions.setSecondaryMetricResultsNew,
                 onSetErrors: actions.setSecondaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
@@ -2111,6 +2143,39 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): ExperimentStatsMethod => {
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
             },
+        ],
+        // New format selectors
+        hasPrimaryMetricNewResults: [
+            (s) => [s.metricResultsNew],
+            (metricResultsNew: CachedNewExperimentQueryResponse[]): boolean => {
+                return (
+                    metricResultsNew.length > 0 &&
+                    metricResultsNew.some((result) => result !== null && result !== undefined)
+                )
+            },
+        ],
+        hasSecondaryMetricNewResults: [
+            (s) => [s.secondaryMetricResultsNew],
+            (secondaryMetricResultsNew: CachedNewExperimentQueryResponse[]): boolean => {
+                return (
+                    secondaryMetricResultsNew.length > 0 &&
+                    secondaryMetricResultsNew.some((result) => result !== null && result !== undefined)
+                )
+            },
+        ],
+        primaryMetricNewResult: [
+            (s) => [s.metricResultsNew],
+            (metricResultsNew: CachedNewExperimentQueryResponse[]) =>
+                (metricIndex: number = 0): CachedNewExperimentQueryResponse | null => {
+                    return metricResultsNew?.[metricIndex] || null
+                },
+        ],
+        secondaryMetricNewResult: [
+            (s) => [s.secondaryMetricResultsNew],
+            (secondaryMetricResultsNew: CachedNewExperimentQueryResponse[]) =>
+                (metricIndex: number = 0): CachedNewExperimentQueryResponse | null => {
+                    return secondaryMetricResultsNew?.[metricIndex] || null
+                },
         ],
     }),
     forms(({ actions, values, props }) => ({
