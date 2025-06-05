@@ -2,8 +2,8 @@ import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 
 import {
     CachedExperimentFunnelsQueryResponse,
-    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    CachedLegacyExperimentQueryResponse,
     ExperimentMetricType,
     ExperimentSignificanceCode,
     NodeKind,
@@ -19,8 +19,8 @@ import {
 } from '~/types'
 
 // Type definitions
-export type ExperimentResult =
-    | CachedExperimentQueryResponse
+export type LegacyExperimentMetricResult =
+    | CachedLegacyExperimentQueryResponse
     | CachedExperimentTrendsQueryResponse
     | CachedExperimentFunnelsQueryResponse
     | null
@@ -45,14 +45,17 @@ export interface VariantCalculationResult {
 /**
  * Calculate conversion rate for a specific variant in experiment results
  */
-export function conversionRateForVariant(metricResult: ExperimentResult, variantKey: string): number | null {
+export function conversionRateForVariant(
+    metricResult: LegacyExperimentMetricResult,
+    variantKey: string
+): number | null {
     if (!metricResult) {
         return null
     }
 
     if (
         metricResult.kind === NodeKind.ExperimentQuery &&
-        metricResult.metric?.metric_type === ExperimentMetricType.FUNNEL
+        metricResult.metric.metric_type === ExperimentMetricType.FUNNEL
     ) {
         const variants = metricResult.variants as FunnelExperimentVariant[]
         const variantResults = variants.find((variant) => variant.key === variantKey)
@@ -80,7 +83,10 @@ export function conversionRateForVariant(metricResult: ExperimentResult, variant
 /**
  * Get exposure count data for a specific variant
  */
-export function exposureCountDataForVariant(metricResult: ExperimentResult, variant: string): number | null {
+export function exposureCountDataForVariant(
+    metricResult: LegacyExperimentMetricResult,
+    variant: string
+): number | null {
     if (!metricResult || !metricResult.variants) {
         return null
     }
@@ -106,7 +112,7 @@ export function exposureCountDataForVariant(metricResult: ExperimentResult, vari
  * Get count data for a specific variant with optional math aggregation
  */
 export function countDataForVariant(
-    metricResult: ExperimentResult,
+    metricResult: LegacyExperimentMetricResult,
     variant: string,
     type: 'primary' | 'secondary' = 'primary',
     experimentMathAggregation?: PropertyMathType | CountPerActorMathType
@@ -167,7 +173,7 @@ export function countDataForVariant(
  * Calculate credible interval for a variant as percentage difference from control
  */
 export function credibleIntervalForVariant(
-    metricResult: ExperimentResult,
+    metricResult: LegacyExperimentMetricResult,
     variantKey: string,
     metricType: InsightType
 ): [number, number] | null {
@@ -214,7 +220,7 @@ export function credibleIntervalForVariant(
  * Get the index for a variant in experiment results (for UI display order)
  */
 export function getIndexForVariant(
-    metricResult: ExperimentResult,
+    metricResult: LegacyExperimentMetricResult,
     variant: string,
     metricType: InsightType
 ): number | null {
@@ -256,11 +262,11 @@ export function getIndexForVariant(
 /**
  * Get the variant with the highest win probability
  */
-export function getHighestProbabilityVariant(results: ExperimentResult): string | undefined {
+export function getHighestProbabilityVariant(results: LegacyExperimentMetricResult): string | undefined {
     if (results && results.probability) {
         const maxValue = Math.max(...Object.values(results.probability))
         return Object.keys(results.probability).find(
-            (key) => Math.abs(results.probability![key] - maxValue) < Number.EPSILON
+            (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
         )
     }
 }
@@ -321,7 +327,7 @@ export function expectedRunningTime(
  * Calculate delta (percentage change) between a variant and control
  */
 export function calculateDelta(
-    metricResult: ExperimentResult,
+    metricResult: LegacyExperimentMetricResult,
     variantKey: string,
     metricType: InsightType
 ): DeltaResult | null {
@@ -369,7 +375,7 @@ export function calculateDelta(
  * Get comprehensive calculation result for a variant
  */
 export function getVariantCalculationResult(
-    metricResult: ExperimentResult,
+    metricResult: LegacyExperimentMetricResult,
     variantKey: string,
     metricType: InsightType,
     experimentMathAggregation?: PropertyMathType | CountPerActorMathType
@@ -399,7 +405,10 @@ export function getVariantCalculationResult(
 /**
  * Generate significance details text based on experiment results
  */
-export function getSignificanceDetails(metricResult: ExperimentResult, experimentStatsVersion: number): string {
+export function getSignificanceDetails(
+    metricResult: LegacyExperimentMetricResult,
+    experimentStatsVersion: number
+): string {
     if (!metricResult) {
         return ''
     }

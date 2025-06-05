@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import {
     CachedExperimentFunnelsQueryResponse,
-    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
@@ -15,7 +15,10 @@ export function WinningVariantText({
     result,
     experimentId,
 }: {
-    result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
+    result:
+        | CachedLegacyExperimentQueryResponse
+        | CachedExperimentFunnelsQueryResponse
+        | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
     const { getInsightType, experiment } = useValues(experimentLogic)

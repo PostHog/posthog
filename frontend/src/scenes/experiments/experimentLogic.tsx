@@ -142,7 +142,7 @@ interface MetricLoadingConfig {
     refresh?: boolean
     onSetResults: (
         results: (
-            | TypedExperimentResponse
+            | CachedLegacyExperimentQueryResponse
             | CachedExperimentTrendsQueryResponse
             | CachedExperimentFunnelsQueryResponse
             | null
@@ -163,7 +163,7 @@ const loadMetrics = async ({
     onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
     const results: (
-        | TypedExperimentResponse
+        | CachedLegacyExperimentQueryResponse
         | CachedExperimentTrendsQueryResponse
         | CachedExperimentFunnelsQueryResponse
         | null
@@ -197,13 +197,12 @@ const loadMetrics = async ({
                 ) {
                     const typedResponse = convertToTypedExperimentResponse(response as CachedExperimentQueryResponse)
                     if (typedResponse) {
-                        results[index] = {
-                            ...typedResponse,
-                            fakeInsightId: Math.random().toString(36).substring(2, 15),
-                        } as TypedExperimentResponse & { fakeInsightId: string }
-
-                        // If this is a new format response, also populate newResults
-                        if (isNewExperimentResponse(typedResponse)) {
+                        if (isLegacyExperimentResponse(typedResponse)) {
+                            results[index] = {
+                                ...typedResponse,
+                                fakeInsightId: Math.random().toString(36).substring(2, 15),
+                            } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
+                        } else if (isNewExperimentResponse(typedResponse)) {
                             newResults[index] = typedResponse
                         }
                     } else {
@@ -462,7 +461,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setMetricResultsLoading: (loading: boolean) => ({ loading }),
         setMetricResults: (
             results: (
-                | TypedExperimentResponse
+                | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
                 | CachedExperimentFunnelsQueryResponse
                 | null
@@ -478,7 +477,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setSecondaryMetricResultsLoading: (loading: boolean) => ({ loading }),
         setSecondaryMetricResults: (
             results: (
-                | TypedExperimentResponse
+                | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
                 | CachedExperimentFunnelsQueryResponse
                 | null
@@ -773,7 +772,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         metricResults: [
             [] as (
-                | TypedExperimentResponse
+                | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
                 | CachedExperimentFunnelsQueryResponse
                 | null
@@ -798,7 +797,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         secondaryMetricResults: [
             [] as (
-                | TypedExperimentResponse
+                | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
                 | CachedExperimentFunnelsQueryResponse
                 | null
@@ -1732,7 +1731,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.metricResults],
             (
                     metricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1744,24 +1743,14 @@ export const experimentLogic = kea<experimentLogicType>([
                         return false
                     }
 
-                    // Handle legacy response
-                    if ('significant' in result) {
-                        return result.significant || false
-                    }
-
-                    // Handle new response - check if any variant is significant
-                    if ('variant_results' in result && result.variant_results) {
-                        return result.variant_results.some((variant) => variant.significant)
-                    }
-
-                    return false
+                    return result.significant || false
                 },
         ],
         isSecondaryMetricSignificant: [
             (s) => [s.secondaryMetricResults],
             (
                     secondaryMetricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1773,24 +1762,14 @@ export const experimentLogic = kea<experimentLogicType>([
                         return false
                     }
 
-                    // Handle legacy response
-                    if ('significant' in result) {
-                        return result.significant || false
-                    }
-
-                    // Handle new response - check if any variant is significant
-                    if ('variant_results' in result && result.variant_results) {
-                        return result.variant_results.some((variant) => variant.significant)
-                    }
-
-                    return false
+                    return result.significant || false
                 },
         ],
         significanceDetails: [
             (s) => [s.metricResults, s.experimentStatsVersion],
             (
                     metricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
