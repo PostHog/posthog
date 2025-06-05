@@ -363,8 +363,10 @@ async def assert_clickhouse_records_in_s3(
     s3_data.sort(key=operator.itemgetter(sort_key))
     expected_records.sort(key=operator.itemgetter(sort_key))
 
-    assert s3_data[0] == expected_records[0]
-    assert s3_data == expected_records
+    first_value_matches = s3_data[0] == expected_records[0]
+    assert first_value_matches
+    all_match = s3_data == expected_records
+    assert all_match
 
 
 TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
