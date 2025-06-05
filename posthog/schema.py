@@ -3049,6 +3049,14 @@ class MatchedRecording(BaseModel):
     session_id: Optional[str] = None
 
 
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
 class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4719,6 +4727,26 @@ class CachedLogsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class CachedPathsQueryResponse(BaseModel):
@@ -9976,17 +10004,6 @@ class LogsQuery(BaseModel):
     severityLevels: list[LogSeverityLevel]
 
 
-class NewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBase
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
-    stats_version: Optional[int] = None
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
-
-
 class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10315,29 +10332,6 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     stats_version: Optional[int] = None
     timezone: str
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
-
-
-class CachedNewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBase
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    is_cached: bool
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
-    next_allowed_client_refresh: datetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    stats_version: Optional[int] = None
-    timezone: str
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class Response17(BaseModel):

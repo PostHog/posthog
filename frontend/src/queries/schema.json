@@ -3848,16 +3848,9 @@
                 "is_cached": {
                     "type": "boolean"
                 },
-                "kind": {
-                    "const": "ExperimentQuery",
-                    "type": "string"
-                },
                 "last_refresh": {
                     "format": "date-time",
                     "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
@@ -3866,9 +3859,6 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
                 },
                 "timezone": {
                     "type": "string"
@@ -13049,16 +13039,6 @@
             "properties": {
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBase"
-                },
-                "kind": {
-                    "const": "ExperimentQuery",
-                    "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
                 },
                 "variant_results": {
                     "anyOf": [

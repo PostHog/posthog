@@ -2271,7 +2271,7 @@ export interface ExperimentQueryResponse {
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
-export interface LegacyExperimentQueryResponse extends Omit<ExperimentQueryResponse, 'baseline' | 'variant_results'> {
+export interface LegacyExperimentQueryResponse {
     kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
     metric: ExperimentMetric
@@ -2284,11 +2284,7 @@ export interface LegacyExperimentQueryResponse extends Omit<ExperimentQueryRespo
     credible_intervals: Record<string, [number, number]>
 }
 
-export interface NewExperimentQueryResponse
-    extends Omit<
-        ExperimentQueryResponse,
-        'variants' | 'probability' | 'significant' | 'insight' | 'significance_code' | 'p_value' | 'credible_intervals'
-    > {
+export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBase
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
