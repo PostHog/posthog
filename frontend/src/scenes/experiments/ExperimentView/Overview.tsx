@@ -71,9 +71,9 @@ export function SignificanceText({
 }
 
 export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { experimentId, metricResults } = useValues(experimentLogic)
+    const { experimentId, legacyMetricResults } = useValues(experimentLogic)
 
-    const result = metricResults?.[metricIndex]
+    const result = legacyMetricResults?.[metricIndex]
     if (!result) {
         return <></>
     }

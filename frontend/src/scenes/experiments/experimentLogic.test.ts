@@ -123,7 +123,7 @@ describe('experimentLogic', () => {
             const promise = logic.asyncActions.loadMetricResults(true)
 
             await expectLogic(logic).toDispatchActions(['setMetricResultsLoading', 'setMetricResults']).toMatchValues({
-                metricResults: [],
+                legacyMetricResults: [],
                 metricResultsLoading: true,
                 primaryMetricsResultErrors: [],
             })
@@ -133,7 +133,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setMetricResultsLoading'])
                 .toMatchValues({
-                    metricResults: [
+                    legacyMetricResults: [
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,
                             fakeInsightId: expect.any(String),

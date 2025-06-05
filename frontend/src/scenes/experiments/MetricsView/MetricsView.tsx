@@ -58,7 +58,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     const {
         experiment,
         getInsightType,
-        metricResults,
+        legacyMetricResults,
         secondaryMetricResults,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
@@ -68,7 +68,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     if (!variants) {
         return <></>
     }
-    const results = isSecondary ? secondaryMetricResults : metricResults
+    const results = isSecondary ? secondaryMetricResults : legacyMetricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
 
