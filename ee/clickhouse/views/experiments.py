@@ -1,4 +1,5 @@
 from typing import Any, Literal
+from enum import Enum
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -413,6 +414,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
+class ExperimentStatus(str, Enum):
+    DRAFT = "draft"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    ALL = "all"
+
+
 class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
@@ -425,11 +433,30 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         """Override to filter out deleted experiments and apply filters."""
         queryset = queryset.exclude(deleted=True)
 
-        # Filtering
-
-        # archived
-        # Only apply for list view, not detail view
+        # Only apply filters for list view, not detail view
         if self.action == "list":
+            # filtering by status
+            status = self.request.query_params.get("status")
+            if status:
+                try:
+                    status_enum = ExperimentStatus(status.lower())
+                except ValueError:
+                    status_enum = None
+
+                if status_enum and status_enum != ExperimentStatus.ALL:
+                    if status_enum == ExperimentStatus.DRAFT:
+                        queryset = queryset.filter(start_date__isnull=True)
+                    elif status_enum == ExperimentStatus.RUNNING:
+                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
+                    elif status_enum == ExperimentStatus.COMPLETE:
+                        queryset = queryset.filter(end_date__isnull=False)
+
+            # filtering by creator id
+            created_by_id = self.request.query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
+
+            # archived
             archived = self.request.query_params.get("archived")
             if archived is not None:
                 archived_bool = archived.lower() == "true"
