@@ -208,39 +208,46 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
+        category: 'Definitions',
         iconType: 'definitions',
         href: urls.eventDefinitions(),
     },
     {
         path: 'Property definitions',
+        category: 'Definitions',
         iconType: 'definitions',
         href: urls.propertyDefinitions(),
     },
     {
         path: 'Annotations',
+        category: 'Metadata',
         iconType: 'notification',
         href: urls.annotations(),
     },
     {
         path: 'Ingestion warnings',
+        category: 'Pipeline',
         iconType: 'warning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
     {
         path: `Sources`,
+        category: 'Pipeline',
         type: 'hog_function/source',
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Sources),
     } as FileSystemImport,
     {
         path: `Transformations`,
+        category: 'Pipeline',
         type: 'hog_function/transformation',
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Transformations),
     } as FileSystemImport,
     {
         path: `Destinations`,
+        category: 'Pipeline',
         type: 'hog_function/destination',
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Destinations),
@@ -305,12 +312,14 @@ export const getDefaultTreeGames = (): FileSystemImport[] =>
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
+        category: 'People',
         iconType: 'cohort',
         href: urls.persons(),
         visualOrder: 10,
     },
     {
         path: 'Cohorts',
+        category: 'People',
         type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,

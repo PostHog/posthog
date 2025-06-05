@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Revenue settings',
+            category: 'Definitions',
             iconType: 'handMoney',
             href: urls.revenueSettings(),
             flag: FEATURE_FLAGS.REVENUE_ANALYTICS,

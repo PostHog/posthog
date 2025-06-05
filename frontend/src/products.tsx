@@ -555,9 +555,10 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
-    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
+    { path: 'Actions', category: 'Definitions', iconType: 'rocket', href: urls.actions() },
     {
         path: 'Revenue settings',
+        category: 'Definitions',
         iconType: 'handMoney',
         href: urls.revenueSettings(),
         flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
