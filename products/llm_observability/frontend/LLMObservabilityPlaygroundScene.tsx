@@ -45,7 +45,7 @@ export function LLMObservabilityPlaygroundScene(): JSX.Element {
 
 function PlaygroundLayout(): JSX.Element {
     return (
-        <div className="flex flex-col min-h-[calc(100vh-120px)]">
+        <div className="flex flex-col min-h-[calc(100vh-200px)]">
             {/* Main conversation area - full width */}
             <div className="flex flex-col border rounded overflow-hidden flex-1">
                 <ConversationPanel />
@@ -79,6 +79,7 @@ function ConversationPanel(): JSX.Element {
                         onChange={setExpandTextAreas}
                         label="Expand text areas"
                         size="small"
+                        tooltip="If your messages exceed the text box you can toggle this to see more"
                     />
                 </div>
                 <div className="space-y-3">
