@@ -132,9 +132,7 @@ describe('featureFlagLogic', () => {
                                     variant: null,
                                 },
                             ],
-                            payloads: {
-                                control1: '{"key": "value"}',
-                            },
+                            payloads: {},
                         }),
                     }),
                     variants: [],
