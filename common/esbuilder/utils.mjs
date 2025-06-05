@@ -98,7 +98,7 @@ export function copyIndexHtml(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
-            `   <script type="application/javascript">
+            `   <script type="application/javascript"  nonce="{{ csp_nonce }}">
                     // NOTE: the link for the stylesheet will be added just
                     // after this script block. The react code will need the
                     // body to have been parsed before it is able to interact
@@ -176,8 +176,8 @@ function getInputFiles(result) {
     return new Set(
         result?.metafile
             ? Object.keys(result.metafile.inputs)
-                  .map((key) => (key.includes(':') ? key.split(':')[1] : key))
-                  .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
+                .map((key) => (key.includes(':') ? key.split(':')[1] : key))
+                .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
             : []
     )
 }
@@ -313,12 +313,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                ? buildCount === 1
-                    ? 'Built'
-                    : 'Rebuilt'
-                : buildCount === 1
-                ? 'Building failed'
-                : 'Rebuilding failed '
+                    ? buildCount === 1
+                        ? 'Built'
+                        : 'Rebuilt'
+                    : buildCount === 1
+                        ? 'Building failed'
+                        : 'Rebuilding failed '
 
         console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }

@@ -760,7 +760,7 @@ class CSPMiddleware:
         self.default_csp = (
             "default-src 'self'; "
             "script-src 'self' $$nonce$$ $$domains-list$$; "
-            "style-src 'self' 'unsafe-inline' $$nonce$$ $$domains-list$$; "
+            "style-src 'self' 'unsafe-inline' $$domains-list$$; "
             "img-src 'self' data: https: $$domains-list$$; "
             "connect-src 'self' $$domains-list$$; "
             "font-src 'self' $$domains-list$$; "
@@ -791,7 +791,7 @@ class CSPMiddleware:
 
             if self.reporting_endpoint:
                 reporting_endpoint = self.reporting_endpoint
-                if self.add_distinct_id and isinstance(User, request.user) and request.user.distinct_id:
+                if self.add_distinct_id and isinstance(request.user, User) and request.user.distinct_id:
                     reporting_endpoint = reporting_endpoint + f"&distinct_id={request.user.distinct_id}"
 
                 response["Reporting-Endpoints"] = f'posthog-reporting-endpoint="{reporting_endpoint}"'
