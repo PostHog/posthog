@@ -45,6 +45,12 @@ export const hogWatcherLatency = new Histogram({
     labelNames: ['operation'],
 })
 
+export const hogTransformationExecutionDuration = new Histogram({
+    name: 'hog_transformation_execution_duration_ms',
+    help: 'Duration of Hog transformation executions in ms',
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000],
+})
+
 export interface TransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -342,7 +348,14 @@ export class HogTransformerService {
 
         const result = isLegacyPluginHogFunction(hogFunction)
             ? await this.pluginExecutor.execute(invocation)
-            : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+            : // measures the duration of the hog code execution for transformations
+              (() => {
+                  const start = performance.now()
+                  const res = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+                  const duration = performance.now() - start
+                  hogTransformationExecutionDuration.observe(duration)
+                  return res
+              })()
         return result
     }
 
