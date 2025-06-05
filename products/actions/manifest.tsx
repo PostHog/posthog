@@ -33,7 +33,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Actions',
             category: 'Definitions',
-            iconType: 'rocket',
+            iconType: 'cursor',
             href: urls.actions(),
         },
     ],

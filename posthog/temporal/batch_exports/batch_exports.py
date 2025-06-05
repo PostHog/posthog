@@ -243,7 +243,9 @@ def iter_records(
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
 
-    query_str = query.safe_substitute(fields=query_fields, filters=filters_str or "")
+    query_str = query.safe_substitute(
+        fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+    )
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters

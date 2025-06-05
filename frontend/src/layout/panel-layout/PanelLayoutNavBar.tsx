@@ -326,8 +326,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
                                                             hasSideActionRight:
-                                                                item.dropdownMenu && !isLayoutNavCollapsed,
-                                                            fullWidth: item.dropdownMenu && !isLayoutNavCollapsed,
+                                                                item.dropdownMenuItems && !isLayoutNavCollapsed,
+                                                            fullWidth: item.dropdownMenuItems && !isLayoutNavCollapsed,
                                                         }}
                                                         to={item.to}
                                                         tooltip={item.tooltip}
@@ -346,7 +346,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className="truncate">{item.id}</span>
                                                         )}
                                                     </Link>
-                                                    {item.dropdownMenu && !isLayoutNavCollapsed && (
+                                                    {item.dropdownMenuItems && !isLayoutNavCollapsed && (
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
                                                                 <ButtonPrimitive
@@ -365,7 +365,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 side="bottom"
                                                                 className="max-w-[250px]"
                                                             >
-                                                                {item.dropdownMenu}
+                                                                {item.dropdownMenuItems}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     )}
