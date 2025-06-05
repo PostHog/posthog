@@ -76,7 +76,12 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
     const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
 
     return (
-        <div className="flex flex-row justify-between items-center w-full relative">
+        <div
+            className={cn(
+                'flex flex-row justify-between items-center w-full relative',
+                openTab !== TaxonomicFilterGroupType.Events && 'pb-2'
+            )}
+        >
             {openTab === TaxonomicFilterGroupType.Events ? (
                 <>
                     <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
@@ -172,7 +177,7 @@ export function InfiniteSelectResults({
     ) : (
         <>
             {hasMultipleGroups && (
-                <div className="taxonomic-group-title pb-2">
+                <div className="taxonomic-group-title">
                     <TaxonomicGroupTitle openTab={openTab} />
                 </div>
             )}
