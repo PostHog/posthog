@@ -3,6 +3,7 @@ import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducer
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
     ListStorage,
@@ -111,6 +112,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
+            taxonomicFilterPreferencesLogic,
+            ['eventOrdering'],
         ],
     })),
     actions(() => ({
@@ -201,6 +204,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.excludedProperties,
                 s.propertyAllowList,
                 s.eventMetadataPropertyDefinitions,
+                s.eventOrdering,
             ],
             (
                 teamId,
@@ -212,7 +216,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource,
                 excludedProperties,
                 propertyAllowList,
-                eventMetadataPropertyDefinitions
+                eventMetadataPropertyDefinitions,
+                eventOrdering
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -222,9 +227,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
+                        // the default ordering for the API is "both"
+                        // so we don't need to add an ordering param in that case
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
+                            ordering: eventOrdering ?? undefined,
                         }).url,
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
