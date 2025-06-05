@@ -296,11 +296,11 @@ export class ApiConfig {
     }
 }
 
-class ApiRequest {
+export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
 
-    constructor() {
+    public constructor() {
         this.pathComponents = []
     }
 
@@ -325,6 +325,11 @@ class ApiRequest {
 
     private addPathComponent(component: string | number): ApiRequest {
         this.pathComponents.push(component.toString())
+        return this
+    }
+
+    private addEncodedPathComponent(component: string | number): ApiRequest {
+        this.pathComponents.push(encodeURIComponent(component.toString()))
         return this
     }
 
@@ -365,7 +370,7 @@ class ApiRequest {
         return this.organizations()
             .addPathComponent(orgId)
             .addPathComponent('feature_flags')
-            .addPathComponent(featureFlagKey)
+            .addEncodedPathComponent(featureFlagKey) // Never trust user input.
     }
 
     public copyOrganizationFeatureFlags(orgId: OrganizationType['id']): ApiRequest {
@@ -414,6 +419,10 @@ class ApiRequest {
 
     public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
+    public insightsCancel(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('cancel')
     }
 
     // # File System
@@ -1352,6 +1361,9 @@ const api = {
         },
         async update(id: number, data: any): Promise<InsightModel> {
             return await new ApiRequest().insight(id).update({ data })
+        },
+        async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
     },
 

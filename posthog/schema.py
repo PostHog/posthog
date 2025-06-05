@@ -1113,6 +1113,33 @@ class FileSystemEntry(BaseModel):
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
+class FileSystemIconType(StrEnum):
+    PLUG = "plug"
+    COHORT = "cohort"
+    INSIGHT = "insight"
+    DEFINITIONS = "definitions"
+    WARNING = "warning"
+    ERROR_TRACKING = "errorTracking"
+    AI = "ai"
+    CURSOR = "cursor"
+    HEATMAP = "heatmap"
+    DATABASE = "database"
+    FOLDER = "folder"
+    HAND_MONEY = "handMoney"
+    LIVE = "live"
+    NOTIFICATION = "notification"
+    PIE_CHART = "pieChart"
+    PIGGY_BANK = "piggyBank"
+    SQL = "sql"
+    INSIGHT_FUNNEL = "insightFunnel"
+    INSIGHT_TRENDS = "insightTrends"
+    INSIGHT_RETENTION = "insightRetention"
+    INSIGHT_USER_PATHS = "insightUserPaths"
+    INSIGHT_LIFECYCLE = "insightLifecycle"
+    INSIGHT_STICKINESS = "insightStickiness"
+    INSIGHT_HOG_QL = "insightHogQL"
+
+
 class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1125,7 +1152,7 @@ class FileSystemImport(BaseModel):
     )
     flag: Optional[str] = None
     href: Optional[str] = Field(default=None, description="Object's URL")
-    iconType: Optional[str] = None
+    iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
@@ -2838,6 +2865,44 @@ class ExperimentMetricBaseProperties(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
+
+
+class ExperimentStatsBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: int
+    significant: bool
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: int
+    p_value: float
+    significant: bool
+    sum: float
+    sum_squares: float
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -5899,6 +5964,14 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class ExperimentMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8903,6 +8976,7 @@ class VectorSearchQuery(BaseModel):
         extra="forbid",
     )
     embedding: list[float]
+    embeddingVersion: Optional[float] = None
     kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

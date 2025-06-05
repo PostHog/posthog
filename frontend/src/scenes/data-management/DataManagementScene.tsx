@@ -37,6 +37,7 @@ export enum DataManagementTab {
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
 }
+
 const tabs: Record<
     DataManagementTab,
     {
@@ -224,7 +225,12 @@ export function DataManagementScene(): JSX.Element {
 
     if (featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) {
         if (enabledTabs.includes(tab)) {
-            return tabs[tab || DataManagementTab.Actions].content
+            return (
+                <>
+                    <PageHeader buttons={<>{tabs[tab].buttons}</>} />
+                    {tabs[tab].content}
+                </>
+            )
         }
     }
 

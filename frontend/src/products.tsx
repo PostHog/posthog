@@ -364,7 +364,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.messagingCampaign(ref),
         iconColor: ['var(--product-messaging-light)'],
         filterKey: 'campaign',
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     insight: {
         name: 'Insight',
@@ -385,7 +385,6 @@ export const fileSystemTypes = {
         name: 'Notebook',
         icon: <IconNotebook />,
         href: (ref: string) => urls.notebook(ref),
-        iconColor: ['var(--product-notebooks-light)'],
         filterKey: 'notebook',
     },
     session_recording_playlist: {
@@ -425,7 +424,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Campaign`,
         type: 'hog_function/campaign',
         href: urls.messagingCampaignNew(),
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
@@ -433,7 +432,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     { path: `Experiment`, type: 'experiment', href: urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: urls.featureFlag('new') },
     {
-        path: `Insight/Calendar Heatmap`,
+        path: `Insight/Calendar heatmap`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
         iconType: 'insightHogQL',
@@ -503,7 +502,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
         path: 'Early access features',
@@ -559,6 +558,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.revenueAnalytics(),
         visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
         tags: ['beta'],
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
     },
     {
         path: 'Session replay',
@@ -588,6 +588,11 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
-    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+    { path: 'Actions', iconType: 'cursor', href: urls.actions() },
+    {
+        path: 'Revenue settings',
+        iconType: 'handMoney',
+        href: urls.revenueSettings(),
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+    },
 ]

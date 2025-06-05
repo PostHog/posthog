@@ -2072,9 +2072,35 @@ export interface FileSystemEntry {
     visualOrder?: number
 }
 
+export type FileSystemIconType =
+    | 'plug'
+    | 'cohort'
+    | 'insight'
+    | 'definitions'
+    | 'warning'
+    | 'errorTracking'
+    | 'ai'
+    | 'cursor'
+    | 'heatmap'
+    | 'database'
+    | 'folder'
+    | 'handMoney'
+    | 'live'
+    | 'notification'
+    | 'pieChart'
+    | 'piggyBank'
+    | 'sql'
+    | 'insightFunnel'
+    | 'insightTrends'
+    | 'insightRetention'
+    | 'insightUserPaths'
+    | 'insightLifecycle'
+    | 'insightStickiness'
+    | 'insightHogQL'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
-    iconType?: string
+    iconType?: FileSystemIconType
     flag?: string
     /** Order of object in tree */
     visualOrder?: number
@@ -2264,6 +2290,32 @@ export interface ExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+}
+
+export interface ExperimentStatsBase {
+    key: string
+    number_of_samples: integer
+    sum: number
+    sum_squares: number
+}
+
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
+    method: 'frequentist'
+    significant: boolean
+    p_value: number
+    confidence_interval: [number, number]
+}
+
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
+    method: 'bayesian'
+    significant: boolean
+    chance_to_win: number
+    credible_interval: [number, number]
+}
+
+export interface ExperimentMetricResult {
+    baseline: ExperimentStatsBase
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -2745,6 +2797,7 @@ export type VectorSearchResponse = VectorSearchResponseItem[]
 export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
     kind: NodeKind.VectorSearchQuery
     embedding: number[]
+    embeddingVersion?: number
 }
 
 export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>

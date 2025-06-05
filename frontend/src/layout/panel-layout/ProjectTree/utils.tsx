@@ -235,6 +235,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.children.push({
                     id: `${root}-load-more/${item.path}`,
                     name: 'Load more...',
+                    displayName: <>Load more...</>,
                     icon: <IconPlus />,
                     disableSelect: true,
                 })
@@ -242,6 +243,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.children.push({
                     id: `${root}-loading/${item.path}`,
                     name: 'Loading...',
+                    displayName: <>Loading...</>,
                     icon: <Spinner />,
                     disableSelect: true,
                     type: 'loading-indicator',
