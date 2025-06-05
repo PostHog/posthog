@@ -62,7 +62,7 @@ function JsonConfigField(props: {
     value?: string
     templating?: boolean
 }): JSX.Element {
-    const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
     const key = useMemo(() => `json_field_${Math.random().toString(36).substring(2, 11)}`, [])
 
     // Set up validation logic for this JSON field
@@ -98,7 +98,7 @@ function JsonConfigField(props: {
                                 verticalScrollbarSize: 0,
                             },
                         }}
-                        globals={props.templating ? globalsWithInputs : undefined}
+                        globals={props.templating ? sampleGlobalsWithInputs : undefined}
                     />
                 </LemonField.Pure>
             ),
@@ -110,7 +110,7 @@ function JsonConfigField(props: {
 }
 
 function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {
-    const { globalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
+    const { sampleGlobalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
 
     return (
         <>
@@ -119,7 +119,7 @@ function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }):
                 formLogicProps={logicProps}
                 formKey="configuration"
                 formFieldsPrefix={`inputs.${schema.key}.value`}
-                globals={globalsWithInputs}
+                globals={sampleGlobalsWithInputs}
             />
         </>
     )
@@ -132,13 +132,13 @@ function HogFunctionTemplateInput(
         value?: string
     }
 ): JSX.Element {
-    const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
     if (!props.templating) {
         return <LemonInput type="text" value={props.value} onChange={props.onChange} />
     }
 
-    return <CodeEditorInline {...props} globals={globalsWithInputs} />
+    return <CodeEditorInline {...props} globals={sampleGlobalsWithInputs} />
 }
 
 function DictionaryField({

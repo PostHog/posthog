@@ -28,6 +28,10 @@ export type ActivityFilters = {
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
+    // Images can be embedded directly in the markdown using ![alt text](url) syntax.
+    // LemonMarkdown will render them.
+    // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
+    // and optimized for web (e.g., < 500KB).
 }
 
 export interface ChangesResponse {
@@ -224,6 +228,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         changelogNotification = {
                             markdown: flagPayload['markdown'],
                             notificationDate: dayjs(flagPayload['notificationDate']),
+                            // The separate image field is no longer used.
+                            // Images should be embedded in the markdown string.
                         } as ChangelogFlagPayload
                     }
 

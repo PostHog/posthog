@@ -7,18 +7,18 @@ import {
     IconCursor,
     IconDashboard,
     IconExternal,
+    IconFlask,
     IconGraph,
     IconMessage,
     IconNotebook,
     IconPeople,
     IconRewindPlay,
     IconRocket,
-    IconTestTube,
     IconToggle,
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -320,7 +320,7 @@ export const productUrls = {
 
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
-    action: { name: 'Action', icon: <IconRocket />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
+    action: { name: 'Action', icon: <IconCursor />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
     cohort: { name: 'Cohort', icon: <IconPeople />, href: (ref: string) => urls.cohort(ref), filterKey: 'cohort' },
     dashboard: {
         name: 'Dashboard',
@@ -338,7 +338,7 @@ export const fileSystemTypes = {
     },
     experiment: {
         name: 'Experiment',
-        icon: <IconTestTube />,
+        icon: <IconFlask />,
         href: (ref: string) => urls.experiment(ref),
         iconColor: ['var(--product-experiments-light)'],
         filterKey: 'experiment',
@@ -364,7 +364,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.messagingCampaign(ref),
         iconColor: ['var(--product-messaging-light)'],
         filterKey: 'campaign',
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     insight: {
         name: 'Insight',
@@ -385,7 +385,6 @@ export const fileSystemTypes = {
         name: 'Notebook',
         icon: <IconNotebook />,
         href: (ref: string) => urls.notebook(ref),
-        iconColor: ['var(--product-notebooks-light)'],
         filterKey: 'notebook',
     },
     session_recording_playlist: {
@@ -425,7 +424,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Campaign`,
         type: 'hog_function/campaign',
         href: urls.messagingCampaignNew(),
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
@@ -433,16 +432,54 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     { path: `Experiment`, type: 'experiment', href: urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: urls.featureFlag('new') },
     {
-        path: `Insight/Calendar Heatmap`,
+        path: `Insight/Calendar heatmap`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+        iconType: 'insightHogQL',
+        visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
     },
-    { path: `Insight/Funnel`, type: 'insight', href: urls.insightNew({ type: InsightType.FUNNELS }) },
-    { path: `Insight/Lifecycle`, type: 'insight', href: urls.insightNew({ type: InsightType.LIFECYCLE }) },
-    { path: `Insight/Retention`, type: 'insight', href: urls.insightNew({ type: InsightType.RETENTION }) },
-    { path: `Insight/Stickiness`, type: 'insight', href: urls.insightNew({ type: InsightType.STICKINESS }) },
-    { path: `Insight/Trends`, type: 'insight', href: urls.insightNew({ type: InsightType.TRENDS }) },
-    { path: `Insight/User paths`, type: 'insight', href: urls.insightNew({ type: InsightType.PATHS }) },
+    {
+        path: `Insight/Funnel`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.FUNNELS }),
+        iconType: 'insightFunnel',
+        visualOrder: INSIGHT_VISUAL_ORDER.funnel,
+    },
+    {
+        path: `Insight/Lifecycle`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+        iconType: 'insightLifecycle',
+        visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
+    },
+    {
+        path: `Insight/Retention`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.RETENTION }),
+        iconType: 'insightRetention',
+        visualOrder: INSIGHT_VISUAL_ORDER.retention,
+    },
+    {
+        path: `Insight/Stickiness`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.STICKINESS }),
+        iconType: 'insightStickiness',
+        visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
+    },
+    {
+        path: `Insight/Trends`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.TRENDS }),
+        iconType: 'insightTrends',
+        visualOrder: INSIGHT_VISUAL_ORDER.trends,
+    },
+    {
+        path: `Insight/User paths`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.PATHS }),
+        iconType: 'insightUserPaths',
+        visualOrder: INSIGHT_VISUAL_ORDER.paths,
+    },
     { path: `Link`, type: 'link', href: urls.link('new'), flag: FEATURE_FLAGS.LINKS },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new') },
     { path: `Replay playlist`, type: 'session_recording_playlist', href: urls.replayPlaylist('new') },
@@ -457,6 +494,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/broadcast',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
         path: 'Campaigns',
@@ -464,8 +502,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
     {
         path: 'Early access features',
         type: 'early_access_feature',
@@ -508,7 +546,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
         tags: ['alpha'],
     },
-    { path: 'Notebooks', type: 'notebook', href: urls.notebooks(), visualOrder: PRODUCT_VISUAL_ORDER.notebooks },
     {
         path: 'Product analytics',
         type: 'insight',
@@ -521,6 +558,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.revenueAnalytics(),
         visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
         tags: ['beta'],
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
     },
     {
         path: 'Session replay',
@@ -533,6 +571,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'User interviews',
         href: urls.userInterviews(),
         type: 'user_interview',
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
         visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
         tags: ['alpha'],
     },
@@ -548,7 +587,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
-export const getTreeItemsDataManagement = (): FileSystemImport[] => [
-    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+export const getTreeItemsMetadata = (): FileSystemImport[] => [
+    { path: 'Actions', iconType: 'cursor', href: urls.actions() },
+    {
+        path: 'Revenue settings',
+        iconType: 'handMoney',
+        href: urls.revenueSettings(),
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+    },
 ]

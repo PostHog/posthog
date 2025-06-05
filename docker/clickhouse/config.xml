@@ -192,7 +192,7 @@
         <partition_by>toYYYYMM(event_date)</partition_by>
 
         <!-- Interval of flushing data. -->
-        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <flush_interval_milliseconds>500</flush_interval_milliseconds>
         <!-- Maximal size in lines for the logs. When non-flushed logs amount reaches max_size, logs dumped to the disk. -->
         <max_size_rows>8388608</max_size_rows>
         <!-- Pre-allocated size in lines for the logs. -->

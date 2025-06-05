@@ -3,38 +3,50 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBug,
     IconChevronRight,
+    IconCursor,
     IconDatabase,
+    IconFunnels,
+    IconGraph,
     IconHandMoney,
+    IconHogQL,
+    IconLifecycle,
     IconLive,
     IconNotification,
     IconPieChart,
     IconPiggyBank,
     IconPlug,
+    IconRetention,
     IconServer,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
     fileSystemTypes,
-    getTreeItemsDataManagement,
     getTreeItemsGames,
+    getTreeItemsMetadata,
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineStage } from '~/types'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 
-const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
         icon: <IconAI />,
         iconColor: ['var(--product-max-ai-light)'],
     },
-    cursorClick: {
+    cursor: {
+        icon: <IconCursor />,
+    },
+    heatmap: {
         icon: <IconApp />,
         iconColor: ['var(--product-heatmaps-light)', 'var(--product-heatmaps-dark)'],
     },
@@ -78,9 +90,44 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
     warning: {
         icon: <IconWarning />,
     },
-    bug: {
-        icon: <IconBug />,
+    errorTracking: {
+        icon: <IconWarning />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
+    },
+    insightFunnel: {
+        icon: <IconFunnels />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightTrends: {
+        icon: <IconTrends />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightRetention: {
+        icon: <IconRetention />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightUserPaths: {
+        icon: <IconUserPaths />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightLifecycle: {
+        icon: <IconLifecycle />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightStickiness: {
+        icon: <IconStickiness />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightHogQL: {
+        icon: <IconHogQL />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    cohort: {
+        icon: <IconCohort />,
+    },
+    insight: {
+        icon: <IconGraph />,
+        iconColor: ['var(--product-product-analytics-light)'],
     },
 }
 
@@ -88,7 +135,8 @@ const getIconColor = (type?: string): FileSystemIconColor => {
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
-    const iconTypeColor = type && iconTypes[type]?.iconColor
+
+    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
 
     const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
     return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
@@ -127,7 +175,7 @@ export function iconForType(type?: string): JSX.Element {
     }
 
     if (type in iconTypes) {
-        return <ProductIconWrapper type={type}>{iconTypes[type].icon}</ProductIconWrapper>
+        return <ProductIconWrapper type={type}>{iconTypes[type as keyof typeof iconTypes].icon}</ProductIconWrapper>
     }
 
     // Handle hog_function types
@@ -172,8 +220,8 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
-    ...getTreeItemsDataManagement(),
+export const getDefaultTreeData = (): FileSystemImport[] => [
+    ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
         iconType: 'definitions',
@@ -195,18 +243,29 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
+    {
+        path: `Sources`,
+        type: 'hog_function/source',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Sources),
+    } as FileSystemImport,
+    {
+        path: `Transformations`,
+        type: 'hog_function/transformation',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Transformations),
+    } as FileSystemImport,
+    {
+        path: `Destinations`,
+        type: 'hog_function/destination',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Destinations),
+    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
-        {
-            path: `Max AI`,
-            type: 'aichat',
-            href: urls.max(),
-            flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-            visualOrder: PRODUCT_VISUAL_ORDER.aiChat,
-        } as FileSystemImport,
         {
             path: `Data pipelines`,
             type: 'hog_function',
@@ -222,13 +281,13 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            iconType: 'bug',
+            iconType: 'errorTracking',
             href: urls.errorTracking(),
             visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            iconType: 'cursorClick',
+            iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
             visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,

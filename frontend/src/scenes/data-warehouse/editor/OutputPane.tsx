@@ -693,7 +693,10 @@ const Content = ({
                 ? 'Query results will appear here.'
                 : 'Query results will be visualized here.'
         return (
-            <div className="flex flex-1 justify-center items-center border-t">
+            <div
+                className="flex flex-1 justify-center items-center border-t"
+                data-attr="sql-editor-output-pane-empty-state"
+            >
                 <span className="text-secondary mt-3">
                     {msg} Press <KeyboardShortcut command enter /> to run the query.
                 </span>
@@ -703,7 +706,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Results) {
         return (
-            <TabScroller>
+            <TabScroller data-attr="sql-editor-output-pane-results">
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}

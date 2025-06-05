@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -56,10 +57,9 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
-    sanitizeHTML,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
-    sanitizeSurveyDisplayConditions,
-    validateColor,
+    validateSurveyAppearance,
 } from './utils'
 
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
@@ -554,10 +554,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(sanitizeQuestions(surveyPayload))
+                return await api.surveys.create(surveyPayload)
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, surveyPayload)
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -576,7 +576,7 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
                 lemonToast.success('Survey duplicated.', {
                     toastId: `survey-duplicated-${createdSurvey.id}`,
@@ -644,6 +644,10 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const response = await api.query(query)
                 actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                const numberOfSurveySentEvents = response.results?.find(
+                    (result) => result[0] === SurveyEventName.SENT
+                )?.[1]
+                actions.loadConsolidatedSurveyResults(numberOfSurveySentEvents)
                 return response.results as SurveyBaseStatsResult
             },
         },
@@ -996,7 +1000,9 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         consolidatedSurveyResults: {
-            loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
+            loadConsolidatedSurveyResults: async (
+                limit = MAX_SELECT_RETURNED_ROWS
+            ): Promise<ConsolidatedSurveyResults> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
@@ -1009,8 +1015,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Also get distinct_id and person properties for open text questions
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING ALL SURVEY RESPONSES IN ONE GO
+                    query: `-- QUERYING ALL SURVEY RESPONSES IN ONE GO
                         SELECT
                             ${questionFields.join(',\n')},
                             person.properties,
@@ -1022,6 +1027,8 @@ export const surveyLogic = kea<surveyLogicType>([
                             ${values.answerFilterHogQLExpression}
                             ${values.partialResponsesFilter}
                             AND {filters}
+                        ORDER BY events.timestamp DESC
+                        LIMIT ${limit}
                     `,
                     filters: {
                         properties: values.propertyFilters,
@@ -1045,9 +1052,9 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveyDismissedAndSentCount()
 
             // No need to reload the other results if the new question viz is enabled, as they are not used
-            // So we early return here
+            // So we early return here, as the consolidated survey results are queried in the surveyBaseStats loader
             if (values.isNewQuestionVizEnabled) {
-                return actions.loadConsolidatedSurveyResults()
+                return
             }
 
             // Load results for each question
@@ -1108,7 +1115,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
-                    actions.loadConsolidatedSurveyResults()
                 }
 
                 if (values.survey.start_date) {
@@ -2162,32 +2168,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     targeting_flag_filters: values.flagPropertyErrors,
                     // controlled using a PureField in the form
                     urlMatchType: values.urlMatchTypeValidationError,
-                    appearance: sanitizedAppearance && {
-                        backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
-                        borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        // Only validate rating button colors if there's a rating question
-                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
-                            ratingButtonActiveColor: validateColor(
-                                sanitizedAppearance.ratingButtonActiveColor,
-                                'rating button active color'
-                            ),
-                            ratingButtonColor: validateColor(
-                                sanitizedAppearance.ratingButtonColor,
-                                'rating button color'
-                            ),
-                        }),
-                        submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
-                        submitButtonTextColor: validateColor(
-                            sanitizedAppearance.submitButtonTextColor,
-                            'button text color'
+                    appearance:
+                        sanitizedAppearance &&
+                        validateSurveyAppearance(
+                            sanitizedAppearance,
+                            questions.some((q) => q.type === SurveyQuestionType.Rating),
+                            type
                         ),
-                        widgetSelector:
-                            type === 'widget' &&
-                            appearance?.widgetType === 'selector' &&
-                            !sanitizedAppearance.widgetSelector
-                                ? 'Please enter a CSS selector.'
-                                : undefined,
-                    },
                 }
             },
             submit: (surveyPayload) => {
@@ -2199,14 +2186,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 }
 
-                const payload = {
-                    ...surveyPayload,
-                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
-                    appearance: sanitizeSurveyAppearance(
-                        surveyPayload.appearance,
-                        !!surveyPayload.enable_partial_responses
-                    ),
-                }
+                const payload = sanitizeSurvey(surveyPayload)
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
@@ -2277,37 +2257,3 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
 ])
-
-function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
-    if (!surveyPayload.questions) {
-        return surveyPayload
-    }
-
-    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
-
-    const appearance = {
-        ...surveyPayload.appearance,
-        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-    }
-
-    // Remove widget-specific fields if survey type is not Widget
-    if (surveyPayload.type !== 'widget') {
-        delete appearance.widgetType
-        delete appearance.widgetLabel
-        delete appearance.widgetColor
-    }
-
-    return {
-        ...surveyPayload,
-        questions: surveyPayload.questions?.map((rawQuestion) => {
-            return {
-                ...rawQuestion,
-                description: sanitizeHTML(rawQuestion.description || ''),
-                question: sanitizeHTML(rawQuestion.question || ''),
-            }
-        }),
-        appearance,
-    }
-}

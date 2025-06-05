@@ -77,6 +77,7 @@ const Value = ({
     onRemove,
     initiallyOpen = false,
     metadataSource,
+    className,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -84,6 +85,7 @@ const Value = ({
     onRemove: () => void
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
+    className?: string
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -125,7 +127,12 @@ const Value = ({
                 ) : null
             }
         >
-            <UniversalFilterButton onClick={() => setOpen(!open)} onClose={onRemove} filter={filter} />
+            <UniversalFilterButton
+                onClick={() => setOpen(!open)}
+                onClose={onRemove}
+                filter={filter}
+                className={className}
+            />
         </Popover>
     )
 }

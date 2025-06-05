@@ -33,6 +33,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         BIGQUERY = "BigQuery", "BigQuery"
         CHARGEBEE = "Chargebee", "Chargebee"
         GOOGLEADS = "GoogleAds", "GoogleAds"
+        TEMPORALIO = "TemporalIO", "TemporalIO"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
