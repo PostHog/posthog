@@ -61,83 +61,76 @@ def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granul
     """
 
 
-WEB_STATS_COLUMNS = """
-    entry_pathname String,
-    pathname String,
-    end_pathname String,
-    browser String,
-    browser_version String,
-    os String,
-    os_version String,
-    viewport_width Int64,
-    viewport_height Int64,
-    referring_domain String,
-    utm_source String,
-    utm_medium String,
-    utm_campaign String,
-    utm_term String,
-    utm_content String,
-    country_code String,
-    country_name String,
-    city_name String,
-    region_code String,
-    region_name String,
-    time_zone String,
-    gclid String,
-    gad_source String,
-    gclsrc String,
-    dclid String,
-    gbraid String,
-    wbraid String,
-    fbclid String,
-    msclkid String,
-    twclid String,
-    li_fat_id String,
-    mc_cid String,
-    igshid String,
-    ttclid String,
-    _kx String,
-    irclid String,
+# These should be kept in sync between columns and ORDER BY
+WEB_ANALYTICS_DIMENSIONS = [
+    "entry_pathname",
+    "end_pathname",
+    "browser",
+    "browser_version",
+    "os",
+    "os_version",
+    "viewport_width",
+    "viewport_height",
+    "referring_domain",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "country_code",
+    "country_name",
+    "city_name",
+    "region_code",
+    "region_name",
+    "time_zone",
+    "gclid",
+    "gad_source",
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "fbclid",
+    "msclkid",
+    "twclid",
+    "li_fat_id",
+    "mc_cid",
+    "igshid",
+    "ttclid",
+    "_kx",
+    "irclid",
+]
+
+
+WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
+WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
+
+
+def get_dimension_columns(dimensions):
+    column_definitions = []
+    for d in dimensions:
+        if d in ["viewport_width", "viewport_height"]:
+            column_definitions.append(f"{d} Int64")
+        else:
+            column_definitions.append(f"{d} String")
+    return ",\n".join(column_definitions)
+
+
+def get_order_by_clause(dimensions, bucket_column="period_bucket"):
+    base_columns = ["team_id", bucket_column, "host", "device_type"]
+    all_columns = base_columns + dimensions
+    column_list = ",\n    ".join(all_columns)
+    return f"(\n    {column_list}\n)"
+
+
+WEB_STATS_COLUMNS = f"""
+    {get_dimension_columns(WEB_STATS_DIMENSIONS)},
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
 """
 
-WEB_BOUNCES_COLUMNS = """
-    entry_pathname String,
-    end_pathname String,
-    browser String,
-    browser_version String,
-    os String,
-    os_version String,
-    viewport_width Int64,
-    viewport_height Int64,
-    referring_domain String,
-    utm_source String,
-    utm_medium String,
-    utm_campaign String,
-    utm_term String,
-    utm_content String,
-    country_code String,
-    city_name String,
-    region_code String,
-    region_name String,
-    time_zone String,
-    gclid String,
-    gad_source String,
-    gclsrc String,
-    dclid String,
-    gbraid String,
-    wbraid String,
-    fbclid String,
-    msclkid String,
-    twclid String,
-    li_fat_id String,
-    mc_cid String,
-    igshid String,
-    ttclid String,
-    _kx String,
-    irclid String,
+WEB_BOUNCES_COLUMNS = f"""
+    {get_dimension_columns(WEB_BOUNCES_DIMENSIONS)},
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
@@ -148,90 +141,11 @@ WEB_BOUNCES_COLUMNS = """
 
 
 def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
-    return f"""(
-    team_id,
-    {bucket_column},
-    host,
-    device_type,
-    os,
-    os_version,
-    browser,
-    browser_version,
-    viewport_width,
-    viewport_height,
-    entry_pathname,
-    pathname,
-    end_pathname,
-    utm_source,
-    utm_medium,
-    utm_campaign,
-    utm_term,
-    utm_content,
-    country_code,
-    country_name,
-    region_code,
-    region_name,
-    city_name,
-    time_zone,
-    gclid,
-    gad_source,
-    gclsrc,
-    dclid,
-    gbraid,
-    wbraid,
-    fbclid,
-    msclkid,
-    twclid,
-    li_fat_id,
-    mc_cid,
-    igshid,
-    ttclid,
-    _kx,
-    irclid
-)"""
+    return get_order_by_clause(WEB_STATS_DIMENSIONS, bucket_column)
 
 
 def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
-    return f"""(
-    team_id,
-    {bucket_column},
-    host,
-    device_type,
-    entry_pathname,
-    end_pathname,
-    browser,
-    browser_version,
-    os,
-    os_version,
-    viewport_width,
-    viewport_height,
-    referring_domain,
-    utm_source,
-    utm_medium,
-    utm_campaign,
-    utm_term,
-    utm_content,
-    country_code,
-    city_name,
-    region_code,
-    region_name,
-    time_zone,
-    gclid,
-    gad_source,
-    gclsrc,
-    dclid,
-    gbraid,
-    wbraid,
-    fbclid,
-    msclkid,
-    twclid,
-    li_fat_id,
-    mc_cid,
-    igshid,
-    ttclid,
-    _kx,
-    irclid
-)"""
+    return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
 
 
 def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
