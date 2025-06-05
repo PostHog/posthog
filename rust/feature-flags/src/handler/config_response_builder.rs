@@ -526,7 +526,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.autocapture_opt_out, true);
+        assert!(response.config.autocapture_opt_out);
     }
 
     #[test]
@@ -539,7 +539,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.autocapture_opt_out, false);
+        assert!(response.config.autocapture_opt_out);
     }
 
     #[test]
@@ -582,7 +582,7 @@ mod tests {
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
         assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert_eq!(response.config.autocapture_opt_out, false);
+        assert!(response.config.autocapture_opt_out);
         assert!(response.config.capture_dead_clicks.is_none());
     }
 
