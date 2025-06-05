@@ -86,7 +86,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
         )
 
-    def _get_subquery_by_product(self) -> list[ast.SelectQuery] | None:
+    def _get_subquery_by_product(self) -> ast.SelectQuery | None:
         _, _, invoice_item_subquery, product_subquery = self.revenue_subqueries
         if invoice_item_subquery is None:
             return None
@@ -148,7 +148,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             # there's no join with the product table before adding this one
             if query.select_from is not None:
                 has_product_join = False
-                current_join = query.select_from
+                current_join: ast.JoinExpr | None = query.select_from
                 while current_join is not None:
                     if current_join.alias == RevenueAnalyticsProductView.get_generic_view_alias():
                         has_product_join = True
