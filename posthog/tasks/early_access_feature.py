@@ -1,8 +1,9 @@
 from celery import shared_task
 import structlog
 from posthog.cloud_utils import is_ci, is_cloud
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
-from posthog.models.person.person import Person
 import posthoganalytics
 from django.conf import settings
 
@@ -31,41 +32,39 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     feature_flag = instance.feature_flag
 
-    logger.info(
-        f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature",
-        feature_id=feature_id,
-        from_stage=from_stage,
-        to_stage=to_stage,
+    print(  # noqa: T201
+        f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {feature_id} from {from_stage} to {to_stage}"
     )
 
     if not feature_flag:
-        logger.warning(
-            f"[CELERY][EARLY ACCESS FEATURE] Feature flag not found for feature",
-            feature_id=feature_id,
+        print(  # noqa: T201
+            f"[CELERY][EARLY ACCESS FEATURE] Feature flag not found for feature {feature_id}"
         )
         return
 
-    enrolled_persons = Person.objects.filter(
-        **{f"properties__$feature_enrollment/{feature_flag.key}": True, "team_id": instance.team_id}
+    response = execute_hogql_query(
+        """
+        SELECT
+            id,
+            JSONExtractString(properties, 'email') as email,
+        FROM persons
+        WHERE JSONExtractString(properties, {enrollment_key}) = 'true'
+        """,
+        placeholders={"enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature_flag.key}")},
+        team=instance.team,
     )
+
+    enrolled_persons = response.results
 
     print(f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature {feature_id}")  # noqa: T201
 
     for person in enrolled_persons:
-        if len(person.distinct_ids) == 0:
-            logger.warning(
-                f"[CELERY][EARLY ACCESS FEATURE] Person has no distinct ids",
-                person_id=person.id,
-            )
-            continue
+        [id, email] = person
 
-        distinct_id = person.distinct_ids[0]
-        email = person.properties.get("email", "")
-
-        print(f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {person.id} with distinct_id {distinct_id}")  # noqa: T201
+        print(f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {id}")  # noqa: T201
 
         posthoganalytics.capture(
-            distinct_id,
+            id,
             "user moved feature preview stage",
             {
                 "from": from_stage,
@@ -77,4 +76,4 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             },
         )
 
-        print(f"[CELERY][EARLY ACCESS FEATURE] Sent event for person {person.id} with distinct_id {distinct_id}")  # noqa: T201
+        print(f"[CELERY][EARLY ACCESS FEATURE] Sent event for person {id}")  # noqa: T201
