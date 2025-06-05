@@ -20,6 +20,10 @@ def get_regional_ph_client():
 
     # send EU data to EU, US data to US
     region = get_instance_region()
+
+    if not region:
+        return
+
     return get_client(region)
 
 
