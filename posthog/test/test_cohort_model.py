@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
@@ -284,3 +285,100 @@ class TestCohort(BaseTest):
                 ],
             },
         )
+
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_STARTED_COUNTER")
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_SUCCEEDED_COUNTER")
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_DURATION_HISTOGRAM")
+    def test_calculate_people_ch_success_metrics(self, mock_duration, mock_success, mock_start):
+        """Test that metrics are properly recorded for successful cohort calculations."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="test_cohort",
+        )
+
+        Person.objects.create(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+
+        # Call the method we're testing
+        cohort.calculate_people_ch(pending_version=1)
+
+        # Verify metrics were called correctly
+        team_id_str = str(self.team.pk)
+        mock_start.labels.assert_called_once_with(team_id=team_id_str)
+        mock_start.labels.return_value.inc.assert_called_once()
+
+        mock_success.labels.assert_called_once_with(team_id=team_id_str)
+        mock_success.labels.return_value.inc.assert_called_once()
+
+        mock_duration.labels.assert_called_with(team_id=team_id_str, status="success")
+        mock_duration.labels.return_value.observe.assert_called_once()
+
+        # Verify observe was called with a positive duration
+        duration_call_args = mock_duration.labels.return_value.observe.call_args[0]
+        self.assertGreater(duration_call_args[0], 0)
+
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_STARTED_COUNTER")
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_FAILED_COUNTER")
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_DURATION_HISTOGRAM")
+    @patch("posthog.models.cohort.util.recalculate_cohortpeople")
+    def test_calculate_people_ch_failure_metrics(self, mock_recalculate, mock_duration, mock_failed, mock_start):
+        """Test that metrics are properly recorded for failed cohort calculations."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="test_cohort",
+        )
+
+        # Make the calculation fail with a specific exception
+        test_exception = ValueError("Test error")
+        mock_recalculate.side_effect = test_exception
+
+        # Call the method and expect it to raise
+        with self.assertRaises(ValueError):
+            cohort.calculate_people_ch(pending_version=1)
+
+        # Verify metrics were called correctly
+        team_id_str = str(self.team.pk)
+        mock_start.labels.assert_called_once_with(team_id=team_id_str)
+        mock_start.labels.return_value.inc.assert_called_once()
+
+        mock_failed.labels.assert_called_once_with(team_id=team_id_str, error_type="ValueError")
+        mock_failed.labels.return_value.inc.assert_called_once()
+
+        mock_duration.labels.assert_called_with(team_id=team_id_str, status="error")
+        mock_duration.labels.return_value.observe.assert_called_once()
+
+        # Verify observe was called with a positive duration
+        duration_call_args = mock_duration.labels.return_value.observe.call_args[0]
+        self.assertGreater(duration_call_args[0], 0)
+
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_STARTED_COUNTER")
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_SUCCEEDED_COUNTER")
+    @patch("posthog.models.cohort.cohort.COHORT_CALCULATION_DURATION_HISTOGRAM")
+    def test_cohort_calculation_metrics_team_id_labeling(self, mock_duration, mock_success, mock_start):
+        """Test that metrics correctly use team_id as string for labeling."""
+        # Create cohort for a different team to verify team isolation
+        team2 = Team.objects.create(organization=self.organization)
+        cohort = Cohort.objects.create(
+            team=team2,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="team2_cohort",
+        )
+
+        Person.objects.create(
+            distinct_ids=["person1"],
+            team_id=team2.pk,
+            properties={"$some_prop": "something"},
+        )
+
+        cohort.calculate_people_ch(pending_version=1)
+
+        # Verify correct team_id is used in labels
+        team2_id_str = str(team2.pk)
+        mock_start.labels.assert_called_once_with(team_id=team2_id_str)
+        mock_success.labels.assert_called_once_with(team_id=team2_id_str)
+        mock_duration.labels.assert_called_with(team_id=team2_id_str, status="success")

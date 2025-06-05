@@ -9,6 +9,7 @@ from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 
 from django.utils import timezone
+from prometheus_client import Counter, Histogram
 from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
@@ -30,6 +31,32 @@ if TYPE_CHECKING:
 CohortOrEmpty = Union["Cohort", Literal[""], None]
 
 logger = structlog.get_logger(__name__)
+
+# Metrics for cohort calculations
+COHORT_CALCULATION_STARTED_COUNTER = Counter(
+    "cohort_calculation_started",
+    "Number of cohort calculations started",
+    labelnames=["team_id"],
+)
+
+COHORT_CALCULATION_SUCCEEDED_COUNTER = Counter(
+    "cohort_calculation_succeeded",
+    "Number of cohort calculations that completed successfully",
+    labelnames=["team_id"],
+)
+
+COHORT_CALCULATION_FAILED_COUNTER = Counter(
+    "cohort_calculation_failed",
+    "Number of cohort calculations that failed",
+    labelnames=["team_id", "error_type"],
+)
+
+COHORT_CALCULATION_DURATION_HISTOGRAM = Histogram(
+    "cohort_calculation_duration_seconds",
+    "Time taken to calculate cohorts",
+    labelnames=["team_id", "status"],
+    buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0],
+)
 
 DELETE_QUERY = """
 DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
@@ -275,6 +302,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
+        team_id_str = str(self.team_id)
+        COHORT_CALCULATION_STARTED_COUNTER.labels(team_id=team_id_str).inc()
         logger.warn(
             "cohort_calculation_started",
             id=self.pk,
@@ -290,9 +319,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
-        except Exception:
+
+            duration = time.monotonic() - start_time
+            COHORT_CALCULATION_SUCCEEDED_COUNTER.labels(team_id=team_id_str).inc()
+            COHORT_CALCULATION_DURATION_HISTOGRAM.labels(team_id=team_id_str, status="success").observe(duration)
+
+        except Exception as e:
             self.errors_calculating = F("errors_calculating") + 1
             self.last_error_at = timezone.now()
+
+            duration = time.monotonic() - start_time
+            error_type = type(e).__name__
+            COHORT_CALCULATION_FAILED_COUNTER.labels(team_id=team_id_str, error_type=error_type).inc()
+            COHORT_CALCULATION_DURATION_HISTOGRAM.labels(team_id=team_id_str, status="error").observe(duration)
 
             logger.warning(
                 "cohort_calculation_failed",
