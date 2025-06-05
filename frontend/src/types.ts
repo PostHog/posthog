@@ -1263,10 +1263,10 @@ export type EntityFilter = {
 
 export interface ActionFilter extends EntityFilter {
     math?: string
-    math_property?: string
-    math_property_type?: TaxonomicFilterGroupType
+    math_property?: string | null
+    math_property_type?: TaxonomicFilterGroupType | null
     math_group_type_index?: integer | null
-    math_hogql?: string
+    math_hogql?: string | null
     properties?: AnyPropertyFilter[]
     type: EntityType
     days?: string[] // TODO: why was this added here?
