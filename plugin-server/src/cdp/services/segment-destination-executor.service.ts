@@ -1,16 +1,19 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
+import { PluginsServerConfig } from '~/src/types'
+
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { tryCatch } from '../../utils/try-catch'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
+import { getNextRetryTime, isFetchResponseRetriable } from './fetch-executor.service'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -19,6 +22,12 @@ const pluginExecutionDuration = new Histogram({
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
 })
+
+class SegmentRetriableError extends Error {
+    constructor(message?: string) {
+        super(message)
+    }
+}
 
 export type SegmentPluginMeta = {
     config: Record<string, any>
@@ -87,10 +96,12 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
 }
 
 /**
- * NOTE: This is a consumer to take care of legacy plugins.
+ * NOTE: This is a consumer to take care of segment plugins.
  */
 
 export class SegmentDestinationExecutorService {
+    constructor(private serverConfig: PluginsServerConfig) {}
+
     public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
         return fetch(...args)
     }
@@ -101,6 +112,14 @@ export class SegmentDestinationExecutorService {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'segment',
         })
+
+        // Upsert the tries count on the metadata
+        const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
+        metadata.tries = metadata.tries + 1
+        result.invocation.queueMetadata = metadata
+
+        // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
+        let retriesPossible = true
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -126,131 +145,168 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.state.globals.inputs
-            addLog('debug', 'config', config)
 
-            try {
-                const action = segmentDestination.destination.actions[config.internal_partner_action]
+            if (config.debug_mode) {
+                addLog('debug', 'config', config)
+            }
 
-                if (!action) {
-                    throw new Error(`Action ${config.internal_partner_action} not found`)
-                }
+            const action = segmentDestination.destination.actions[config.internal_partner_action]
 
-                await action.perform(
-                    // @ts-expect-error can't figure out unknown extends Data
-                    async (endpoint, options) => {
+            if (!action) {
+                throw new Error(`Action ${config.internal_partner_action} not found`)
+            }
+
+            await action.perform(
+                // @ts-expect-error can't figure out unknown extends Data
+                async (endpoint, options) => {
+                    if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
+                    }
+                    if (config.debug_mode) {
                         addLog('debug', 'options', options)
-                        const requestExtension = segmentDestination.destination.extendRequest?.({
-                            settings: config,
-                            auth: config as any,
-                            payload: config,
-                        })
+                    }
+                    const requestExtension = segmentDestination.destination.extendRequest?.({
+                        settings: config,
+                        auth: config as any,
+                        payload: config,
+                    })
+                    if (config.debug_mode) {
                         addLog('debug', 'requestExtension', requestExtension)
-                        const headers: Record<string, string> = {
-                            ...options?.headers,
-                            ...requestExtension?.headers,
-                        }
+                    }
+                    const headers: Record<string, string> = {
+                        ...options?.headers,
+                        ...requestExtension?.headers,
+                    }
+                    if (config.debug_mode) {
                         addLog('debug', 'headers', headers)
+                    }
 
-                        let body: string | undefined = undefined
-                        if (options?.json) {
-                            body = JSON.stringify(options.json)
-                            headers['Content-Type'] = 'application/json'
-                        } else if (options?.body && options.body instanceof URLSearchParams) {
-                            body = options.body.toString()
-                            headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                        } else if (options?.body && typeof options.body === 'string') {
-                            body = options.body
-                            headers['Content-Type'] = 'application/json'
-                        }
+                    let body: string | undefined = undefined
+                    if (options?.json) {
+                        body = JSON.stringify(options.json)
+                        headers['Content-Type'] = 'application/json'
+                    } else if (options?.body && options.body instanceof URLSearchParams) {
+                        body = options.body.toString()
+                        headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                    } else if (options?.body && typeof options.body === 'string') {
+                        body = options.body
+                        headers['Content-Type'] = 'application/json'
+                    }
 
-                        const params = new URLSearchParams()
-                        if (options?.searchParams && typeof options.searchParams === 'object') {
-                            Object.entries(options.searchParams as Record<string, string>).forEach(([key, value]) =>
-                                params.append(key, value)
-                            )
-                        }
-                        if (requestExtension?.searchParams && typeof requestExtension.searchParams === 'object') {
-                            Object.entries(requestExtension.searchParams as Record<string, string>).forEach(
-                                ([key, value]) => params.append(key, value)
-                            )
-                        }
+                    const params = new URLSearchParams()
+                    if (options?.searchParams && typeof options.searchParams === 'object') {
+                        Object.entries(options.searchParams as Record<string, string>).forEach(([key, value]) =>
+                            params.append(key, value)
+                        )
+                    }
+                    if (requestExtension?.searchParams && typeof requestExtension.searchParams === 'object') {
+                        Object.entries(requestExtension.searchParams as Record<string, string>).forEach(
+                            ([key, value]) => params.append(key, value)
+                        )
+                    }
 
-                        const fetchOptions: FetchOptions = {
-                            method: options?.method?.toUpperCase() ?? 'GET',
-                            headers,
-                            body,
-                        }
+                    const method = options?.method?.toUpperCase() ?? 'GET'
 
-                        if (isTestFunction && options?.method?.toUpperCase() !== 'GET') {
-                            // For testing we mock out all non-GET requests
-                            addLog('info', 'Fetch called but mocked due to test function', {
-                                url: endpoint,
-                                options: fetchOptions,
-                            })
+                    const fetchOptions: FetchOptions = {
+                        method,
+                        headers,
+                        body,
+                    }
 
-                            result.metrics!.push({
-                                team_id: invocation.hogFunction.team_id,
-                                app_source_id: invocation.hogFunction.id,
-                                metric_kind: 'other',
-                                metric_name: 'fetch',
-                                count: 1,
-                            })
-                            // Simulate a mini bit of fetch delay
-                            await new Promise((resolve) => setTimeout(resolve, 200))
-                            return convertFetchResponse({
-                                status: 200,
-                                headers: {},
-                                json: () =>
-                                    Promise.resolve({
+                    if (isTestFunction && options?.method?.toUpperCase() !== 'GET') {
+                        // For testing we mock out all non-GET requests
+                        addLog('info', 'Fetch called but mocked due to test function', {
+                            url: endpoint,
+                            options: fetchOptions,
+                        })
+
+                        result.metrics!.push({
+                            team_id: invocation.hogFunction.team_id,
+                            app_source_id: invocation.hogFunction.id,
+                            metric_kind: 'other',
+                            metric_name: 'fetch',
+                            count: 1,
+                        })
+                        // Simulate a mini bit of fetch delay
+                        await new Promise((resolve) => setTimeout(resolve, 200))
+                        return convertFetchResponse({
+                            status: 200,
+                            headers: {},
+                            json: () =>
+                                Promise.resolve({
+                                    status: 'OK',
+                                    message: 'Test function',
+                                }),
+                            text: () =>
+                                Promise.resolve(
+                                    JSON.stringify({
                                         status: 'OK',
                                         message: 'Test function',
-                                    }),
-                                text: () =>
-                                    Promise.resolve(
-                                        JSON.stringify({
-                                            status: 'OK',
-                                            message: 'Test function',
-                                        })
-                                    ),
-                            } as FetchResponse)
-                        }
+                                    })
+                                ),
+                        } as FetchResponse)
+                    }
 
-                        fetchOptions.headers = {
-                            ...fetchOptions.headers,
-                            endpoint: endpoint + '?' + params.toString(),
-                        }
-
+                    if (config.debug_mode) {
                         addLog('debug', 'fetchOptions', fetchOptions)
-                        const fetchResponse = await this.fetch(
-                            `${endpoint}${params.toString() ? '?' + params.toString() : ''}`,
-                            fetchOptions
+                    }
+
+                    const [fetchError, fetchResponse] = await tryCatch(() =>
+                        this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
+                    )
+
+                    if (
+                        retriesPossible &&
+                        isFetchResponseRetriable(fetchResponse, fetchError) &&
+                        metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                    ) {
+                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        addLog(
+                            'info',
+                            `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
                         )
-                        const convertedResponse = await convertFetchResponse(fetchResponse)
+                        throw new SegmentRetriableError()
+                    }
+
+                    if (method !== 'GET') {
+                        // If we have got to this point with anything other than a GET request, we can't retry for the risk of duplicating data
+                        // as retries apply to the entire invocation, not just the http request.
+                        retriesPossible = false
+                    }
+
+                    if (!fetchResponse) {
+                        throw new Error('HTTP request failed')
+                    }
+
+                    const convertedResponse = await convertFetchResponse(fetchResponse)
+                    if (config.debug_mode) {
                         addLog(
                             'debug',
                             'convertedResponse',
+                            convertedResponse.status,
                             convertedResponse.data,
                             convertedResponse.content,
                             convertedResponse.body
                         )
-                        return convertedResponse
-                    },
-                    {
-                        payload: config,
-                        settings: config,
                     }
-                )
-            } catch (e) {
-                addLog('error', e.toString())
-            }
+                    return convertedResponse
+                },
+                {
+                    payload: config,
+                    settings: config,
+                }
+            )
 
             addLog('info', `Function completed in ${performance.now() - start}ms.`)
 
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            if (e instanceof RetryError) {
-                // NOTE: Schedule as a retry to cyclotron?
+            if (e instanceof SegmentRetriableError) {
+                // We have retries left so we can trigger a retry
+                result.finished = false
+                result.invocation.queue = 'segment'
+                result.invocation.queuePriority = metadata.tries
+                result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
             }
 
             logger.error('💩', 'Segment destination errored', {

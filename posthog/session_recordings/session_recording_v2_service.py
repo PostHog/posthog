@@ -1,5 +1,7 @@
 import dataclasses
 from datetime import datetime
+from prometheus_client import Counter
+import posthoganalytics
 import structlog
 from django.core.cache import cache
 from posthog.session_recordings.models.metadata import RecordingBlockListing
@@ -7,6 +9,10 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 logger = structlog.get_logger(__name__)
+
+BLOCK_URL_CACHE_HIT_COUNTER = Counter(
+    "posthog_session_recording_v2_block_url_cache_hit", "Number of times the block URL cache was hit", ["cache_hit"]
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -20,8 +26,20 @@ FIVE_SECONDS = 5
 ONE_DAY_IN_SECONDS = 24 * 60 * 60
 
 
-def listing_cache_key(recording: SessionRecording) -> str:
-    return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team.id}_{recording.session_id}"
+def listing_cache_key(recording: SessionRecording) -> str | None:
+    try:
+        # NB this has to be `team_id` and not `team.id` as it's called in an async context
+        # and `team.id` can trigger a database query, and the Django ORM is synchronous
+        return f"@posthog/v2-blob-snapshots/v1/recording_block_listing_{recording.team_id}_{recording.session_id}"
+    except Exception as e:
+        posthoganalytics.capture_exception(
+            e,
+            properties={
+                "location": "session_recording_v2_service.listing_cache_key",
+                "recording": recording.__dict__ if recording else None,
+            },
+        )
+        return None
 
 
 def within_the_last_day(start_time: datetime | None) -> bool:
@@ -39,20 +57,37 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
     then we don't hit ClickHouse too often.
     """
     cache_key = listing_cache_key(recording)
-    cached_block_listing = cache.get(cache_key)
-    if cached_block_listing is not None:
-        return cached_block_listing
+    if cache_key is not None:
+        cached_block_listing = cache.get(cache_key)
+        if cached_block_listing is not None:
+            BLOCK_URL_CACHE_HIT_COUNTER.labels(cache_hit=True).inc()
+            return cached_block_listing
+        else:
+            BLOCK_URL_CACHE_HIT_COUNTER.labels(cache_hit=False).inc()
 
     listed_blocks = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
 
-    if listed_blocks is not None and not listed_blocks.is_empty():
+    if listed_blocks is not None and not listed_blocks.is_empty() and cache_key is not None:
         # If a recording started more than 24 hours ago, then it is complete
         # we can cache it for a long time.
         # If not, we might still be receiving blocks, so we cache it for a short time.
         # Blob ingestion flushes frequently, so we want not too short a cache.
         # But without a cache we read from clickhouse too often
         timeout = FIVE_SECONDS if within_the_last_day(recording.start_time) else ONE_DAY_IN_SECONDS
-        cache.set(cache_key, listed_blocks, timeout=timeout)
+        logger.info(
+            "caching recording blocks",
+            cache_key=cache_key,
+            timeout=timeout,
+            start_time=recording.start_time,
+            is_within_the_last_day=within_the_last_day(recording.start_time),
+            now=datetime.now(),
+            number_of_blocks=len(listed_blocks.block_urls) if listed_blocks else 0,
+            team_id=recording.team_id,
+            session_id=recording.session_id,
+        )
+        # KLUDGE: i want to be able to cache for longer but believe i'm seeing incorrect caching behaviour
+        # so i'm setting it to alway be 5 seconds for now, and adding a log to see if the 24 hour cache is incorrect
+        cache.set(cache_key, listed_blocks, timeout=FIVE_SECONDS)
 
     return listed_blocks
 

@@ -465,9 +465,12 @@ export class DB {
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
-    public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
-    public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
+    public async fetchPersons(database?: Database.Postgres, teamId?: number): Promise<InternalPerson[]>
+    public async fetchPersons(database: Database.ClickHouse, teamId?: number): Promise<ClickHousePerson[]>
+    public async fetchPersons(
+        database: Database = Database.Postgres,
+        teamId?: number
+    ): Promise<InternalPerson[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
             SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
@@ -482,6 +485,7 @@ export class DB {
                     argMax(_offset, _timestamp) as _offset
                 FROM person
                 FINAL
+                ${teamId ? `WHERE team_id = ${teamId}` : ''}
                 GROUP BY team_id, id
                 HAVING max(is_deleted)=0
             )
@@ -1371,6 +1375,7 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
+        tag: string,
         tx?: TransactionClient
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
@@ -1394,7 +1399,49 @@ export class DB {
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
             ],
-            'upsertGroup'
+            tag
+        )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
+    }
+
+    public async updateGroupOptimistically(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        expectedVersion: number,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation
+    ): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
+            PostgresUse.COMMON_WRITE,
+            `
+            UPDATE posthog_group SET
+            created_at = $5,
+            group_properties = $6,
+            properties_last_updated_at = $7,
+            properties_last_operation = $8,
+            version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3 AND version = $4
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                expectedVersion,
+                createdAt.toISO(),
+                JSON.stringify(groupProperties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+            ],
+            'updateGroupOptimistically'
         )
 
         if (result.rows.length === 0) {

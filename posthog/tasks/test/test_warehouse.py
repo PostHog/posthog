@@ -13,17 +13,17 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestWarehouse(APIBaseTest):
-    @patch("posthog.tasks.warehouse.get_ph_client")
+    @patch("posthog.tasks.warehouse.get_regional_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
         datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
     )
     @freeze_time("2023-11-07")
-    def test_capture_workspace_rows_synced_by_team_month_cutoff(self, mock_get_ph_client: MagicMock) -> None:
+    def test_capture_workspace_rows_synced_by_team_month_cutoff(self, mock_get_regional_ph_client: MagicMock) -> None:
         # external_data_workspace_last_synced_at unset
 
         mock_ph_client = MagicMock()
-        mock_get_ph_client.return_value = mock_ph_client
+        mock_get_regional_ph_client.return_value = mock_ph_client
 
         source = ExternalDataSource.objects.create(
             source_id="test_id",
@@ -65,15 +65,17 @@ class TestWarehouse(APIBaseTest):
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )
 
-    @patch("posthog.tasks.warehouse.get_ph_client")
+    @patch("posthog.tasks.warehouse.get_regional_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
         datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
     )
     @freeze_time("2023-11-07")
-    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(self, mock_get_ph_client: MagicMock) -> None:
+    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(
+        self, mock_get_regional_ph_client: MagicMock
+    ) -> None:
         mock_ph_client = MagicMock()
-        mock_get_ph_client.return_value = mock_ph_client
+        mock_get_regional_ph_client.return_value = mock_ph_client
 
         self.team.external_data_workspace_last_synced_at = datetime.datetime(
             2023, 10, 30, 19, 32, 41, tzinfo=datetime.UTC
@@ -130,10 +132,10 @@ class TestWarehouse(APIBaseTest):
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )
 
-    @patch("posthog.tasks.warehouse.get_ph_client")
-    def test_validate_data_warehouse_table_columns(self, mock_get_ph_client: MagicMock) -> None:
+    @patch("posthog.tasks.warehouse.get_regional_ph_client")
+    def test_validate_data_warehouse_table_columns(self, mock_get_regional_ph_client: MagicMock) -> None:
         mock_ph_client = MagicMock()
-        mock_get_ph_client.return_value = mock_ph_client
+        mock_get_regional_ph_client.return_value = mock_ph_client
 
         table = DataWarehouseTable.objects.create(
             name="table_name",
