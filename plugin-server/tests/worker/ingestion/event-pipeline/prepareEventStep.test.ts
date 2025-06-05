@@ -8,6 +8,7 @@ import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipelin
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
+import { KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
 
 jest.mock('../../../../src/utils/logger')
 
@@ -101,6 +102,34 @@ describe('prepareEventStep()', () => {
 
         // @ts-expect-error TODO: Check existence of queueMessage
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+    })
+
+    it('historical events with too-recent timestamp should generate an ingest warning', async () => {
+        const kSpy = jest.spyOn(hub.db.kafkaProducer, 'produce')
+        try {
+            const tooRecentTimestamp = DateTime.now()
+                .toUTC()
+                .minus(60 * 60 * 1000) // one hour behind "now UTC"
+
+            const historicalEvent: PluginEvent = {
+                ...pluginEvent,
+                timestamp: tooRecentTimestamp.toISO(),
+            }
+
+            const historicalRunner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'> = {
+                hub: {
+                    ...runner.hub,
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_historical',
+                },
+                eventsProcessor: runner.eventsProcessor,
+            }
+
+            await prepareEventStep(historicalRunner as EventPipelineRunner, historicalEvent, false)
+
+            expect(kSpy).toHaveBeenCalledWith(expect.objectContaining({ topic: KAFKA_INGESTION_WARNINGS }))
+        } finally {
+            kSpy.mockRestore()
+        }
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {

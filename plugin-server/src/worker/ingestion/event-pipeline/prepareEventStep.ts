@@ -34,11 +34,18 @@ export async function prepareEventStep(
         }
     }
 
+    // submits ingestion warnings if timestamp is invalid, skewed, or historical
+    // event submission carries event.timestamp more recent than 24 hours. The
+    // historical check is performed in parseEventTimestamp, but prior to skew adjustments
+    // since event stamp the user submitted will be the one they'll expect us to measure by
+    const isHistoricalEvent = runner.hub.INGESTION_CONSUMER_CONSUME_TOPIC.includes('historical')
+    const parsedTimestamp = parseEventTimestamp(team_id, event, isHistoricalEvent, invalidTimestampCallback)
+
     const preIngestionEvent = await runner.eventsProcessor.processEvent(
         String(event.distinct_id),
         event,
         team_id,
-        parseEventTimestamp(event, invalidTimestampCallback),
+        parsedTimestamp,
         uuid!, // it will throw if it's undefined,
         processPerson,
         runner.groupStoreForDistinctId

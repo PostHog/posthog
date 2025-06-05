@@ -6,9 +6,15 @@ import { captureException } from '../../utils/posthog'
 
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
+const OneDayInMillis = 24 * 3600 * 1000 // 24 hours
 const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
 
-export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
+export function parseEventTimestamp(
+    teamId: number,
+    data: PluginEvent,
+    isHistoricalEvent: boolean,
+    callback?: IngestionWarningCallback
+): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
 
     let sentAt: DateTime | null = null
@@ -43,6 +49,25 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
         })
 
         parsedTs = now
+    }
+
+    // if events are submitted to the historical topic but event.timestamp
+    // is more recent than 24 hours, the customer will be billed! Let's warn
+    // if they do this. Even if they don't notice, we'll have an audit trail
+    const originalTs = data['timestamp'] ?? ''
+    const actualNow = DateTime.now().toUTC()
+    if (
+        isHistoricalEvent &&
+        (!data['timestamp'] || parseDate(originalTs).diff(actualNow).toMillis() < OneDayInMillis)
+    ) {
+        callback?.('historical_event_timestamp_too_recent', {
+            eventTimestamp: originalTs,
+            sentAt: data['sent_at'] ?? '',
+            now: actualNow.toISO(),
+            teamId: teamId,
+            eventUuid: data['uuid'],
+            eventName: data['event'],
+        })
     }
 
     const parsedTsOutOfBounds = parsedTs.year < 0 || parsedTs.year > 9999
