@@ -1,5 +1,7 @@
+import { IconInfo } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toSentenceCase } from 'lib/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import {
@@ -76,8 +78,14 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
 function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full">
-            <div className="px-2 py-1 text-xs border-t w-full flex justify-end">
-                <div>Annotation scope: {toSentenceCase(item.data.scope)}</div>
+            <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
+                <Tooltip title="Annotations can be scoped to the project or organization, or to individual insights or dashboards. Project and organization scoped annotations are shown in the recording timeline.">
+                    <div className="flex flex-row items-center gap-2">
+                        {' '}
+                        <IconInfo className="text-muted text-xs" />
+                        Scope: {toSentenceCase(item.data.scope)}
+                    </div>
+                </Tooltip>
                 <LemonButton type="secondary" to={urls.annotation(item.data.id)} size="xsmall">
                     Edit annotation
                 </LemonButton>
