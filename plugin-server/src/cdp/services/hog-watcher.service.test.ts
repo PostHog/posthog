@@ -25,11 +25,12 @@ const createResult = (options: {
     duration?: number
     finished?: boolean
     error?: string
+    kind?: 'hog' | 'async_function'
 }): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
     const invocation = createExampleInvocation({ id: options.id, team_id: 2 })
     invocation.state.timings = [
         {
-            kind: 'hog',
+            kind: options.kind ?? 'hog',
             duration_ms: options.duration ?? 0,
         },
     ]
@@ -37,7 +38,7 @@ const createResult = (options: {
     return createInvocationResult(
         invocation,
         {
-            queue: 'hog',
+            queue: options.kind === 'async_function' ? 'fetch' : 'hog',
         },
         {
             finished: options.finished ?? true,
@@ -76,6 +77,23 @@ describe('HogWatcher', () => {
         await delay(ms)
     }
 
+    // Helper function to calculate cost based on duration and type
+    const calculateCost = (durationMs: number, kind: 'hog' | 'async_function'): number => {
+        if (kind === 'hog') {
+            const lowerBound = hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS
+            const upperBound = hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS
+            const costTiming = hub.CDP_WATCHER_HOG_COST_TIMING
+            const ratio = Math.max(durationMs - lowerBound, 0) / (upperBound - lowerBound)
+            return Math.round(costTiming * ratio)
+        } else {
+            const asyncLowerBound = hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS
+            const asyncUpperBound = hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS
+            const asyncCostTiming = hub.CDP_WATCHER_ASYNC_COST_TIMING
+            const asyncRatio = Math.max(durationMs - asyncLowerBound, 0) / (asyncUpperBound - asyncLowerBound)
+            return Math.round(asyncCostTiming * asyncRatio)
+        }
+    }
+
     afterEach(async () => {
         jest.useRealTimers()
         await closeHub(hub)
@@ -87,9 +105,12 @@ describe('HogWatcher', () => {
             const _badWatcher = new HogWatcherService(
                 {
                     ...hub,
-                    CDP_WATCHER_COST_TIMING_LOWER_MS: 100,
-                    CDP_WATCHER_COST_TIMING_UPPER_MS: 100,
-                    CDP_WATCHER_COST_TIMING: 1,
+                    CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 100,
+                    CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: 100,
+                    CDP_WATCHER_HOG_COST_TIMING: 1,
+                    CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS: 100,
+                    CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS: 100,
+                    CDP_WATCHER_ASYNC_COST_TIMING: 1,
                 },
                 redis
             )
@@ -117,46 +138,51 @@ describe('HogWatcher', () => {
     })
 
     const cases: [
-        { cost: number; state: number },
+        { name: string; cost: number; state: number },
         CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
     ][] = [
-        [{ cost: 0, state: 1 }, [createResult({ id: 'id1' })]],
+        [{ name: 'single default result', cost: 0, state: 1 }, [createResult({ id: 'id1' })]],
         [
-            { cost: 0, state: 1 },
+            { name: 'three default results', cost: 0, state: 1 },
             [createResult({ id: 'id1' }), createResult({ id: 'id1' }), createResult({ id: 'id1' })],
         ],
         [
-            { cost: 0, state: 1 },
+            { name: 'three small durations', cost: 0, state: 1 },
             [
                 createResult({ id: 'id1', duration: 10 }),
                 createResult({ id: 'id1', duration: 20 }),
-                createResult({ id: 'id1', duration: 100 }),
+                createResult({ id: 'id1', duration: 30 }),
             ],
         ],
         [
-            { cost: 12, state: 1 },
+            { name: 'three 1000ms durations', cost: 12, state: 1 },
             [
-                createResult({ id: 'id1', duration: 1000 }),
-                createResult({ id: 'id1', duration: 1000 }),
-                createResult({ id: 'id1', duration: 1000 }),
+                createResult({ id: 'id1', duration: 1000, kind: 'async_function' }),
+                createResult({ id: 'id1', duration: 1000, kind: 'async_function' }),
+                createResult({ id: 'id1', duration: 1000, kind: 'async_function' }),
             ],
         ],
-        [{ cost: 20, state: 1 }, [createResult({ id: 'id1', duration: 5000 })]],
-        [{ cost: 40, state: 1 }, [createResult({ id: 'id1', duration: 10000 })]],
         [
-            { cost: 141, state: 1 },
+            { name: 'single 5000ms', cost: 20, state: 1 },
+            [createResult({ id: 'id1', duration: 5000, kind: 'async_function' })],
+        ],
+        [
+            { name: 'single 10000ms', cost: 40, state: 1 },
+            [createResult({ id: 'id1', duration: 10000, kind: 'async_function' })],
+        ],
+        [
+            { name: 'three large durations (should sum)', cost: 141, state: 1 },
             [
-                createResult({ id: 'id1', duration: 5000 }),
-                createResult({ id: 'id1', duration: 10000 }),
-                createResult({ id: 'id1', duration: 20000 }),
+                createResult({ id: 'id1', duration: 5000, kind: 'async_function' }),
+                createResult({ id: 'id1', duration: 10000, kind: 'async_function' }),
+                createResult({ id: 'id1', duration: 20000, kind: 'async_function' }),
             ],
         ],
     ]
 
-    it.each(cases)('should update tokens based on results %s %s', async (expectedScore, results) => {
+    it.each(cases)('%s', async (expectedScore, results) => {
         await watcher.observeResults(results)
         const result = await watcher.getState('id1')
-
         expect(hub.CDP_WATCHER_BUCKET_SIZE - result.tokens).toEqual(expectedScore.cost)
         expect(result.state).toEqual(expectedScore.state)
     })
@@ -167,13 +193,14 @@ describe('HogWatcher', () => {
         const result = createResult({
             id: 'id1',
             finished: true,
+            kind: 'async_function',
         }) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
 
         // Replace the default timing with multiple timings
         result.invocation.state.timings = [
-            { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
-            { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
-            { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
+            { kind: 'async_function', duration_ms: 90 }, // Below threshold, should have minimal cost
+            { kind: 'async_function', duration_ms: 90 }, // Below threshold, should have minimal cost
+            { kind: 'async_function', duration_ms: 90 }, // Below threshold, should have minimal cost
         ]
 
         // If using individual timings (correct): each timing has a small cost
@@ -191,7 +218,7 @@ describe('HogWatcher', () => {
     })
 
     it('should max out scores', async () => {
-        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 25000 }))
+        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 25000, kind: 'async_function' }))
 
         await watcher.observeResults(lotsOfResults)
 
@@ -203,7 +230,7 @@ describe('HogWatcher', () => {
                 }
             `)
 
-        lotsOfResults = Array(10000).fill(createResult({ id: 'id2' }))
+        lotsOfResults = Array(10000).fill(createResult({ id: 'id2', kind: 'async_function' }))
 
         await watcher.observeResults(lotsOfResults)
 
@@ -219,9 +246,9 @@ describe('HogWatcher', () => {
     it('should refill over time', async () => {
         hub.CDP_WATCHER_REFILL_RATE = 10
         await watcher.observeResults([
-            createResult({ id: 'id1', duration: 10000 }),
-            createResult({ id: 'id1', duration: 10000 }),
-            createResult({ id: 'id1', duration: 10000 }),
+            createResult({ id: 'id1', duration: 10000, kind: 'async_function' }),
+            createResult({ id: 'id1', duration: 10000, kind: 'async_function' }),
+            createResult({ id: 'id1', duration: 10000, kind: 'async_function' }),
         ])
 
         expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9880`)
@@ -232,7 +259,7 @@ describe('HogWatcher', () => {
     })
 
     it('should remain disabled for period', async () => {
-        const badResults = Array(100).fill(createResult({ id: 'id1', duration: 25000 }))
+        const badResults = Array(100).fill(createResult({ id: 'id1', duration: 25000, kind: 'async_function' }))
 
         await watcher.observeResults(badResults)
 
@@ -323,7 +350,7 @@ describe('HogWatcher', () => {
         it('count the number of times it has been disabled', async () => {
             // Trigger the temporary disabled state 3 times
             for (let i = 0; i < 2; i++) {
-                await watcher.observeResults([createResult({ id: 'id1', duration: 25000 })])
+                await watcher.observeResults([createResult({ id: 'id1', duration: 25000, kind: 'async_function' })])
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledForPeriod)
                 await reallyAdvanceTime(1000)
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
@@ -339,7 +366,7 @@ describe('HogWatcher', () => {
                 ['id1', HogWatcherState.disabledForPeriod],
             ])
 
-            await watcher.observeResults([createResult({ id: 'id1', duration: 50000 })])
+            await watcher.observeResults([createResult({ id: 'id1', duration: 50000, kind: 'async_function' })])
             expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
             await reallyAdvanceTime(1000)
             expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
@@ -349,6 +376,108 @@ describe('HogWatcher', () => {
                 CELERY_TASK_ID,
                 ['id1', HogWatcherState.disabledIndefinitely],
             ])
+        })
+    })
+
+    describe('function type cost differences', () => {
+        it('should apply higher cost to hog functions than async for same duration', async () => {
+            // Same duration (300ms) but different function types
+            const executionDuration = 300
+            await watcher.observeResults([createResult({ id: 'hog1', duration: executionDuration, kind: 'hog' })])
+            await watcher.observeResults([
+                createResult({ id: 'async1', duration: executionDuration, kind: 'async_function' }),
+            ])
+
+            const hogState = await watcher.getState('hog1')
+            const asyncState = await watcher.getState('async1')
+
+            // Calculate expected costs using the helper
+            const hogCost = calculateCost(executionDuration, 'hog')
+            const asyncCost = calculateCost(executionDuration, 'async_function')
+
+            expect(10000 - hogState.tokens).toBe(hogCost)
+            expect(10000 - asyncState.tokens).toBe(asyncCost)
+            expect(10000 - hogState.tokens).toBeGreaterThan(10000 - asyncState.tokens)
+        })
+
+        it('should not apply any cost below lower bounds', async () => {
+            // Both functions below their respective lower bounds
+            await watcher.observeResults([createResult({ id: 'hog_min', duration: 25 })])
+            await watcher.observeResults([createResult({ id: 'async_min', duration: 100, kind: 'async_function' })])
+
+            const hogState = await watcher.getState('hog_min')
+            const asyncState = await watcher.getState('async_min')
+
+            // Both should have no cost
+            expect(10000 - hogState.tokens).toBe(0)
+            expect(10000 - asyncState.tokens).toBe(0)
+        })
+
+        it('should penalize hog functions that exceed threshold by small amounts', async () => {
+            // Test near-threshold values for hog functions
+            await watcher.observeResults([createResult({ id: 'hog_60', duration: 60 })])
+            await watcher.observeResults([createResult({ id: 'hog_80', duration: 80 })])
+            await watcher.observeResults([createResult({ id: 'hog_100', duration: 100 })])
+
+            // There should be a progressive, noticeable penalty even for small overages
+            const tokens60 = (await watcher.getState('hog_60')).tokens
+            const tokens80 = (await watcher.getState('hog_80')).tokens
+            const tokens100 = (await watcher.getState('hog_100')).tokens
+
+            // Ensure progressive penalties
+            expect(10000 - tokens60).toBeGreaterThan(0) // Just over threshold should have some penalty
+            expect(10000 - tokens80).toBeGreaterThan(10000 - tokens60) // Higher duration = higher penalty
+            expect(10000 - tokens100).toBeGreaterThan(10000 - tokens80) // Even higher penalty
+        })
+
+        it('should calculate costs for multiple entries of the same type', async () => {
+            // Create a result with multiple hog timing entries
+            const result = createResult({ id: 'multi_hog', duration: 0, kind: 'hog' })
+            result.invocation.state.timings = [
+                { kind: 'hog', duration_ms: 40 },
+                { kind: 'hog', duration_ms: 80 },
+                { kind: 'hog', duration_ms: 150 },
+            ]
+
+            await watcher.observeResults([result])
+            const multiHogState = await watcher.getState('multi_hog')
+
+            // Calculate expected costs using the helper
+            const cost1 = calculateCost(40, 'hog')
+            const cost2 = calculateCost(80, 'hog')
+            const cost3 = calculateCost(150, 'hog')
+
+            const expectedTotalCost = cost1 + cost2 + cost3
+
+            // Total cost should be sum of individual timing costs
+            expect(10000 - multiHogState.tokens).toBe(expectedTotalCost)
+        })
+
+        it('should handle complex mixed function scenarios correctly', async () => {
+            // Create an invocation with multiple timing entries of both types
+            const baseResult = createResult({ id: 'complex_mixed', duration: 0, kind: 'hog' })
+            // Overwrite timings with a mix of hog and async_function timings
+            baseResult.invocation.state.timings = [
+                { kind: 'hog', duration_ms: 50 },
+                { kind: 'async_function', duration_ms: 120 },
+                { kind: 'hog', duration_ms: 90 },
+                { kind: 'async_function', duration_ms: 800 },
+                { kind: 'hog', duration_ms: 200 },
+            ]
+
+            await watcher.observeResults([baseResult])
+            const complexState = await watcher.getState('complex_mixed')
+
+            // Calculate expected costs using the helper
+            const hogCost1 = calculateCost(50, 'hog')
+            const asyncCost1 = calculateCost(120, 'async_function')
+            const hogCost2 = calculateCost(90, 'hog')
+            const asyncCost2 = calculateCost(800, 'async_function')
+            const hogCost3 = calculateCost(200, 'hog')
+
+            const expectedTotalCost = hogCost1 + asyncCost1 + hogCost2 + asyncCost2 + hogCost3
+            // Total cost should be sum of all individual timing costs
+            expect(10000 - complexState.tokens).toBe(expectedTotalCost)
         })
     })
 })
