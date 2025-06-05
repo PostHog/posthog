@@ -84,7 +84,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     },
 })
 
-const NEW_FLAG: FeatureFlagType = {
+export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
     key: '',
@@ -919,6 +919,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (values.featureFlag.experiment_set) {
                     return await api.experiments.get(values.featureFlag.experiment_set[0])
                 }
+                return null
             },
         },
     })),
