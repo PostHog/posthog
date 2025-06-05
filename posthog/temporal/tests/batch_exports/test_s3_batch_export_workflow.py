@@ -1898,6 +1898,7 @@ async def test_insert_into_s3_activity_heartbeats(
             team_id=ateam.pk,
             start_time=data_interval_start,
             end_time=data_interval_end,
+            event_name=f"test-{i}",
             count=1,
             count_outside_range=0,
             count_other_team=0,
@@ -1952,7 +1953,7 @@ async def test_insert_into_s3_activity_heartbeats(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        sort_key="_inserted_at",
+        sort_key="event",
     )
 
 
