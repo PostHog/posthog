@@ -380,13 +380,12 @@ export const LineGraph = (): JSX.Element => {
                             })
 
                             if (tooltipData.length > 1) {
-                                const rawData = ySeriesData.reduce(
-                                    (acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex]
-                                        return acc
-                                    },
-                                    0
-                                )
+                                const rawData = (
+                                    ySeriesData as (AxisSeries<number> | AxisBreakdownSeries<number>)[]
+                                ).reduce((acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
+                                    acc += cur.data[referenceDataPoint.dataIndex]
+                                    return acc
+                                }, 0)
 
                                 tooltipData.push({
                                     series: '',
