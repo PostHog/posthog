@@ -464,7 +464,11 @@ def postgres_source(
                 incremental_field_type,
                 db_incremental_field_last_value,
             )
-            cursor.execute("SET LOCAL statement_timeout = %s", (str(1000 * 60 * 10),))  # 10 mins
+            cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                )
+            )
             try:
                 primary_keys = _get_primary_keys(cursor, schema, table_name)
                 table = _get_table(cursor, schema, table_name)
