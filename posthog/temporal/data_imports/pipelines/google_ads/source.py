@@ -175,8 +175,10 @@ def _traverse_attributes(thing: typing.Any, *path: str):
     current = thing
 
     for component in path:
-        current = getattr(current, component)
+        if component == "type":
+            component += "_"
 
+        current = getattr(current, component)
     return current
 
 
@@ -227,7 +229,7 @@ def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
     table = get_schemas(config)[config.resource_name]
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        query = f"SELECT {','.join(f'{field.name}' for field in table)} FROM {table.name}"
+        query = f"SELECT {','.join(f'{table.name}.{field.name}' for field in table)} FROM {table.name}"
 
         client = google_ads_client(config)
         service = client.get_service("GoogleAdsService", version="v19")
