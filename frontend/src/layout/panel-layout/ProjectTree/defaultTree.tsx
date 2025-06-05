@@ -251,6 +251,18 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
+            path: 'Dashboards',
+            category: 'Analytics',
+            type: 'dashboard',
+            href: urls.dashboards(),
+        },
+        {
+            path: 'Notebooks',
+            category: 'Tools',
+            type: 'notebook',
+            href: urls.notebooks(),
+        },
+        {
             path: `Data pipelines`,
             category: 'Tools',
             type: 'hog_function',
@@ -259,7 +271,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: `SQL editor`,
-            category: 'Analytics',
+            category: 'Tools',
             type: 'sql',
             href: urls.sqlEditor(),
         } as FileSystemImport,
