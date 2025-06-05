@@ -93,6 +93,7 @@ export enum Scene {
     Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     MessagingCampaigns = 'MessagingCampaigns',
+    MessagingCampaign = 'MessagingCampaign',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',

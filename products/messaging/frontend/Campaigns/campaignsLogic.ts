@@ -3,7 +3,7 @@ import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ProjectTreeRef } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { campaignsLogicType } from './campaignsLogicType'
 
@@ -17,8 +17,8 @@ export const campaignsLogic = kea<campaignsLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.campaignId],
-            (campaignId): Breadcrumb[] => {
+            () => [],
+            (): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingCampaigns,
@@ -30,32 +30,8 @@ export const campaignsLogic = kea<campaignsLogicType>([
                         name: 'Campaigns',
                         path: urls.messagingCampaigns(),
                     },
-                    ...(campaignId === 'new'
-                        ? [
-                              {
-                                  key: 'new-campaign',
-                                  name: 'New campaign',
-                                  path: urls.messagingCampaignNew(),
-                              },
-                          ]
-                        : campaignId
-                        ? [
-                              {
-                                  key: 'edit-campaign',
-                                  name: 'Manage campaign',
-                                  path: urls.messagingCampaign(campaignId),
-                              },
-                          ]
-                        : []),
                 ]
             },
-        ],
-        projectTreeRef: [
-            (s) => [s.campaignId],
-            (id): ProjectTreeRef => ({
-                type: 'hog_function/campaign',
-                ref: id === 'new' ? null : id,
-            }),
         ],
     }),
     urlToAction(({ actions }) => ({

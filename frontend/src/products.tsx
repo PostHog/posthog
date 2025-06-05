@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -52,7 +52,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/Library/MessageLibrary'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns/Campaigns'),
-    MessagingCampaign: () => import('../../products/messaging/frontend/Campaigns/Campaign'),
+    MessagingCampaign: () => import('../../products/messaging/frontend/Campaigns/CampaignScene'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/Library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
@@ -353,22 +353,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
-    'hog_function/broadcast': {
-        name: 'Broadcast',
-        icon: <IconCursor />,
-        href: (ref: string) => urls.messagingBroadcast(ref),
-        iconColor: ['var(--product-messaging-light)'],
-        filterKey: 'broadcast',
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    'hog_function/campaign': {
-        name: 'Campaign',
-        icon: <IconCursor />,
-        href: (ref: string) => urls.messagingCampaign(ref),
-        iconColor: ['var(--product-messaging-light)'],
-        filterKey: 'campaign',
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
-    },
     insight: {
         name: 'Insight',
         icon: <IconGraph />,
@@ -383,6 +367,12 @@ export const fileSystemTypes = {
         iconColor: ['var(--product-links-light)'],
         filterKey: 'link',
         flag: FEATURE_FLAGS.LINKS,
+    },
+    messaging: {
+        name: 'Messaging',
+        icon: <IconMessage />,
+        href: (ref: string) => urls.messagingCampaign(ref),
+        filterKey: 'messaging',
     },
     notebook: {
         name: 'Notebook',
@@ -418,18 +408,6 @@ export const fileSystemTypes = {
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsNew = (): FileSystemImport[] => [
     { type: 'action', path: 'Action', href: urls.createAction() },
-    {
-        path: `Broadcast`,
-        type: 'hog_function/broadcast',
-        href: urls.messagingBroadcastNew(),
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    {
-        path: `Campaign`,
-        type: 'hog_function/campaign',
-        href: urls.messagingCampaignNew(),
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
-    },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
     { path: `Early access feature`, type: 'early_access_feature', href: urls.earlyAccessFeature('new') },
@@ -493,22 +471,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
-        path: 'Broadcasts',
-        href: urls.messagingBroadcasts(),
-        type: 'hog_function/broadcast',
-        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-        tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    {
-        path: 'Campaigns',
-        href: urls.messagingCampaigns(),
-        type: 'hog_function/campaign',
-        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-        tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
-    },
-    {
         path: 'Early access features',
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
@@ -549,6 +511,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.LOGS,
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
         tags: ['alpha'],
+    },
+    {
+        path: 'Messaging',
+        href: urls.messagingCampaigns(),
+        type: 'messaging',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
         path: 'Product analytics',

@@ -7,13 +7,13 @@ import { urls } from 'scenes/urls'
 
 import { FunctionsTable } from '../FunctionsTable'
 import { MessagingTabs } from '../MessagingTabs'
-import { Campaign } from './Campaign'
+import { CampaignScene } from './CampaignScene'
 import { campaignsLogic } from './campaignsLogic'
 
 export function Campaigns(): JSX.Element {
     const { campaignId } = useValues(campaignsLogic)
     return campaignId ? (
-        <Campaign id={campaignId} />
+        <CampaignScene />
     ) : (
         <>
             <MessagingTabs key="campaigns-tabs" />
