@@ -6,6 +6,8 @@ import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
+import { maxContextLogic } from './maxContextLogic'
+import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
     maxMocks,
@@ -19,15 +21,36 @@ describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
 
     beforeEach(() => {
-        useMocks(maxMocks)
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/:conversation_id/': MOCK_IN_PROGRESS_CONVERSATION,
+            },
+        })
         initKeaTests()
         logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
         logic.mount()
     })
 
     afterEach(() => {
+        // Stop any active polling/streaming in maxLogic
+        const maxLogicInstance = maxLogic.findMounted()
+        if (maxLogicInstance) {
+            maxLogicInstance.cache.eventSourceController?.abort()
+            maxLogicInstance.unmount()
+        }
+
+        // Stop any active streaming in the thread logic
+        if (logic.cache?.generationController) {
+            logic.cache.generationController.abort()
+        }
+
         sidePanelStateLogic.unmount()
         logic?.unmount()
+
+        // Clean up any remaining mocks
+        jest.restoreAllMocks()
     })
 
     it('selects threadGroup without a human message', async () => {
@@ -366,5 +389,76 @@ describe('maxThreadLogic', () => {
             ],
         })
         expect(streamSpy).toHaveBeenCalledTimes(1)
+    })
+
+    describe('compiledContext integration', () => {
+        let maxContextLogicInstance: ReturnType<typeof maxContextLogic.build>
+
+        beforeEach(() => {
+            maxContextLogicInstance = maxContextLogic()
+            maxContextLogicInstance.mount()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            // Stop any active polling/streaming
+            if (logic.cache?.generationController) {
+                logic.cache.generationController.abort()
+            }
+            maxContextLogicInstance?.unmount()
+        })
+
+        it('sends compiledContext as ui_context when compiledContext is present', async () => {
+            const streamSpy = mockStream()
+
+            // Add context data to maxContextLogic so hasData becomes true
+            maxContextLogicInstance.actions.addOrUpdateContextDashboard('1', {
+                id: 1,
+                name: 'Test Dashboard',
+                description: 'Test description',
+                tiles: [],
+            } as any)
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test prompt')
+                // Immediately complete to avoid waiting for async operations
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'test prompt',
+                    ui_context: expect.objectContaining({
+                        dashboards: expect.any(Object),
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('sends undefined as ui_context when compiledContext is null', async () => {
+            const streamSpy = mockStream()
+
+            // Don't add any context data, so compiledContext will be null
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test prompt')
+                // Immediately complete to avoid waiting for async operations
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'test prompt',
+                    ui_context: undefined,
+                }),
+                expect.any(Object)
+            )
+        })
     })
 })

@@ -19,6 +19,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
 import {
     AssistantEventType,
@@ -90,6 +91,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxLogic,
             ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            maxContextLogic,
+            ['compiledContext'],
         ],
         actions: [
             maxLogic,
@@ -211,6 +214,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     {
                         content: prompt,
                         contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                        ui_context: values.compiledContext || undefined,
                         conversation: values.conversation?.id,
                         trace_id: traceId,
                     },

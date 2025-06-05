@@ -101,6 +101,19 @@
         line-height: 0.875rem;
     }
 
+    &.LemonTag--size-xsmall {
+        padding: 0 0.125rem;
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+    }
+
+    &:not(.LemonTag--breakdown).LemonTag--size-xsmall {
+        box-sizing: border-box;
+        height: 1.625rem;
+        padding: 0 0.125rem;
+        line-height: 0.625rem;
+    }
+
     .LemonTag__icon {
         display: flex;
         margin-right: 0.125rem;
@@ -111,5 +124,17 @@
         min-height: 1.5rem !important;
         padding: 0.125rem !important;
         margin-left: 0.25rem;
+    }
+
+    &.LemonTag--size-xsmall .LemonTag__right-button {
+        min-height: 0.875rem !important;
+        padding: 0 !important;
+        margin-left: 0.125rem;
+    }
+
+    &.LemonTag--size-small .LemonTag__right-button {
+        min-height: 0.875rem !important;
+        padding: 0.0625rem !important;
+        margin-left: 0.1875rem;
     }
 }

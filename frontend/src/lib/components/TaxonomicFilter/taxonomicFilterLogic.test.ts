@@ -221,4 +221,46 @@ describe('taxonomicFilterLogic', () => {
                 },
             })
     })
+
+    describe('maxContextOptions prop', () => {
+        let maxLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            const maxContextOptions = [
+                { name: 'Test Context 1', value: 'context1', icon: null },
+                { name: 'Test Context 2', value: 'context2', icon: null },
+                { name: 'Another Context', value: 'context3', icon: null },
+            ]
+
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testMaxContext',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.MaxAIContext],
+                maxContextOptions,
+            }
+            maxLogic = taxonomicFilterLogic(logicProps)
+            maxLogic.mount()
+
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            maxLogic.unmount()
+        })
+
+        it('includes MaxAI taxonomic group when maxContextOptions provided', () => {
+            const taxonomicGroups = maxLogic.values.taxonomicGroups
+            const maxAIGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.MaxAIContext)
+
+            expect(maxAIGroup).toBeDefined()
+            expect(maxAIGroup?.name).toBe('Max AI')
+            expect(maxAIGroup?.searchPlaceholder).toBe('Max AI')
+            expect(maxAIGroup?.options).toEqual([
+                { name: 'Test Context 1', value: 'context1', icon: null },
+                { name: 'Test Context 2', value: 'context2', icon: null },
+                { name: 'Another Context', value: 'context3', icon: null },
+            ])
+        })
+    })
 })

@@ -11,6 +11,7 @@ import { CSSTransition } from 'react-transition-group'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { ContextDisplay } from './ContextDisplay'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, SuggestionGroup } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -59,6 +60,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                     isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
                 )}
             >
+                <ContextDisplay />
                 <div className="relative w-full">
                     <LemonTextArea
                         ref={textAreaRef}

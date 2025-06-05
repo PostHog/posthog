@@ -11,6 +11,13 @@ from parameterized import parameterized
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.ui_context_types import (
+    DashboardContextForMax,
+    GlobalInfo,
+    InsightContextForMax,
+    MaxContextShape,
+    MaxNavigationContext,
+)
 from ee.models.assistant import CoreMemory
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -30,9 +37,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
             self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            self.assertEqual(
-                next_state.messages[0].content, "Why did the chicken cross the road? To get to the other side!"
-            )
+            assistant_message = next_state.messages[0]
+            assert isinstance(assistant_message, AssistantMessage)
+            self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
 
     @parameterized.expand(
         [
@@ -66,8 +73,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(len(next_state.messages), 1)
             assistant_message = next_state.messages[0]
             self.assertIsInstance(assistant_message, AssistantMessage)
+            assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Hang tight while I check this.")
             self.assertIsNotNone(assistant_message.id)
+            self.assertIsNotNone(assistant_message.tool_calls)
+            assert assistant_message.tool_calls is not None
             self.assertEqual(len(assistant_message.tool_calls), 1)
             self.assertEqual(
                 assistant_message.tool_calls[0],
@@ -110,8 +120,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(len(next_state.messages), 1)
             assistant_message = next_state.messages[0]
             self.assertIsInstance(assistant_message, AssistantMessage)
+            assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "")
             self.assertIsNotNone(assistant_message.id)
+            self.assertIsNotNone(assistant_message.tool_calls)
+            assert assistant_message.tool_calls is not None
             self.assertEqual(len(assistant_message.tool_calls), 1)
             self.assertEqual(
                 assistant_message.tool_calls[0],
@@ -156,11 +169,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(
                     content="Welcome!",
                     tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {},
-                        }
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={},
+                        )
                     ],
                 ),
                 AssistantMessage(content="Follow-up"),
@@ -198,17 +211,17 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     content="Welcome!",
                     tool_calls=[
                         # This tool call has a response
-                        {
-                            "id": "xyz1",
-                            "name": "create_and_query_insight",
-                            "args": {},
-                        },
+                        AssistantToolCall(
+                            id="xyz1",
+                            name="create_and_query_insight",
+                            args={},
+                        ),
                         # This tool call has no response and should be filtered out
-                        {
-                            "id": "xyz2",
-                            "name": "create_and_query_insight",
-                            "args": {},
-                        },
+                        AssistantToolCall(
+                            id="xyz2",
+                            name="create_and_query_insight",
+                            args={},
+                        ),
                     ],
                 ),
                 AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
@@ -225,6 +238,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         # Verify the assistant message only includes the tool call that has a response
         assistant_message = messages[1]
         self.assertIsInstance(assistant_message, LangchainAIMessage)
+        assert isinstance(assistant_message, LangchainAIMessage)
         self.assertEqual(assistant_message.content, "Welcome!")
         self.assertEqual(len(assistant_message.tool_calls), 1)
         self.assertEqual(assistant_message.tool_calls[0]["id"], "xyz1")
@@ -232,6 +246,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         # Verify the tool response is included
         tool_message = messages[2]
         self.assertIsInstance(tool_message, LangchainToolMessage)
+        assert isinstance(tool_message, LangchainToolMessage)
         self.assertEqual(tool_message.content, "Answer for xyz1")
         self.assertEqual(tool_message.tool_call_id, "xyz1")
 
@@ -256,6 +271,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(len(next_state.messages), 1)
             message = next_state.messages[0]
             self.assertIsInstance(message, AssistantMessage)
+            assert isinstance(message, AssistantMessage)
             self.assertEqual(message.content, "I can't help with that anymore.")
             self.assertEqual(message.tool_calls, [])
 
@@ -299,7 +315,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(
                     content="Hi" * 24000,
                     id="2",
-                    tool_calls=[{"id": "xyz", "name": "create_and_query_insight", "args": {}}],
+                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
                 ),
                 AssistantToolCallMessage(content="The" * 48000, id="3", tool_call_id="xyz"),
             ]
@@ -332,7 +348,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(
                     content="Bar",
                     id="2",
-                    tool_calls=[{"id": "xyz", "name": "create_and_query_insight", "args": {}}],
+                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
                 ),
                 AssistantToolCallMessage(content="The" * 65000, id="3", tool_call_id="xyz"),
             ]
@@ -349,7 +365,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(
                     content="Bar",
                     id="2",
-                    tool_calls=[{"id": "xyz", "name": "create_and_query_insight", "args": {}}],
+                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
                 ),
                 AssistantToolCallMessage(content="Result", id="3", tool_call_id="xyz"),
                 HumanMessage(content="Baz", id="4"),
@@ -641,3 +657,277 @@ class TestRootNodeTools(BaseTest):
         state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
         result = node.run(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
+
+
+class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.mixin = RootNode(self.team)  # Using RootNode since it inherits from RootNodeUIContextMixin
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Trend results: 100 users"
+
+        insight = InsightContextForMax(
+            id=123,
+            name="User Trends",
+            description="Daily active users",
+            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+        )
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        expected = """## User Trends: Daily active users
+Query: {'kind': 'TrendsQuery', 'series': [{'event': 'pageview'}]}
+
+Results:
+Trend results: 100 users"""
+        self.assertEqual(result, expected)
+        mock_query_runner.run_and_format_query.assert_called_once()
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Funnel results: 50% conversion"
+
+        insight = InsightContextForMax(
+            id=456,
+            name="Conversion Funnel",
+            description=None,
+            query={"kind": "FunnelsQuery", "series": [{"event": "sign_up"}, {"event": "purchase"}]},
+        )
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        expected = """## Conversion Funnel
+Query: {'kind': 'FunnelsQuery', 'series': [{'event': 'sign_up'}, {'event': 'purchase'}]}
+
+Results:
+Funnel results: 50% conversion"""
+        self.assertEqual(result, expected)
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Retention: 30% Day 7"
+
+        insight = InsightContextForMax(
+            id=789,
+            name=None,
+            description=None,
+            query={
+                "kind": "RetentionQuery",
+                "retentionFilter": {
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                },
+            },
+        )
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        expected = """## Insight 789
+Query: {'kind': 'RetentionQuery', 'retentionFilter': {'targetEntity': {'id': '$pageview', 'type': 'events'}, 'returningEntity': {'id': '$pageview', 'type': 'events'}}}
+
+Results:
+Retention: 30% Day 7"""
+        self.assertEqual(result, expected)
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Query results: 42 events"
+
+        insight = InsightContextForMax(
+            id=101,
+            name="Custom Query",
+            description="HogQL analysis",
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+        )
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        expected = """## Custom Query: HogQL analysis
+Query: {'kind': 'HogQLQuery', 'query': 'SELECT count() FROM events'}
+
+Results:
+Query results: 42 events"""
+        self.assertEqual(result, expected)
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+
+        insight = InsightContextForMax(
+            id=123, name="Unsupported", description=None, query={"kind": "UnsupportedQuery", "data": "some data"}
+        )
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        self.assertEqual(result, "")
+        mock_query_runner.run_and_format_query.assert_not_called()
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_missing_query_kind(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+
+        insight = InsightContextForMax(id=123, name="Missing Kind", description=None, query={"data": "some data"})
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        self.assertEqual(result, "")
+        mock_query_runner.run_and_format_query.assert_not_called()
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_and_format_insight_exception_handling(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
+
+        insight = InsightContextForMax(
+            id=123,
+            name="Failed Query",
+            description=None,
+            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+        )
+
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+
+        self.assertEqual(result, "")
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Dashboard insight results"
+
+        # Create mock insight
+        insight = InsightContextForMax(
+            id=123,
+            name="Dashboard Insight",
+            description="Test insight",
+            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+        )
+
+        # Create mock dashboard
+        dashboard = DashboardContextForMax(
+            id=456, name="Test Dashboard", description="Test dashboard description", insights=[insight]
+        )
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards={"456": dashboard}, insights=None, global_info=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn("Dashboard: Test Dashboard", result["ui_context_dashboard"])
+        self.assertIn("Description: Test dashboard description", result["ui_context_dashboard"])
+        self.assertIn("Dashboard Insight: Test insight", result["ui_context_dashboard"])
+        self.assertIn("Dashboard insight results", result["ui_context_dashboard"])
+        self.assertEqual(result["ui_context_insights"], "")
+        self.assertEqual(result["ui_context_navigation"], "")
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Standalone insight results"
+
+        # Create mock insight
+        insight = InsightContextForMax(
+            id=123,
+            name="Standalone Insight",
+            description="Test standalone insight",
+            query={"kind": "FunnelsQuery", "series": [{"event": "sign_up"}]},
+        )
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights={"123": insight}, global_info=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn("Standalone Insight: Test standalone insight", result["ui_context_insights"])
+        self.assertIn("Standalone insight results", result["ui_context_insights"])
+        self.assertEqual(result["ui_context_dashboard"], "")
+
+    def test_format_ui_context_with_navigation(self):
+        # Create mock navigation
+        navigation = MaxNavigationContext(path="/insights/trends", page_title="Trends Analysis")
+
+        # Create mock global info
+        global_info = GlobalInfo(navigation=navigation)
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, global_info=global_info)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn("Current page: /insights/trends", result["ui_context_navigation"])
+        self.assertIn("Page title: Trends Analysis", result["ui_context_navigation"])
+        self.assertIn("<navigation_context>", result["ui_context_navigation"])
+
+    def test_format_ui_context_with_navigation_no_page_title(self):
+        # Create mock navigation without page title
+        navigation = MaxNavigationContext(path="/dashboard/123", page_title=None)
+
+        # Create mock global info
+        global_info = GlobalInfo(navigation=navigation)
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, global_info=global_info)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn("Current page: /dashboard/123", result["ui_context_navigation"])
+        self.assertNotIn("Page title:", result["ui_context_navigation"])
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
+        result = self.mixin._run_insights_from_ui_context(None)
+        self.assertEqual(result, "")
+
+        # Test with ui_context but no insights
+        ui_context = MaxContextShape(insights=None)
+        result = self.mixin._run_insights_from_ui_context(ui_context)
+        self.assertEqual(result, "")
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.return_value = "Insight execution results"
+
+        # Create mock insight
+        insight = InsightContextForMax(
+            id=123,
+            name="Test Insight",
+            description="Test description",
+            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+        )
+
+        # Create mock UI context
+        ui_context = MaxContextShape(insights={"123": insight})
+
+        result = self.mixin._run_insights_from_ui_context(ui_context)
+
+        self.assertIn("<insights>", result)
+        self.assertIn("Test Insight: Test description", result)
+        self.assertIn("Insight execution results", result)
+        self.assertIn("</insights>", result)
+
+    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
+        mock_query_runner = mock_query_runner_class.return_value
+        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
+
+        # Create mock insight that will fail
+        insight = InsightContextForMax(
+            id=123,
+            name="Failed Insight",
+            description=None,
+            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+        )
+
+        # Create mock UI context
+        ui_context = MaxContextShape(insights={"123": insight})
+
+        result = self.mixin._run_insights_from_ui_context(ui_context)
+
+        # Should return empty string since the insight failed to run
+        self.assertEqual(result, "")

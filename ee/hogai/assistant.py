@@ -120,6 +120,7 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        ui_context: Optional[dict[str, Any]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -155,6 +156,8 @@ class Assistant:
         )
         self._trace_id = trace_id
         self._custom_update_ids = set()
+
+        self._ui_context = ui_context
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -239,9 +242,25 @@ class Assistant:
     @property
     def _initial_state(self) -> AssistantState:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
+            # Add ui_context to the message if available
+            if self._ui_context:
+                # remove global_info as it is not added by the user
+                # and we don't want to show it in the client
+                filtered_ui_context = {k: v for k, v in self._ui_context.items() if k not in ["global_info"]}
+                message_with_ui_context = self._latest_message.model_copy(update={"ui_context": filtered_ui_context})
+                return AssistantState(
+                    messages=[message_with_ui_context],
+                    start_id=message_with_ui_context.id,
+                )
+            else:
+                return AssistantState(
+                    messages=[self._latest_message],
+                    start_id=self._latest_message.id,
+                )
         else:
-            return AssistantState(messages=[])
+            return AssistantState(
+                messages=[],
+            )
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
@@ -254,6 +273,7 @@ class Assistant:
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team_id": self._team.id,
+                "ui_context": self._ui_context,
             },
         }
         return config
