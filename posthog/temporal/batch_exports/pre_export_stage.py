@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import typing
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
@@ -188,16 +189,34 @@ async def execute_batch_export_insert_activity_using_s3_stage(
         )
 
 
-async def _delete_all_from_bucket_with_prefix(bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
+def _get_s3_endpoint_url() -> str:
+    """Get the S3 endpoint URL for the Temporal worker.
+
+    When running the stack locally, MinIO runs in Docker but the Temporal workers run outside, so we need to pass in
+    localhost URL rather than the hostname of the container.
+    """
+    if settings.DEBUG or settings.TEST:
+        return "http://localhost:19000"
+    return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
+
+
+@asynccontextmanager
+async def get_s3_client():
+    """Async context manager for creating and managing an S3 client."""
     session = aioboto3.Session()
     async with session.client(
         "s3",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        endpoint_url=settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT,
+        endpoint_url=_get_s3_endpoint_url(),
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
     ) as s3_client:
+        yield s3_client
+
+
+async def _delete_all_from_bucket_with_prefix(bucket_name: str, key_prefix: str):
+    """Delete all objects in bucket_name under key_prefix."""
+    async with get_s3_client() as s3_client:
         response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
         if "Contents" in response:
             objects_to_delete: list[ObjectIdentifierTypeDef] = [
@@ -341,7 +360,7 @@ async def _get_query(
         query = query_template.safe_substitute(
             s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            s3_folder=_get_s3_staging_folder_url(
+            s3_folder=_get_clickhouse_s3_staging_folder_url(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
@@ -398,7 +417,7 @@ async def _get_query(
             filters=filters_str,
             s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            s3_folder=_get_s3_staging_folder_url(
+            s3_folder=_get_clickhouse_s3_staging_folder_url(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
@@ -425,16 +444,23 @@ def _get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None
     return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
 
 
-def _get_s3_staging_folder_url(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
-    """Get the URL for the S3 staging folder for a given batch export."""
+def _get_clickhouse_s3_staging_folder_url(
+    batch_export_id: str, data_interval_start: str | None, data_interval_end: str
+) -> str:
+    """Get the URL for the S3 staging folder for a given batch export.
+
+    This is passed to the ClickHouse query as the `s3_folder` parameter.
+    When running the stack locally, ClickHouse and MinIO are both running in Docker so we use the hostname of the
+    container.
+    """
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
+    # in these environments this will be a URL for MinIO
     if settings.DEBUG or settings.TEST:
-        base_url = f"{settings.OBJECT_STORAGE_ENDPOINT}/{bucket}/"
+        base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
         base_url = f"https://{bucket}.s3.amazonaws.com/"
 
     folder = _get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
-
     return f"{base_url}{folder}"
 
 
@@ -556,14 +582,7 @@ class ProducerFromInternalS3Stage:
             data_interval_end=data_interval_end,
         )
 
-        session = aioboto3.Session()
-        async with session.client(
-            "s3",
-            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            endpoint_url=settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT,
-            region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
-        ) as s3_client:
+        async with get_s3_client() as s3_client:
             response = await s3_client.list_objects_v2(
                 Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder
             )

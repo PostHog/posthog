@@ -40,7 +40,6 @@ env:
     # absolute wild tbh https://stackoverflow.com/a/75503402
     DISPLAY: ':99.0'
     OIDC_RSA_PRIVATE_KEY: 'test'
-    BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
 jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
