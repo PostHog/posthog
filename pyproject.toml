@@ -103,7 +103,7 @@ dependencies = [
     "sentry-sdk[celery,clickhouse-driver,django,openai]~=1.44.1",
     "simple-salesforce>=1.12.6",
     "slack-sdk==3.17.1",
-    "snowflake-connector-python==3.13.2",
+    "snowflake-connector-python==3.15.0",
     "snowflake-sqlalchemy==1.7.3",
     "social-auth-app-django==5.0.0",
     "social-auth-core==4.3.0",
