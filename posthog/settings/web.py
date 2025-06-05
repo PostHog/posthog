@@ -100,6 +100,7 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
     "posthog.middleware.Fix204Middleware",
+    "posthog.middleware.CSPMiddleware",
 ]
 
 if DEBUG:
@@ -510,3 +511,18 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
 if DEBUG:
     OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]
+
+CSP_REPORTING_ENDPOINT = get_from_env(
+    "CSP_REPORTING_ENDPOINT",
+    "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=1",
+)
+CSP_ADD_DISTINCT_ID = get_from_env("CSP_ADD_DISTINCT_ID", True, type_cast=str_to_bool)
+CSP_IS_REPORT_ONLY = get_from_env("CSP_IS_REPORT_ONLY", True, type_cast=str_to_bool)
+# overrides the default CSP policy, probably only needed for testing
+CONTENT_SECURITY_POLICY = get_from_env("CONTENT_SECURITY_POLICY", "")
+# will be templated into the CSP policy,
+# should be a valid CSP list of domains e.g. https://host1.com https://host2.com
+CSP_DOMAINS = os.getenv("CSP_DOMAINS", "https://status.posthog.com")
+if DEBUG:
+    # loading assets from the dev server
+    CSP_DOMAINS += " http://localhost:8234"

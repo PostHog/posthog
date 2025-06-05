@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -743,5 +744,62 @@ class Fix204Middleware:
             response.content = b""
             for h in ["Content-Type", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
+
+        return response
+
+
+class CSPMiddleware:
+    """
+    Adds Content Security Policy headers to HTML responses.
+    CSP can be configured via settings.CSP or uses a default policy.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+        self.default_csp = (
+            "default-src 'self'; "
+            "script-src 'self' $$nonce$$ $$domains-list$$; "
+            "style-src 'self' 'unsafe-inline' $$nonce$$ $$domains-list$$; "
+            "img-src 'self' data: https: $$domains-list$$; "
+            "connect-src 'self' $$domains-list$$; "
+            "font-src 'self' $$domains-list$$; "
+            "object-src 'none'; "
+            "media-src 'self'; "
+            "frame-src 'self' $$nonce$$; "
+            "$$REPORTING_ENDPOINT$$"
+        )
+        self.reporting_endpoint: str = settings.CSP_REPORTING_ENDPOINT
+        self.add_distinct_id: bool = settings.CSP_ADD_DISTINCT_ID
+        self._is_report_only: bool = settings.CSP_IS_REPORT_ONLY
+        self.csp_domains: str = settings.CSP_DOMAINS
+
+    def __call__(self, request: HttpRequest):
+        response: HttpResponse = self.get_response(request)
+
+        # Only add CSP to HTML responses
+        content_type = response.get("Content-Type", "")
+        if "text/html" in content_type:
+            nonce = secrets.token_urlsafe(32)
+
+            csp_policy = settings.CONTENT_SECURITY_POLICY or self.default_csp
+            csp_policy = csp_policy.replace("$$nonce$$", f"'nonce-{nonce}' ")
+            csp_policy = csp_policy.replace("$$domains-list$$", f"{self.csp_domains}")
+
+            if self.reporting_endpoint:
+                reporting_endpoint = self.reporting_endpoint
+                if self.add_distinct_id:
+                    reporting_endpoint = reporting_endpoint + f"&distinct_id={request.user.distinct_id}"
+
+                response["Reporting-Endpoints"] = f'posthog-reporting-endpoint="{reporting_endpoint}"'
+
+                csp_policy = csp_policy.replace(
+                    "$$REPORTING_ENDPOINT$$", f"report-uri {reporting_endpoint}; report-to posthog-reporting-endpoint"
+                )
+
+            if self._is_report_only:
+                response["Content-Security-Policy-Report-Only"] = csp_policy
+            else:
+                response["Content-Security-Policy"] = csp_policy
 
         return response
