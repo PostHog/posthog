@@ -819,6 +819,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
+         "posthog_teamrevenueanalyticsconfig"."base_currency",
          "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
          "posthog_teamrevenueanalyticsconfig"."events",
          "posthog_teamrevenueanalyticsconfig"."goals"
@@ -5053,6 +5054,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.27
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
+         "posthog_teamrevenueanalyticsconfig"."base_currency",
          "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
          "posthog_teamrevenueanalyticsconfig"."events",
          "posthog_teamrevenueanalyticsconfig"."goals"
