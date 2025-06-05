@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    QueryTimeout,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
@@ -463,18 +464,27 @@ def postgres_source(
                 incremental_field_type,
                 db_incremental_field_last_value,
             )
+            cursor.execute("SET LOCAL statement_timeout = %s", (str(1000 * 60 * 10),))  # 10 mins
+            try:
+                primary_keys = _get_primary_keys(cursor, schema, table_name)
+                table = _get_table(cursor, schema, table_name)
+                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+                has_duplicate_primary_keys = False
 
-            primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table = _get_table(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
-            partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
-            has_duplicate_primary_keys = False
-
-            # Fallback on checking for an `id` field on the table
-            if primary_keys is None and "id" in table:
-                primary_keys = ["id"]
-                has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
+                # Fallback on checking for an `id` field on the table
+                if primary_keys is None and "id" in table:
+                    primary_keys = ["id"]
+                    has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
+            except psycopg.errors.QueryCanceled:
+                if is_incremental:
+                    raise QueryTimeout(
+                        f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+                    )
+                raise
+            except Exception:
+                raise
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
