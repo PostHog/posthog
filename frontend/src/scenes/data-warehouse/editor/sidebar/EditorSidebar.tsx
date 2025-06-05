@@ -8,7 +8,6 @@ import { useEffect, useMemo } from 'react'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
-import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
 import { editorSidebarLogic, EditorSidebarTab } from './editorSidebarLogic'
 import { QueryDatabase } from './QueryDatabase'
@@ -22,7 +21,6 @@ export const EditorSidebar = ({
     sidebarRef: React.RefObject<HTMLDivElement>
     codeEditorKey: string
 }): JSX.Element => {
-    const { sidebarOverlayOpen } = useValues(editorSceneLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { setSidebarWidth } = useActions(navigation3000Logic)
     const editorSizingLogicProps = editorSizingLogic.props
@@ -79,13 +77,13 @@ export const EditorSidebar = ({
     const renderTabContent = (): JSX.Element => {
         switch (activeTab) {
             case EditorSidebarTab.QueryDatabase:
-                return <QueryDatabase isOpen={sidebarOverlayOpen} />
+                return <QueryDatabase />
             case EditorSidebarTab.QueryVariables:
                 return <QueryVariables />
             case EditorSidebarTab.QueryInfo:
                 return <QueryInfo codeEditorKey={codeEditorKey} />
             default:
-                return <QueryDatabase isOpen={sidebarOverlayOpen} />
+                return <QueryDatabase />
         }
     }
 
@@ -107,7 +105,7 @@ export const EditorSidebar = ({
                     }}
                     tabs={tabs}
                     size="small"
-                    barClassName="flex justify-center h-10 items-center"
+                    barClassName="flex justify-center items-center"
                 />
             </div>
             {renderTabContent()}

@@ -1,88 +1,90 @@
-import { IconCopy, IconServer } from '@posthog/icons'
-import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { IconFolder, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { Scene } from 'scenes/sceneTypes'
+import { router } from 'kea-router'
+import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { useEffect, useRef } from 'react'
+import { urls } from 'scenes/urls'
 
-import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
-import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 
-import { editorSceneLogic } from '../editorSceneLogic'
+import { DatabaseSearchField } from './DatabaseSearchField'
 import { queryDatabaseLogic } from './queryDatabaseLogic'
 
-export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
-    const navBarItem: SidebarNavbarItem = {
-        identifier: Scene.SQLEditor,
-        label: 'SQL editor',
-        icon: <IconServer />,
-        logic: editorSceneLogic,
-    }
+export const QueryDatabase = (): JSX.Element => {
+    const { treeData, expandedFolders, expandedSearchFolders, searchTerm } = useValues(queryDatabaseLogic)
+    const { setExpandedFolders, toggleFolderOpen, setTreeRef, setExpandedSearchFolders } =
+        useActions(queryDatabaseLogic)
+
+    const treeRef = useRef<LemonTreeRef>(null)
+    useEffect(() => {
+        setTreeRef(treeRef)
+    }, [treeRef, setTreeRef])
 
     return (
-        <Sidebar navbarItem={navBarItem} sidebarOverlay={<EditorSidebarOverlay />} sidebarOverlayProps={{ isOpen }} />
-    )
-}
-const EditorSidebarOverlay = (): JSX.Element => {
-    const { setSidebarOverlayOpen } = useActions(editorSceneLogic)
-    const { sidebarOverlayTreeItems, selectedSchema } = useValues(queryDatabaseLogic)
-    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+        <div className="h-full">
+            <div className="p-1">
+                <DatabaseSearchField placeholder="Search database" />
+            </div>
+            <div className="h-full overflow-y-auto">
+                <LemonTree
+                    ref={treeRef}
+                    data={treeData}
+                    expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                    onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+                    onFolderClick={(folder, isExpanded) => {
+                        if (folder) {
+                            toggleFolderOpen(folder.id, isExpanded)
+                        }
+                    }}
+                    renderItem={(item) => {
+                        // Check if item has search matches for highlighting
+                        const matches = item.record?.searchMatches
+                        const hasMatches = matches && matches.length > 0
 
-    const copy = (): void => {
-        if (selectedSchema?.name) {
-            void copyToClipboard(selectedSchema.name, 'schema')
-        }
-    }
-
-    return (
-        <div className="flex flex-col h-full">
-            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-1">
-                <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
-                <Tooltip title="Click to copy">
-                    <span
-                        className="font-mono cursor-pointer flex-1 whitespace-nowrap overflow-hidden text-ellipsis"
-                        onClick={() => copy()}
-                    >
-                        {selectedSchema?.name}
-                    </span>
-                </Tooltip>
-                <div className="flex">
-                    {selectedSchema?.name && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconCopy style={{ color: 'var(--text-secondary)' }} />}
-                            noPadding
-                            className="ml-1 mr-1"
-                            data-attr="copy-icon"
-                            onClick={() => copy()}
-                        />
-                    )}
-
-                    {selectedSchema && 'type' in selectedSchema && selectedSchema.type !== 'managed_view' && (
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Add join',
-                                    onClick: () => {
-                                        if (selectedSchema) {
-                                            selectSourceTable(selectedSchema.name)
-                                            toggleJoinTableModal()
-                                        }
-                                    },
-                                },
-                            ]}
-                        >
-                            <div>
-                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                            </div>
-                        </LemonMenu>
-                    )}
-                </div>
-            </header>
-            <div className="overflow-y-auto flex-1">
-                <DatabaseTableTree items={sidebarOverlayTreeItems} />
+                        return (
+                            <span className="truncate">
+                                {hasMatches && searchTerm ? (
+                                    <SearchHighlightMultiple
+                                        string={item.name}
+                                        substring={searchTerm}
+                                        className="font-mono text-xs"
+                                    />
+                                ) : (
+                                    <span className="truncate font-mono text-xs">{item.name}</span>
+                                )}
+                            </span>
+                        )
+                    }}
+                    itemSideActionIcon={(item) => {
+                        if (item.record?.type === 'sources') {
+                            return (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        router.actions.push(urls.dataPipelinesNew('source'))
+                                    }}
+                                >
+                                    <IconPlusSmall className="text-tertiary" />
+                                </ButtonPrimitive>
+                            )
+                        }
+                    }}
+                    renderItemIcon={(item) => {
+                        if (item.record?.type === 'column') {
+                            return <></>
+                        }
+                        return (
+                            <TreeNodeDisplayIcon
+                                item={item}
+                                expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                                defaultNodeIcon={<IconFolder />}
+                            />
+                        )
+                    }}
+                />
             </div>
         </div>
     )

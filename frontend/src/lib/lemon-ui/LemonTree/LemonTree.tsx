@@ -293,7 +293,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             <div className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}>
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
-                    const isFolder = item.record?.type === 'folder'
+                    const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
                     const isEmptyFolder = item.type === 'empty-folder'
                     const folderLinesOffset = DEPTH_OFFSET
                     const emptySpaceOffset = DEPTH_OFFSET
@@ -546,31 +546,36 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     button
                                                 )}
 
-                                                {itemSideAction && !isEmptyFolder && size === 'default' && (
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <ButtonPrimitive
-                                                                iconOnly
-                                                                isSideActionRight
-                                                                className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
-                                                            >
-                                                                {itemSideActionIcon?.(item) ?? (
-                                                                    <IconEllipsis className="size-3 text-tertiary" />
-                                                                )}
-                                                            </ButtonPrimitive>
-                                                        </DropdownMenuTrigger>
+                                                {itemSideAction &&
+                                                    !!itemSideAction(item) &&
+                                                    !isEmptyFolder &&
+                                                    size === 'default' && (
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <ButtonPrimitive
+                                                                    iconOnly
+                                                                    isSideActionRight
+                                                                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
+                                                                >
+                                                                    {itemSideActionIcon?.(item) ?? (
+                                                                        <IconEllipsis className="size-3 text-tertiary" />
+                                                                    )}
+                                                                </ButtonPrimitive>
+                                                            </DropdownMenuTrigger>
 
-                                                        {/* The Dropdown content menu */}
-                                                        <DropdownMenuContent
-                                                            loop
-                                                            align="end"
-                                                            side="bottom"
-                                                            className="max-w-[250px]"
-                                                        >
-                                                            {itemSideAction(item)}
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                )}
+                                                            {/* The Dropdown content menu */}
+                                                            {!!itemSideAction(item) && (
+                                                                <DropdownMenuContent
+                                                                    loop
+                                                                    align="end"
+                                                                    side="bottom"
+                                                                    className="max-w-[250px]"
+                                                                >
+                                                                    {itemSideAction(item)}
+                                                                </DropdownMenuContent>
+                                                            )}
+                                                        </DropdownMenu>
+                                                    )}
                                             </ButtonGroupPrimitive>
                                         </ContextMenuTrigger>
 

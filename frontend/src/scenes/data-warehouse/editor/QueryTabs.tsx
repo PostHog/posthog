@@ -34,7 +34,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
 
     return (
         <>
-            <div className="flex flex-row overflow-scroll hide-scrollbar h-10" ref={containerRef}>
+            <div className="flex flex-row overflow-scroll hide-scrollbar h-[39px]" ref={containerRef}>
                 {models.map((model: QueryTab) => (
                     <QueryTabComponent
                         key={model.uri.path}

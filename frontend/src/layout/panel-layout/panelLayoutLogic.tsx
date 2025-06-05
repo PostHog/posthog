@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
@@ -10,11 +10,16 @@ export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
+interface PanelLayoutLogicProps {
+    key?: string
+}
+
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
     connect(() => ({
         values: [navigation3000Logic, ['mobileLayout']],
     })),
+    key((props: PanelLayoutLogicProps) => props.key ?? 'project-panel'),
     actions({
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
