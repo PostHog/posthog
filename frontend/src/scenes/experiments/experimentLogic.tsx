@@ -140,7 +140,7 @@ interface MetricLoadingConfig {
     metrics: any[]
     experimentId: Experiment['id']
     refresh?: boolean
-    onSetResults: (
+    onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
             | CachedExperimentTrendsQueryResponse
@@ -157,7 +157,7 @@ const loadMetrics = async ({
     metrics,
     experimentId,
     refresh,
-    onSetResults,
+    onSetLegacyResults,
     onSetResultsNew,
     onSetErrors,
     onTimeout,
@@ -215,7 +215,7 @@ const loadMetrics = async ({
                         fakeInsightId: string
                     }
                 }
-                onSetResults([...results])
+                onSetLegacyResults([...results])
                 onSetResultsNew([...newResults])
             } catch (error: any) {
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
@@ -233,7 +233,7 @@ const loadMetrics = async ({
                 }
 
                 results[index] = null
-                onSetResults([...results])
+                onSetLegacyResults([...results])
                 onSetResultsNew([...newResults])
             }
         })
@@ -1461,7 +1461,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetResults: actions.setLegacyMetricResults,
+                onSetLegacyResults: actions.setLegacyMetricResults,
                 onSetResultsNew: actions.setMetricResults,
                 onSetErrors: actions.setPrimaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
@@ -1486,7 +1486,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetResults: actions.setLegacySecondaryMetricResults,
+                onSetLegacyResults: actions.setLegacySecondaryMetricResults,
                 onSetResultsNew: actions.setSecondaryMetricResults,
                 onSetErrors: actions.setSecondaryMetricsResultErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
