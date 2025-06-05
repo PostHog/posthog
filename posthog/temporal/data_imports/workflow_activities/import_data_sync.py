@@ -703,6 +703,51 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
             )
+        elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLEADS:
+            from posthog.temporal.data_imports.pipelines.google_ads import (
+                GoogleAdsServiceAccountSourceConfig,
+                google_ads_source,
+            )
+
+            config = GoogleAdsServiceAccountSourceConfig.from_dict(
+                {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+            )
+            source = google_ads_source(config)
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
+        elif model.pipeline.source_type == ExternalDataSource.Type.TEMPORALIO:
+            from posthog.temporal.data_imports.pipelines.temporalio.source import (
+                TemporalIOResource,
+                TemporalIOSourceConfig,
+                temporalio_source,
+            )
+
+            temporal_config = TemporalIOSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = temporalio_source(
+                temporal_config,
+                TemporalIOResource(schema.name),
+                is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

@@ -1,5 +1,5 @@
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -33,7 +33,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -831,12 +831,13 @@ LIMIT 1000000
                 if (!sources || !cache.snapshotsBySource) {
                     return []
                 }
-                return processAllSnapshots(
+                const processedSnapshots = processAllSnapshots(
                     sources,
                     cache.snapshotsBySource || {},
                     viewportForTimestamp,
                     sessionRecordingId
                 )
+                return processedSnapshots['processed'].snapshots || []
             },
         ],
 
@@ -893,6 +894,17 @@ LIMIT 1000000
             },
         ],
 
+        isLikelyPastTTL: [
+            (s) => [s.start, s.snapshotSources],
+            (start, snapshotSources) => {
+                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
+                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
+                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
+                const hasNoSources = snapshotSources?.length === 0
+                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
+            },
+        ],
+
         bufferedToTime: [
             (s) => [s.segments],
             (segments): number | null => {
@@ -920,15 +932,22 @@ LIMIT 1000000
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
-                return () => ({
-                    version: '2023-04-28',
-                    data: {
-                        id: sessionPlayerMetaData?.id ?? '',
-                        person: sessionPlayerMetaData?.person,
-                        snapshots: snapshots,
-                    },
-                })
+            (
+                sessionPlayerMetaData,
+                snapshots
+            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
+                return (type?: ExportedSessionType) => {
+                    return type === 'rrweb'
+                        ? snapshots
+                        : {
+                              version: '2023-04-28',
+                              data: {
+                                  id: sessionPlayerMetaData?.id ?? '',
+                                  person: sessionPlayerMetaData?.person,
+                                  snapshots: snapshots,
+                              },
+                          }
+                }
             },
         ],
 
@@ -960,4 +979,16 @@ LIMIT 1000000
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        // Clear the cache
+
+        if (cache.realTimePollingTimeoutID) {
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = undefined
+        }
+
+        cache.windowIdForTimestamp = undefined
+        cache.viewportForTimestamp = undefined
+        cache.snapshotsBySource = undefined
+    }),
 ])

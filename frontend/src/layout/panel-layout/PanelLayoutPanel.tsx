@@ -19,11 +19,16 @@ interface PanelLayoutPanelProps {
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
+    sortDropdown?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
+        isLayoutPanelPinned: {
+            true: 'relative',
+            false: 'absolute',
+        },
         projectTreeMode: {
             tree: '',
             table: 'absolute top-0 left-0 bottom-0',
@@ -73,6 +78,7 @@ export function PanelLayoutPanel({
     panelActions,
     children,
     filterDropdown,
+    sortDropdown,
 }: PanelLayoutPanelProps): JSX.Element {
     const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const {
@@ -93,6 +99,7 @@ export function PanelLayoutPanel({
                     isLayoutNavCollapsed,
                     isMobileLayout,
                     panelWillHide,
+                    isLayoutPanelPinned,
                 })
             )}
             ref={containerRef}
@@ -106,6 +113,7 @@ export function PanelLayoutPanel({
                             iconOnly
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                             tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
                                 <IconPinFilled className="size-3 text-tertiary" />
@@ -119,11 +127,17 @@ export function PanelLayoutPanel({
             </div>
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
-                {searchField || filterDropdown ? (
+                {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
                             {searchField ?? null}
-                            {filterDropdown ?? null}
+
+                            {filterDropdown || sortDropdown ? (
+                                <div className="flex gap-px">
+                                    {filterDropdown ?? null}
+                                    {sortDropdown ?? null}
+                                </div>
+                            ) : null}
                         </div>
                         <div className="border-b border-primary h-px" />
                     </>
@@ -139,6 +153,10 @@ export function PanelLayoutPanel({
 
     return (
         <ResizableElement
+            className={cn({
+                relative: isLayoutPanelPinned,
+                'absolute left-full h-full': !isLayoutPanelPinned,
+            })}
             key="panel-layout-panel"
             defaultWidth={computedPanelWidth}
             onResize={(width) => {
@@ -149,6 +167,7 @@ export function PanelLayoutPanel({
             innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
+            data-attr="tree-panel-resizer"
         >
             {panelContents}
         </ResizableElement>

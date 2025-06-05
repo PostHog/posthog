@@ -17,6 +17,7 @@ import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/r
 import { MeasuringPersonsStoreForDistinctIdBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
 import { v4 } from 'uuid'
+import { BatchWritingGroupStoreForDistinctIdBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
 
 jest.setTimeout(10000)
 
@@ -73,10 +74,15 @@ describe('teardown', () => {
             String(event.team_id),
             event.distinct_id
         )
-        const result = await new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId).runEventPipeline(
+        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
+        const result = await new EventPipelineRunner(
+            hub,
             event,
-            team
-        )
+            null,
+            [],
+            personsStoreForDistinctId,
+            groupStoreForDistinctId
+        ).runEventPipeline(event, team)
         const resultEvent = result.args[0]
         return resultEvent
     }
