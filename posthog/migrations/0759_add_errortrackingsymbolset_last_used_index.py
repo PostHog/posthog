@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     operations = [
         AddIndexConcurrently(
             model_name="errortrackingsymbolset",
-            index=models.Index(fields=["last_used"], name="idx_error_tracking_symbol_set_last_used"),
+            index=models.Index(fields=["last_used"], name="posthog_err_last_us_c924f6_idx"),
         ),
     ]
 
