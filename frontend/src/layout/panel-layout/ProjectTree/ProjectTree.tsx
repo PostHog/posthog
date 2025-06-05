@@ -1,12 +1,4 @@
-import {
-    IconCheckbox,
-    IconChevronDown,
-    IconChevronRight,
-    IconFolder,
-    IconFolderPlus,
-    IconPlusSmall,
-    IconX,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -37,6 +29,7 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -47,16 +40,17 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { DashboardsMenu } from './menus/DashboardsMenu'
 import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
 import { SessionReplayMenu } from './menus/SessionReplayMenu'
-import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
+import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
-    sortMethod?: ProjectTreeSortMethod // default: "folder"
     root?: string
     onlyTree?: boolean
+    showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
 }
@@ -66,11 +60,11 @@ let counter = 0
 
 export function ProjectTree({
     logicKey,
-    sortMethod,
     root,
     onlyTree = false,
     searchPlaceholder,
     treeSize = 'default',
+    showRecents,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
@@ -94,6 +88,7 @@ export function ProjectTree({
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
+        sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
         createFolder,
@@ -118,14 +113,18 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, showLayoutNavBar } =
+        useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned, isLayoutPanelVisible, isLayoutNavbarVisible } =
+        useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const showFilterDropdown = root === 'project://'
+    const showSortDropdown = root === 'project://'
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -146,6 +145,14 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
+    function handleNodeClick(): void {
+        if (isMobileLayout && (isLayoutNavbarVisible || isLayoutPanelVisible)) {
+            showLayoutPanel(false)
+            showLayoutNavBar(false)
+            clearActivePanelIdentifier()
+        }
+    }
+
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         // Determine the separator component based on MenuItem type
@@ -163,7 +170,10 @@ export function ProjectTree({
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
                 <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
-                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                <>
+                    <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
             ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
                 <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : null
@@ -263,19 +273,20 @@ export function ProjectTree({
                         <MenuSeparator />
                     </>
                 ) : null}
-
-                {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
+                {item.record?.path ? (
                     root === 'shortcuts://' ? (
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                item.record && deleteShortcut(item.record?.id)
-                            }}
-                            data-attr="tree-item-menu-remove-from-shortcuts-button"
-                        >
-                            <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
-                        </MenuItem>
+                        item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/') ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    item.record && deleteShortcut(item.record?.id)
+                                }}
+                                data-attr="tree-item-menu-remove-from-shortcuts-button"
+                            >
+                                <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                            </MenuItem>
+                        ) : null
                     ) : (
                         <MenuItem
                             asChild
@@ -390,6 +401,7 @@ export function ProjectTree({
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     )
+                    handleNodeClick()
                 }
                 if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                     clearActivePanelIdentifier()
@@ -399,8 +411,8 @@ export function ProjectTree({
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
                 }
-                if (item?.id.startsWith('project-load-more/')) {
-                    const path = item.id.split('/').slice(1).join('/')
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
                     if (path) {
                         loadFolder(path)
                     }
@@ -480,20 +492,28 @@ export function ProjectTree({
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                return (
+                    <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'context')}
+                    </ContextMenuGroup>
+                )
             }}
             itemSideAction={(item) => {
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
-                return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                return (
+                    <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                        {renderMenuItems(item, 'dropdown')}
+                    </DropdownMenuGroup>
+                )
             }}
             itemSideActionIcon={(item) => {
                 if (item.record?.protocol === 'products://') {
                     if (item.name === 'Product analytics') {
                         return <IconPlusSmall className="text-tertiary" />
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return <IconChevronDown className="text-tertiary" />
+                        return <IconChevronRight className="size-3 text-tertiary rotate-90" />
                     }
                 }
             }}
@@ -555,7 +575,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
@@ -600,7 +620,7 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
+                if (root === 'products://' || root === 'data://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
                 if (root === 'new://') {
@@ -694,20 +714,18 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
+            searchField={
+                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                </BindLogic>
+            }
             filterDropdown={
                 showFilterDropdown ? (
                     <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 ) : null
             }
-            searchField={
-                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField
-                        root={root}
-                        placeholder={searchPlaceholder}
-                        logicKey={logicKey}
-                        uniqueKey={uniqueKey}
-                    />
-                </BindLogic>
+            sortDropdown={
+                showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
             panelActions={
                 root === 'project://' ? (
@@ -775,9 +793,13 @@ export function ProjectTree({
                 />
             </ButtonPrimitive>
 
-            <div role="status" aria-live="polite" className="sr-only">
-                Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
-            </div>
+            {showRecents ? (
+                <>
+                    <div role="status" aria-live="polite" className="sr-only">
+                        Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
+                    </div>
+                </>
+            ) : null}
 
             {tree}
         </PanelLayoutPanel>

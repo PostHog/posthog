@@ -73,6 +73,9 @@ export type TreeDataItem = {
 
     /** Tags for the item */
     tags?: string[]
+
+    /** Order of object in tree */
+    visualOrder?: number
 }
 export type TreeMode = 'tree' | 'table'
 
@@ -937,9 +940,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     item.onClick(willBeOpen)
                 }
 
-                setSelectedId(item?.id)
+                if (selectMode === 'folder-only') {
+                    setSelectedId(item?.id)
+                }
             },
-            [expandedItemIdsState, onFolderClick, onItemClick, focusContent]
+            [expandedItemIdsState, onFolderClick, onItemClick, focusContent, selectMode]
         )
 
         /** Focus the element from the tree item ID. */

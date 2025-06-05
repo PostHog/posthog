@@ -4,15 +4,7 @@ from uuid import UUID
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import (
-    exceptions,
-    mixins,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets, permissions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -26,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
+from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
 
 
 class OrganizationInviteManager:
@@ -302,6 +295,17 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
+    def dangerously_get_permissions(self):
+        if self.action == "create":
+            create_permissions = [
+                permission()
+                for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
+            ]
+
+            return create_permissions
+
+        raise NotImplementedError()
+
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
 
@@ -324,7 +328,12 @@ class OrganizationInviteViewSet(
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["organization_member:write"],
+        permission_classes=[UserCanInvitePermission],
+    )
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
         user = cast(User, self.request.user)

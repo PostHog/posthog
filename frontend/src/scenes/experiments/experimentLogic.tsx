@@ -55,6 +55,7 @@ import {
     CountPerActorMathType,
     DashboardType,
     Experiment,
+    ExperimentStatsMethod,
     FeatureFlagType,
     FunnelExperimentVariant,
     InsightType,
@@ -307,6 +308,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeReleaseConditionsModal: true,
         openDescriptionModal: true,
         closeDescriptionModal: true,
+        openStatsEngineModal: true,
+        closeStatsEngineModal: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
@@ -842,6 +845,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openDescriptionModal: () => true,
                 closeDescriptionModal: () => false,
+            },
+        ],
+        isStatsEngineModalOpen: [
+            false,
+            {
+                openStatsEngineModal: () => true,
+                closeStatsEngineModal: () => false,
             },
         ],
     }),
@@ -1966,6 +1976,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment: Experiment): ExperimentExposureCriteria | undefined => {
                 return experiment.exposure_criteria
+            },
+        ],
+        statsMethod: [
+            (s) => [s.experiment],
+            (experiment: Experiment): ExperimentStatsMethod => {
+                return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
             },
         ],
     }),

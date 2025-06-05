@@ -6,16 +6,10 @@ import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
-import {
-    createOrganization,
-    createTeam,
-    getTeam,
-    POSTGRES_DELETE_OTHER_TABLES_QUERY,
-    POSTGRES_DELETE_PERSON_TABLES_QUERY,
-} from '../../helpers/sql'
+import { BatchWritingGroupStoreForDistinctIdBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
@@ -25,8 +19,7 @@ describe('workerTasks.runEventPipeline()', () => {
     beforeAll(async () => {
         hub = await createHub()
         redis = await hub.redisPool.acquire()
-        await hub.postgres.query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSON_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
-        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
+        await resetTestDatabase()
         process.env = { ...OLD_ENV } // Make a copy
     })
 
@@ -73,8 +66,16 @@ describe('workerTasks.runEventPipeline()', () => {
             String(teamId),
             event.distinct_id
         )
+        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         await expect(
-            new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId).runEventPipeline(event, team)
+            new EventPipelineRunner(
+                hub,
+                event,
+                null,
+                [],
+                personsStoreForDistinctId,
+                groupStoreForDistinctId
+            ).runEventPipeline(event, team)
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
     })
