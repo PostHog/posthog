@@ -8,6 +8,7 @@ on:
 jobs:
     check-lockfile:
         name: Check lockfile is up to date
+        runs-on: ubuntu-latest
         defaults:
             run:
                 working-directory: cli
