@@ -143,11 +143,11 @@ def revenue_sum_expression_for_events(config: Union[Team, None]) -> ast.Expr:
 # This returns an expression that you can add to a `where` clause
 # to know if we have a event with valid revenue
 def revenue_where_expr_for_events(config: Union[Team, None]) -> ast.Expr:
-    if not config or not config.events:
+    if not config or not config.revenue_analytics_config or not config.revenue_analytics_config.events:
         return ast.Constant(value=False)
 
     exprs: list[ast.Expr] = []
-    for event in config.events:
+    for event in config.revenue_analytics_config.events:
         # Dont care about conversion, only care about comparison which is independent of conversion
         comparison_expr, _value_expr = revenue_comparison_and_value_exprs_for_events(
             config, event, do_currency_conversion=False
