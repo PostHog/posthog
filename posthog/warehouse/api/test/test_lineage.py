@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.api.lineage import join_components_greedily
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestLineage(APIBaseTest):
@@ -93,9 +94,23 @@ class TestLineage(APIBaseTest):
             saved_query=final_query,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}")
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        # Test that we only make 2 total queries realted to paths and saved queries
+        with capture_db_queries() as context:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}"
+            )
+            self.assertEqual(response.status_code, 200)
+
+            # Measure only the queries that are path of the upstream workflow - we get some extra queries from our auth/session system
+            view_queries = [
+                q
+                for q in context.captured_queries
+                if "datawarehousemodelpath" in q["sql"].lower() or "datawarehousesavedquery" in q["sql"].lower()
+            ]
+            self.assertEqual(
+                len(view_queries), 2, "Expected exactly 2 queries: one for paths and one for saved queries"
+            )
+            data = response.json()
 
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(len(nodes), 4)
