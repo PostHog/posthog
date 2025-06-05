@@ -44,7 +44,13 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_RATING_SCALE,
+} from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
@@ -289,7 +295,7 @@ function processRatingQuestion(
     questionIndex: number,
     results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
-    const scaleSize = question.scale === 10 ? 11 : question.scale
+    const scaleSize = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? 11 : question.scale
     const counts = new Array(scaleSize).fill(0)
     let total = 0
 
@@ -301,7 +307,7 @@ function processRatingQuestion(
                 let arrayIndex: number
                 let isValid = false
 
-                if (question.scale === 10) {
+                if (question.scale === SURVEY_RATING_SCALE.NPS_10_POINT) {
                     // NPS scale: 0-10 (11 values)
                     isValid = parsedValue >= 0 && parsedValue <= 10
                     arrayIndex = parsedValue
@@ -324,7 +330,7 @@ function processRatingQuestion(
         // For display labels:
         // - NPS (scale 10): show 0-10
         // - Regular scales: show 1-N (convert from 0-based index)
-        const label = question.scale === 10 ? index.toString() : (index + 1).toString()
+        const label = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? index.toString() : (index + 1).toString()
 
         return {
             label,

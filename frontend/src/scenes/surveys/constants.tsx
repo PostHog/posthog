@@ -25,6 +25,16 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+// Rating scale constants
+export const SURVEY_RATING_SCALE = {
+    EMOJI_3_POINT: 3,
+    LIKERT_5_POINT: 5,
+    LIKERT_7_POINT: 7,
+    NPS_10_POINT: 10,
+} as const
+
+export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
+
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
     [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],
@@ -100,7 +110,7 @@ export const defaultSurveyFieldValues = {
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 10,
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
                 buttonText: 'Submit',
@@ -261,7 +271,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 10,
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
             },
@@ -290,7 +300,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'emoji',
-                scale: 5,
+                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
                 lowerBoundLabel: 'Very dissatisfied',
                 upperBoundLabel: 'Very satisfied',
             },
@@ -307,7 +317,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 7,
+                scale: SURVEY_RATING_SCALE.LIKERT_7_POINT,
                 lowerBoundLabel: 'Strongly disagree',
                 upperBoundLabel: 'Strongly agree',
             },
@@ -394,3 +404,44 @@ export const SURVEY_TYPE_LABEL_MAP = {
 }
 
 export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
+
+export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
+    [SURVEY_RATING_SCALE.EMOJI_3_POINT]: '1 - 3',
+    [SURVEY_RATING_SCALE.LIKERT_5_POINT]: '1 - 5',
+    [SURVEY_RATING_SCALE.LIKERT_7_POINT]: '1 - 7',
+    [SURVEY_RATING_SCALE.NPS_10_POINT]: '0 - 10',
+}
+
+export const SCALE_OPTIONS = {
+    EMOJI: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.EMOJI_3_POINT], value: SURVEY_RATING_SCALE.EMOJI_3_POINT },
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
+    ],
+    NUMBER: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
+        {
+            label: `${SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_7_POINT]} (7 Point Likert Scale)`,
+            value: SURVEY_RATING_SCALE.LIKERT_7_POINT,
+        },
+        {
+            label: `${SCALE_LABELS[SURVEY_RATING_SCALE.NPS_10_POINT]} (Net Promoter Score)`,
+            value: SURVEY_RATING_SCALE.NPS_10_POINT,
+        },
+    ],
+}
+
+// Helper functions for rating scales
+export const getScaleSize = (scale: number): number => {
+    return scale === SURVEY_RATING_SCALE.NPS_10_POINT ? 11 : scale
+}
+
+export const isNPSScale = (scale: number): boolean => {
+    return scale === SURVEY_RATING_SCALE.NPS_10_POINT
+}
+
+export const getScaleRange = (scale: number): { min: number; max: number } => {
+    if (isNPSScale(scale)) {
+        return { min: 0, max: 10 }
+    }
+    return { min: 1, max: scale }
+}

@@ -34,7 +34,7 @@ import {
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
-import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
+import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -3142,7 +3142,7 @@ export interface LinkSurveyQuestion extends SurveyQuestionBase {
 export interface RatingSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Rating
     display: 'number' | 'emoji'
-    scale: number
+    scale: SurveyRatingScaleValue
     lowerBoundLabel: string
     upperBoundLabel: string
     skipSubmitButton?: boolean
