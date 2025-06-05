@@ -429,19 +429,3 @@ export const SCALE_OPTIONS = {
         },
     ],
 }
-
-// Helper functions for rating scales
-export const getScaleSize = (scale: number): number => {
-    return scale === SURVEY_RATING_SCALE.NPS_10_POINT ? 11 : scale
-}
-
-export const isNPSScale = (scale: number): boolean => {
-    return scale === SURVEY_RATING_SCALE.NPS_10_POINT
-}
-
-export const getScaleRange = (scale: number): { min: number; max: number } => {
-    if (isNPSScale(scale)) {
-        return { min: 0, max: 10 }
-    }
-    return { min: 1, max: scale }
-}
