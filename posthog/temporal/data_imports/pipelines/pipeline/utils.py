@@ -547,6 +547,28 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
+            # Upscale second timestamps to microsecond
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "s":
+                timestamp_array = pa.array(
+                    [(s * 1_000_000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    type=pa.timestamp("us"),
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+                adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Upscale millisecond timestamps to microsecond
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "ms":
+                timestamp_array = pa.array(
+                    [(s * 1000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    type=pa.timestamp("us"),
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+                adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
             # Remove any binary columns
             if pa.types.is_binary(field.type):
                 drop_column_names.add(field_name)
