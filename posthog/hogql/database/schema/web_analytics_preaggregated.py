@@ -2,7 +2,6 @@ from posthog.hogql.database.models import (
     DatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
-    DateDatabaseField,
     DateTimeDatabaseField,
     Table,
     FieldOrTable,
@@ -70,24 +69,27 @@ SHARED_SCHEMA_FIELDS = {
 }
 
 # Web stats daily specific fields
-WEB_STATS_DAILY_SPECIFIC_FIELDS = {
+WEB_STATS_SPECIFIC_FIELDS = {
     "pathname": StringDatabaseField(name="pathname", nullable=True),
 }
 
 # Web bounces daily specific fields (session calculations: bounce and duration)
-WEB_BOUNCES_DAILY_SPECIFIC_FIELDS = {
+WEB_BOUNCES_SPECIFIC_FIELDS = {
     "bounces_count_state": DatabaseField(name="bounces_count_state"),
     "total_session_duration_state": DatabaseField(name="total_session_duration_state"),
+    "total_session_count_state": DatabaseField(name="total_session_count_state"),
 }
 
 
+# Base table fields present in all tables
 web_preaggregated_base_fields = {
+    "period_bucket": DateTimeDatabaseField(name="period_bucket"),
     "team_id": IntegerDatabaseField(name="team_id"),
-    "day_bucket": DateDatabaseField(name="day_bucket"),
-    "host": StringDatabaseField(name="host", nullable=True),
-    "device_type": StringDatabaseField(name="device_type", nullable=True),
+    "host": StringDatabaseField(name="host"),
+    "device_type": StringDatabaseField(name="device_type"),
     "updated_at": DateTimeDatabaseField(name="updated_at"),
 }
+
 
 web_preaggregated_base_aggregation_fields = {
     "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
@@ -101,7 +103,7 @@ class WebStatsDailyTable(Table):
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
-        **WEB_STATS_DAILY_SPECIFIC_FIELDS,
+        **WEB_STATS_SPECIFIC_FIELDS,
     }
 
     def to_printed_clickhouse(self, context):
@@ -116,7 +118,7 @@ class WebBouncesDailyTable(Table):
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
         **SHARED_SCHEMA_FIELDS,
-        **WEB_BOUNCES_DAILY_SPECIFIC_FIELDS,
+        **WEB_BOUNCES_SPECIFIC_FIELDS,
     }
 
     def to_printed_clickhouse(self, context):
@@ -124,3 +126,63 @@ class WebBouncesDailyTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_daily"
+
+
+class WebStatsHourlyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_STATS_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_stats_hourly"
+
+    def to_printed_hogql(self):
+        return "web_stats_hourly"
+
+
+class WebBouncesHourlyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_BOUNCES_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_bounces_hourly"
+
+    def to_printed_hogql(self):
+        return "web_bounces_hourly"
+
+
+class WebStatsCombinedTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_STATS_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_stats_combined"
+
+    def to_printed_hogql(self):
+        return "web_stats_combined"
+
+
+class WebBouncesCombinedTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_BOUNCES_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_bounces_combined"
+
+    def to_printed_hogql(self):
+        return "web_bounces_combined"

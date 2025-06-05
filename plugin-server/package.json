@@ -6,7 +6,6 @@
     "main": "dist/index.js",
     "scripts": {
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
-        "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dev",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --exitcrash --watch src/ --exec node -r @swc-node/register src/index.ts",
@@ -84,6 +83,7 @@
         "node-fetch": "^2.6.1",
         "node-rdkafka": "^2.17.0",
         "node-schedule": "^2.1.0",
+        "p-limit": "3.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
         "posthog-node": "4.14.0",

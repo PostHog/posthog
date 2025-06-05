@@ -6,8 +6,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -60,17 +60,19 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive
                     iconOnly
-                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
                     data-attr="tree-filters-dropdown-menu-trigger-button"
+                    tooltip="Tree filters"
+                    tooltipPlacement="bottom"
                 >
                     <IconFilter className="size-3 text-tertiary" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                <DropdownMenuGroup>
-                    <DropdownMenuItem
-                        onClick={(e) => {
-                            e.preventDefault()
+                <DropdownMenuRadioGroup>
+                    <DropdownMenuRadioItem
+                        asChild
+                        value="user:me"
+                        onClick={() => {
                             setSearchTerm(
                                 searchTerm.includes('user:me')
                                     ? removeTagsEquals(searchTerm, 'user:me')
@@ -78,11 +80,15 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                             )
                         }}
                     >
-                        <ButtonPrimitive menuItem data-attr="tree-filters-dropdown-menu-only-my-stuff-button">
+                        <ButtonPrimitive
+                            menuItem
+                            data-attr="tree-filters-dropdown-menu-only-my-stuff-button"
+                            active={searchTerm.includes('user:me')}
+                        >
                             {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
                             Only my stuff
                         </ButtonPrimitive>
-                    </DropdownMenuItem>
+                    </DropdownMenuRadioItem>
                     <DropdownMenuSeparator />
                     {productTypesMapped
                         .filter(
@@ -90,10 +96,11 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                                 !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
                         )
                         .map((productType) => (
-                            <DropdownMenuItem
+                            <DropdownMenuRadioItem
+                                asChild
                                 key={productType.value}
-                                onClick={(e) => {
-                                    e.preventDefault()
+                                value={productType.value}
+                                onClick={() => {
                                     setSearchTerm(
                                         searchTerm.includes(`type:${productType.value}`)
                                             ? removeTagsStarting(searchTerm, 'type:')
@@ -107,13 +114,14 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                                 <ButtonPrimitive
                                     menuItem
                                     data-attr={`tree-filters-dropdown-menu-${productType.value}-button`}
+                                    active={searchTerm.includes(`type:${productType.value}`)}
                                 >
                                     {searchTerm.includes(`type:${productType.value}`) ? <IconCheck /> : <IconBlank />}
                                     {productType.label}
                                 </ButtonPrimitive>
-                            </DropdownMenuItem>
+                            </DropdownMenuRadioItem>
                         ))}
-                </DropdownMenuGroup>
+                </DropdownMenuRadioGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )
