@@ -177,6 +177,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
+    ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -1077,10 +1078,14 @@ export type SessionRecordingSnapshotParams =
 
 export interface SessionRecordingSnapshotSourceResponse {
     // v1 loaded each source separately
-    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'> | 'processed'
     // with v2 we can load multiple sources at once
     sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
+    // we process snapshots to make them rrweb vanilla playable
+    // this flag lets us skip reprocessing a source
+    // the processed source is implicitly processed
+    processed?: boolean
 }
 
 export interface SessionRecordingSnapshotResponse {
@@ -3625,6 +3630,11 @@ export interface ExperimentHoldoutType {
     updated_at: string | null
 }
 
+export enum ExperimentStatsMethod {
+    Bayesian = 'bayesian',
+    Frequentist = 'frequentist',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3671,6 +3681,7 @@ export interface Experiment {
     holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
+        method?: ExperimentStatsMethod
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -4416,6 +4427,7 @@ export enum NotebookNodeType {
     Properties = 'ph-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
+    Latex = 'ph-latex',
 }
 
 export type NotebookNodeResource = {

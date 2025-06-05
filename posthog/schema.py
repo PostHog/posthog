@@ -1140,6 +1140,32 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG_QL = "insightHogQL"
 
 
+class FileSystemImport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    flag: Optional[str] = None
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    iconType: Optional[FileSystemIconType] = None
+    id: Optional[str] = None
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
+    type: Optional[str] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
+
+
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
@@ -2837,30 +2863,42 @@ class ExperimentMetricBaseProperties(BaseModel):
     name: Optional[str] = None
 
 
-class FileSystemImport(BaseModel):
+class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    field_loading: Optional[bool] = Field(
-        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    key: str
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    created_at: Optional[str] = Field(
-        default=None, description="Timestamp when file was added. Used to check persistence"
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: int
+    significant: bool
+    sum: float
+    sum_squares: float
+
+
+class ExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    flag: Optional[str] = None
-    href: Optional[str] = Field(default=None, description="Object's URL")
-    iconType: Optional[FileSystemIconType] = None
-    id: Optional[str] = None
-    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
-    path: str = Field(..., description="Object's name and folder")
-    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
-    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
-    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
-    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    type: Optional[str] = Field(
-        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
-    )
-    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: int
+    p_value: float
+    significant: bool
+    sum: float
+    sum_squares: float
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -5915,6 +5953,14 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class ExperimentMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8920,6 +8966,7 @@ class VectorSearchQuery(BaseModel):
         extra="forbid",
     )
     embedding: list[float]
+    embeddingVersion: Optional[float] = None
     kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
