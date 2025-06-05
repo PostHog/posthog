@@ -404,7 +404,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                    const variantsSet = new Set(multivariateOptions?.variants.map((variant) => variant.key))
+                    const groups = state.filters.groups.map((group) =>
+                        !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
+                    )
+                    return { ...state, filters: { ...state.filters, groups, multivariate: multivariateOptions } }
                 },
                 setRemoteConfigEnabled: (state, { enabled }) => {
                     if (!state) {
