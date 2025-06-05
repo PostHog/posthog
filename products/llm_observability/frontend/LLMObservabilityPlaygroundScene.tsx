@@ -45,7 +45,7 @@ export function LLMObservabilityPlaygroundScene(): JSX.Element {
 
 function PlaygroundLayout(): JSX.Element {
     return (
-        <div className="flex flex-col min-h-[calc(100vh-200px)]">
+        <div className="flex flex-col min-h-[calc(100vh-120px)]">
             {/* Main conversation area - full width */}
             <div className="flex flex-col border rounded overflow-hidden flex-1">
                 <ConversationPanel />
