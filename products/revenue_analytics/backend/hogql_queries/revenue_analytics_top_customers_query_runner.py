@@ -80,7 +80,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
     def inner_query(self) -> ast.SelectQuery:
         _, _, invoice_subquery, _ = self.revenue_subqueries
         if invoice_subquery is None:
-            # Empty query because there are no charges, but still include the right columns
+            # Empty query because there are no invoice items, but still include the right columns
             # to make sure the outer query works
             return ast.SelectQuery(
                 select=[

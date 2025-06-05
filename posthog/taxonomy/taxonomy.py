@@ -1894,7 +1894,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$csp_script_sample": {
             "label": "Script sample",
-            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
             "examples": ["eval('alert(1)')"],
         },
         "$csp_report_type": {
@@ -2098,7 +2098,7 @@ def decapitalize_first_word(text: str) -> str:
 
     def decapitalize(match):
         """Decapitalize words like `Browser`, but leaves acronyms like `UTM` and exceptions like `GeoIP` intact."""
-        word = match.group(0)
+        word: list[str] = match.group(0)
         return word[0].lower() + word[1:] if word.islower() or (not word.isupper() and word != "GeoIP") else word
 
     return re.sub(r"^\b\w+\b", decapitalize, text, count=1)

@@ -395,7 +395,7 @@
             "label": "Report type"
         },
         "$csp_script_sample": {
-            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
             "examples": ["eval('alert(1)')"],
             "label": "Script sample"
         },
@@ -2200,7 +2200,7 @@
             "label": "Report type"
         },
         "$csp_script_sample": {
-            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
             "examples": ["eval('alert(1)')"],
             "label": "Script sample"
         },

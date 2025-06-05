@@ -41,11 +41,11 @@ class RevenueAnalyticsBaseView(SavedQuery):
     # Used in child classes to generate view names
     @classmethod
     def get_view_name_for_source(cls, source: ExternalDataSource, view_name: str) -> str:
-        return f"{RevenueAnalyticsBaseView.get_view_prefix_for_source(source)}.{view_name}"
+        return f"{cls.get_view_prefix_for_source(source)}.{view_name}"
 
     @classmethod
     def get_view_name_for_event(cls, event: str, view_name: str) -> str:
-        return f"{RevenueAnalyticsBaseView.get_view_prefix_for_event(event)}.{view_name}"
+        return f"{cls.get_view_prefix_for_event(event)}.{view_name}"
 
     @classmethod
     def get_view_prefix_for_source(cls, source: ExternalDataSource) -> str:
