@@ -778,7 +778,7 @@ class CSPMiddleware:
     def __call__(self, request: HttpRequest):
         # Generate nonce early and store it on the request
         nonce = secrets.token_urlsafe(32)
-        request.csp_nonce = nonce
+        request.csp_nonce = nonce  # type: ignore[attr-defined]
 
         response: HttpResponse = self.get_response(request)
 
@@ -791,7 +791,7 @@ class CSPMiddleware:
 
             if self.reporting_endpoint:
                 reporting_endpoint = self.reporting_endpoint
-                if self.add_distinct_id and request.user and request.user.distinct_id:
+                if self.add_distinct_id and isinstance(User, request.user) and request.user.distinct_id:
                     reporting_endpoint = reporting_endpoint + f"&distinct_id={request.user.distinct_id}"
 
                 response["Reporting-Endpoints"] = f'posthog-reporting-endpoint="{reporting_endpoint}"'
