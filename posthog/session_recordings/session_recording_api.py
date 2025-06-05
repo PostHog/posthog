@@ -35,6 +35,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
+from ee.session_recordings.session_summary.temporal.summarize_session import SessionSummaryInputs, excectute_test_summarize_session
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
 from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
@@ -935,6 +936,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
+        wakawaka = excectute_test_summarize_session(SessionSummaryInputs(session_id=session_id, user_pk=user.pk, team_pk=self.team.pk))
         replay_summarizer = ReplaySummarizer(user=user, team=self.team, session_id=session_id, local_reads_prod=False)
         return StreamingHttpResponse(
             replay_summarizer.stream_recording_summary(), content_type=ServerSentEventRenderer.media_type
