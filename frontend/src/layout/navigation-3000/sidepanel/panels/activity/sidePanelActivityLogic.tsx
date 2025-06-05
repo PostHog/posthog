@@ -28,10 +28,10 @@ export type ActivityFilters = {
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
-    image?: {
-        url: string
-        alt: string
-    }
+    // Images can be embedded directly in the markdown using ![alt text](url) syntax.
+    // LemonMarkdown will render them.
+    // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
+    // and optimized for web (e.g., < 500KB).
 }
 
 export interface ChangesResponse {
@@ -228,7 +228,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         changelogNotification = {
                             markdown: flagPayload['markdown'],
                             notificationDate: dayjs(flagPayload['notificationDate']),
-                            image: flagPayload['image']
+                            // The separate image field is no longer used.
+                            // Images should be embedded in the markdown string.
                         } as ChangelogFlagPayload
                     }
 
@@ -243,20 +244,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                             email: 'joe@posthog.com',
                             name: 'Joe',
                             isSystem: true,
-                            description: (
-                                <>
-                                    {changelogNotification.image && (
-                                        <div className="mb-2">
-                                            <img 
-                                                src={changelogNotification.image.url} 
-                                                alt={changelogNotification.image.alt} 
-                                                className="max-w-full rounded"
-                                            />
-                                        </div>
-                                    )}
-                                    <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>
-                                </>
-                            ),
+                            description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
                             created_at: changelogNotification.notificationDate,
                             unread: changeLogIsUnread,
                         }
