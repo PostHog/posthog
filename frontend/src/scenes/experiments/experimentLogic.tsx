@@ -244,13 +244,13 @@ const loadMetrics = async ({
 export function isLegacyExperimentResponse(
     response: CachedExperimentQueryResponse
 ): response is CachedLegacyExperimentQueryResponse {
-    return 'variants' in response && 'probability' in response && 'significant' in response
+    return 'variants' in response && response.variants !== null
 }
 
 export function isNewExperimentResponse(
     response: CachedExperimentQueryResponse
 ): response is CachedNewExperimentQueryResponse {
-    return 'baseline' in response && 'variant_results' in response
+    return 'baseline' in response && response.baseline !== null
 }
 
 // Generic type guard for use in components that receive broader union types
