@@ -79,7 +79,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                             groupType={TaxonomicFilterGroupType.EventProperties}
                                             onChange={(newPropertyName) =>
                                                 updateEventRevenueCurrencyProperty(item.eventName, {
-                                                    property: newPropertyName!,
+                                                    property: newPropertyName,
                                                 })
                                             }
                                             value={item.revenueCurrencyProperty.property ?? null}

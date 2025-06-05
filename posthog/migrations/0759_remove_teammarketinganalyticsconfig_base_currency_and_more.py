@@ -86,7 +86,7 @@ def reverse_consolidate_base_currency(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0753_teammarketinganalyticsconfig"),
-        ("posthog", "0757_organization_session_cookie_age"),
+        ("posthog", "0758_alter_externaldatasource_source_type"),
     ]
 
     operations = [
