@@ -21,7 +21,7 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -252,29 +252,29 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         ...getTreeItemsProducts(),
         {
             path: `Data pipelines`,
+            category: 'Tools',
             type: 'hog_function',
             iconType: 'plug',
             href: urls.pipeline(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataPipeline,
         } as FileSystemImport,
         {
             path: `SQL editor`,
+            category: 'Analytics',
             type: 'sql',
             href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
         } as FileSystemImport,
         {
             path: 'Error tracking',
+            category: 'Behaviour',
             iconType: 'warning',
             href: urls.errorTracking(),
-            visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,
         {
             path: 'Heatmaps',
+            category: 'Behaviour',
             iconType: 'cursorClick',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
-            visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
             tags: ['alpha'],
         } as FileSystemImport,
     ].sort((a, b) => {

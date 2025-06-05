@@ -2081,6 +2081,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     tags?: ('alpha' | 'beta')[]
     /** Protocol of the item, defaults to "project://" */
     protocol?: string
+    /** Category label to place this under */
+    category?: string
 }
 
 export interface PersistedFolder {
