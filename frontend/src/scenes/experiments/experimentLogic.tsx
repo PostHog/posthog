@@ -777,7 +777,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setMetricResults: (_, { results }) => results,
             },
         ],
-        metricResultsNew: [
+        metricResults: [
             [] as CachedNewExperimentQueryResponse[],
             {
                 setMetricResultsNew: (_, { results }) => results,
@@ -2083,11 +2083,10 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         // New format selectors
         hasPrimaryMetricNewResults: [
-            (s) => [s.metricResultsNew],
-            (metricResultsNew: CachedNewExperimentQueryResponse[]): boolean => {
+            (s) => [s.metricResults],
+            (metricResults: CachedNewExperimentQueryResponse[]): boolean => {
                 return (
-                    metricResultsNew.length > 0 &&
-                    metricResultsNew.some((result) => result !== null && result !== undefined)
+                    metricResults.length > 0 && metricResults.some((result) => result !== null && result !== undefined)
                 )
             },
         ],
@@ -2101,10 +2100,10 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         primaryMetricNewResult: [
-            (s) => [s.metricResultsNew],
-            (metricResultsNew: CachedNewExperimentQueryResponse[]) =>
+            (s) => [s.metricResults],
+            (metricResults: CachedNewExperimentQueryResponse[]) =>
                 (metricIndex: number = 0): CachedNewExperimentQueryResponse | null => {
-                    return metricResultsNew?.[metricIndex] || null
+                    return metricResults?.[metricIndex] || null
                 },
         ],
         secondaryMetricNewResult: [
