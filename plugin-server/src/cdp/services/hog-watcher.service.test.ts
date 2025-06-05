@@ -191,7 +191,7 @@ describe('HogWatcher', () => {
     })
 
     it('should max out scores', async () => {
-        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 300 }))
+        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 25000 }))
 
         await watcher.observeResults(lotsOfResults)
 

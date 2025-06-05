@@ -99,8 +99,8 @@ export class HogWatcherService {
     }
 
     public tokensToFunctionState(tokens?: number | null, stateOverride?: HogWatcherState): HogWatcherFunctionState {
-        tokens = Math.max(0, tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
-        const rating = Math.max(0, tokens / this.hub.CDP_WATCHER_BUCKET_SIZE)
+        tokens = tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE
+        const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
         const state =
             stateOverride ??
