@@ -801,7 +801,6 @@ export function LineGraph_({
                                             )} (${percentageLabel}%)`
                                         })
                                     }
-                                    formula={!!formula}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'

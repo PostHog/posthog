@@ -88,7 +88,6 @@ posthog/api/uploaded_media.py:0: error: Argument 1 to "read_bytes" has incompati
 posthog/api/uploaded_media.py:0: error: Argument 1 to "read_bytes" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/api/user.py:0: error: "User" has no attribute "social_auth"  [attr-defined]
 posthog/api/utils.py:0: error: Argument 1 to "UUID" has incompatible type "int | str"; expected "str | None"  [arg-type]
-posthog/api/utils.py:0: error: Incompatible types in assignment (expression has type "type[EventDefinition]", variable has type "type[EnterpriseEventDefinition]")  [assignment]
 posthog/async_migrations/test/test_runner.py:0: error: Item "None" of "datetime | None" has no attribute "day"  [union-attr]
 posthog/caching/insight_caching_state.py:0: error: Argument "params" to "execute" of "CursorWrapper" has incompatible type "list[object]"; expected "Sequence[bool | int | float | Decimal | str | <6 more items> | None] | Mapping[str, bool | int | float | Decimal | str | <6 more items> | None] | None"  [arg-type]
 posthog/caching/insights_api.py:0: error: Unsupported operand types for >= ("datetime" and "None")  [operator]

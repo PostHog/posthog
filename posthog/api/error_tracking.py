@@ -757,3 +757,7 @@ def validate_bytecode(bytecode: list[Any]) -> None:
                 raise ValidationError(f"Expected string for global function name, got {type(name)}")
             if name not in RUST_HOGVM_STL:
                 raise ValidationError(f"Unknown global function: {name}")
+
+
+def get_suppression_rules(team: Team):
+    return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))

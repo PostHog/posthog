@@ -32,7 +32,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Actions',
-            iconType: 'rocket',
+            iconType: 'cursor',
             href: urls.actions(),
         },
     ],

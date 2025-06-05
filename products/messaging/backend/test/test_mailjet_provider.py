@@ -41,7 +41,10 @@ class TestMailjetProvider(TestCase):
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_format_dns_records(self):
         provider = MailjetProvider()
-        status, records = provider._format_dns_records(self.mock_dns_response)
+        status, records = provider._format_dns_records(
+            self.mock_dns_response,
+            self.mock_dns_response,
+        )
 
         self.assertEqual(status, "pending")
         self.assertEqual(len(records), 2)
@@ -66,7 +69,7 @@ class TestMailjetProvider(TestCase):
         verified_response["DKIMStatus"] = "OK"
         verified_response["SPFStatus"] = "OK"
 
-        status, records = provider._format_dns_records(verified_response)
+        status, records = provider._format_dns_records(verified_response, verified_response)
 
         self.assertEqual(status, "success")
         self.assertEqual(records[0]["status"], "success")
@@ -78,7 +81,7 @@ class TestMailjetProvider(TestCase):
         partial_response = self.mock_dns_response.copy()
         partial_response["DKIMStatus"] = "OK"
 
-        status, records = provider._format_dns_records(partial_response)
+        status, records = provider._format_dns_records(partial_response, partial_response)
 
         self.assertEqual(status, "pending")
         self.assertEqual(records[0]["status"], "success")
@@ -88,7 +91,7 @@ class TestMailjetProvider(TestCase):
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_create_email_domain_success(self, mock_post):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"count": 1, "data": [{"Success": True}], "total": 1}
+        mock_response.json.return_value = {"Count": 1, "Data": [{"Success": True}], "Total": 1}
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
 
@@ -122,7 +125,7 @@ class TestMailjetProvider(TestCase):
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_get_domain_dns_records_success(self, mock_get):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"count": 1, "data": [self.mock_dns_response], "total": 1}
+        mock_response.json.return_value = {"Count": 1, "Data": [self.mock_dns_response], "Total": 1}
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
@@ -134,7 +137,7 @@ class TestMailjetProvider(TestCase):
         args, kwargs = mock_get.call_args
         self.assertEqual(kwargs["auth"], ("test_api_key", "test_secret_key"))
         self.assertEqual(kwargs["headers"], {"Content-Type": "application/json"})
-        self.assertEqual(args[0], f"https://api.mailjet.com/v3/dns/{self.domain}")
+        self.assertEqual(args[0], f"https://api.mailjet.com/v3/REST/dns/{self.domain}")
 
     @patch("requests.get")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
@@ -146,23 +149,23 @@ class TestMailjetProvider(TestCase):
         with self.assertRaises(Exception):
             provider._get_domain_dns_records(self.domain)
 
-    @patch("requests.get")
+    @patch("requests.post")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_check_domain_dns_records_success(self, mock_get):
+    def test_check_domain_dns_records_success(self, mock_post):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"count": 1, "data": [self.mock_dns_response], "total": 1}
+        mock_response.json.return_value = {"Count": 1, "Data": [self.mock_dns_response], "Total": 1}
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_post.return_value = mock_response
 
         provider = MailjetProvider()
         result = provider._check_domain_dns_records(self.domain)
 
         self.assertEqual(result, self.mock_dns_response)
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
         self.assertEqual(kwargs["auth"], ("test_api_key", "test_secret_key"))
         self.assertEqual(kwargs["headers"], {"Content-Type": "application/json"})
-        self.assertEqual(args[0], f"https://api.mailjet.com/v3/dns/{self.domain}/check")
+        self.assertEqual(args[0], f"https://api.mailjet.com/v3/REST/dns/{self.domain}/check")
 
     @patch("requests.get")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
@@ -175,31 +178,37 @@ class TestMailjetProvider(TestCase):
             provider._check_domain_dns_records(self.domain)
 
     @patch.object(MailjetProvider, "_check_domain_dns_records")
+    @patch.object(MailjetProvider, "_get_domain_dns_records")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_verify_email_domain(self, mock_check_dns):
+    def test_verify_email_domain(self, mock_get_dns, mock_check_dns):
         verified_dns_response = self.mock_dns_response.copy()
         verified_dns_response["DKIMStatus"] = "OK"
         verified_dns_response["SPFStatus"] = "OK"
+        mock_get_dns.return_value = verified_dns_response
         mock_check_dns.return_value = verified_dns_response
 
         provider = MailjetProvider()
         result = provider.verify_email_domain(self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
+        mock_get_dns.assert_called_once_with(self.domain)
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(result["dnsRecords"]), 2)
         self.assertTrue(all(record["status"] == "success" for record in result["dnsRecords"]))
 
     @patch.object(MailjetProvider, "_check_domain_dns_records")
+    @patch.object(MailjetProvider, "_get_domain_dns_records")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_verify_email_domain_not_verified(self, mock_check_dns):
+    def test_verify_email_domain_not_verified(self, mock_get_dns, mock_check_dns):
+        mock_get_dns.return_value = self.mock_dns_response
         mock_check_dns.return_value = self.mock_dns_response
 
         provider = MailjetProvider()
         result = provider.verify_email_domain(self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
+        mock_get_dns.assert_called_once_with(self.domain)
 
         self.assertEqual(result["status"], "pending")
         self.assertEqual(len(result["dnsRecords"]), 2)
