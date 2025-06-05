@@ -17,9 +17,7 @@ export const AttributesFilter = (): JSX.Element => {
             rootKey={rootKey}
             group={filterGroup}
             taxonomicGroupTypes={[TaxonomicFilterGroupType.Logs]}
-            onChange={(filterGroup) => {
-                setFilterGroup(filterGroup)
-            }}
+            onChange={(filterGroup) => setFilterGroup(filterGroup)}
         >
             <NestedFilterGroup />
         </UniversalFilters>
@@ -27,27 +25,36 @@ export const AttributesFilter = (): JSX.Element => {
 }
 
 const NestedFilterGroup = (): JSX.Element => {
+    const { openFilterOnInsert } = useValues(logsLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
     return (
-        <div className="border">
+        <div className="flex gap-1 items-center flex-wrap">
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <NestedFilterGroup />
-                    </UniversalFilters.Group>
+                    <>
+                        <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                            <UniversalFilters.AddFilterButton
+                                className="bg-surface-primary"
+                                size="small"
+                                type="secondary"
+                            />
+                            <NestedFilterGroup />
+                        </UniversalFilters.Group>
+                    </>
                 ) : (
                     <UniversalFilters.Value
                         key={index}
                         index={index}
                         filter={filterOrGroup}
+                        initiallyOpen={openFilterOnInsert}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        className="h-[33px]"
                     />
                 )
             })}
-            <UniversalFilters.AddFilterButton />
         </div>
     )
 }

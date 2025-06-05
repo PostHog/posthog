@@ -105,7 +105,7 @@ export function NPSBreakdownSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="font-semibold text-secondary">
-                <LemonSkeleton className="h-4 w-20" />
+                <LemonSkeleton className="h-10 w-20" />
                 <Tooltip
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
@@ -123,7 +123,7 @@ function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.
     return (
         <div className="flex flex-col gap-2">
             <div className="font-semibold text-secondary">
-                <div className="text-4xl font-bold">{npsBreakdown.score}</div>
+                <div className="text-4xl font-bold text-primary">{npsBreakdown.score}</div>
                 <Tooltip
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
@@ -378,10 +378,6 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     const barColor = CHART_INSIGHTS_COLORS[0]
 
     const { data } = processedData
-
-    // if scale is not 10, we need to skip the 0
-    const normalizeScaleData = question.scale !== 10 ? data.slice(1) : data
-
     const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
 
     return (
@@ -409,7 +405,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                         label: 'Number of responses',
                                         barPercentage: 0.8,
                                         minBarLength: 2,
-                                        data: normalizeScaleData.map((d) => d.value),
+                                        data: data.map((d) => d.value),
                                         backgroundColor: barColor,
                                         borderColor: barColor,
                                         hoverBackgroundColor: barColor,

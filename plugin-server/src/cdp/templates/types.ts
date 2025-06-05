@@ -13,7 +13,7 @@ export type HogFunctionMappingTemplate = HogFunctionMappingType & {
 }
 
 export type HogFunctionTemplate = {
-    status: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
+    status: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
     free: boolean
     type: HogFunctionTypeType
     id: string
