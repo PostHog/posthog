@@ -2331,6 +2331,38 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
+    def test_get_teams_for_usage_reports_only_fields(self) -> None:
+        teams = _get_teams_for_usage_reports()
+        team: Team = teams[0]
+
+        # these fields are included in the query, so shouldn't require additional queries
+        with self.assertNumQueries(0):
+            _ = team.id
+            _ = team.organization.id
+            _ = team.organization.name
+            _ = team.organization.created_at
+
+        # This field is not included in the original team query, so should require an additional query
+        with self.assertNumQueries(1):
+            _ = team.organization.for_internal_metrics
+
+    def test_get_teams_for_usage_reports_excludes_organization_with_is_platform(self) -> None:
+        """Test that teams with organization.is_platform=True are excluded from usage reports"""
+
+        org_normal = Organization.objects.create(name="Normal Org")
+        org_platform = Organization.objects.create(name="Platform Org", is_platform=True)
+
+        team_normal = Team.objects.create(organization=org_normal, name="Normal Team")
+        team_platform = Team.objects.create(organization=org_platform, name="Platform Team")
+
+        # Get teams for usage reports
+        teams = _get_teams_for_usage_reports()
+        team_ids = [team.id for team in teams]
+
+        # Assert that only the normal team is included
+        self.assertIn(team_normal.id, team_ids)
+        self.assertNotIn(team_platform.id, team_ids)
+
 
 class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
@@ -2388,21 +2420,6 @@ class SendUsageNoLicenseTest(APIBaseTest):
         send_all_org_usage_reports()
 
         mock_post.assert_not_called()
-
-    def test_get_teams_for_usage_reports_only_fields(self) -> None:
-        teams = _get_teams_for_usage_reports()
-        team: Team = teams[0]
-
-        # these fields are included in the query, so shouldn't require additional queries
-        with self.assertNumQueries(0):
-            _ = team.id
-            _ = team.organization.id
-            _ = team.organization.name
-            _ = team.organization.created_at
-
-        # This field is not included in the original team query, so should require an additional query
-        with self.assertNumQueries(1):
-            _ = team.organization.for_internal_metrics
 
 
 class TestQuerySplitting(ClickhouseTestMixin, TestCase):
