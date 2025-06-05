@@ -9847,6 +9847,10 @@
                     "description": "Used to indicate pending actions, frontend only",
                     "type": "boolean"
                 },
+                "category": {
+                    "description": "Category label to place this under",
+                    "type": "string"
+                },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
                     "type": "string"
