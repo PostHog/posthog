@@ -1424,14 +1424,6 @@ class MarketingAnalyticsSchema(RootModel[str]):
     root: str
 
 
-class MarketingAnalyticsSchemaField(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    required: bool
-    type: list[str]
-
-
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

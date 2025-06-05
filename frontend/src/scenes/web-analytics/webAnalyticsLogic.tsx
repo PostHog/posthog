@@ -35,7 +35,6 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
-    MARKETING_ANALYTICS_SCHEMA,
     NodeKind,
     QuerySchema,
     SourceMap,
@@ -74,6 +73,7 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
+import { MARKETING_ANALYTICS_SCHEMA } from './tabs/marketing-analytics/utils'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {

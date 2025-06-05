@@ -7,9 +7,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']

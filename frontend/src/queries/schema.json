@@ -12479,22 +12479,6 @@
         "MarketingAnalyticsSchema": {
             "type": ["string"]
         },
-        "MarketingAnalyticsSchemaField": {
-            "additionalProperties": false,
-            "properties": {
-                "required": {
-                    "type": "boolean"
-                },
-                "type": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["type", "required"],
-            "type": "object"
-        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {
