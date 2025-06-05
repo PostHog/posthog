@@ -256,6 +256,7 @@ export class SegmentDestinationExecutorService {
                     )
 
                     if (fetchError || !fetchResponse || fetchResponse.status >= 400) {
+                        const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
                         if (
                             !(
                                 retriesPossible &&
@@ -267,9 +268,9 @@ export class SegmentDestinationExecutorService {
                         }
                         addLog(
                             'warn',
-                            `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. ${
-                                retriesPossible ? 'Scheduling retry...' : ''
-                            }`
+                            `HTTP request failed with status ${
+                                fetchResponse?.status ?? 'unknown'
+                            } (${fetchResponseText}). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
                         // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
@@ -277,9 +278,9 @@ export class SegmentDestinationExecutorService {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
-                                }: Request failed with status ${fetchResponse?.status ?? 'unknown'} (${
-                                    (await fetchResponse?.text()) ?? 'unknown'
-                                })`
+                                }: Request failed with status ${
+                                    fetchResponse?.status ?? 'unknown'
+                                } (${fetchResponseText})`
                             )
                         }
                     }
