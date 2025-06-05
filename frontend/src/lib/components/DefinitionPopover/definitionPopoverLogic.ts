@@ -229,10 +229,16 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
+        isVirtual: [
+            (s) => [s.definition],
+            (definition) => {
+                return 'virtual' in definition && definition.virtual
+            },
+        ],
         hasSentAs: [
-            (s) => [s.type, s.isProperty, s.isEvent],
-            (type, isProperty, isEvent) =>
-                isEvent || (isProperty && type !== TaxonomicFilterGroupType.SessionProperties),
+            (s) => [s.type, s.isProperty, s.isEvent, s.isVirtual],
+            (type, isProperty, isEvent, isVirtual) =>
+                (isEvent || (isProperty && type !== TaxonomicFilterGroupType.SessionProperties)) && !isVirtual,
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],

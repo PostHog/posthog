@@ -934,3 +934,13 @@ class TestProperty(BaseTest):
             str(e.exception),
             "The 'event_metadata' property filter does not work in 'person' scope",
         )
+
+    def test_virtual_person_properties_on_person_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
+        ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
+
+    def test_virtual_person_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
+        ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")

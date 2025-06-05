@@ -14,7 +14,11 @@ def get_properties_chain(
     group_type_index: Optional[float | int],
 ) -> list[str | int]:
     if breakdown_type == "person":
-        return ["person", "properties", breakdown_field]
+        if breakdown_field.startswith("$virt_"):
+            # Virtual properties exist as expression fields on the persons table
+            return ["person", breakdown_field]
+        else:
+            return ["person", "properties", breakdown_field]
 
     if breakdown_type == "session":
         return ["session", breakdown_field]
