@@ -2272,43 +2272,25 @@ export interface ExperimentQueryResponse {
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
 export interface LegacyExperimentQueryResponse extends Omit<ExperimentQueryResponse, 'baseline' | 'variant_results'> {
-    // Required legacy fields
+    kind: NodeKind.ExperimentQuery
+    insight: Record<string, any>[]
+    metric: ExperimentMetric
     variants: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
     probability: Record<string, number>
     significant: boolean
-    
-    // Optional legacy fields (keeping as optional)
-    kind?: NodeKind.ExperimentQuery
-    insight?: Record<string, any>[]
-    metric?: ExperimentMetric
-    significance_code?: ExperimentSignificanceCode
+    significance_code: ExperimentSignificanceCode
     stats_version?: integer
-    p_value?: number
-    credible_intervals?: Record<string, [number, number]>
-    
-    // New fields explicitly excluded
-    baseline?: never
-    variant_results?: never
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
 }
 
-export interface NewExperimentQueryResponse extends Omit<ExperimentQueryResponse, 'variants' | 'probability' | 'significant' | 'insight' | 'significance_code' | 'p_value' | 'credible_intervals'> {
-    // Required new fields
+export interface NewExperimentQueryResponse
+    extends Omit<
+        ExperimentQueryResponse,
+        'variants' | 'probability' | 'significant' | 'insight' | 'significance_code' | 'p_value' | 'credible_intervals'
+    > {
     baseline: ExperimentStatsBase
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
-    
-    // Optional fields that can exist in both
-    kind?: NodeKind.ExperimentQuery
-    metric?: ExperimentMetric
-    stats_version?: integer
-    
-    // Legacy fields explicitly excluded
-    variants?: never
-    probability?: never
-    significant?: never
-    insight?: never
-    significance_code?: never
-    p_value?: never
-    credible_intervals?: never
 }
 
 export interface ExperimentStatsBase {

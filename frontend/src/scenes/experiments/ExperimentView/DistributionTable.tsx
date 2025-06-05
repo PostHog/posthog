@@ -17,7 +17,7 @@ import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/fe
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, isLegacyExperimentResponseGeneric } from '../experimentLogic'
 import { VariantTag } from './components'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
@@ -165,7 +165,7 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                if (!result || !result.insight) {
+                if (!result || !isLegacyExperimentResponseGeneric(result) || !result.insight) {
                     return <span className="font-semibold">{item.key}</span>
                 }
                 return <VariantTag experimentId={experimentId} variantKey={item.key} />

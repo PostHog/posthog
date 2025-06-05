@@ -3666,10 +3666,16 @@
             },
             "required": [
                 "cache_key",
+                "credible_intervals",
+                "insight",
                 "is_cached",
+                "kind",
                 "last_refresh",
+                "metric",
                 "next_allowed_client_refresh",
+                "p_value",
                 "probability",
+                "significance_code",
                 "significant",
                 "timezone",
                 "variants"
@@ -12492,7 +12498,17 @@
                     ]
                 }
             },
-            "required": ["variants", "probability", "significant"],
+            "required": [
+                "kind",
+                "insight",
+                "metric",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "p_value",
+                "credible_intervals"
+            ],
             "type": "object"
         },
         "LifecycleFilter": {

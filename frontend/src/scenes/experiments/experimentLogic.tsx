@@ -236,16 +236,21 @@ const loadMetrics = async ({
 }
 
 // Type guards to distinguish between legacy and new experiment responses
-function isLegacyExperimentResponse(
+export function isLegacyExperimentResponse(
     response: CachedExperimentQueryResponse
 ): response is CachedLegacyExperimentQueryResponse {
     return 'variants' in response && 'probability' in response && 'significant' in response
 }
 
-function isNewExperimentResponse(
+export function isNewExperimentResponse(
     response: CachedExperimentQueryResponse
 ): response is CachedNewExperimentQueryResponse {
     return 'baseline' in response && 'variant_results' in response
+}
+
+// Generic type guard for use in components that receive broader union types
+export function isLegacyExperimentResponseGeneric(response: any): response is CachedLegacyExperimentQueryResponse {
+    return response && 'variants' in response && 'probability' in response && 'significant' in response
 }
 
 // Union type for strongly typed experiment responses

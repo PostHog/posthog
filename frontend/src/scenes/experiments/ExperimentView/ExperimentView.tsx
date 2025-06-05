@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, isLegacyExperimentResponseGeneric } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
@@ -37,7 +37,9 @@ const ResultsTab = (): JSX.Element => {
         metricResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
-    const hasSomeResults = metricResults?.some((result) => result?.insight)
+    const hasSomeResults = metricResults?.some(
+        (result) => result && isLegacyExperimentResponseGeneric(result) && result?.insight
+    )
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 

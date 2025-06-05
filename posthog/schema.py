@@ -9892,13 +9892,13 @@ class LegacyExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    credible_intervals: Optional[dict[str, list[float]]] = None
-    insight: Optional[list[dict[str, Any]]] = None
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
-    p_value: Optional[float] = None
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    p_value: float
     probability: dict[str, float]
-    significance_code: Optional[ExperimentSignificanceCode] = None
+    significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: Optional[int] = None
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
@@ -10298,19 +10298,19 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    credible_intervals: Optional[dict[str, list[float]]] = None
-    insight: Optional[list[dict[str, Any]]] = None
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: datetime
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
     next_allowed_client_refresh: datetime
-    p_value: Optional[float] = None
+    p_value: float
     probability: dict[str, float]
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    significance_code: Optional[ExperimentSignificanceCode] = None
+    significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: Optional[int] = None
     timezone: str
