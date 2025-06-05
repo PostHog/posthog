@@ -52,7 +52,7 @@ export function conversionRateForVariant(metricResult: ExperimentResult, variant
 
     if (
         metricResult.kind === NodeKind.ExperimentQuery &&
-        metricResult.metric.metric_type === ExperimentMetricType.FUNNEL
+        metricResult.metric?.metric_type === ExperimentMetricType.FUNNEL
     ) {
         const variants = metricResult.variants as FunnelExperimentVariant[]
         const variantResults = variants.find((variant) => variant.key === variantKey)
@@ -260,7 +260,7 @@ export function getHighestProbabilityVariant(results: ExperimentResult): string 
     if (results && results.probability) {
         const maxValue = Math.max(...Object.values(results.probability))
         return Object.keys(results.probability).find(
-            (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
+            (key) => Math.abs(results.probability![key] - maxValue) < Number.EPSILON
         )
     }
 }

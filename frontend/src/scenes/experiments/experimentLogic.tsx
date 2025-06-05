@@ -46,8 +46,6 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
-    LegacyExperimentQueryResponse,
-    NewExperimentQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -190,13 +188,16 @@ const loadMetrics = async ({
                 const response = await performQuery(queryWithExperimentId, undefined, refresh ? 'force_async' : 'async')
 
                 // Convert ExperimentQuery responses to typed responses
-                if (metric.kind === NodeKind.ExperimentMetric || queryWithExperimentId.kind === NodeKind.ExperimentQuery) {
+                if (
+                    metric.kind === NodeKind.ExperimentMetric ||
+                    queryWithExperimentId.kind === NodeKind.ExperimentQuery
+                ) {
                     const typedResponse = convertToTypedExperimentResponse(response as CachedExperimentQueryResponse)
                     if (typedResponse) {
                         results[index] = {
                             ...typedResponse,
                             fakeInsightId: Math.random().toString(36).substring(2, 15),
-                        }
+                        } as TypedExperimentResponse & { fakeInsightId: string }
                     } else {
                         // Handle case where response doesn't match expected pattern
                         console.warn('Experiment response does not match legacy or new format:', response)
@@ -207,6 +208,8 @@ const loadMetrics = async ({
                     results[index] = {
                         ...response,
                         fakeInsightId: Math.random().toString(36).substring(2, 15),
+                    } as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse) & {
+                        fakeInsightId: string
                     }
                 }
                 onSetResults([...results])
@@ -249,17 +252,15 @@ function isNewExperimentResponse(
 export type TypedExperimentResponse = CachedLegacyExperimentQueryResponse | CachedNewExperimentQueryResponse
 
 // Utility function to convert generic response to typed response
-function convertToTypedExperimentResponse(
-    response: CachedExperimentQueryResponse
-): TypedExperimentResponse | null {
+function convertToTypedExperimentResponse(response: CachedExperimentQueryResponse): TypedExperimentResponse | null {
     if (isLegacyExperimentResponse(response)) {
-        return response as CachedLegacyExperimentQueryResponse
+        return response
     }
-    
+
     if (isNewExperimentResponse(response)) {
-        return response as CachedNewExperimentQueryResponse
+        return response
     }
-    
+
     // If response doesn't match either pattern, return null
     return null
 }
@@ -1702,18 +1703,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) =>
                 (metricIndex: number = 0): boolean => {
                     const result = metricResults?.[metricIndex]
-                    if (!result) return false
-                    
+                    if (!result) {
+                        return false
+                    }
+
                     // Handle legacy response
                     if ('significant' in result) {
                         return result.significant || false
                     }
-                    
+
                     // Handle new response - check if any variant is significant
                     if ('variant_results' in result && result.variant_results) {
-                        return result.variant_results.some(variant => variant.significant)
+                        return result.variant_results.some((variant) => variant.significant)
                     }
-                    
+
                     return false
                 },
         ],
@@ -1729,18 +1732,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) =>
                 (metricIndex: number = 0): boolean => {
                     const result = secondaryMetricResults?.[metricIndex]
-                    if (!result) return false
-                    
+                    if (!result) {
+                        return false
+                    }
+
                     // Handle legacy response
                     if ('significant' in result) {
                         return result.significant || false
                     }
-                    
+
                     // Handle new response - check if any variant is significant
                     if ('variant_results' in result && result.variant_results) {
-                        return result.variant_results.some(variant => variant.significant)
+                        return result.variant_results.some((variant) => variant.significant)
                     }
-                    
+
                     return false
                 },
         ],
@@ -1841,14 +1846,24 @@ export const experimentLogic = kea<experimentLogicType>([
                     const result = isSecondary ? secondaryMetricResults[metricIndex] : metricResults[metricIndex]
 
                     if (result) {
-                        for (const variantObj of result.variants) {
-                            if (metricType === InsightType.FUNNELS) {
-                                const { key, success_count, failure_count } = variantObj as FunnelExperimentVariant
-                                tabularResults.push({ key, success_count, failure_count })
-                            } else if (metricType === InsightType.TRENDS) {
-                                const { key, count, exposure, absolute_exposure } = variantObj as TrendExperimentVariant
-                                tabularResults.push({ key, count, exposure, absolute_exposure })
+                        // Handle legacy response with variants
+                        if ('variants' in result && result.variants) {
+                            for (const variantObj of result.variants) {
+                                if (metricType === InsightType.FUNNELS) {
+                                    const { key, success_count, failure_count } = variantObj as FunnelExperimentVariant
+                                    tabularResults.push({ key, success_count, failure_count })
+                                } else if (metricType === InsightType.TRENDS) {
+                                    const { key, count, exposure, absolute_exposure } =
+                                        variantObj as TrendExperimentVariant
+                                    tabularResults.push({ key, count, exposure, absolute_exposure })
+                                }
                             }
+                        }
+
+                        // Handle new response with variant_results
+                        if ('variant_results' in result && result.variant_results) {
+                            // TODO: Implement conversion from new format to tabular results
+                            // For now, leaving empty as the new format needs different handling
                         }
                     }
 
@@ -1943,7 +1958,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     // Handle new response - sum number_of_samples from all variants
                     if ('variant_results' in result && result.variant_results) {
-                        return result.variant_results.reduce((sum, variant) => sum + variant.number_of_samples, 0)
+                        let sum = 0
+                        for (const variant of result.variant_results) {
+                            sum += variant.number_of_samples
+                        }
+                        return sum
                     }
 
                     return 0
