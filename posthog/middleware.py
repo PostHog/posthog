@@ -767,6 +767,7 @@ class CSPMiddleware:
             "object-src 'none'; "
             "media-src 'self'; "
             "frame-src 'self'; "
+            "worker-src 'self' blob:; "
             "$$REPORTING_ENDPOINT$$"
         )
         self.reporting_endpoint: str = settings.CSP_REPORTING_ENDPOINT

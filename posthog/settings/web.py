@@ -522,7 +522,9 @@ CSP_IS_REPORT_ONLY = get_from_env("CSP_IS_REPORT_ONLY", True, type_cast=str_to_b
 CONTENT_SECURITY_POLICY = get_from_env("CONTENT_SECURITY_POLICY", "")
 # will be templated into the CSP policy,
 # should be a valid CSP list of domains e.g. https://host1.com https://host2.com
-CSP_DOMAINS = os.getenv("CSP_DOMAINS", "https://status.posthog.com")
+CSP_DOMAINS = os.getenv(
+    "CSP_DOMAINS", "https://status.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://replay.ph-proxy.com"
+)
 if DEBUG:
     # loading assets from the dev server
     CSP_DOMAINS += " http://localhost:8234"
