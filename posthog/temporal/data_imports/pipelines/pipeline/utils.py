@@ -286,6 +286,9 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
+PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at"]
+
+
 def append_partition_key_to_table(
     table: pa.Table,
     partition_count: int,
@@ -308,14 +311,17 @@ def append_partition_key_to_table(
         and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
     ):
         mode = "numerical"
-    elif (
-        partition_mode is None
-        and "created_at" in table.column_names
-        and pa.types.is_timestamp(table.field("created_at").type)
-        and table.column("created_at").null_count != table.num_rows
+    elif partition_mode is None and any(
+        column_name in table.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES
     ):
-        mode = "datetime"
-        normalized_partition_keys = ["created_at"]
+        for column_name in PARTITION_DATETIME_COLUMN_NAMES:
+            if (
+                column_name in table.column_names
+                and pa.types.is_timestamp(table.field(column_name).type)
+                and table.column(column_name).null_count != table.num_rows
+            ):
+                mode = "datetime"
+                normalized_partition_keys = [column_name]
 
     for batch in table.to_batches():
         for row in batch.to_pylist():
@@ -545,6 +551,28 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
 
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Upscale second timestamps to microsecond
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "s":
+                timestamp_array = pa.array(
+                    [(s * 1_000_000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    type=pa.timestamp("us"),
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+                adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Upscale millisecond timestamps to microsecond
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "ms":
+                timestamp_array = pa.array(
+                    [(s * 1000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    type=pa.timestamp("us"),
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+                adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
             # Remove any binary columns
