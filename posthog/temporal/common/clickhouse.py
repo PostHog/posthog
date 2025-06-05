@@ -123,6 +123,13 @@ class ClickHouseError(Exception):
         super().__init__(error_message)
 
 
+class ClickHouseMemoryLimitExceededError(ClickHouseError):
+    """Exception raised when memory limits are exceeded."""
+
+    def __init__(self, query, error_message):
+        super().__init__(query, error_message)
+
+
 class ClickHouseAllReplicasAreStaleError(ClickHouseError):
     """Exception raised when all replicas are stale."""
 
@@ -244,6 +251,8 @@ class ClickHouseClient:
             error_message = await response.text()
             if "ALL_REPLICAS_ARE_STALE" in error_message:
                 raise ClickHouseAllReplicasAreStaleError(query, error_message)
+            elif error_message.startswith("Code: 241"):
+                raise ClickHouseMemoryLimitExceededError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     def check_response(self, response, query) -> None:
@@ -259,6 +268,8 @@ class ClickHouseClient:
             error_message = response.text
             if "ALL_REPLICAS_ARE_STALE" in error_message:
                 raise ClickHouseAllReplicasAreStaleError(query, error_message)
+            elif error_message.startswith("Code: 241"):
+                raise ClickHouseMemoryLimitExceededError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager

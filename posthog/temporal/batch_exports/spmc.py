@@ -54,7 +54,7 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
 )
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseMemoryLimitExceededError, get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.warehouse.util import database_sync_to_async
@@ -936,11 +936,6 @@ class Producer:
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
             for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-                if interval_start is not None:
-                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_id = uuid.uuid4()
-
                 if isinstance(query_or_model, RecordBatchModel):
                     query, query_parameters = await query_or_model.as_query_with_parameters(
                         interval_start, interval_end
@@ -948,10 +943,16 @@ class Producer:
                 else:
                     query = query_or_model
 
+                record_batch_iterator = RetryOOMRecorBatchAsyncIterator(
+                    clickhouse_client=client,
+                    query=query,
+                    query_parameters=query_parameters,
+                    interval_start=interval_start,
+                    interval_end=interval_end,
+                    team_id=team_id,
+                )
                 try:
-                    async for record_batch in client.astream_query_as_arrow(
-                        query, query_parameters=query_parameters, query_id=str(query_id)
-                    ):
+                    async for record_batch in record_batch_iterator:
                         for record_batch_slice in slice_record_batch(
                             record_batch, max_record_batch_size_bytes, min_records_per_batch
                         ):
@@ -960,6 +961,104 @@ class Producer:
                 except Exception as e:
                     await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
                     raise
+
+
+class RetryOOMRecorBatchAsyncIterator:
+    """Async iterator of record batches handling OOM errors from ClickHouse."""
+
+    def __init__(
+        self,
+        clickhouse_client: ClickHouseClient,
+        query: str,
+        query_parameters: dict[str, str],
+        interval_start: dt.datetime | None,
+        interval_end: dt.datetime,
+        team_id: int,
+    ):
+        self.client = clickhouse_client
+        self.query = query
+        self.query_parameters = query_parameters
+        self.interval_start = interval_start
+        self.interval_end = interval_end
+        self.team_id = team_id
+        self.streamers: list[tuple[collections.abc.AsyncIterator[pa.RecordBatch], dt.datetime, dt.datetime]] = []
+        self.logger = get_internal_logger()
+
+    def __aiter__(self) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        """Return async iterable of record batches."""
+        return self.stream()
+
+    async def stream(self) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        """Stream record batches splitting queries if necessary.
+
+        Whenever a ClickHouse query fails with an OOM error, we split it into
+        two queries and retry them both.
+        """
+        if (
+            not self.streamers
+            and self.interval_start is not None
+            and str(self.team_id) in settings.BATCH_EXPORT_SPLIT_QUERIES_TEAM_IDS
+        ):
+            self.logger.debug(
+                "Configured team '%s' to retry on ClickHouse OOM errors by splitting queries", self.team_id
+            )
+
+            new_streamer = self.start_new_stream(interval_start=self.interval_start, interval_end=self.interval_end)
+            self.streamers.append((new_streamer, self.interval_start, self.interval_end))
+        else:
+            # TODO: How to split up batch exports with no start date?
+            # For now, do nothing and pass along the values.
+            async for record_batch in self.start_new_stream(
+                interval_start=self.interval_start, interval_end=self.interval_end
+            ):
+                yield record_batch
+            return
+
+        while self.streamers:
+            try:
+                streamer, interval_start, interval_end = self.streamers.pop()
+            except IndexError:
+                return
+
+            while True:
+                try:
+                    yield await anext(streamer)
+
+                except ClickHouseMemoryLimitExceededError as err:
+                    self.logger.warning("ClickHouse OOM detected, will attempt to split queries", exc_info=err)
+
+                    interval = interval_end - interval_start
+                    half_point = interval_start + interval // 2
+                    streamer_left = (
+                        self.start_new_stream(interval_start=interval_start, interval_end=half_point),
+                        interval_start,
+                        half_point,
+                    )
+                    streamer_right = (
+                        self.start_new_stream(interval_start=half_point, interval_end=interval_end),
+                        half_point,
+                        interval_end,
+                    )
+                    # NOTE: The append order in the list is from end to start
+                    # because we pop from the end.
+                    self.streamers.extend((streamer_right, streamer_left))
+
+                    break
+
+                except StopAsyncIteration:
+                    break
+
+    def start_new_stream(
+        self, interval_start: dt.datetime | None, interval_end: dt.datetime
+    ) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        query_parameters = self.query_parameters.copy()
+        query_id = uuid.uuid4()
+
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        return self.client.astream_query_as_arrow(self.query, query_parameters=query_parameters, query_id=str(query_id))
 
 
 def slice_record_batch(
