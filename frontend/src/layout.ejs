@@ -6,7 +6,7 @@
         <title>PostHog</title>
         {% include "head.html" %}
 
-        <script>
+        <script nonce="{{ csp_nonce }}">
             const posthogJSApiKey = "{{ js_posthog_api_key|escapejs }}";
             let posthogHost = "{{ js_posthog_host|escapejs }}";
             if (posthogHost.trim().length === 0) {
@@ -22,7 +22,7 @@
             crossorigin="anonymous"
         />
 
-        <style>
+        <style nonce="{{ csp_nonce }}">
             html,
             body {
                 height: 100%;

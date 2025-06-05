@@ -776,13 +776,15 @@ class CSPMiddleware:
         self.csp_domains: str = settings.CSP_DOMAINS
 
     def __call__(self, request: HttpRequest):
+        # Generate nonce early and store it on the request
+        nonce = secrets.token_urlsafe(32)
+        request.csp_nonce = nonce
+
         response: HttpResponse = self.get_response(request)
 
         # Only add CSP to HTML responses
         content_type = response.get("Content-Type", "")
         if "text/html" in content_type:
-            nonce = secrets.token_urlsafe(32)
-
             csp_policy = settings.CONTENT_SECURITY_POLICY or self.default_csp
             csp_policy = csp_policy.replace("$$nonce$$", f"'nonce-{nonce}' ")
             csp_policy = csp_policy.replace("$$domains-list$$", f"{self.csp_domains}")
@@ -804,3 +806,7 @@ class CSPMiddleware:
                 response["Content-Security-Policy"] = csp_policy
 
         return response
+
+
+def csp_nonce_context_processor(request: HttpRequest) -> dict[str, str]:
+    return {"csp_nonce": getattr(request, "csp_nonce", "")}

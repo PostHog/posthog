@@ -6,7 +6,7 @@
     <title>PostHog</title>
     {% include "head.html" %}
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         const posthogJSApiKey = "{{ js_posthog_api_key|escapejs }}";
         let posthogHost = "{{ js_posthog_host|escapejs }}";
         if (posthogHost.trim().length === 0) {
@@ -16,14 +16,14 @@
         posthog.init(posthogJSApiKey, { api_host: posthogHost, persistence: 'localStorage+cookie' })
     </script>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet"
-        crossorigin="anonymous" />
+        crossorigin="anonymous" nonce="{{ csp_nonce }}"/>
 
     <!-- 
         Trying to make changes here? LOL good luck! ;)
         (Pro tip: Reboot the server after making changes.)
     -->
 
-    <style>
+    <style nonce="{{ csp_nonce }}">
         html,
         body {
             height: 100%;
