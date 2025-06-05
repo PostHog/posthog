@@ -499,7 +499,7 @@ LIMIT 1000000
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 100))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 50))
                 }
 
                 if (!props.blobV2PollingDisabled) {
