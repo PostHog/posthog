@@ -1368,6 +1368,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         result = self._get_cohortpeople(cohort1)
@@ -1785,6 +1786,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             },
             name="cohort_3",
         )
+        self.calculate_cohort_hogql_test_harness(cohort_1, 0)
+        self.calculate_cohort_hogql_test_harness(cohort_2, 0)
         self.calculate_cohort_hogql_test_harness(cohort_3, 0)
 
         results = self._get_cohortpeople(cohort_3)
