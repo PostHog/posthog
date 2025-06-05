@@ -20,7 +20,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             stage=EarlyAccessFeature.Stage.BETA,
         )
 
-        Person.objects.create(
+        person = Person.objects.create(
             team=team,
             distinct_ids=["abc123"],
             properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "test@example.com"},
@@ -29,7 +29,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
         mock_capture.assert_called_once_with(
-            "abc123",
+            str(person.uuid),
             "user moved feature preview stage",
             {
                 "from": "concept",

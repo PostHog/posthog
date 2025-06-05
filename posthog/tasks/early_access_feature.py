@@ -1,11 +1,10 @@
 from celery import shared_task
 import structlog
-from posthog.cloud_utils import is_ci, is_cloud
+from posthog.cloud_utils import is_cloud
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
 import posthoganalytics
-from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -22,7 +21,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     team_id = instance.team.id
 
-    send_events_for_change = (team_id == POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG or is_ci()
+    send_events_for_change = team_id == POSTHOG_TEAM_ID if is_cloud() else True
 
     if not send_events_for_change:
         print(  # noqa: T201
@@ -46,7 +45,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         """
         SELECT
             id,
-            JSONExtractString(properties, 'email') as email,
+            JSONExtractString(properties, 'email') as email
         FROM persons
         WHERE JSONExtractString(properties, {enrollment_key}) = 'true'
         """,
@@ -64,7 +63,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         print(f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {id}")  # noqa: T201
 
         posthoganalytics.capture(
-            id,
+            str(id),
             "user moved feature preview stage",
             {
                 "from": from_stage,
