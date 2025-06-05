@@ -2253,16 +2253,62 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
-    kind: NodeKind.ExperimentQuery
-    insight: Record<string, any>[]
-    metric: ExperimentMetric
+    // Legacy fields
+    kind?: NodeKind.ExperimentQuery
+    insight?: Record<string, any>[]
+    metric?: ExperimentMetric
+    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
+    probability?: Record<string, number>
+    significant?: boolean
+    significance_code?: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value?: number
+    credible_intervals?: Record<string, [number, number]>
+
+    // New fields
+    baseline?: ExperimentStatsBase
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+// Strongly typed variants of ExperimentQueryResponse for better type safety
+export interface LegacyExperimentQueryResponse extends Omit<ExperimentQueryResponse, 'baseline' | 'variant_results'> {
+    // Required legacy fields
     variants: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
     probability: Record<string, number>
     significant: boolean
-    significance_code: ExperimentSignificanceCode
+    
+    // Optional legacy fields (keeping as optional)
+    kind?: NodeKind.ExperimentQuery
+    insight?: Record<string, any>[]
+    metric?: ExperimentMetric
+    significance_code?: ExperimentSignificanceCode
     stats_version?: integer
-    p_value: number
-    credible_intervals: Record<string, [number, number]>
+    p_value?: number
+    credible_intervals?: Record<string, [number, number]>
+    
+    // New fields explicitly excluded
+    baseline?: never
+    variant_results?: never
+}
+
+export interface NewExperimentQueryResponse extends Omit<ExperimentQueryResponse, 'variants' | 'probability' | 'significant' | 'insight' | 'significance_code' | 'p_value' | 'credible_intervals'> {
+    // Required new fields
+    baseline: ExperimentStatsBase
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+    
+    // Optional fields that can exist in both
+    kind?: NodeKind.ExperimentQuery
+    metric?: ExperimentMetric
+    stats_version?: integer
+    
+    // Legacy fields explicitly excluded
+    variants?: never
+    probability?: never
+    significant?: never
+    insight?: never
+    significance_code?: never
+    p_value?: never
+    credible_intervals?: never
 }
 
 export interface ExperimentStatsBase {
@@ -2305,6 +2351,8 @@ export interface ExperimentExposureQueryResponse {
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
+export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 

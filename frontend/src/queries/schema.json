@@ -2858,6 +2858,9 @@
         "CachedExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -2929,6 +2932,22 @@
                 "timezone": {
                     "type": "string"
                 },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
                 "variants": {
                     "anyOf": [
                         {
@@ -2946,22 +2965,7 @@
                     ]
                 }
             },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "metric",
-                "next_allowed_client_refresh",
-                "p_value",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
-            ],
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
         "CachedExperimentTrendsQueryResponse": {
@@ -9383,6 +9387,9 @@
         "ExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -9425,6 +9432,22 @@
                 "stats_version": {
                     "$ref": "#/definitions/integer"
                 },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
                 "variants": {
                     "anyOf": [
                         {
@@ -9442,17 +9465,6 @@
                     ]
                 }
             },
-            "required": [
-                "kind",
-                "insight",
-                "metric",
-                "variants",
-                "probability",
-                "significant",
-                "significance_code",
-                "p_value",
-                "credible_intervals"
-            ],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -14242,6 +14254,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "baseline": {
+                            "$ref": "#/definitions/ExperimentStatsBase"
+                        },
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -14284,6 +14299,22 @@
                         "stats_version": {
                             "$ref": "#/definitions/integer"
                         },
+                        "variant_results": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
+                        },
                         "variants": {
                             "anyOf": [
                                 {
@@ -14301,17 +14332,6 @@
                             ]
                         }
                     },
-                    "required": [
-                        "kind",
-                        "insight",
-                        "metric",
-                        "variants",
-                        "probability",
-                        "significant",
-                        "significance_code",
-                        "p_value",
-                        "credible_intervals"
-                    ],
                     "type": "object"
                 },
                 {
