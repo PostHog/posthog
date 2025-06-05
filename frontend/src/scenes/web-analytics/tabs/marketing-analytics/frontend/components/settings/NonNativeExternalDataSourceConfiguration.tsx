@@ -1,5 +1,5 @@
-import { IconCheck, IconTrash, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -26,11 +26,7 @@ type SimpleDataWarehouseTable = {
 // This is to map tables that are not natively integrated with PostHog.
 // It's a workaround to allow users to map columns to the correct fields in the Marketing Analytics product.
 // An example of native integration is the Google Ads integration.
-export function NonNativeExternalDataSourceConfiguration({
-    buttonRef,
-}: {
-    buttonRef?: React.RefObject<HTMLButtonElement>
-}): JSX.Element {
+export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources, sources_map } = useValues(marketingAnalyticsSettingsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const marketingSources =
@@ -226,16 +222,35 @@ export function NonNativeExternalDataSourceConfiguration({
                         key: 'actions',
                         width: 0,
                         title: (
-                            <LemonButton
+                            <LemonDropdown
                                 className="my-1"
-                                ref={buttonRef}
-                                type="primary"
-                                onClick={() => {
-                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
-                                }}
+                                overlay={
+                                    <div className="p-1">
+                                        {VALID_MARKETING_SOURCES.map((source) => (
+                                            <LemonButton
+                                                key={source}
+                                                onClick={() => {
+                                                    router.actions.push(
+                                                        urls.pipelineNodeNew(PipelineStage.Source, { source })
+                                                    )
+                                                }}
+                                                fullWidth
+                                                size="small"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <DataWarehouseSourceIcon type={source} />
+                                                    {source}
+                                                    <IconPlus className="text-muted" />
+                                                </div>
+                                            </LemonButton>
+                                        ))}
+                                    </div>
+                                }
                             >
-                                Add new source
-                            </LemonButton>
+                                <LemonButton type="primary" size="small">
+                                    Add new source
+                                </LemonButton>
+                            </LemonDropdown>
                         ),
                         render: (_, item: any) => {
                             const tableHasMapping = hasAnyMapping(item.id)

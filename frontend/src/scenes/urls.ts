@@ -3,7 +3,16 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
+import {
+    ActivityTab,
+    AnnotationType,
+    ExternalDataSourceType,
+    PipelineNodeTab,
+    PipelineStage,
+    PipelineTab,
+    ProductKey,
+    SDKKey,
+} from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -42,14 +51,16 @@ export const urls = {
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     pipelineNodeNew: (
         stage: PipelineStage | ':stage',
-        { id, kind }: { id?: string | number; kind?: string } = {}
+        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
     ): string => {
         let base = `/pipeline/new/${stage}`
         if (id) {
             base += `/${id}`
         }
 
-        if (kind) {
+        if (source) {
+            // we need to lowercase the source to match the kind in the sourceWizardLogic
+            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
             return `${base}?kind=${kind}`
         }
 
