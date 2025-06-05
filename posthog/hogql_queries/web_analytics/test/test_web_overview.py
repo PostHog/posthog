@@ -961,7 +961,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
-    def test_cannot_use_preaggregated_tables_with_current_date(self):
+    def test_can_use_preaggregated_tables_with_current_date(self):
         today = datetime.now(UTC).date().isoformat()
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to=today),
@@ -969,9 +969,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        self.assertFalse(
+        self.assertTrue(
             pre_agg_builder.can_use_preaggregated_tables(),
-            "Should not use pre-aggregated tables when date range includes current date",
+            "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)",
         )
 
     @freeze_time("2023-12-15T12:00:00Z")

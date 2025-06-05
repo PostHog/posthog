@@ -52,8 +52,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
-    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/Library/MessageLibrary'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/Library/MessageTemplate'),
+    MessageSenders: () => import('../../products/messaging/frontend/Senders/MessageSenders'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
@@ -87,6 +88,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'MessagingLibraryTemplate',
         'messagingLibraryTemplateFromMessage',
     ],
+    '/messaging/senders': ['MessageSenders', 'messageSenders'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/user_interviews': ['UserInterviews', 'userInterviews'],
     '/user_interviews/:id': ['UserInterview', 'userInterview'],
@@ -148,6 +150,7 @@ export const productConfiguration: Record<string, any> = {
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
     MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
+    MessageSenders: { name: 'Messaging', projectBased: true },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -364,7 +367,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.messagingCampaign(ref),
         iconColor: ['var(--product-messaging-light)'],
         filterKey: 'campaign',
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     insight: {
         name: 'Insight',
@@ -385,7 +388,6 @@ export const fileSystemTypes = {
         name: 'Notebook',
         icon: <IconNotebook />,
         href: (ref: string) => urls.notebook(ref),
-        iconColor: ['var(--product-notebooks-light)'],
         filterKey: 'notebook',
     },
     session_recording_playlist: {
@@ -425,7 +427,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Campaign`,
         type: 'hog_function/campaign',
         href: urls.messagingCampaignNew(),
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
@@ -433,7 +435,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     { path: `Experiment`, type: 'experiment', href: urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: urls.featureFlag('new') },
     {
-        path: `Insight/Calendar Heatmap`,
+        path: `Insight/Calendar heatmap`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
         iconType: 'insightHogQL',
@@ -503,7 +505,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
         path: 'Early access features',
@@ -559,6 +561,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.revenueAnalytics(),
         visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
         tags: ['beta'],
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
     },
     {
         path: 'Session replay',
@@ -588,6 +591,11 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
-    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+    { path: 'Actions', iconType: 'cursor', href: urls.actions() },
+    {
+        path: 'Revenue settings',
+        iconType: 'handMoney',
+        href: urls.revenueSettings(),
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+    },
 ]

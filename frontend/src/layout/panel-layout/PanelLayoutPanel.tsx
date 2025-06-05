@@ -19,6 +19,7 @@ interface PanelLayoutPanelProps {
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
+    sortDropdown?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
@@ -77,6 +78,7 @@ export function PanelLayoutPanel({
     panelActions,
     children,
     filterDropdown,
+    sortDropdown,
 }: PanelLayoutPanelProps): JSX.Element {
     const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const {
@@ -125,11 +127,17 @@ export function PanelLayoutPanel({
             </div>
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
-                {searchField || filterDropdown ? (
+                {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
                             {searchField ?? null}
-                            {filterDropdown ?? null}
+
+                            {filterDropdown || sortDropdown ? (
+                                <div className="flex gap-px">
+                                    {filterDropdown ?? null}
+                                    {sortDropdown ?? null}
+                                </div>
+                            ) : null}
                         </div>
                         <div className="border-b border-primary h-px" />
                     </>
