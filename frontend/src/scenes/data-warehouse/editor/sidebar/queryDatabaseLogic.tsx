@@ -64,6 +64,146 @@ const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], F
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
 
+// Factory functions for creating tree nodes
+const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearch = false): TreeDataItem => ({
+    id: `${isSearch ? 'search-' : ''}col-${tableName}-${field.name}`,
+    name: `${field.name} (${field.type})`,
+    type: 'node',
+    record: {
+        type: 'column',
+        columnName: field.name,
+    },
+})
+
+const createTableNode = (
+    table: DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable,
+    matches: FuseSearchMatch[] | null = null,
+    isSearch = false
+): TreeDataItem => {
+    const tableChildren: TreeDataItem[] = []
+
+    if ('fields' in table) {
+        Object.values(table.fields).forEach((field: DatabaseSchemaField) => {
+            tableChildren.push(createColumnNode(table.name, field, isSearch))
+        })
+    }
+
+    const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
+    const isPostHogTable = 'type' in table && table.type === 'posthog'
+
+    return {
+        id: tableId,
+        name: table.name,
+        type: 'node',
+        icon: isPostHogTable ? <IconDocument /> : <IconDatabase />,
+        record: {
+            type: 'table',
+            table: table,
+            ...(matches && { searchMatches: matches }),
+        },
+        children: tableChildren,
+    }
+}
+
+const createViewNode = (
+    view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
+    matches: FuseSearchMatch[] | null = null,
+    isSearch = false
+): TreeDataItem => {
+    const viewChildren: TreeDataItem[] = []
+    const isManagedView = 'type' in view && view.type === 'managed_view'
+
+    // Add columns/fields
+    if ('columns' in view && view.columns) {
+        Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
+            viewChildren.push(createColumnNode(view.name, column, isSearch))
+        })
+    } else if ('fields' in view) {
+        Object.values(view.fields).forEach((field: DatabaseSchemaField) => {
+            viewChildren.push(createColumnNode(view.name, field, isSearch))
+        })
+    }
+
+    const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
+
+    return {
+        id: viewId,
+        name: view.name,
+        type: 'node',
+        icon: isManagedView ? <IconDatabase /> : <IconDocument />,
+        record: {
+            type: 'view',
+            view: view,
+            isSavedQuery: !isManagedView,
+            ...(matches && { searchMatches: matches }),
+        },
+        children: viewChildren,
+    }
+}
+
+const createSourceFolderNode = (
+    sourceType: string,
+    tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable)[],
+    matches: [any, FuseSearchMatch[] | null][] = [],
+    isSearch = false
+): TreeDataItem => {
+    const sourceChildren: TreeDataItem[] = []
+
+    if (isSearch && matches.length > 0) {
+        matches.forEach(([table, tableMatches]) => {
+            sourceChildren.push(createTableNode(table, tableMatches, true))
+        })
+    } else {
+        tables.forEach((table) => {
+            sourceChildren.push(createTableNode(table, null, false))
+        })
+    }
+
+    const sourceFolderId = isSearch
+        ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
+        : `source-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
+
+    return {
+        id: sourceFolderId,
+        name: sourceType,
+        type: 'node',
+        icon: (
+            <DataWarehouseSourceIcon
+                type={
+                    sourceType === 'Self-managed' && (tables.length > 0 || matches.length > 0)
+                        ? mapUrlToProvider(
+                              tables.length > 0
+                                  ? (tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern
+                                  : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern
+                          )
+                        : sourceType
+                }
+                size="xsmall"
+                disableTooltip
+            />
+        ),
+        record: {
+            type: 'source-folder',
+            sourceType,
+        },
+        children: sourceChildren,
+    }
+}
+
+const createTopLevelFolderNode = (
+    type: 'sources' | 'views',
+    children: TreeDataItem[],
+    isSearch = false
+): TreeDataItem => ({
+    id: isSearch ? `search-${type}` : type,
+    name: type === 'sources' ? 'Sources' : 'Views',
+    type: 'node',
+    record: {
+        type,
+    },
+    children,
+})
+
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
@@ -76,6 +216,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setTreeRef: (ref: React.RefObject<LemonTreeRef> | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
+        selectSourceTable: (tableName: string) => ({ tableName }),
     }),
     connect(() => ({
         values: [
@@ -95,7 +236,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
         actions: [
             viewLinkLogic,
-            ['toggleEditJoinModal'],
+            ['toggleEditJoinModal', 'toggleJoinTableModal'],
             databaseTableListLogic,
             ['loadDatabase'],
             dataWarehouseJoinsLogic,
@@ -217,55 +358,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add PostHog tables
                 if (relevantPosthogTables.length > 0) {
-                    const posthogChildren: TreeDataItem[] = relevantPosthogTables.map(([table, matches]) => {
-                        const tableChildren: TreeDataItem[] = []
-
-                        if ('fields' in table) {
-                            Object.values(table.fields).forEach((field: DatabaseSchemaField) => {
-                                tableChildren.push({
-                                    id: `search-col-${table.name}-${field.name}`,
-                                    name: `${field.name} (${field.type})`,
-                                    type: 'node',
-                                    record: {
-                                        type: 'column',
-                                    },
-                                })
-                            })
-                        }
-
-                        const tableId = `search-table-${table.name}`
-                        // Don't expand the table itself, only its parent
-
-                        return {
-                            id: tableId,
-                            name: table.name,
-                            type: 'node',
-                            icon: <IconDocument />,
-                            record: {
-                                type: 'table',
-                                searchMatches: matches,
-                            },
-                            children: tableChildren,
-                        }
-                    })
-
-                    const posthogFolderId = 'search-posthog'
-                    expandedIds.push(posthogFolderId)
-
-                    sourcesChildren.push({
-                        id: posthogFolderId,
-                        name: 'PostHog',
-                        icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
-                        type: 'node',
-                        record: {
-                            type: 'source-folder',
-                            sourceType: 'PostHog',
-                        },
-                        children: posthogChildren,
-                    })
+                    expandedIds.push('search-posthog')
+                    sourcesChildren.push(createSourceFolderNode('PostHog', [], relevantPosthogTables, true))
                 }
 
-                // Add data warehouse tables grouped by source
+                // Group data warehouse tables by source type
                 const tablesBySourceType = relevantDataWarehouseTables.reduce(
                     (
                         acc: Record<string, [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]>,
@@ -282,159 +379,33 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 )
 
                 Object.entries(tablesBySourceType).forEach(([sourceType, tablesWithMatches]) => {
-                    const sourceChildren: TreeDataItem[] = tablesWithMatches.map(([table, matches]) => {
-                        const tableChildren: TreeDataItem[] = []
-
-                        if ('fields' in table) {
-                            Object.values(table.fields).forEach((field: DatabaseSchemaField) => {
-                                tableChildren.push({
-                                    id: `search-col-${table.name}-${field.name}`,
-                                    name: `${field.name} (${field.type})`,
-                                    type: 'node',
-                                    record: {
-                                        type: 'column',
-                                    },
-                                })
-                            })
-                        }
-
-                        const tableId = `search-table-${table.name}`
-                        // Don't expand the table itself, only its parent
-
-                        return {
-                            id: tableId,
-                            name: table.name,
-                            type: 'node',
-                            icon: <IconDatabase />,
-                            record: {
-                                type: 'table',
-                                searchMatches: matches,
-                            },
-                            children: tableChildren,
-                        }
-                    })
-
-                    const sourceFolderId = `search-${sourceType}`
-                    expandedIds.push(sourceFolderId)
-
-                    sourcesChildren.push({
-                        id: sourceFolderId,
-                        name: sourceType,
-                        type: 'node',
-                        icon: (
-                            <DataWarehouseSourceIcon
-                                type={
-                                    sourceType === 'Self-managed' && tablesWithMatches.length > 0
-                                        ? mapUrlToProvider(tablesWithMatches[0][0].url_pattern)
-                                        : sourceType
-                                }
-                                size="xsmall"
-                                disableTooltip
-                            />
-                        ),
-                        record: {
-                            type: 'source-folder',
-                            sourceType,
-                        },
-                        children: sourceChildren,
-                    })
+                    expandedIds.push(`search-${sourceType}`)
+                    sourcesChildren.push(createSourceFolderNode(sourceType, [], tablesWithMatches, true))
                 })
 
-                // Views children
+                // Create views children
                 const viewsChildren: TreeDataItem[] = []
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
-                    const viewChildren: TreeDataItem[] = []
-
-                    if ('columns' in view && view.columns) {
-                        Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
-                            viewChildren.push({
-                                id: `search-col-${view.name}-${column.name}`,
-                                name: `${column.name} (${column.type})`,
-                                type: 'node',
-                                record: {
-                                    type: 'column',
-                                },
-                            })
-                        })
-                    }
-
-                    const viewId = `search-view-${view.id}`
-                    // Don't expand the view itself, only its parent
-
-                    viewsChildren.push({
-                        id: viewId,
-                        name: view.name,
-                        type: 'node',
-                        icon: <IconDocument />,
-                        record: {
-                            type: 'view',
-                            searchMatches: matches,
-                        },
-                        children: viewChildren,
-                    })
+                    viewsChildren.push(createViewNode(view, matches, true))
                 })
 
                 // Add managed views
                 relevantManagedViews.forEach(([view, matches]) => {
-                    const viewChildren: TreeDataItem[] = []
-
-                    if ('fields' in view) {
-                        Object.values(view.fields).forEach((field: DatabaseSchemaField) => {
-                            viewChildren.push({
-                                id: `search-col-${view.name}-${field.name}`,
-                                name: `${field.name} (${field.type})`,
-                                type: 'node',
-                                record: {
-                                    type: 'column',
-                                },
-                            })
-                        })
-                    }
-
-                    const viewId = `search-view-${view.id}`
-                    // Don't expand the view itself, only its parent
-
-                    viewsChildren.push({
-                        id: viewId,
-                        name: view.name,
-                        type: 'node',
-                        icon: <IconDatabase />,
-                        record: {
-                            type: 'view',
-                            searchMatches: matches,
-                        },
-                        children: viewChildren,
-                    })
+                    viewsChildren.push(createViewNode(view, matches, true))
                 })
 
                 const searchResults: TreeDataItem[] = []
 
                 if (sourcesChildren.length > 0) {
                     expandedIds.push('search-sources')
-                    searchResults.push({
-                        id: 'search-sources',
-                        name: 'Sources',
-                        type: 'node',
-                        record: {
-                            type: 'sources',
-                        },
-                        children: sourcesChildren,
-                    })
+                    searchResults.push(createTopLevelFolderNode('sources', sourcesChildren, true))
                 }
 
                 if (viewsChildren.length > 0) {
                     expandedIds.push('search-views')
-                    searchResults.push({
-                        id: 'search-views',
-                        name: 'Views',
-                        type: 'node',
-                        record: {
-                            type: 'views',
-                        },
-                        children: viewsChildren,
-                    })
+                    searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
                 }
 
                 // Auto-expand only parent folders, not the matching nodes themselves
@@ -468,63 +439,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const sourcesChildren: TreeDataItem[] = []
 
-                // Add PostHog tables in a PostHog folder
-                const posthogChildren: TreeDataItem[] = []
-                posthogTables.forEach((table) => {
-                    const tableChildren: TreeDataItem[] = []
-
-                    if ('fields' in table) {
-                        Object.values(table.fields).forEach((field) => {
-                            tableChildren.push({
-                                id: `col-${table.name}-${field.name}`,
-                                name: `${field.name} (${field.type})`,
-                                type: 'node',
-                                record: {
-                                    type: 'column',
-                                },
-                            })
-                        })
-                    }
-
-                    posthogChildren.push({
-                        id: `table-${table.name}`,
-                        name: table.name,
-                        type: 'node',
-                        icon: <IconDocument />,
-                        record: {
-                            type: 'table',
-                        },
-                        children: tableChildren,
-                    })
-                })
-
-                if (posthogChildren.length > 0) {
-                    sourcesChildren.push({
-                        id: 'posthog-folder',
-                        name: 'PostHog',
-                        icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
-                        type: 'node',
-                        record: {
-                            type: 'source-folder',
-                            sourceType: 'PostHog',
-                        },
-                        children: posthogChildren,
-                    })
+                // Add PostHog tables
+                if (posthogTables.length > 0) {
+                    sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables))
                 }
 
+                // Group data warehouse tables by source type
                 const tablesBySourceType = dataWarehouseTables.reduce(
                     (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, table) => {
-                        if (table.source) {
-                            if (!acc[table.source.source_type]) {
-                                acc[table.source.source_type] = []
-                            }
-                            acc[table.source.source_type].push(table)
-                        } else {
-                            if (!acc['Self-managed']) {
-                                acc['Self-managed'] = []
-                            }
-                            acc['Self-managed'].push(table)
+                        const sourceType = table.source?.source_type || 'Self-managed'
+                        if (!acc[sourceType]) {
+                            acc[sourceType] = []
                         }
+                        acc[sourceType].push(table)
                         return acc
                     },
                     {}
@@ -532,136 +459,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add data warehouse tables
                 Object.entries(tablesBySourceType).forEach(([sourceType, tables]) => {
-                    const sourceChildren: TreeDataItem[] = []
-
-                    tables.forEach((table) => {
-                        const tableChildren: TreeDataItem[] = []
-                        if ('fields' in table) {
-                            Object.values(table.fields).forEach((field) => {
-                                tableChildren.push({
-                                    id: `col-${table.name}-${field.name}`,
-                                    name: `${field.name} (${field.type})`,
-                                    type: 'node',
-                                    record: {
-                                        type: 'column',
-                                    },
-                                })
-                            })
-                        }
-
-                        sourceChildren.push({
-                            id: `table-${table.name}`,
-                            name: table.name,
-                            type: 'node',
-                            icon: <IconDatabase />,
-                            record: {
-                                type: 'table',
-                            },
-                            children: tableChildren,
-                        })
-                    })
-
-                    sourcesChildren.push({
-                        id: `source-${sourceType}`,
-                        name: sourceType,
-                        type: 'node',
-                        icon: (
-                            <DataWarehouseSourceIcon
-                                type={
-                                    sourceType === 'Self-managed' && tables.length > 0
-                                        ? mapUrlToProvider(tables[0].url_pattern)
-                                        : sourceType
-                                }
-                                size="xsmall"
-                                disableTooltip
-                            />
-                        ),
-                        record: {
-                            type: 'source-folder',
-                            sourceType,
-                        },
-                        children: sourceChildren,
-                    })
+                    sourcesChildren.push(createSourceFolderNode(sourceType, tables))
                 })
 
-                // Views children
+                // Create views children
                 const viewsChildren: TreeDataItem[] = []
 
+                // Add saved queries
                 dataWarehouseSavedQueries.forEach((view) => {
-                    const viewChildren: TreeDataItem[] = []
-
-                    if ('columns' in view && view.columns) {
-                        Object.values(view.columns).forEach((column) => {
-                            viewChildren.push({
-                                id: `col-${view.name}-${column.name}`,
-                                name: `${column.name} (${column.type})`,
-                                type: 'node',
-                                record: {
-                                    type: 'column',
-                                },
-                            })
-                        })
-                    }
-
-                    viewsChildren.push({
-                        id: `view-${view.id}`,
-                        name: view.name,
-                        type: 'node',
-                        icon: <IconDocument />,
-                        record: {
-                            type: 'view',
-                        },
-                        children: viewChildren,
-                    })
+                    viewsChildren.push(createViewNode(view))
                 })
 
+                // Add managed views
                 managedViews.forEach((view) => {
-                    const viewChildren: TreeDataItem[] = []
-
-                    if ('fields' in view) {
-                        Object.values(view.fields).forEach((field) => {
-                            viewChildren.push({
-                                id: `col-${view.name}-${field.name}`,
-                                name: `${field.name} (${field.type})`,
-                                type: 'node',
-                                record: {
-                                    type: 'column',
-                                },
-                            })
-                        })
-                    }
-
-                    viewsChildren.push({
-                        id: `view-${view.id}`,
-                        name: view.name,
-                        type: 'node',
-                        icon: <IconDatabase />,
-                        record: {
-                            type: 'view',
-                        },
-                        children: viewChildren,
-                    })
+                    viewsChildren.push(createViewNode(view))
                 })
 
                 return [
-                    {
-                        id: 'sources',
-                        name: 'Sources',
-                        type: 'node',
-                        record: {
-                            type: 'sources',
-                        },
-                        children: sourcesChildren,
-                    },
-                    {
-                        id: 'views',
-                        name: 'Views',
-                        type: 'node',
-                        record: {
-                            type: 'views',
-                        },
-                        children: viewsChildren,
-                    },
+                    createTopLevelFolderNode('sources', sourcesChildren),
+                    createTopLevelFolderNode('views', viewsChildren),
                 ]
             },
         ],
@@ -771,6 +587,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             } else {
                 setExpanded([...expandedFolders, folderId])
             }
+        },
+        selectSourceTable: ({ tableName }) => {
+            // Connect to viewLinkLogic actions
+            viewLinkLogic.actions.selectSourceTable(tableName)
+            viewLinkLogic.actions.toggleJoinTableModal()
         },
     })),
     subscriptions({

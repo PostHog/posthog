@@ -547,7 +547,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 )}
 
                                                 {itemSideAction &&
-                                                    !!itemSideAction(item) &&
+                                                    itemSideAction(item) !== undefined &&
                                                     !isEmptyFolder &&
                                                     size === 'default' && (
                                                         <DropdownMenu>
