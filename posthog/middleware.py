@@ -766,7 +766,7 @@ class CSPMiddleware:
             "font-src 'self' $$domains-list$$; "
             "object-src 'none'; "
             "media-src 'self'; "
-            "frame-src 'self' $$nonce$$; "
+            "frame-src 'self'; "
             "$$REPORTING_ENDPOINT$$"
         )
         self.reporting_endpoint: str = settings.CSP_REPORTING_ENDPOINT
@@ -788,7 +788,7 @@ class CSPMiddleware:
 
             if self.reporting_endpoint:
                 reporting_endpoint = self.reporting_endpoint
-                if self.add_distinct_id:
+                if self.add_distinct_id and request.user and request.user.distinct_id:
                     reporting_endpoint = reporting_endpoint + f"&distinct_id={request.user.distinct_id}"
 
                 response["Reporting-Endpoints"] = f'posthog-reporting-endpoint="{reporting_endpoint}"'
