@@ -2098,7 +2098,7 @@ def decapitalize_first_word(text: str) -> str:
 
     def decapitalize(match):
         """Decapitalize words like `Browser`, but leaves acronyms like `UTM` and exceptions like `GeoIP` intact."""
-        word: list[str] = match.group(0)
+        word = match.group(0)
         return word[0].lower() + word[1:] if word.islower() or (not word.isupper() and word != "GeoIP") else word
 
     return re.sub(r"^\b\w+\b", decapitalize, text, count=1)
