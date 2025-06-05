@@ -7,14 +7,13 @@ from cohere.core.api_error import ApiError as BaseCohereApiError
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.embeddings import embed_search_query, get_cohere_client
-from ee.hogai.utils.ui_context_types import ActionContextForMax
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
+from posthog.schema import ActionContextForMax, CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
@@ -67,7 +66,7 @@ class InsightRagContextNode(AssistantNode):
         trace_id: Any | None = None,
         distinct_id: Any | None = None,
     ) -> str:
-        ids = [str(action.id) for action in actions_in_context] if actions_in_context else []
+        ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
 
         if embedding:
             runner = VectorSearchQueryRunner(

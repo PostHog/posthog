@@ -10,10 +10,9 @@ from langchain_core.runnables import RunnableConfig
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
-from posthog.schema import AssistantMessage, AssistantToolCall
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
-from ..utils.ui_context_types import MaxContextShape
 
 
 class AssistantNode(ABC):

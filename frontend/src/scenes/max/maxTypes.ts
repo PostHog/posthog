@@ -1,12 +1,11 @@
-import { Node } from '~/queries/schema/schema-general'
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { QuerySchema } from '~/queries/schema/schema-general'
 
 export interface InsightContextForMax {
     id: string | number
     name?: string
     description?: string
 
-    query: Node // The actual query node, e.g., TrendsQuery, HogQLQuery
+    query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
 
     insight_type?: string
 }
@@ -28,16 +27,6 @@ export interface ActionContextForMax {
     id: string | number
     name?: string
     description?: string
-}
-
-// Container for multiple active insights, typically on a dashboard
-// Keyed by a unique identifier for the insight on the dashboard (e.g., dashboard_item_id)
-export interface MultiInsightContainer {
-    [insightKey: string]: Partial<QueryBasedInsightModel>
-}
-
-export interface MultiDashboardContainer {
-    [dashboardKey: string]: DashboardType<QueryBasedInsightModel>
 }
 
 export interface MultiDashboardContextContainer {

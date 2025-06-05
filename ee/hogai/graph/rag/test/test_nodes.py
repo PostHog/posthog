@@ -5,11 +5,10 @@ from django.utils import timezone
 
 from ee.hogai.graph.rag.nodes import InsightRagContextNode
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.ui_context_types import ActionContextForMax, MaxContextShape
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
-from posthog.schema import TeamTaxonomyQuery
+from posthog.schema import ActionContextForMax, MaxContextShape, TeamTaxonomyQuery
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 

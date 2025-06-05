@@ -5,23 +5,34 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
 )
-from langchain_core.runnables import RunnableLambda
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.ui_context_types import (
+from ee.models.assistant import CoreMemory
+from posthog.schema import (
     ActionContextForMax,
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
     DashboardContextForMax,
+    EntityType,
     EventContextForMax,
+    EventsNode,
+    FunnelsQuery,
     GlobalInfo,
+    HogQLQuery,
+    HumanMessage,
     InsightContextForMax,
+    LifecycleQuery,
     MaxContextShape,
     MaxNavigationContext,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionQuery,
+    TrendsQuery,
 )
-from ee.models.assistant import CoreMemory
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
@@ -253,12 +264,13 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(tool_message.tool_call_id, "xyz1")
 
     def test_hard_limit_removes_tools(self):
-        mock = RunnableLambda(lambda _: LangchainAIMessage(content="I can't help with that anymore."))
-        mock.get_num_tokens_from_messages = lambda _: 1
+        mock_with_tokens = MagicMock()
+        mock_with_tokens.side_effect = lambda _: LangchainAIMessage(content="I can't help with that anymore.")
+        mock_with_tokens.get_num_tokens_from_messages = MagicMock(return_value=1)
 
         with patch(
             "ee.hogai.graph.root.nodes.ChatOpenAI",
-            return_value=mock,
+            return_value=mock_with_tokens,
         ):
             node = RootNode(self.team)
 
@@ -451,7 +463,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 "ee.hogai.graph.root.nodes.RootNode._get_model",
                 return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Simple response")]),
             ),
-            patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()),
+            patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
             patch(
                 "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
                 return_value=("Success", {}),
@@ -459,7 +471,6 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         ):
             node = RootNode(self.team)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
-            mock_model = node._get_model()
 
             next_state = node.run(state, {})
 
@@ -467,9 +478,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(len(next_state.messages), 1)
             assistant_message = next_state.messages[0]
             self.assertIsInstance(assistant_message, AssistantMessage)
+            assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Simple response")
             self.assertEqual(assistant_message.tool_calls, [])
-            mock_model.bind_tools.assert_not_called()
+            mock_bind_tools.assert_not_called()
 
     def test_node_injects_contextual_tool_prompts(self):
         with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as mock_get_model:
@@ -675,13 +687,13 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
             id=123,
             name="User Trends",
             description="Daily active users",
-            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
         expected = """## User Trends: Daily active users
-Query: {'kind': 'TrendsQuery', 'series': [{'event': 'pageview'}]}
+Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'compareFilter': None, 'conversionGoal': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'interval': 'day', 'kind': 'TrendsQuery', 'modifiers': None, 'properties': [], 'response': None, 'samplingFactor': None, 'series': [{'custom_name': None, 'event': 'pageview', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}], 'trendsFilter': None}
 
 Results:
 Trend results: 100 users"""
@@ -697,13 +709,13 @@ Trend results: 100 users"""
             id=456,
             name="Conversion Funnel",
             description=None,
-            query={"kind": "FunnelsQuery", "series": [{"event": "sign_up"}, {"event": "purchase"}]},
+            query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
         expected = """## Conversion Funnel
-Query: {'kind': 'FunnelsQuery', 'series': [{'event': 'sign_up'}, {'event': 'purchase'}]}
+Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'funnelsFilter': None, 'interval': None, 'kind': 'FunnelsQuery', 'modifiers': None, 'properties': [], 'response': None, 'samplingFactor': None, 'series': [{'custom_name': None, 'event': 'sign_up', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}, {'custom_name': None, 'event': 'purchase', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}]}
 
 Results:
 Funnel results: 50% conversion"""
@@ -718,19 +730,18 @@ Funnel results: 50% conversion"""
             id=789,
             name=None,
             description=None,
-            query={
-                "kind": "RetentionQuery",
-                "retentionFilter": {
-                    "targetEntity": {"id": "$pageview", "type": "events"},
-                    "returningEntity": {"id": "$pageview", "type": "events"},
-                },
-            },
+            query=RetentionQuery(
+                retentionFilter=RetentionFilter(
+                    targetEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                    returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                )
+            ),
         )
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
-        expected = """## Insight 789
-Query: {'kind': 'RetentionQuery', 'retentionFilter': {'targetEntity': {'id': '$pageview', 'type': 'events'}, 'returningEntity': {'id': '$pageview', 'type': 'events'}}}
+        expected = """## Insight 789.0
+Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'kind': 'RetentionQuery', 'modifiers': None, 'properties': [], 'response': None, 'retentionFilter': {'cumulative': None, 'dashboardDisplay': None, 'display': None, 'meanRetentionCalculation': None, 'period': 'Day', 'retentionReference': None, 'retentionType': None, 'returningEntity': {'custom_name': None, 'id': '$pageview', 'kind': None, 'name': None, 'order': None, 'properties': None, 'type': 'events', 'uuid': None}, 'showMean': None, 'targetEntity': {'custom_name': None, 'id': '$pageview', 'kind': None, 'name': None, 'order': None, 'properties': None, 'type': 'events', 'uuid': None}, 'totalIntervals': 8}, 'samplingFactor': None}
 
 Results:
 Retention: 30% Day 7"""
@@ -745,13 +756,13 @@ Retention: 30% Day 7"""
             id=101,
             name="Custom Query",
             description="HogQL analysis",
-            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
         expected = """## Custom Query: HogQL analysis
-Query: {'kind': 'HogQLQuery', 'query': 'SELECT count() FROM events'}
+Query: {'explain': None, 'filters': None, 'kind': 'HogQLQuery', 'modifiers': None, 'name': None, 'query': 'SELECT count() FROM events', 'response': None, 'values': None, 'variables': None}
 
 Results:
 Query results: 42 events"""
@@ -761,20 +772,7 @@ Query results: 42 events"""
     def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
 
-        insight = InsightContextForMax(
-            id=123, name="Unsupported", description=None, query={"kind": "UnsupportedQuery", "data": "some data"}
-        )
-
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
-
-        self.assertEqual(result, "")
-        mock_query_runner.run_and_format_query.assert_not_called()
-
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
-    def test_run_and_format_insight_missing_query_kind(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-
-        insight = InsightContextForMax(id=123, name="Missing Kind", description=None, query={"data": "some data"})
+        insight = InsightContextForMax(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
@@ -790,7 +788,7 @@ Query results: 42 events"""
             id=123,
             name="Failed Query",
             description=None,
-            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
@@ -807,7 +805,7 @@ Query results: 42 events"""
             id=123,
             name="Dashboard Insight",
             description="Test insight",
-            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
         # Create mock dashboard
@@ -841,7 +839,7 @@ Query results: 42 events"""
             id=123,
             name="Standalone Insight",
             description="Test standalone insight",
-            query={"kind": "FunnelsQuery", "series": [{"event": "sign_up"}]},
+            query=FunnelsQuery(series=[EventsNode(event="sign_up")]),
         )
 
         # Create mock UI context
@@ -970,7 +968,7 @@ Query results: 42 events"""
             id=123,
             name="Test Insight",
             description="Test description",
-            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
         # Create mock UI context
@@ -993,7 +991,7 @@ Query results: 42 events"""
             id=123,
             name="Failed Insight",
             description=None,
-            query={"kind": "TrendsQuery", "series": [{"event": "pageview"}]},
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
         # Create mock UI context

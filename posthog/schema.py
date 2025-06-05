@@ -2957,25 +2957,6 @@ class DayItem(BaseModel):
     value: Union[str, datetime, int]
 
 
-class Query(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: NodeKind
-    response: Optional[dict[str, Any]] = None
-
-
-class InsightContextForMax(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    id: Union[str, float]
-    insight_type: Optional[str] = None
-    name: Optional[str] = None
-    query: Query = Field(..., description="Node base class, everything else inherits from here.")
-
-
 class InsightThreshold(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5415,16 +5396,6 @@ class CalendarHeatmapResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class DashboardContextForMax(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    id: Union[str, float]
-    insights: list[InsightContextForMax]
-    name: Optional[str] = None
 
 
 class Response(BaseModel):
@@ -8598,17 +8569,6 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
-class MaxContextShape(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    actions: Optional[dict[str, ActionContextForMax]] = None
-    dashboards: Optional[dict[str, DashboardContextForMax]] = None
-    events: Optional[dict[str, EventContextForMax]] = None
-    global_info: Optional[GlobalInfo] = None
-    insights: Optional[dict[str, InsightContextForMax]] = None
-
-
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9153,16 +9113,6 @@ class HogQLASTQuery(BaseModel):
     )
 
 
-class HumanMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["human"] = "human"
-    ui_context: Optional[MaxContextShape] = None
-
-
 class InsightFilter(
     RootModel[
         Union[
@@ -9266,23 +9216,6 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-
-
-class RootAssistantMessage(
-    RootModel[
-        Union[
-            VisualizationMessage,
-            ReasoningMessage,
-            AssistantMessage,
-            HumanMessage,
-            FailureMessage,
-            RootAssistantMessage1,
-        ]
-    ]
-):
-    root: Union[
-        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
-    ]
 
 
 class StickinessQuery(BaseModel):
@@ -10848,6 +10781,16 @@ class DataTableNode(BaseModel):
     ] = Field(..., description="Source of the events")
 
 
+class DashboardContextForMax(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, float]
+    insights: list[InsightContextForMax]
+    name: Optional[str] = None
+
+
 class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10965,6 +10908,93 @@ class HogQLMetadata(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be subsituted into the query"
     )
+
+
+class HumanMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    type: Literal["human"] = "human"
+    ui_context: Optional[MaxContextShape] = None
+
+
+class InsightContextForMax(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, float]
+    insight_type: Optional[str] = None
+    name: Optional[str] = None
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        CalendarHeatmapQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class MaxContextShape(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[dict[str, ActionContextForMax]] = None
+    dashboards: Optional[dict[str, DashboardContextForMax]] = None
+    events: Optional[dict[str, EventContextForMax]] = None
+    global_info: Optional[GlobalInfo] = None
+    insights: Optional[dict[str, InsightContextForMax]] = None
 
 
 class QueryRequest(BaseModel):
@@ -11176,5 +11206,26 @@ class QuerySchemaRoot(
     ] = Field(..., discriminator="kind")
 
 
+class RootAssistantMessage(
+    RootModel[
+        Union[
+            VisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            RootAssistantMessage1,
+        ]
+    ]
+):
+    root: Union[
+        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+    ]
+
+
 PropertyGroupFilterValue.model_rebuild()
+DashboardContextForMax.model_rebuild()
+HumanMessage.model_rebuild()
+InsightContextForMax.model_rebuild()
+MaxContextShape.model_rebuild()
 QueryRequest.model_rebuild()

@@ -23,7 +23,6 @@ from ee.hogai.graph.query_executor.query_runner import QueryRunner
 import products
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.ui_context_types import MaxContextShape
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -31,6 +30,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    MaxContextShape,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -82,15 +82,26 @@ class RootNodeUIContextMixin(AssistantNode):
         }
 
         try:
-            # Convert the query dict to the appropriate query object
-            query_dict = insight.query
-            query_kind = query_dict.get("kind")
+            # Handle both Pydantic model and dict cases
+            if hasattr(insight.query, "model_dump"):
+                # Pydantic model - convert to dict with JSON serialization for enums
+                query_dict = insight.query.model_dump(mode="json")
+                query_kind = getattr(insight.query, "kind", None)
+            else:
+                # Already a dict
+                query_dict = insight.query
+                query_kind = query_dict.get("kind")
 
             if not query_kind or query_kind not in query_class_map:
                 return ""  # Skip unsupported query types
 
             query_class = query_class_map[query_kind]
-            query_obj = query_class.model_validate(query_dict)
+            if hasattr(insight.query, "model_dump"):
+                # Use the original Pydantic model directly
+                query_obj = insight.query
+            else:
+                # Validate from dict
+                query_obj = query_class.model_validate(query_dict)
 
             # Run the query and format results
             formatted_results = query_runner.run_and_format_query(query_obj)
@@ -98,7 +109,7 @@ class RootNodeUIContextMixin(AssistantNode):
             result = f"## {insight.name or f'Insight {insight.id}'}"
             if insight.description:
                 result += f": {insight.description}"
-            result += f"\nQuery: {insight.query}"
+            result += f"\nQuery: {query_dict}"
             result += f"\n\nResults:\n{formatted_results}"
             return result
 

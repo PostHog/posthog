@@ -11556,18 +11556,7 @@
                     "type": "string"
                 },
                 "query": {
-                    "additionalProperties": false,
-                    "description": "Node base class, everything else inherits from here.",
-                    "properties": {
-                        "kind": {
-                            "$ref": "#/definitions/NodeKind"
-                        },
-                        "response": {
-                            "type": "object"
-                        }
-                    },
-                    "required": ["kind"],
-                    "type": "object"
+                    "$ref": "#/definitions/QuerySchema"
                 }
             },
             "required": ["id", "query"],

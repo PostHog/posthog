@@ -16,8 +16,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
-from ee.hogai.utils.ui_context_types import EventContextForMax
-
 from .parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -51,6 +49,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
+    EventContextForMax,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )

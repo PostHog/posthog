@@ -12,12 +12,12 @@ from ee.hogai.graph.taxonomy_agent.nodes import (
 )
 from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.ui_context_types import EventContextForMax
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    EventContextForMax,
     FailureMessage,
     HumanMessage,
     VisualizationMessage,
