@@ -85,8 +85,8 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         if not source.job_inputs:
             return
 
-        schemas = doit_list_reports(DoItSourceConfig.from_dict(source.job_inputs))
-        schemas_to_sync = [name for name, _ in schemas]
+        doit_schemas = doit_list_reports(DoItSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = [name for name, _ in doit_schemas]
     else:
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
 

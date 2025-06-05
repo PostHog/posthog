@@ -688,6 +688,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         api_key = payload.get("api_key", "")
 
+        if len(api_key) == 0:
+            raise Exception("Missing api_key")
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
