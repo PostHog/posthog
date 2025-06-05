@@ -375,7 +375,7 @@ export const LineGraph = (): JSX.Element => {
                                     ),
                                     rawData: series.data[referenceDataPoint.dataIndex],
                                     dataIndex: referenceDataPoint.dataIndex,
-                                    isTotalRow: true,
+                                    isTotalRow: false,
                                 }
                             })
 
@@ -390,7 +390,7 @@ export const LineGraph = (): JSX.Element => {
                                     data: rawData.toString(),
                                     rawData: rawData,
                                     dataIndex: referenceDataPoint.dataIndex,
-                                    isTotalRow: false,
+                                    isTotalRow: true,
                                 })
                             }
 
@@ -403,7 +403,7 @@ export const LineGraph = (): JSX.Element => {
                                                 title: xSeriesData.data[referenceDataPoint.dataIndex],
                                                 dataIndex: 'series',
                                                 render: (value, record) => {
-                                                    if (!record.isTotalRow) {
+                                                    if (record.isTotalRow) {
                                                         return (
                                                             <div className="datum-label-column font-extrabold">
                                                                 Total
@@ -450,7 +450,7 @@ export const LineGraph = (): JSX.Element => {
                                         ]}
                                         uppercaseHeader={false}
                                         rowRibbonColor={(_datum, index) => {
-                                            if (!_datum.isTotalRow) {
+                                            if (_datum.isTotalRow) {
                                                 return undefined
                                             }
 
