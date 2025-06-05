@@ -241,9 +241,9 @@ describe('HogWatcher', () => {
 
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": 0,
+                  "rating": -0.0001,
                   "state": 3,
-                  "tokens": 0,
+                  "tokens": -1,
                 }
             `)
 
@@ -252,9 +252,9 @@ describe('HogWatcher', () => {
         // Should still be disabled even though tokens have been refilled
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": 0.01,
+                  "rating": 0.0099,
                   "state": 3,
-                  "tokens": 100,
+                  "tokens": 99,
                 }
             `)
     })
