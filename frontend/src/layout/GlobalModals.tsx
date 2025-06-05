@@ -12,6 +12,7 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { EnvironmentRollbackModal } from 'scenes/settings/environment/EnvironmentRollbackModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
@@ -78,6 +79,7 @@ export function GlobalModals(): JSX.Element {
             <GlobalCustomUnitModal />
             <SaveToModal />
             <MoveToModal />
+            <EnvironmentRollbackModal />
         </>
     )
 }
