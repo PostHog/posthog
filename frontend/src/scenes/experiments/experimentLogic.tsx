@@ -1837,13 +1837,13 @@ export const experimentLogic = kea<experimentLogicType>([
             (
                     experiment,
                     metricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
                     secondaryMetricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1858,24 +1858,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     const result = isSecondary ? secondaryMetricResults[metricIndex] : metricResults[metricIndex]
 
                     if (result) {
-                        // Handle legacy response with variants
-                        if ('variants' in result && result.variants) {
-                            for (const variantObj of result.variants) {
-                                if (metricType === InsightType.FUNNELS) {
-                                    const { key, success_count, failure_count } = variantObj as FunnelExperimentVariant
-                                    tabularResults.push({ key, success_count, failure_count })
-                                } else if (metricType === InsightType.TRENDS) {
-                                    const { key, count, exposure, absolute_exposure } =
-                                        variantObj as TrendExperimentVariant
-                                    tabularResults.push({ key, count, exposure, absolute_exposure })
-                                }
+                        for (const variantObj of result.variants) {
+                            if (metricType === InsightType.FUNNELS) {
+                                const { key, success_count, failure_count } = variantObj as FunnelExperimentVariant
+                                tabularResults.push({ key, success_count, failure_count })
+                            } else if (metricType === InsightType.TRENDS) {
+                                const { key, count, exposure, absolute_exposure } = variantObj as TrendExperimentVariant
+                                tabularResults.push({ key, count, exposure, absolute_exposure })
                             }
-                        }
-
-                        // Handle new response with variant_results
-                        if ('variant_results' in result && result.variant_results) {
-                            // TODO: Implement conversion from new format to tabular results
-                            // For now, leaving empty as the new format needs different handling
                         }
                     }
 
@@ -1900,7 +1890,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.metricResults],
             (
                     metricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1913,29 +1903,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         return []
                     }
 
-                    // Handle legacy response
-                    if ('probability' in result && result.probability) {
-                        return Object.keys(result.probability)
-                            .map((key) => ({
-                                key,
-                                winProbability: result.probability[key],
-                                conversionRate: conversionRateForVariant(result, key),
-                            }))
-                            .sort((a, b) => b.winProbability - a.winProbability)
-                    }
-
-                    // Handle new response - extract chance_to_win from variant_results
-                    if ('variant_results' in result && result.variant_results) {
-                        return result.variant_results
-                            .map((variant) => ({
-                                key: variant.key,
-                                winProbability: 'chance_to_win' in variant ? variant.chance_to_win : 0,
-                                conversionRate: 0, // TODO: Need to calculate this from new format
-                            }))
-                            .sort((a, b) => b.winProbability - a.winProbability)
-                    }
-
-                    return []
+                    return Object.keys(result.probability)
+                        .map((key) => ({
+                            key,
+                            winProbability: result.probability[key],
+                            conversionRate: conversionRateForVariant(result, key),
+                        }))
+                        .sort((a, b) => b.winProbability - a.winProbability)
                 },
         ],
         funnelResultsPersonsTotal: [
@@ -1943,7 +1917,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (
                     experiment,
                     metricResults: (
-                        | TypedExperimentResponse
+                        | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1957,27 +1931,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         return 0
                     }
 
-                    // Handle legacy response
-                    if ('insight' in result && result.insight) {
-                        let sum = 0
-                        result.insight.forEach((variantResult) => {
-                            if (variantResult[0]?.count) {
-                                sum += variantResult[0].count
-                            }
-                        })
-                        return sum
-                    }
-
-                    // Handle new response - sum number_of_samples from all variants
-                    if ('variant_results' in result && result.variant_results) {
-                        let sum = 0
-                        for (const variant of result.variant_results) {
-                            sum += variant.number_of_samples
+                    let sum = 0
+                    result.insight.forEach((variantResult) => {
+                        if (variantResult[0]?.count) {
+                            sum += variantResult[0].count
                         }
-                        return sum
-                    }
-
-                    return 0
+                    })
+                    return sum
                 },
         ],
         actualRunningTime: [
