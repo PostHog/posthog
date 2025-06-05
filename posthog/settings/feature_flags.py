@@ -4,6 +4,7 @@ from posthog.settings.utils import get_list
 
 # The features here are released on the frontend, but the flags are just not yet removed from the code
 # WARNING: ONLY the frontend has feature flag overrides. Flags on the backend will NOT be affected by this setting
+# Sync with common/storybook/.storybook/decorators/withFeatureFlags.tsx
 PERSISTED_FEATURE_FLAGS = [
     *get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")),
     "simplify-actions",
@@ -13,4 +14,5 @@ PERSISTED_FEATURE_FLAGS = [
     "datanode-concurrency-limit",
     "session-table-property-filters",
     "query-async",
+    "artificial-hog",
 ]
