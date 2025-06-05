@@ -569,9 +569,9 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.22
   '''
-  SELECT "posthog_errortrackingassignmentrule"."filters"
-  FROM "posthog_errortrackingassignmentrule"
-  WHERE "posthog_errortrackingassignmentrule"."team_id" = 99999
+  SELECT "posthog_errortrackingsuppressionrule"."filters"
+  FROM "posthog_errortrackingsuppressionrule"
+  WHERE "posthog_errortrackingsuppressionrule"."team_id" = 99999
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.23
@@ -1152,9 +1152,9 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.39
   '''
-  SELECT "posthog_errortrackingassignmentrule"."filters"
-  FROM "posthog_errortrackingassignmentrule"
-  WHERE "posthog_errortrackingassignmentrule"."team_id" = 99999
+  SELECT "posthog_errortrackingsuppressionrule"."filters"
+  FROM "posthog_errortrackingsuppressionrule"
+  WHERE "posthog_errortrackingsuppressionrule"."team_id" = 99999
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
@@ -4803,9 +4803,9 @@
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.22
   '''
-  SELECT "posthog_errortrackingassignmentrule"."filters"
-  FROM "posthog_errortrackingassignmentrule"
-  WHERE "posthog_errortrackingassignmentrule"."team_id" = 99999
+  SELECT "posthog_errortrackingsuppressionrule"."filters"
+  FROM "posthog_errortrackingsuppressionrule"
+  WHERE "posthog_errortrackingsuppressionrule"."team_id" = 99999
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.23
