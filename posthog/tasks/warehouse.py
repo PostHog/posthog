@@ -4,7 +4,7 @@ import structlog
 from celery import shared_task
 
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.ph_client import get_ph_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.models import Team
 from django.db.models import Q
 
@@ -27,7 +27,7 @@ def capture_external_data_rows_synced() -> None:
 
 @shared_task(ignore_result=True)
 def capture_workspace_rows_synced_by_team(team_id: int) -> None:
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.UTC)
     begin = team.external_data_workspace_last_synced_at or DEFAULT_DATE_TIME
@@ -60,7 +60,7 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
 def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
     from posthog.warehouse.models import DataWarehouseTable
 
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
 
     try:
         table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
