@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
+    CachedExperimentQueryResponse,
     ExperimentFunnelsQueryResponse,
     ExperimentQueryResponse,
     ExperimentTrendsQueryResponse,
@@ -140,32 +141,74 @@ export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.E
     )
 }
 
+/**
+ * shows a breakdown of the results for ExperimentQueryResponse
+ */
 export function ResultsQuery({
     result,
-    showTable,
     experiment,
 }: {
-    result: ExperimentQueryResponse | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
-    showTable: boolean
-    experiment?: Experiment
-}): JSX.Element {
+    result: CachedExperimentQueryResponse
+    experiment: Experiment
+}): JSX.Element | null {
     /**
-     * we need to do some checks here...
+     * we get the generated query and the results from the breakdown logic
      */
     const { breakdownResults } = useValues(experimentResultBreakdownLogic({ experiment, metric: result.metric }))
 
-    if (!result || !breakdownResults) {
+    if (!breakdownResults) {
+        return null
+    }
+
+    const { query, results } = breakdownResults
+
+    const fakeInsightId = Math.random().toString(36).substring(2, 15)
+
+    return (
+        <Query
+            query={{
+                kind: NodeKind.InsightVizNode,
+                source: query,
+                showTable: true,
+                showLastComputation: true,
+                showLastComputationRefresh: false,
+            }}
+            context={{
+                insightProps: {
+                    dashboardItemId: fakeInsightId as InsightShortId,
+                    cachedInsight: {
+                        short_id: fakeInsightId as InsightShortId,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: query,
+                        } as InsightVizNode,
+                        result: results,
+                        disable_baseline: true,
+                    },
+                    doNotLoad: true,
+                },
+            }}
+            readOnly
+        />
+    )
+}
+
+/**
+ * shows a breakdown query for legacy metrics
+ * @deprecated use ResultsQuery
+ */
+export function LegacyResultsQuery({
+    result,
+    showTable,
+}: {
+    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    showTable: boolean
+}): JSX.Element {
+    if (!result) {
         return <></>
     }
 
-    const query =
-        result.kind === NodeKind.ExperimentQuery
-            ? breakdownResults?.query
-            : result.kind === NodeKind.ExperimentTrendsQuery
-            ? result.count_query
-            : result.funnels_query
-
-    const insight = result.kind === NodeKind.ExperimentQuery ? breakdownResults?.insight : result?.insight
+    const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
 
     const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
@@ -187,7 +230,7 @@ export function ResultsQuery({
                             kind: NodeKind.InsightVizNode,
                             source: query,
                         } as InsightVizNode,
-                        result: insight,
+                        result: result?.insight,
                         disable_baseline: true,
                     },
                     doNotLoad: true,

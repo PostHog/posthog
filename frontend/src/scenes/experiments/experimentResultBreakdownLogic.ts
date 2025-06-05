@@ -17,17 +17,14 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { experimentResultBreakdownLogicType } from './experimentResultBreakdownLogicType'
 
-type ExperimentResultBreakdownLogicProps = {
+export type ExperimentResultBreakdownLogicProps = {
     experiment: Experiment
     metric: ExperimentMetric
 }
 
-const metricToQuery = (metric: ExperimentMetric, experiment: Experiment): FunnelsQuery | TrendsQuery => {
+const exposureCriteriaToEntityNode = (experiment: Experiment): AnyEntityNode[] => {
     const series: AnyEntityNode[] = []
 
-    /**
-     * the first item of the thing will be the exposure criteria
-     */
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
     if (exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
         series.push({
@@ -60,24 +57,27 @@ const metricToQuery = (metric: ExperimentMetric, experiment: Experiment): Funnel
         })
     }
 
-    /**
-     * for funnel metrics, we need to add each element in the series as a filter
-     */
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        metric.series.forEach((s) => {
-            if (s.kind === NodeKind.EventsNode) {
-                series.push({
-                    kind: NodeKind.EventsNode,
-                    custom_name: s.event ?? undefined,
-                    event: s.event,
-                })
-            }
-        })
-    }
+    return series
+}
 
+const experimentMetricToInisghtQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment
+): FunnelsQuery | TrendsQuery => {
+    /**
+     * the first entity node of the query will be the exposure criteria
+     */
+    const exposureCriteriaSeries = exposureCriteriaToEntityNode(experiment)
+
+    /**
+     * for mean metrics, we take the single source element into the query
+     */
     return {
-        kind: 'FunnelsQuery',
-        series,
+        kind: metric.metric_type === ExperimentMetricType.FUNNEL ? NodeKind.FunnelsQuery : NodeKind.TrendsQuery,
+        series:
+            metric.metric_type === ExperimentMetricType.FUNNEL
+                ? [...exposureCriteriaSeries, ...metric.series]
+                : [metric.source as AnyEntityNode],
         filterTestAccounts: !!experiment.exposure_criteria?.filterTestAccounts,
         dateRange: {
             date_from:
@@ -86,20 +86,32 @@ const metricToQuery = (metric: ExperimentMetric, experiment: Experiment): Funnel
             date_to: experiment.end_date,
             explicitDate: true,
         },
-        funnelsFilter: {
-            layout: FunnelLayout.vertical,
-            breakdownAttributionType: 'first_touch',
-            funnelOrderType: 'ordered',
-            funnelStepReference: 'total',
-            funnelVizType: 'steps',
-            funnelWindowInterval: 14,
-            funnelWindowIntervalUnit: 'day',
-        },
         breakdownFilter: {
             breakdown: `$feature/${experiment.feature_flag_key}`,
             breakdown_type: 'event',
         },
-    } as FunnelsQuery
+
+        ...(metric.metric_type === ExperimentMetricType.FUNNEL
+            ? {
+                  funnelsFilter: {
+                      layout: FunnelLayout.vertical,
+                      breakdownAttributionType: 'first_touch',
+                      funnelOrderType: 'ordered',
+                      funnelStepReference: 'total',
+                      funnelVizType: 'steps',
+                      funnelWindowInterval: 14,
+                      funnelWindowIntervalUnit: 'day',
+                  },
+              }
+            : {
+                  trendsFilter: {
+                      aggregationAxisFormat: 'numeric',
+                      display: 'ActionsLineGraphCumulative',
+                      resultCustomizationBy: 'value',
+                      yAxisScaleType: 'linear',
+                  },
+              }),
+    } as FunnelsQuery | TrendsQuery
 }
 
 /**
@@ -107,7 +119,7 @@ const metricToQuery = (metric: ExperimentMetric, experiment: Experiment): Funnel
  * Legacy Funnels and Trends engine are resolved backend side.
  */
 export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogicType>([
-    props({} as ExperimentResultBreakdownLogicProps),
+    props({ experiment: {} as Experiment, metric: {} as ExperimentMetric } as ExperimentResultBreakdownLogicProps),
 
     key(
         ({ experiment, metric }: ExperimentResultBreakdownLogicProps) =>
@@ -133,7 +145,7 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                      * take the metric and the experiment and create a new Funnel or Trends query.
                      * we need the experiment for exposure configuration.
                      */
-                    const query = metricToQuery(metric, experiment)
+                    const query = experimentMetricToInisghtQuery(metric, experiment)
 
                     /**
                      * perform the query
@@ -143,7 +155,17 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                     /**
                      * we need to filter the results
                      */
-                    const results = response.results as FunnelStepsResults
+                    let results = response.results as FunnelStepsResults
+
+                    const variants = experiment.parameters.feature_flag_variants.map(({ key }) => key)
+
+                    if (query.kind === NodeKind.TrendsQuery) {
+                        /**
+                         * we filter from the series all the breakdowns that do not map
+                         * to a feature flag variant
+                         */
+                        results = results.filter((series) => variants.includes(series.breakdown_value))
+                    }
 
                     return { query, results }
                 },

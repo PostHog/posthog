@@ -14,9 +14,11 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
+import { isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     ExploreButton,
+    LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
     ResultsQuery,
