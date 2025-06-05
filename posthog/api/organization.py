@@ -27,6 +27,7 @@ from posthog.permissions import (
     APIScopePermission,
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
+    OrganizationInviteSettingsPermission,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -188,6 +189,20 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())
+            return create_permissions
+
+        if self.action == "update":
+            create_permissions = [
+                permission()
+                for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
+            ]
+
+            if "members_can_invite" in self.request.data:
+                create_permissions.append(OrganizationInviteSettingsPermission())
+
+            if not is_cloud():
+                create_permissions.append(PremiumMultiorganizationPermission())
+
             return create_permissions
 
         # We don't override for other actions

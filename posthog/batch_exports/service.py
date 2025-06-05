@@ -917,6 +917,9 @@ class BatchExportInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
+    # TODO - pass these in to all inherited classes
+    batch_export_id: str | None = None
+    destination_default_fields: list[BatchExportField] | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

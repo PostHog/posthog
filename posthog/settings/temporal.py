@@ -54,7 +54,6 @@ BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env("BATCH_EXPORT_HEARTBE
 
 BATCH_EXPORT_ORDERLESS_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORT_ORDERLESS_TEAM_IDS", ""))
 UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
-ASYNC_ARROW_STREAMING_TEAM_IDS: list[str] = get_list(os.getenv("ASYNC_ARROW_STREAMING_TEAM_IDS", ""))
 DEFAULT_TIMESTAMP_LOOKBACK_DAYS = 7
 # Comma separated list of overrides in the format "team_id:lookback_days"
 OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
@@ -71,3 +70,14 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+
+BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS: list[str] = get_list(
+    os.getenv("BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS", "")
+)
+BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
+    "BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000"
+)
+BATCH_EXPORT_OBJECT_STORAGE_REGION: str = os.getenv("BATCH_EXPORT_OBJECT_STORAGE_REGION", "us-east-1")
+BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STAGING_BUCKET", "posthog")
+# The number of partitions controls how many files ClickHouse writes to concurrently
+BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 5, type_cast=int)

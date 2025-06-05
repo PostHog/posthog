@@ -1,7 +1,12 @@
 use crate::{
-    api::errors::FlagError,
-    api::request_handler::{process_request, FlagsQueryParams, RequestContext},
-    api::types::{FlagsOptionsResponse, FlagsResponseCode, LegacyFlagsResponse, ServiceResponse},
+    api::{
+        errors::FlagError,
+        types::{
+            FlagsOptionsResponse, FlagsQueryParams, FlagsResponseCode, LegacyFlagsResponse,
+            ServiceResponse,
+        },
+    },
+    handler::{process_request, RequestContext},
     router,
 };
 // TODO: stream this instead
@@ -112,7 +117,7 @@ fn create_request_span(
 
 #[cfg(test)]
 mod tests {
-    use crate::api::request_handler::Compression;
+    use crate::api::types::Compression;
 
     use super::*;
     use axum::{

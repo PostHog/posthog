@@ -93,6 +93,75 @@ Add `-v` for verbose output:
 pytest -v dags/tests/test_exchange_rate.py
 ```
 
+### Web Analytics Pre-Aggregated Tables
+
+**Note:** For materializing web analytics preaggregated tables locally (e.g., during development or testing), you may want to use a higher partition count to process more data in a single run:
+
+```bash
+DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=3000 DEBUG=1 dagster dev -m dags.definitions
+```
+
+This will allow backfills to process up to 3000 partitions per run instead of the default, significantly reducing the number of individual runs needed for large historical backfills.
+
+### Testing Concurrency Limits Locally
+
+To test job concurrency limits (useful for jobs like `web_analytics_daily_job` that use backfill policies), you need to configure a `dagster.yaml` file with concurrency settings. This is especially important for asset backfills which create `__ASSET_JOB` runs that can overwhelm your system if not properly limited.
+
+#### Setup
+
+1. Create the Dagster home directory and configuration file:
+
+```bash
+mkdir -p .dagster_home
+```
+
+2. Create `.dagster_home/dagster.yaml` with the following content:
+
+```yaml
+run_coordinator:
+  module: dagster._core.run_coordinator.queued_run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    dequeue_interval_seconds: 5
+
+run_launcher:
+  module: dagster._core.launcher.default_run_launcher
+  class: DefaultRunLauncher
+
+concurrency:
+  runs:
+    max_concurrent_runs: 10  # Overall instance limit
+    tag_concurrency_limits:
+      # Limit specific job types
+      - key: 'dagster/job_name'
+        value: 'web_analytics_daily_job'
+        limit: 1
+
+```
+
+3. Run Dagster with the configuration:
+
+```bash
+DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1  # Force small partitions per run to create multiple runs
+
+```bash
+export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1 DEBUG=1 dagster dev -m dags.definitions
+```
+
+#### Testing
+
+1. In the Dagster UI, navigate to your assets (e.g., web analytics assets)
+2. Start a backfill for several days (e.g., 3-5 days)
+3. Check the "Runs" page - you should observe:
+   - Only 1 run in `STARTED`/`STARTING` status at a time for the same concurrency group
+   - Other runs waiting in `QUEUED` status
+   - Runs progressing sequentially: `QUEUED` → `STARTED` → `SUCCESS`
+
+#### Production Configuration
+
+For production deployments, configure similar concurrency settings in your `dagster.yaml`.
+For posthog employees, it is on our charts repo: https://github.com/PostHog/charts/blob/master/config/dagster
+
 ## Additional Resources
 
 -   [Dagster Documentation](https://docs.dagster.io/)

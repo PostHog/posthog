@@ -18,6 +18,7 @@ from dags import (
     property_definitions,
     slack_alerts,
     web_preaggregated_daily,
+    web_preaggregated_ddl,
     web_preaggregated_hourly,
 )
 
@@ -55,10 +56,11 @@ defs = dagster.Definitions(
         exchange_rate.hourly_exchange_rates_in_clickhouse,
         orm_examples.pending_deletions,
         orm_examples.process_pending_deletions,
-        web_preaggregated_daily.web_analytics_preaggregated_tables,
+        web_preaggregated_ddl.web_analytics_preaggregated_tables,
+        web_preaggregated_ddl.web_analytics_preaggregated_hourly_tables,
+        web_preaggregated_ddl.web_analytics_combined_views,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
-        web_preaggregated_hourly.web_analytics_preaggregated_hourly_tables,
         web_preaggregated_hourly.web_stats_hourly,
         web_preaggregated_hourly.web_bounces_hourly,
     ],
