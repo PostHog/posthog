@@ -32,9 +32,7 @@ function QuestionTitle({
                 <span>
                     {SurveyQuestionLabel[question.type]}&nbsp;
                     {question.type === SurveyQuestionType.Rating && (
-                        <span>
-                            {SCALE_LABELS[question.scale as keyof typeof SCALE_LABELS] || `1 - ${question.scale}`}
-                        </span>
+                        <span>{SCALE_LABELS[question.scale] || `1 - ${question.scale}`}</span>
                     )}
                 </span>
                 {totalResponses > 0 && (
