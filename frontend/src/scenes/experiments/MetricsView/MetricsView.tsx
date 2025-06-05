@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { credibleIntervalForVariant } from '../experimentCalculations'
-import { experimentLogic, isLegacyExperimentResponseGeneric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
 import { DeltaChart } from './DeltaChart'
 import { getNiceTickValues } from './utils'
@@ -70,9 +70,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     }
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
-    const hasSomeResults = results?.some(
-        (result) => result && isLegacyExperimentResponseGeneric(result) && result?.insight
-    )
+    const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const sharedMetrics = experiment.saved_metrics

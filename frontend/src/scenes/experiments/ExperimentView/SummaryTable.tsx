@@ -32,7 +32,7 @@ import {
     exposureCountDataForVariant,
     getHighestProbabilityVariant,
 } from '../experimentCalculations'
-import { experimentLogic, isLegacyExperimentResponseGeneric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
 import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
@@ -82,9 +82,9 @@ export function SummaryTable({
             key: 'counts',
             title: (
                 <div className="flex">
-                    {isLegacyExperimentResponseGeneric(result) &&
-                        result.insight?.[0] &&
-                        'action' in result.insight[0] && <EntityFilterInfo filter={result.insight[0].action} />}
+                    {result.insight?.[0] && 'action' in result.insight[0] && (
+                        <EntityFilterInfo filter={result.insight[0].action} />
+                    )}
                     <span className="pl-1">{experimentMathAggregationForTrends() ? 'metric' : 'count'}</span>
                 </div>
             ),
@@ -311,9 +311,7 @@ export function SummaryTable({
             render: function Key(_, item): JSX.Element {
                 const variantKey = item.key
                 const pValue =
-                    isLegacyExperimentResponseGeneric(result) && result?.probability?.[variantKey] !== undefined
-                        ? 1 - result.probability[variantKey]
-                        : undefined
+                    result?.probability?.[variantKey] !== undefined ? 1 - result.probability[variantKey] : undefined
 
                 return (
                     <>
@@ -336,16 +334,13 @@ export function SummaryTable({
         key: 'winProbability',
         title: 'Win probability',
         sorter: (a, b) => {
-            const aPercentage = ((isLegacyExperimentResponseGeneric(result) && result?.probability?.[a.key]) || 0) * 100
-            const bPercentage = ((isLegacyExperimentResponseGeneric(result) && result?.probability?.[b.key]) || 0) * 100
+            const aPercentage = (result?.probability?.[a.key] || 0) * 100
+            const bPercentage = (result?.probability?.[b.key] || 0) * 100
             return aPercentage - bPercentage
         },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
-            const percentage =
-                isLegacyExperimentResponseGeneric(result) &&
-                result?.probability?.[variantKey] !== undefined &&
-                result.probability?.[variantKey] * 100
+            const percentage = result?.probability?.[variantKey] !== undefined && result.probability?.[variantKey] * 100
             const isWinning = variantKey === winningVariant
 
             // Only show the win probability if the conversion rate exists
