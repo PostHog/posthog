@@ -552,8 +552,8 @@ class TestEarlyAccessFeature(APIBaseTest):
             },
         )
 
-    @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
-    def test_send_events_for_early_access_feature_stage_change_fires_on_stage_change(self, mock_celery_task):
+    @patch("products.early_access_features.backend.api.send_events_for_early_access_feature_stage_change")
+    def test_send_events_for_early_access_feature_stage_change_fires_on_stage_change(self, mock_early_access):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -571,8 +571,9 @@ class TestEarlyAccessFeature(APIBaseTest):
             format="json",
         )
 
-        mock_celery_task.assert_called_once_with(
+        mock_early_access.assert_called_once_with(
             str(feature_id),
+            str(self.team.id),
             "concept",
             "beta",
         )
