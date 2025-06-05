@@ -3,10 +3,10 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
-import { MarketingAnalyticsConfig, MarketingAnalyticsSchema, SourceMap } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 
@@ -17,14 +17,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
     path(['scenes', 'web-analytics', 'marketingAnalyticsSettingsLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam', 'currentTeamId'],
-            preflightLogic,
-            ['preflight'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
-        ],
+        values: [teamLogic, ['currentTeam', 'currentTeamId'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({

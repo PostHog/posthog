@@ -4,7 +4,6 @@ import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -34,8 +33,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId', 'baseCurrency'],
-            preflightLogic,
-            ['preflight'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseSources'],
         ],

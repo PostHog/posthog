@@ -1,6 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { MARKETING_ANALYTICS_SCHEMA } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -3069,8 +3069,6 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
-export const DEFAULT_CURRENCY = CurrencyCode.USD
-
 export type RevenueCurrencyPropertyConfig = {
     property?: string
     static?: CurrencyCode
@@ -3159,9 +3157,7 @@ export interface EventsHeatMapStructuredResult {
     allAggregations: integer
 }
 
-export type MarketingAnalyticsSchema = keyof typeof MARKETING_ANALYTICS_SCHEMA
-
-export type SourceMap = Record<keyof typeof MARKETING_ANALYTICS_SCHEMA, string | undefined>
+export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
 
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>

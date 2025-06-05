@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -16,6 +17,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
     },
     decorators: [
         mswDecorator({

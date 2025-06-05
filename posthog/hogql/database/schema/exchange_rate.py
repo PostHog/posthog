@@ -117,7 +117,7 @@ def revenue_comparison_and_value_exprs_for_events(
 
 # This sums up the revenue from all events in the group
 def revenue_sum_expression_for_events(team: Union[Team, None]) -> ast.Expr:
-    if not team or not team.revenue_analytics_config.events:
+    if not team or not team.revenue_analytics_config or not team.revenue_analytics_config.events:
         return ast.Constant(value=None)
 
     exprs: list[ast.Expr] = []
@@ -143,7 +143,7 @@ def revenue_sum_expression_for_events(team: Union[Team, None]) -> ast.Expr:
 # This returns an expression that you can add to a `where` clause
 # to know if we have a event with valid revenue
 def revenue_where_expr_for_events(team: Union[Team, None]) -> ast.Expr:
-    if not team or not team.revenue_analytics_config.events:
+    if not team or not team.revenue_analytics_config or not team.revenue_analytics_config.events:
         return ast.Constant(value=False)
 
     exprs: list[ast.Expr] = []

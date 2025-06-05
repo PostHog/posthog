@@ -1447,10 +1447,6 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
-class MarketingAnalyticsSchema(RootModel[str]):
-    root: str
-
-
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

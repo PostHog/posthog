@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 
 import { Query } from '~/queries/Query/Query'
-import { CurrencyCode, DEFAULT_CURRENCY } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

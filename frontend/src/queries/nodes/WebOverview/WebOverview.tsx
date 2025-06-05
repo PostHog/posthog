@@ -9,6 +9,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -16,7 +17,6 @@ import { urls } from 'scenes/urls'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
-    DEFAULT_CURRENCY,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,

@@ -12642,9 +12642,6 @@
             },
             "type": "object"
         },
-        "MarketingAnalyticsSchema": {
-            "type": ["string"]
-        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {

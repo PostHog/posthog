@@ -1,5 +1,6 @@
 from django.db import models
 from posthog.models.team import Team
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 # and therefore using the exact same primary key as the Team model.
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     notified_first_sync = models.BooleanField(default=False, null=True)
 
     # Mangled fields incoming:

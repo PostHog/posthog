@@ -249,6 +249,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Revenue analytics',
         settings: [
             {
+                id: 'revenue-base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
@@ -273,6 +278,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Marketing analytics',
         flag: 'WEB_ANALYTICS_MARKETING',
         settings: [
+            {
+                id: 'marketing-base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
             {
                 id: 'marketing-analytics-external-data-sources',
                 title: 'External data sources',

@@ -62,6 +62,16 @@ DEPRECATED_ATTRS = (
     "event_properties_numerical",
 )
 
+# Django requires a list of tuples for choices
+CURRENCY_CODE_CHOICES = [(code.value, code.value) for code in CurrencyCode]
+
+# Intentionally asserting this here to guarantee we remember
+# to rerun migrations when a new currency is added
+# python manage.py makemigrations
+assert len(CURRENCY_CODE_CHOICES) == 152
+
+DEFAULT_CURRENCY = CurrencyCode.USD.value
+
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
@@ -404,8 +414,8 @@ class Team(UUIDClassicModel):
     # Consolidated base currency for all analytics (revenue, marketing, etc.)
     base_currency = models.CharField(
         max_length=3,
-        choices=[(code.value, code.value) for code in CurrencyCode],
-        default=CurrencyCode.USD.value,
+        choices=CURRENCY_CODE_CHOICES,
+        default=DEFAULT_CURRENCY,
     )
 
     @cached_property
