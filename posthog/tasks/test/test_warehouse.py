@@ -1,3 +1,4 @@
+from unittest.mock import patch, MagicMock
 from posthog.test.base import APIBaseTest
 from posthog.tasks.warehouse import (
     validate_data_warehouse_table_columns,
@@ -7,7 +8,11 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestWarehouse(APIBaseTest):
-    def test_validate_data_warehouse_table_columns(self) -> None:
+    @patch("posthog.tasks.warehouse.get_regional_ph_client")
+    def test_validate_data_warehouse_table_columns(self, mock_get_regional_ph_client: MagicMock) -> None:
+        mock_ph_client = MagicMock()
+        mock_get_regional_ph_client.return_value = mock_ph_client
+
         table = DataWarehouseTable.objects.create(
             name="table_name",
             format="Parquet",

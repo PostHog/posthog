@@ -18,7 +18,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.ph_client import get_ph_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
@@ -644,7 +644,7 @@ def calculate_decide_usage() -> None:
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
 
     if ph_client:
         capture_decide_usage_for_all_teams(ph_client)
