@@ -4521,6 +4521,7 @@ export const externalDataSources = [
     'GoogleSheets',
     'Mongodb',
     'TemporalIO',
+    'DoIt',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
