@@ -58,10 +58,16 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                         throw new Error('not expecting this to be called in this test')
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
+                        const start_blob_key = req.url.searchParams.get('start_blob_key')
+                        const end_blob_key = req.url.searchParams.get('end_blob_key')
+
                         if (key === '0') {
                             return res(ctx.text(keyZero))
                         } else if (key === '1') {
                             return res(ctx.text(keyOne))
+                        } else if (start_blob_key === '0' && end_blob_key === '1') {
+                            // This is the case where we load both blob v2 sources at once
+                            return res(ctx.text(`${keyZero}\n${keyOne}`))
                         }
                         throw new Error(`Unexpected blob key: ${key}`)
                     }
@@ -108,9 +114,7 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                     'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
                     'loadSnapshotSourcesSuccess',
-                    // loads the first blob v2 source
-                    'loadSnapshotsForSourceSuccess',
-                    // loads the second blob v2 source
+                    // loads the first and second blob v2 source at once
                     'loadSnapshotsForSourceSuccess',
                     'reportUsageIfFullyLoaded',
                 ])
@@ -127,6 +131,29 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                 ])
             )
             expect(actual).toMatchSnapshot()
+
+            expect(logic.values.snapshotSources).toEqual([
+                {
+                    blob_key: '0',
+                    end_timestamp: '2025-05-18T03:51:54.709000Z',
+                    source: 'blob_v2',
+                    start_timestamp: '2025-05-18T03:46:53.980000Z',
+                },
+                {
+                    blob_key: '1',
+                    end_timestamp: '2025-05-18T03:51:54.816000Z',
+                    source: 'blob_v2',
+                    start_timestamp: '2025-05-18T03:51:54.816000Z',
+                },
+            ])
+            expect(Object.keys(logic.cache.snapshotsBySource)).toEqual(['blob_v2-0', 'blob_v2-1', 'processed'])
+            expect(logic.cache.snapshotsBySource['blob_v2-0'].snapshots).toHaveLength(11)
+            // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
+            expect(logic.cache.snapshotsBySource['blob_v2-1']).toEqual({ snapshots: [], processed: true })
+            // the processed key holds all of the data, in this case that means it matches the v2-0 key
+            expect(logic.cache.snapshotsBySource['processed'].snapshots).toEqual(
+                logic.cache.snapshotsBySource['blob_v2-0'].snapshots
+            )
         })
     })
 })

@@ -2,7 +2,6 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -14,10 +13,11 @@ import {
     formChunk,
     generationFailureChunk,
     humanMessage,
+    longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { maxLogic } from './maxLogic'
+import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
@@ -70,53 +70,6 @@ export const Welcome: StoryFn = () => {
     })
 
     return <Template />
-}
-
-export const WelcomeSuggestionsAvailable: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': () => [
-                200,
-                {
-                    questions: [
-                        'What are our most popular pages in the blog?',
-                        'Where are our new users located?',
-                        'Who are the biggest customers using our paid product?',
-                        'Which feature drives most usage?',
-                    ],
-                },
-            ],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-
-export const WelcomeLoadingSuggestions: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-WelcomeLoadingSuggestions.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
 }
 
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
@@ -211,7 +164,8 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(ctx.text(chatResponseChunk), ctx.status(429)),
+                // Retry-After header is present so we should be showing its value in the UI
+                res(ctx.text(chatResponseChunk), ctx.set({ 'Retry-After': '3899' }), ctx.status(429)),
         },
     })
 
@@ -221,6 +175,26 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax('Is Bielefeld real?')
+    }, [])
+
+    return <Template />
+}
+
+export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                // Testing rate limit error when the Retry-After header is MISSING
+                res(ctx.text(chatResponseChunk), ctx.status(429)),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+
+    useEffect(() => {
+        setConversationId(CONVERSATION_ID)
+        askMax('Is Finland real?')
     }, [])
 
     return <Template />
@@ -376,6 +350,81 @@ export const ChatHistoryLoading: StoryFn = () => {
     return <Template sidePanel />
 }
 ChatHistoryLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestionsMobile.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
+}
+
+export const ThreadWithOpenedSuggestions: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(ctx.delay(100), ctx.text(longResponseChunk)),
+        },
+    })
+
+    const { conversation } = useValues(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const logic = maxThreadLogic({ conversationId: 'poem', conversation })
+    const { threadRaw } = useValues(logic)
+    const { askMax } = useActions(logic)
+
+    useEffect(() => {
+        setConversationId('poem')
+    }, [setConversationId])
+
+    const messagesSet = threadRaw.length > 0
+    useEffect(() => {
+        if (messagesSet) {
+            askMax('This message must be on the top of the container')
+        }
+    }, [messagesSet, askMax])
+
+    return (
+        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+            <Template />
+        </div>
+    )
+}
+ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

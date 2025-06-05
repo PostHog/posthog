@@ -209,6 +209,31 @@ class TestTable(BaseTest):
         assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp-dash"]
         assert table.hogql_definition().structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
 
+    def test_complex_type_with_array_nested_datetime_fields(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/peter_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+                "nested": {
+                    "clickhouse": "Array(Tuple(url Nullable(String), date Tuple(member0 Nullable(DateTime64(6, 'UTC')), member1 Nullable(String)), text Nullable(String), type Nullable(String), email Nullable(String), field Tuple(id Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), choice Tuple(id Nullable(String), label Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), number Nullable(Float64), boolean Nullable(Bool), choices Tuple(ids Array(Nullable(String)), labels Array(Nullable(String)), _airbyte_additional_properties Map(String, Nullable(String))), payment Tuple(name Nullable(String), last4 Nullable(String), amount Nullable(String), success Nullable(Bool), _airbyte_additional_properties Map(String, Nullable(String))), file_url Nullable(String), phone_number Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert len(definition.fields) == 2
+        assert (
+            definition.structure
+            == "`id` Nullable(String), `nested` Array(Tuple( Nullable(String),  Tuple( Nullable(DateTime64(6, 'UTC')),  Nullable(String)),  Nullable(String),  Nullable(String),  Nullable(String),  Tuple( Nullable(String),  Map(String, Nullable(String))),  Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String))),  Nullable(Float64),  Nullable(Bool),  Tuple( Array(Nullable(String)),  Array(Nullable(String)),  Map(String, Nullable(String))),  Tuple( Nullable(String),  Nullable(String),  Nullable(String),  Nullable(Bool),  Map(String, Nullable(String))),  Nullable(String),  Nullable(String),  Map(String, Nullable(String))))"
+        )
+
     def test_hogql_definition_tuple_patch(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(

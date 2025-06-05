@@ -1,24 +1,12 @@
-import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { IconBlank } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { getTreeFilterTypes } from '~/products'
-import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
@@ -31,11 +19,16 @@ interface PanelLayoutPanelProps {
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
+    sortDropdown?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
+        isLayoutPanelPinned: {
+            true: 'relative',
+            false: 'absolute',
+        },
         projectTreeMode: {
             tree: '',
             table: 'absolute top-0 left-0 bottom-0',
@@ -80,93 +73,12 @@ const panelLayoutPanelVariants = cva({
     ],
 })
 
-interface FiltersDropdownProps {
-    setSearchTerm: (searchTerm: string) => void
-    searchTerm: string
-}
-
-export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const types: [string, FileSystemFilterType][] = [
-        ...Object.entries(getTreeFilterTypes()),
-        ['destination', { name: 'Destinations' }],
-        ['site_app', { name: 'Site apps' }],
-        ['source', { name: 'Sources' }],
-        ['transformation', { name: 'Transformations' }],
-    ]
-    const removeTagsStarting = (str: string, tag: string): string =>
-        str
-            .split(' ')
-            .filter((p) => !p.startsWith(tag))
-            .join(' ')
-            .trim()
-    const removeTagsEquals = (str: string, tag: string): string =>
-        str
-            .split(' ')
-            .filter((p) => p != tag)
-            .join(' ')
-            .trim()
-    const addTag = (str: string, tag: string): string => `${str.trim()} ${tag.trim()}`.trim()
-
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive
-                    iconOnly
-                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
-                >
-                    <IconFilter className="size-3 text-tertiary" />
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                <DropdownMenuGroup>
-                    <DropdownMenuItem
-                        onClick={(e) => {
-                            e.preventDefault()
-                            setSearchTerm(
-                                searchTerm.includes('user:me')
-                                    ? removeTagsEquals(searchTerm, 'user:me')
-                                    : addTag(searchTerm, 'user:me')
-                            )
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>
-                            {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
-                            Only my stuff
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {types
-                        .filter(([_, { flag }]) => !flag || featureFlags[flag as keyof typeof featureFlags])
-                        .map(([obj, { name }]) => (
-                            <DropdownMenuItem
-                                key={obj}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    setSearchTerm(
-                                        searchTerm.includes(`type:${obj}`)
-                                            ? removeTagsStarting(searchTerm, 'type:')
-                                            : addTag(removeTagsStarting(searchTerm, 'type:'), `type:${obj}`)
-                                    )
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>
-                                    {searchTerm.includes(`type:${obj}`) ? <IconCheck /> : <IconBlank />}
-                                    {name}
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        ))}
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
-    )
-}
-
 export function PanelLayoutPanel({
     searchField,
     panelActions,
     children,
     filterDropdown,
+    sortDropdown,
 }: PanelLayoutPanelProps): JSX.Element {
     const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const {
@@ -187,6 +99,7 @@ export function PanelLayoutPanel({
                     isLayoutNavCollapsed,
                     isMobileLayout,
                     panelWillHide,
+                    isLayoutPanelPinned,
                 })
             )}
             ref={containerRef}
@@ -200,6 +113,7 @@ export function PanelLayoutPanel({
                             iconOnly
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                             tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
                                 <IconPinFilled className="size-3 text-tertiary" />
@@ -213,11 +127,17 @@ export function PanelLayoutPanel({
             </div>
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
-                {searchField || filterDropdown ? (
+                {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
                             {searchField ?? null}
-                            {filterDropdown ?? null}
+
+                            {filterDropdown || sortDropdown ? (
+                                <div className="flex gap-px">
+                                    {filterDropdown ?? null}
+                                    {sortDropdown ?? null}
+                                </div>
+                            ) : null}
                         </div>
                         <div className="border-b border-primary h-px" />
                     </>
@@ -233,6 +153,10 @@ export function PanelLayoutPanel({
 
     return (
         <ResizableElement
+            className={cn({
+                relative: isLayoutPanelPinned,
+                'absolute left-full h-full': !isLayoutPanelPinned,
+            })}
             key="panel-layout-panel"
             defaultWidth={computedPanelWidth}
             onResize={(width) => {
@@ -243,6 +167,7 @@ export function PanelLayoutPanel({
             innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
+            data-attr="tree-panel-resizer"
         >
             {panelContents}
         </ResizableElement>
