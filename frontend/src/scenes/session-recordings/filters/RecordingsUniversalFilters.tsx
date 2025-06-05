@@ -87,7 +87,7 @@ export const RecordingsUniversalFilters = ({
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const durationFilter = filters.duration?.length ? filters.duration[0] : defaultRecordingDurationFilter
+    const durationFilter = filters.duration?.[0] ?? defaultRecordingDurationFilter
 
     const { isFiltersExpanded, activeFilterTab } = useValues(playlistLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
