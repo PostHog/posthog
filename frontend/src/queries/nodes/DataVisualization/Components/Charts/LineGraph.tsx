@@ -362,28 +362,55 @@ export const LineGraph = (): JSX.Element => {
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
+
+                            const tooltipData = ySeriesData.map((series) => {
+                                const seriesName =
+                                    series?.settings?.display?.label ||
+                                    ('column' in series ? series.column.name : series.name)
+                                return {
+                                    series: seriesName,
+                                    data: formatDataWithSettings(
+                                        series.data[referenceDataPoint.dataIndex],
+                                        series.settings
+                                    ),
+                                    rawData: series.data[referenceDataPoint.dataIndex],
+                                    dataIndex: referenceDataPoint.dataIndex,
+                                    isTotalRow: true,
+                                }
+                            })
+
+                            if (tooltipData.length > 1) {
+                                const rawData = ySeriesData.reduce((acc, cur) => {
+                                    acc += cur.data[referenceDataPoint.dataIndex]
+                                    return acc
+                                }, 0)
+
+                                tooltipData.push({
+                                    series: '',
+                                    data: rawData.toString(),
+                                    rawData: rawData,
+                                    dataIndex: referenceDataPoint.dataIndex,
+                                    isTotalRow: false,
+                                })
+                            }
+
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={ySeriesData.map((series) => {
-                                            const seriesName =
-                                                series?.settings?.display?.label ||
-                                                ('column' in series ? series.column.name : series.name)
-                                            return {
-                                                series: seriesName,
-                                                data: formatDataWithSettings(
-                                                    series.data[referenceDataPoint.dataIndex],
-                                                    series.settings
-                                                ),
-                                                rawData: series.data[referenceDataPoint.dataIndex],
-                                                dataIndex: referenceDataPoint.dataIndex,
-                                            }
-                                        })}
+                                        dataSource={tooltipData}
                                         columns={[
                                             {
                                                 title: xSeriesData.data[referenceDataPoint.dataIndex],
                                                 dataIndex: 'series',
-                                                render: (value) => {
+                                                render: (value, record) => {
+                                                    if (!record.isTotalRow) {
+                                                        return (
+                                                            <div className="datum-label-column font-extrabold">
+                                                                Total
+                                                            </div>
+                                                        )
+                                                    }
+
                                                     return (
                                                         <div className="datum-label-column">
                                                             <InsightLabel
@@ -422,9 +449,13 @@ export const LineGraph = (): JSX.Element => {
                                             },
                                         ]}
                                         uppercaseHeader={false}
-                                        rowRibbonColor={(_datum, index) =>
-                                            ySeriesData[index]?.settings?.display?.color ?? getSeriesColor(index)
-                                        }
+                                        rowRibbonColor={(_datum, index) => {
+                                            if (!_datum.isTotalRow) {
+                                                return undefined
+                                            }
+
+                                            return ySeriesData[index]?.settings?.display?.color ?? getSeriesColor(index)
+                                        }}
                                         showHeader
                                     />
                                 </div>
