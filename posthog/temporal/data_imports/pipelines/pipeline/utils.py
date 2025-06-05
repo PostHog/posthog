@@ -286,6 +286,9 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
+PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at"]
+
+
 def append_partition_key_to_table(
     table: pa.Table,
     partition_count: int,
@@ -308,14 +311,17 @@ def append_partition_key_to_table(
         and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
     ):
         mode = "numerical"
-    elif (
-        partition_mode is None
-        and "created_at" in table.column_names
-        and pa.types.is_timestamp(table.field("created_at").type)
-        and table.column("created_at").null_count != table.num_rows
+    elif partition_mode is None and any(
+        column_name in table.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES
     ):
-        mode = "datetime"
-        normalized_partition_keys = ["created_at"]
+        for column_name in PARTITION_DATETIME_COLUMN_NAMES:
+            if (
+                column_name in table.column_names
+                and pa.types.is_timestamp(table.field(column_name).type)
+                and table.column(column_name).null_count != table.num_rows
+            ):
+                mode = "datetime"
+                normalized_partition_keys = [column_name]
 
     for batch in table.to_batches():
         for row in batch.to_pylist():
