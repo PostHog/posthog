@@ -233,7 +233,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             sessionRecordingEventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataLogic(props),
-            ['loadFullEventData', 'setTrackedWindow', 'sessionAnnotations'],
+            ['loadFullEventData', 'setTrackedWindow'],
         ],
         values: [
             miniFiltersLogic,
@@ -253,6 +253,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
+                'sessionAnnotations',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
