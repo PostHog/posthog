@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { MarketingAnalyticsSchema, SourceMap } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
@@ -17,7 +16,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
     path(['scenes', 'web-analytics', 'marketingAnalyticsSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
+        values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
@@ -43,7 +42,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         updatedSourcesMap[tableId] = {} as SourceMap
                     }
 
-                    if (columnName === undefined) {
+                    if (columnName === null) {
                         // Remove the field if columnName is undefined
                         delete updatedSourcesMap[tableId][fieldName]
                         // If source becomes empty, remove it entirely
@@ -53,7 +52,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     } else {
                         updatedSourcesMap[tableId] = {
                             ...updatedSourcesMap[tableId],
-                            [fieldName]: columnName || undefined,
+                            [fieldName]: columnName ?? undefined,
                         }
                     }
                     return { ...state, sources_map: updatedSourcesMap }

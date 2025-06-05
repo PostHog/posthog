@@ -80,7 +80,7 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
     }
 
     const removeTableMapping = (tableId: string): void => {
-        // Remove all field mappings for this table by setting each to undefined
+        // Remove all field mappings for this table by setting each to null
         const sourceMapping = sources_map?.[tableId]
 
         if (sourceMapping) {
@@ -120,7 +120,9 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
         if (isTableFullyConfigured(tableId)) {
             return { isConfigured: true, message: 'Ready to use! All fields mapped correctly.' }
         }
-        const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA)
+        const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
+            (fieldName) => MARKETING_ANALYTICS_SCHEMA[fieldName].required
+        )
         const mappedFields = requiredFields.filter((fieldName) => {
             const mapping = sourceMapping[fieldName]
             return mapping && mapping.trim() !== ''

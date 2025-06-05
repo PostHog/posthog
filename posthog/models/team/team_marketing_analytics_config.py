@@ -53,7 +53,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         try:
             validate_sources_map(value)
             self._sources_map = value
-        except Exception as e:
+        except ValidationError as e:
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
 
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
