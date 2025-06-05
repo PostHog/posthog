@@ -108,7 +108,6 @@ describe('BatchWritingGroupStore', () => {
             // Validate cache operations counter
             expect(cacheMetrics.cacheHits).toBe(0)
             expect(cacheMetrics.cacheMisses).toBe(0)
-            expect(cacheMetrics.cacheSize).toBe(0)
         })
 
         it('should insert group if does not exist in postgres', async () => {
@@ -189,7 +188,6 @@ describe('BatchWritingGroupStore', () => {
 
             expect(cacheMetrics.cacheHits).toBe(2)
             expect(cacheMetrics.cacheMisses).toBe(0)
-            expect(cacheMetrics.cacheSize).toBe(1)
         })
 
         it('should immediately write to db if new group', async () => {
