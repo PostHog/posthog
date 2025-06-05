@@ -99,6 +99,7 @@ export const defaultMocks: Mocks = {
             access_token: 'foo',
             created_at: '2020-11-11T00:00:00Z',
         } as SharingConfigurationType,
+        '/api/projects/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
@@ -112,6 +113,7 @@ export const defaultMocks: Mocks = {
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
         ],
         '/api/organizations/@current/roles/': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/@current/resource_access': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/members/': toPaginatedResponse([
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
             MOCK_SECOND_ORGANIZATION_MEMBER,
