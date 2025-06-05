@@ -239,7 +239,7 @@ async def assert_clickhouse_records_in_s3(
     file_format: str = "JSONLines",
     backfill_details: BackfillDetails | None = None,
     allow_duplicates: bool = False,
-    sort_key: str | None = "event",
+    sort_key: str = "event",
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
@@ -359,10 +359,9 @@ async def assert_clickhouse_records_in_s3(
         s3_data = list({record["uuid"]: record for record in s3_data}.values())
     assert len(s3_data) == len(expected_records)
 
-    if sort_key:
-        # Ordering is not guaranteed, so we sort before comparing.
-        s3_data.sort(key=operator.itemgetter(sort_key))
-        expected_records.sort(key=operator.itemgetter(sort_key))
+    # Ordering is not guaranteed, so we sort before comparing.
+    s3_data.sort(key=operator.itemgetter(sort_key))
+    expected_records.sort(key=operator.itemgetter(sort_key))
 
     assert s3_data[0] == expected_records[0]
     assert s3_data == expected_records
@@ -1929,7 +1928,7 @@ async def test_insert_into_s3_activity_heartbeats(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        sort_key=None,
+        sort_key="_inserted_at",
     )
 
 
