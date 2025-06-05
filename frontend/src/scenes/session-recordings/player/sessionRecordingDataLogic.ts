@@ -33,7 +33,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -932,15 +932,22 @@ LIMIT 1000000
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
-                return () => ({
-                    version: '2023-04-28',
-                    data: {
-                        id: sessionPlayerMetaData?.id ?? '',
-                        person: sessionPlayerMetaData?.person,
-                        snapshots: snapshots,
-                    },
-                })
+            (
+                sessionPlayerMetaData,
+                snapshots
+            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
+                return (type?: ExportedSessionType) => {
+                    return type === 'rrweb'
+                        ? snapshots
+                        : {
+                              version: '2023-04-28',
+                              data: {
+                                  id: sessionPlayerMetaData?.id ?? '',
+                                  person: sessionPlayerMetaData?.person,
+                                  snapshots: snapshots,
+                              },
+                          }
+                }
             },
         ],
 
