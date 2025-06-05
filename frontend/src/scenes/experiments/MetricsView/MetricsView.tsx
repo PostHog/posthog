@@ -3,10 +3,13 @@ import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
+import { ExperimentStatsMethod } from '~/types'
+
 import { credibleIntervalForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
+import { MetricResultsBayesian } from './bayesian/MetricResultsBayesian'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
-import { DeltaChart } from './DeltaChart'
+import { MetricResultsFrequentist } from './frequentist/MetricResultsFrequentist'
 import { getNiceTickValues } from './utils'
 
 function AddPrimaryMetric(): JSX.Element {
@@ -62,6 +65,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         secondaryMetricResults,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
+        statsMethod,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -185,42 +189,24 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                 </div>
             </div>
             {metrics.length > 0 ? (
-                <div className="w-full overflow-x-auto">
-                    <div className="min-w-[1000px]">
-                        {metrics.map((metric, metricIndex) => {
-                            const result = results?.[metricIndex]
-                            const isFirstMetric = metricIndex === 0
-
-                            return (
-                                <div
-                                    key={metricIndex}
-                                    className={`w-full border border-primary bg-light ${
-                                        metrics.length === 1
-                                            ? 'rounded'
-                                            : isFirstMetric
-                                            ? 'rounded-t'
-                                            : metricIndex === metrics.length - 1
-                                            ? 'rounded-b'
-                                            : ''
-                                    }`}
-                                >
-                                    <DeltaChart
-                                        isSecondary={!!isSecondary}
-                                        result={result}
-                                        error={errors?.[metricIndex]}
-                                        variants={variants}
-                                        metricType={getInsightType(metric)}
-                                        metricIndex={metricIndex}
-                                        isFirstMetric={isFirstMetric}
-                                        metric={metric}
-                                        tickValues={commonTickValues}
-                                        chartBound={chartBound}
-                                    />
-                                </div>
-                            )
-                        })}
-                    </div>
-                </div>
+                statsMethod === ExperimentStatsMethod.Frequentist ? (
+                    <MetricResultsFrequentist
+                        metrics={metrics}
+                        metricType={getInsightType(metrics[0])}
+                        isSecondary={!!isSecondary}
+                    />
+                ) : (
+                    <MetricResultsBayesian
+                        metrics={metrics}
+                        results={results}
+                        errors={errors}
+                        variants={variants}
+                        metricType={getInsightType(metrics[0])}
+                        isSecondary={!!isSecondary}
+                        commonTickValues={commonTickValues}
+                        chartBound={chartBound}
+                    />
+                )
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
