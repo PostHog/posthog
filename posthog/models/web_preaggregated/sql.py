@@ -61,7 +61,6 @@ def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granul
     """
 
 
-# These should be kept in sync between columns and ORDER BY
 WEB_ANALYTICS_DIMENSIONS = [
     "entry_pathname",
     "end_pathname",
