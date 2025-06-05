@@ -191,15 +191,15 @@ describe('HogWatcher', () => {
     })
 
     it('should max out scores', async () => {
-        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 20000 }))
+        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 300 }))
 
         await watcher.observeResults(lotsOfResults)
 
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": -0.0001,
+                  "rating": 0,
                   "state": 3,
-                  "tokens": -1,
+                  "tokens": 0,
                 }
             `)
 
@@ -241,20 +241,20 @@ describe('HogWatcher', () => {
 
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": -0.0001,
+                  "rating": 0,
                   "state": 3,
-                  "tokens": -1,
+                  "tokens": 0,
                 }
             `)
 
-        advanceTime(10000)
+        advanceTime(10_000)
 
         // Should still be disabled even though tokens have been refilled
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": 0.0099,
+                  "rating": 0.01,
                   "state": 3,
-                  "tokens": 99,
+                  "tokens": 100,
                 }
             `)
     })
