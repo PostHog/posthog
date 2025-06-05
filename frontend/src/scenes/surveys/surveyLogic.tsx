@@ -57,9 +57,8 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
-    sanitizeHTML,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
-    sanitizeSurveyDisplayConditions,
     validateSurveyAppearance,
 } from './utils'
 
@@ -555,10 +554,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(sanitizeQuestions(surveyPayload))
+                return await api.surveys.create(surveyPayload)
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, surveyPayload)
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -577,7 +576,7 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
                 lemonToast.success('Survey duplicated.', {
                     toastId: `survey-duplicated-${createdSurvey.id}`,
@@ -2187,14 +2186,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 }
 
-                const payload = {
-                    ...surveyPayload,
-                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
-                    appearance: sanitizeSurveyAppearance(
-                        surveyPayload.appearance,
-                        !!surveyPayload.enable_partial_responses
-                    ),
-                }
+                const payload = sanitizeSurvey(surveyPayload)
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
@@ -2265,37 +2257,3 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
 ])
-
-function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
-    if (!surveyPayload.questions) {
-        return surveyPayload
-    }
-
-    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
-
-    const appearance = {
-        ...surveyPayload.appearance,
-        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-    }
-
-    // Remove widget-specific fields if survey type is not Widget
-    if (surveyPayload.type !== 'widget') {
-        delete appearance.widgetType
-        delete appearance.widgetLabel
-        delete appearance.widgetColor
-    }
-
-    return {
-        ...surveyPayload,
-        questions: surveyPayload.questions?.map((rawQuestion) => {
-            return {
-                ...rawQuestion,
-                description: sanitizeHTML(rawQuestion.description || ''),
-                question: sanitizeHTML(rawQuestion.question || ''),
-            }
-        }),
-        appearance,
-    }
-}
