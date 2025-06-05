@@ -1147,6 +1147,7 @@ class FileSystemImport(BaseModel):
     field_loading: Optional[bool] = Field(
         default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
+    category: Optional[str] = Field(default=None, description="Category label to place this under")
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
