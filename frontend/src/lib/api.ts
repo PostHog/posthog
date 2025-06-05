@@ -421,6 +421,10 @@ export class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    public insightsCancel(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('cancel')
+    }
+
     // # File System
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system')
@@ -1357,6 +1361,9 @@ const api = {
         },
         async update(id: number, data: any): Promise<InsightModel> {
             return await new ApiRequest().insight(id).update({ data })
+        },
+        async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
     },
 

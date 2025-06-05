@@ -26,7 +26,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "test@example.com"},
         )
 
-        send_events_for_early_access_feature_stage_change(str(feature.id), str(feature.team.id), "concept", "beta")
+        send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
         mock_capture.assert_called_once_with(
             "abc123",
@@ -61,6 +61,6 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "other@example.com"},
         )
 
-        send_events_for_early_access_feature_stage_change(str(feature.id), str(feature.team.id), "concept", "beta")
+        send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
         mock_capture.assert_not_called()

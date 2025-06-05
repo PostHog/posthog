@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     InfiniteListLogicProps,
     ListFuse,
@@ -83,7 +84,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
+        actions: [
+            taxonomicFilterLogic(props),
+            ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived'],
+            taxonomicFilterPreferencesLogic,
+            ['setEventOrdering'],
+        ],
     })),
     actions({
         selectSelected: true,
@@ -428,6 +434,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
         },
         setSearchQuery: async () => {
+            if (values.hasRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else if (props.autoSelectItem) {
+                actions.setIndex(0)
+            }
+        },
+        setEventOrdering: async () => {
+            if (props.listGroupType !== TaxonomicFilterGroupType.Events) {
+                return
+            }
+
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else if (props.autoSelectItem) {

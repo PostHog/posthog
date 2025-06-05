@@ -3,6 +3,7 @@ import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
+import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
@@ -22,6 +23,7 @@ export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComi
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     webhookTemplate,
     tiktokAdsTemplate,
+    snapchatAdsTemplate,
     linearTemplate,
     googleAdsTemplate,
 ]
