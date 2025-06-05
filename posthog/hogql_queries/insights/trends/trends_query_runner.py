@@ -633,6 +633,8 @@ class TrendsQueryRunner(QueryRunner):
 
     @cached_property
     def query_previous_date_range(self):
+        # We set truncate_to_now here because we want to compare to the previous period that has happened up to this exact time
+        truncate_to_now = self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
         if self.query.compareFilter is not None and isinstance(self.query.compareFilter.compare_to, str):
             return QueryCompareToDateRange(
                 date_range=self.query.dateRange,
@@ -640,12 +642,14 @@ class TrendsQueryRunner(QueryRunner):
                 interval=self.query.interval,
                 now=datetime.now(),
                 compare_to=self.query.compareFilter.compare_to,
+                truncate_to_now=truncate_to_now,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            truncate_to_now=truncate_to_now,
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:

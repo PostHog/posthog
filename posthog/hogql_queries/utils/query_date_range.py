@@ -54,6 +54,7 @@ class QueryDateRange:
         earliest_timestamp_fallback: Optional[datetime] = None,
         interval_count: Optional[int] = None,
         timezone_info: Optional[ZoneInfo] = None,
+        truncate_to_now: bool = False,  # Setting this to true causes a relative date range to end at exactly now, and not at the end of the current interval. This excludes future timestamped events and changes how compare_to intervals are computed in trends queries
     ) -> None:
         self._team = team
         self._date_range = date_range
@@ -80,15 +81,17 @@ class QueryDateRange:
             raise ValueError("IntervalType.WEEK cannot be used with interval_count > 1")
 
     def date_to(self) -> datetime:
-        if not (self._date_range and self._date_range.date_to):
-            return self.now_with_timezone
+        date_to = self.now_with_timezone
 
-        date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
-            self._date_range.date_to,
-            self._timezone_info,
-            always_truncate=False,
-            now=self.now_with_timezone,
-        )
+        if self._date_range and self._date_range.date_to:
+            date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
+                self._date_range.date_to,
+                self._timezone_info,
+                always_truncate=False,
+                now=self.now_with_timezone,
+            )
+        elif self.truncate_to_now:
+            return date_to
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
