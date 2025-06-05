@@ -253,11 +253,6 @@ export function isNewExperimentResponse(
     return 'baseline' in response && response.baseline !== null
 }
 
-// Generic type guard for use in components that receive broader union types
-export function isLegacyExperimentResponseGeneric(response: any): response is CachedLegacyExperimentQueryResponse {
-    return response && 'variants' in response && 'probability' in response && 'significant' in response
-}
-
 // Union type for strongly typed experiment responses
 export type TypedExperimentResponse = CachedLegacyExperimentQueryResponse | CachedNewExperimentQueryResponse
 
