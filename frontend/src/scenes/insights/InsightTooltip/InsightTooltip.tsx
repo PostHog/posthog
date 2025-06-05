@@ -45,7 +45,7 @@ export function ClickToInspectActors({
 }
 
 function renderDatumToTableCell(
-    datumMathProperty: string | undefined,
+    datumMathProperty: string | undefined | null,
     datumValue: number | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode,
