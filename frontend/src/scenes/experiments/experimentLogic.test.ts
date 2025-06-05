@@ -198,7 +198,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
                 .toMatchValues({
-                    secondaryMetricResults: [],
+                    legacySecondaryMetricResults: [],
                     secondaryMetricResultsLoading: true,
                     secondaryMetricsResultErrors: [],
                 })
@@ -208,7 +208,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricResultsLoading'])
                 .toMatchValues({
-                    secondaryMetricResults: [
+                    legacySecondaryMetricResults: [
                         null,
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,

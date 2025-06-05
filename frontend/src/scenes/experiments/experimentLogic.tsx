@@ -791,7 +791,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setSecondaryMetricResultsLoading: (_, { loading }) => loading,
             },
         ],
-        secondaryMetricResults: [
+        legacySecondaryMetricResults: [
             [] as (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -1743,9 +1743,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         isSecondaryMetricSignificant: [
-            (s) => [s.secondaryMetricResults],
+            (s) => [s.legacySecondaryMetricResults],
             (
-                    secondaryMetricResults: (
+                    legacySecondaryMetricResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1753,7 +1753,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     )[]
                 ) =>
                 (metricIndex: number = 0): boolean => {
-                    const result = secondaryMetricResults?.[metricIndex]
+                    const result = legacySecondaryMetricResults?.[metricIndex]
                     if (!result) {
                         return false
                     }
@@ -1833,7 +1833,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         tabularExperimentResults: [
-            (s) => [s.experiment, s.legacyMetricResults, s.secondaryMetricResults, s.getInsightType],
+            (s) => [s.experiment, s.legacyMetricResults, s.legacySecondaryMetricResults, s.getInsightType],
             (
                     experiment,
                     legacyMetricResults: (
@@ -1842,7 +1842,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
-                    secondaryMetricResults: (
+                    legacySecondaryMetricResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1855,7 +1855,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     const metricType = isSecondary
                         ? getInsightType(experiment.metrics_secondary[metricIndex])
                         : getInsightType(experiment.metrics[metricIndex])
-                    const result = isSecondary ? secondaryMetricResults[metricIndex] : legacyMetricResults[metricIndex]
+                    const result = isSecondary
+                        ? legacySecondaryMetricResults[metricIndex]
+                        : legacyMetricResults[metricIndex]
 
                     if (result) {
                         for (const variantObj of result.variants) {
