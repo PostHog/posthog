@@ -1,23 +1,12 @@
 import asyncio
-from collections.abc import Generator
 from dataclasses import dataclass
-import json
-from pathlib import Path
 import aiohttp
 import temporalio
+import datetime as dt
 
-from ee.session_recordings.session_summary.input_data import (
-    add_context_and_filter_events,
-    get_session_events,
-    get_session_metadata,
-)
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
-from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
-from posthog.api.utils import ServerTimingsGathered
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 
@@ -31,48 +20,62 @@ class SessionSummaryInputs:
     local_reads_prod: bool = False
 
 
+@temporalio.activity.defn
+async def test_summary_activity(inputs: SessionSummaryInputs) -> str:
+    async with aiohttp.ClientSession() as session:
+        async with session.get("http://httpbin.org/get") as resp:
+            return await resp.text()
+
+
 @temporalio.workflow.defn(name="summarize-session")
 class SummarizeSessionWorkflow(PostHogWorkflow):
-
-    def _generate_prompt(
-        self,
-        prompt_data: SessionSummaryPromptData,
-        url_mapping_reversed: dict[str, str],
-        window_mapping_reversed: dict[str, str],
-        extra_summary_context: ExtraSummaryContext | None,
-    ) -> tuple[str, str]:
-        # Keep shortened URLs for the prompt to reduce the number of tokens
-        short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
-        # Render all templates
-        template_dir = Path(__file__).parent / "templates" / "identify-objectives"
-        system_prompt = load_custom_template(
-            template_dir,
-            f"system-prompt.djt",
-            {
-                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
-            },
-        )
-        summary_example = load_custom_template(template_dir, f"example.yml")
-        summary_prompt = load_custom_template(
-            template_dir,
-            f"prompt.djt",
-            {
-                "EVENTS_DATA": json.dumps(prompt_data.results),
-                "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),
-                "URL_MAPPING": json.dumps(short_url_mapping_reversed),
-                "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
-                "SUMMARY_EXAMPLE": summary_example,
-                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
-            },
-        )
-        return summary_prompt, system_prompt
+    # def _generate_prompt(
+    #     self,
+    #     prompt_data: SessionSummaryPromptData,
+    #     url_mapping_reversed: dict[str, str],
+    #     window_mapping_reversed: dict[str, str],
+    #     extra_summary_context: ExtraSummaryContext | None,
+    # ) -> tuple[str, str]:
+    #     # Keep shortened URLs for the prompt to reduce the number of tokens
+    #     short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
+    #     # Render all templates
+    #     template_dir = Path(__file__).parent / "templates" / "identify-objectives"
+    #     system_prompt = load_custom_template(
+    #         template_dir,
+    #         f"system-prompt.djt",
+    #         {
+    #             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
+    #         },
+    #     )
+    #     summary_example = load_custom_template(template_dir, f"example.yml")
+    #     summary_prompt = load_custom_template(
+    #         template_dir,
+    #         f"prompt.djt",
+    #         {
+    #             "EVENTS_DATA": json.dumps(prompt_data.results),
+    #             "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),
+    #             "URL_MAPPING": json.dumps(short_url_mapping_reversed),
+    #             "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
+    #             "SUMMARY_EXAMPLE": summary_example,
+    #             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
+    #         },
+    #     )
+    #     return summary_prompt, system_prompt
 
     @temporalio.workflow.run
     async def run(self, inputs: SessionSummaryInputs) -> str:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("http://httpbin.org/get") as resp:
-                return await resp.text()
-
+        test_content = await temporalio.workflow.execute_activity(
+            test_summary_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=3),
+                maximum_interval=dt.timedelta(seconds=10),
+                maximum_attempts=0,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+            ),
+        )
+        return test_content
         # timer = ServerTimingsGathered()
         # with timer("get_metadata"):
         #     session_metadata = get_session_metadata(
@@ -180,13 +183,13 @@ def excectute_test_summarize_session(inputs: SessionSummaryInputs) -> str:
     )
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     result = asyncio.run(
-            client.execute_workflow(
-                'summarize-session',
-                inputs,
-                id='123',
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                retry_policy=retry_policy,
-            )
+        client.execute_workflow(
+            "summarize-session",
+            inputs,
+            id="123",
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            retry_policy=retry_policy,
         )
+    )
     return result
