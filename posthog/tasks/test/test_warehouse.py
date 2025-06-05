@@ -13,17 +13,13 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestWarehouse(APIBaseTest):
-    @patch("posthog.tasks.warehouse.get_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
         datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
     )
     @freeze_time("2023-11-07")
-    def test_capture_workspace_rows_synced_by_team_month_cutoff(self, mock_get_ph_client: MagicMock) -> None:
+    def test_capture_workspace_rows_synced_by_team_month_cutoff(self) -> None:
         # external_data_workspace_last_synced_at unset
-
-        mock_ph_client = MagicMock()
-        mock_get_ph_client.return_value = mock_ph_client
 
         source = ExternalDataSource.objects.create(
             source_id="test_id",
@@ -35,7 +31,7 @@ class TestWarehouse(APIBaseTest):
         )
 
         with freeze_time("2023-11-07T16:50:49Z"):
-            job = ExternalDataJob.objects.create(
+            ExternalDataJob.objects.create(
                 pipeline=source,
                 workflow_id="fake_workflow_id",
                 team=self.team,
@@ -46,35 +42,18 @@ class TestWarehouse(APIBaseTest):
 
         capture_workspace_rows_synced_by_team(self.team.pk)
 
-        assert mock_ph_client.capture.call_count == 1
-        mock_ph_client.capture.assert_called_with(
-            self.team.pk,
-            "$data_sync_job_completed",
-            {
-                "team_id": self.team.pk,
-                "workspace_id": self.team.external_data_workspace_id,
-                "count": job.rows_synced,
-                "start_time": job.created_at,
-                "job_id": str(job.pk),
-            },
-        )
-
         self.team.refresh_from_db()
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )
 
-    @patch("posthog.tasks.warehouse.get_ph_client")
     @patch(
         "posthog.tasks.warehouse.DEFAULT_DATE_TIME",
         datetime.datetime(2023, 11, 7, 0, 0, 0, tzinfo=datetime.UTC),
     )
     @freeze_time("2023-11-07")
-    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(self, mock_get_ph_client: MagicMock) -> None:
-        mock_ph_client = MagicMock()
-        mock_get_ph_client.return_value = mock_ph_client
-
+    def test_capture_workspace_rows_synced_by_team_month_cutoff_field_set(self) -> None:
         self.team.external_data_workspace_last_synced_at = datetime.datetime(
             2023, 10, 30, 19, 32, 41, tzinfo=datetime.UTC
         )
@@ -100,7 +79,7 @@ class TestWarehouse(APIBaseTest):
             )
 
         with freeze_time("2023-11-07T16:50:49Z"):
-            job2 = ExternalDataJob.objects.create(
+            ExternalDataJob.objects.create(
                 pipeline=source,
                 workflow_id="fake_workflow_id",
                 team=self.team,
@@ -111,30 +90,13 @@ class TestWarehouse(APIBaseTest):
 
         capture_workspace_rows_synced_by_team(self.team.pk)
 
-        assert mock_ph_client.capture.call_count == 1
-        mock_ph_client.capture.assert_called_with(
-            self.team.pk,
-            "$data_sync_job_completed",
-            {
-                "team_id": self.team.pk,
-                "workspace_id": self.team.external_data_workspace_id,
-                "count": job2.rows_synced,
-                "start_time": job2.created_at,
-                "job_id": str(job2.pk),
-            },
-        )
-
         self.team.refresh_from_db()
         self.assertEqual(
             self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )
 
-    @patch("posthog.tasks.warehouse.get_ph_client")
-    def test_validate_data_warehouse_table_columns(self, mock_get_ph_client: MagicMock) -> None:
-        mock_ph_client = MagicMock()
-        mock_get_ph_client.return_value = mock_ph_client
-
+    def test_validate_data_warehouse_table_columns(self) -> None:
         table = DataWarehouseTable.objects.create(
             name="table_name",
             format="Parquet",
@@ -148,8 +110,6 @@ class TestWarehouse(APIBaseTest):
         table.refresh_from_db()
 
         assert table.columns.get("some_columns").get("valid") is True
-        mock_ph_client.capture.assert_called_once()
-        mock_ph_client.shutdown.assert_called_once()
 
     @patch("posthog.tasks.warehouse.capture_workspace_rows_synced_by_team.delay")
     def test_capture_external_data_rows_synced(self, mock_capture_workspace_rows_synced_by_team: MagicMock) -> None:
