@@ -11,7 +11,7 @@ from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
 )
 
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -29,7 +29,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
     def to_query(self) -> ast.SelectQuery:
         view_names = self.database.get_views()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [view for view in all_views if isinstance(view, RevenueAnalyticsBaseView) and view.source_id is None]
+        views = [view for view in all_views if isinstance(view, RevenueAnalyticsChargeView) and view.source_id is None]
         if not views:
             return ast.SelectQuery.empty()
 

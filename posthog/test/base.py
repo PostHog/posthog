@@ -772,10 +772,21 @@ class QueryMatchingTest:
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         query = clean_varying_query_parts(query, replace_all_numbers)
 
-        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+        try:
+            assert sqlparse.format(query, reindent=True) == self.snapshot
+        except AssertionError:
+            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
+            raise AssertionError(error_message)
+
         if params is not None:
             del params["team_id"]  # Changes every run
-            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+            try:
+                assert params == self.snapshot
+            except AssertionError:
+                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
+                raise AssertionError(params_error_message)
 
 
 @contextmanager
@@ -1115,14 +1126,14 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
-            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_COHORTPEOPLE_TABLE_SQL(),
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
-            TRUNCATE_GROUPS_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+            TRUNCATE_GROUPS_TABLE_SQL(),
+            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL(),
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
+            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL(),
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
+            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL(),
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
     )
