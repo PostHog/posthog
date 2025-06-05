@@ -52,6 +52,7 @@
                sum(revenue_analytics_invoice_item.amount) AS revenue
         FROM
           (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+                  `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
@@ -67,6 +68,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
            FROM
              (SELECT invoice_item_id AS id,
+                     'stripe.posthog_test' AS source_label,
                      created_at AS timestamp,
                      product_id AS product_id,
                      customer_id AS customer_id,
@@ -129,6 +131,7 @@
                sum(revenue_analytics_invoice_item.amount) AS revenue
         FROM
           (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+                  `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
@@ -144,6 +147,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
            FROM
              (SELECT invoice_item_id AS id,
+                     'stripe.posthog_test' AS source_label,
                      created_at AS timestamp,
                      product_id AS product_id,
                      customer_id AS customer_id,
@@ -206,6 +210,7 @@
                sum(revenue_analytics_invoice_item.amount) AS revenue
         FROM
           (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+                  `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
@@ -221,6 +226,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
            FROM
              (SELECT invoice_item_id AS id,
+                     'stripe.posthog_test' AS source_label,
                      created_at AS timestamp,
                      product_id AS product_id,
                      customer_id AS customer_id,
@@ -283,6 +289,7 @@
                sum(revenue_analytics_invoice_item.amount) AS revenue
         FROM
           (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
+                  `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
@@ -298,7 +305,8 @@
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.amount AS amount
            FROM
              (SELECT events.uuid AS id,
-                     toTimeZone(events.created_at, 'UTC') AS timestamp,
+                     'revenue_analytics.purchase' AS source_label,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -353,6 +361,7 @@
                sum(revenue_analytics_invoice_item.amount) AS revenue
         FROM
           (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
+                  `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
@@ -368,7 +377,8 @@
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.amount AS amount
            FROM
              (SELECT events.uuid AS id,
-                     toTimeZone(events.created_at, 'UTC') AS timestamp,
+                     'revenue_analytics.purchase' AS source_label,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -424,6 +434,7 @@
                sum(revenue_analytics_invoice_item.amount) AS revenue
         FROM
           (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+                  `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
@@ -439,6 +450,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
            FROM
              (SELECT invoice_item_id AS id,
+                     'stripe.posthog_test' AS source_label,
                      created_at AS timestamp,
                      product_id AS product_id,
                      customer_id AS customer_id,
@@ -466,9 +478,11 @@
                  WHERE posthog_test_stripe_invoice.paid)) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
         LEFT JOIN
           (SELECT `stripe.posthog_test.product_revenue_view`.id AS id,
+                  `stripe.posthog_test.product_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.product_revenue_view`.name AS name
            FROM
              (SELECT posthog_test_stripe_product.id AS id,
+                     'stripe.posthog_test' AS source_label,
                      posthog_test_stripe_product.name AS name
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_product.id, revenue_analytics_invoice_item.product_id)
         WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))

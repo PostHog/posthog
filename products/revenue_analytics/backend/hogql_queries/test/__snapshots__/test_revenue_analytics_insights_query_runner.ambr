@@ -512,7 +512,7 @@
         FROM
           (SELECT events.uuid AS id,
                   'revenue_analytics.purchase' AS source_label,
-                  toTimeZone(events.created_at, 'UTC') AS timestamp,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   NULL AS product_id,
                   events.distinct_id AS customer_id,
                   NULL AS invoice_id,
@@ -576,7 +576,7 @@
         FROM
           (SELECT events.uuid AS id,
                   'revenue_analytics.purchase' AS source_label,
-                  toTimeZone(events.created_at, 'UTC') AS timestamp,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   NULL AS product_id,
                   events.distinct_id AS customer_id,
                   NULL AS invoice_id,
