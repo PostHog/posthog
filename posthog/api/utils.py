@@ -364,6 +364,28 @@ def is_insight_query(query):
     return False
 
 
+def is_insight_actors_query(query):
+    insight_actors_kinds = {
+        "InsightActorsQuery",
+        "FunnelsActorsQuery",
+        "FunnelCorrelationActorsQuery",
+        "StickinessActorsQuery",
+    }
+    if getattr(query, "kind", None) in insight_actors_kinds:
+        return True
+    if getattr(query, "kind", None) == "ActorsQuery":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_actors_kinds:
+            return True
+    return False
+
+
+def is_insight_actors_options_query(query):
+    if getattr(query, "kind", None) == "InsightActorsQueryOptions":
+        return True
+    return False
+
+
 def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
