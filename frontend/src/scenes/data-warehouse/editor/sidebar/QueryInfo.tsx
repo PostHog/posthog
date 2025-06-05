@@ -88,7 +88,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     }
 
     return (
-        <div className="overflow-auto">
+        <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
             <div className="flex flex-col flex-1 p-4 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
