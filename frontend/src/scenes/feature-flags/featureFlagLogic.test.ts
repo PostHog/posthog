@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, PersonPropertyFilter } from '~/types'
+import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { featureFlagLogic, NEW_FLAG } from './featureFlagLogic'
 
@@ -83,10 +83,10 @@ describe('featureFlagLogic', () => {
                             properties: [
                                 {
                                     key: '$browser',
-                                    type: 'person',
+                                    type: PropertyFilterType.Person,
                                     value: 'Chrome',
-                                    operator: 'regex',
-                                } as PersonPropertyFilter,
+                                    operator: PropertyOperator.Regex,
+                                },
                             ],
                             rollout_percentage: 100,
                         },
