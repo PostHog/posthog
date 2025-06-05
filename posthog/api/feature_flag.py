@@ -159,6 +159,7 @@ class FeatureFlagSerializer(
             "active",
             "created_by",
             "created_at",
+            "updated_at",
             "version",
             "last_modified_by",
             "is_simple_flag",

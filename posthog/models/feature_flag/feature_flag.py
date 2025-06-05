@@ -74,6 +74,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
     has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
 
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 

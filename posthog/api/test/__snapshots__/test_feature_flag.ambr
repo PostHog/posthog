@@ -364,7 +364,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."key" = 'some-feature2'
@@ -727,7 +728,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."key" = 'some-feature-new'
@@ -1133,7 +1135,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."key" = 'some-feature2'
@@ -1170,7 +1173,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."key" = 'some-feature-new'
@@ -1660,7 +1664,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."key" = 'some-feature2'
@@ -2121,7 +2126,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."key" = 'some-feature'
@@ -2512,26 +2518,6 @@
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.25
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  INNER JOIN
-    (SELECT person_id
-     FROM person_static_cohort
-     WHERE team_id = 99999
-       AND cohort_id = 99999
-     GROUP BY person_id,
-              cohort_id,
-              team_id) cohort_persons ON cohort_persons.person_id = person.id
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -2703,6 +2689,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
