@@ -549,7 +549,7 @@ pub async fn insert_suppression_rule_in_pg(
     team_id: i32,
     filters: serde_json::Value,
 ) -> Result<uuid::Uuid, sqlx::Error> {
-    let mut conn = client.get_connection().await.unwrap();
+    let mut conn = client.get_connection().await?;
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO posthog_errortrackingsuppressionrule 
@@ -570,7 +570,7 @@ pub async fn update_team_autocapture_exceptions(
     team_id: i32,
     enabled: bool,
 ) -> Result<(), sqlx::Error> {
-    let mut conn = client.get_connection().await.unwrap();
+    let mut conn = client.get_connection().await?;
     sqlx::query("UPDATE posthog_team SET autocapture_exceptions_opt_in = $1 WHERE id = $2")
         .bind(enabled)
         .bind(team_id)
