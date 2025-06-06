@@ -141,7 +141,7 @@ def export_web_analytics_data(
     table_name: str,
     sql_generator: Callable,
     export_prefix: str,
-) -> None:
+) -> dagster.Output[str]:
     config = context.op_config
     team_ids = config.get("team_ids", [1, 2])
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
@@ -166,6 +166,14 @@ def export_web_analytics_data(
 
     context.log.info(f"Successfully exported {table_name} to S3: {s3_path}")
 
+    return dagster.Output(
+        value=s3_path,
+        metadata={
+            "s3_path": s3_path,
+            "table_name": table_name,
+        },
+    )
+
 
 @dagster.asset(
     name="web_analytics_stats_export",
@@ -175,7 +183,7 @@ def export_web_analytics_data(
     metadata={"export_file": "web_stats_daily_export.native"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_stats_daily_export(context: dagster.AssetExecutionContext):
+def web_stats_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[str]:
     """
     Exports web_stats_daily data directly to S3 using ClickHouse's native S3 export.
     """
@@ -195,7 +203,7 @@ def web_stats_daily_export(context: dagster.AssetExecutionContext):
     metadata={"export_file": "web_bounces_daily_export.native"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_bounces_daily_export(context: dagster.AssetExecutionContext):
+def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[str]:
     """
     Exports web_bounces_daily data directly to S3 using ClickHouse's native S3 export.
     """
