@@ -48,6 +48,10 @@ class DuplicatePrimaryKeysException(Exception):
     pass
 
 
+class QueryTimeout(Exception):
+    pass
+
+
 def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
 

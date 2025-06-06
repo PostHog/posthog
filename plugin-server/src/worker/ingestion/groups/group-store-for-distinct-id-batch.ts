@@ -6,7 +6,6 @@ import { GroupTypeIndex, ProjectId, TeamId } from '../../../../src/types'
 export interface CacheMetrics {
     cacheHits: number
     cacheMisses: number
-    cacheSize: number
 }
 
 export interface GroupStoreForDistinctIdBatch {
