@@ -1,7 +1,7 @@
 import structlog
 from celery import shared_task
 
-from posthog.ph_client import get_regional_ph_client
+from posthog.ph_client import get_client
 
 logger = structlog.get_logger(__name__)
 
@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
     from posthog.warehouse.models import DataWarehouseTable
 
-    ph_client = get_regional_ph_client()
+    ph_client = get_client()
 
     try:
         table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
