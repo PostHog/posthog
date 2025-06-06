@@ -107,9 +107,7 @@ describe('prepareEventStep()', () => {
     it('historical events with too-recent timestamp should generate an ingest warning', async () => {
         const kSpy = jest.spyOn(hub.db.kafkaProducer, 'produce')
         try {
-            const tooRecentTimestamp = DateTime.now()
-                .toUTC()
-                .minus(60 * 60 * 1000) // one hour behind "now UTC"
+            const tooRecentTimestamp = DateTime.now().toUTC().minus({ hours: 1 }) // one hour behind "now UTC"
 
             const historicalEvent: PluginEvent = {
                 ...pluginEvent,
