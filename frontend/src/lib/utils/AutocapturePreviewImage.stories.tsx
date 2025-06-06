@@ -19,6 +19,11 @@ const meta: Meta = {
     ],
 }
 
+const imagePath = '/id/237/200/300.jpg?hmac=TmmQSbShHz9CdQm0NkEjx1Dyh_Y984R9LpNrpvH2D_U'
+const imageOrigin = 'https://fastly.picsum.photos'
+const imageWidth = '200'
+const imageHeight = '300'
+
 export default meta
 
 // Mock data for different scenarios
@@ -37,9 +42,9 @@ const mockElementsWithAbsoluteImage: ElementType[] = [
     {
         tag_name: 'img',
         attributes: {
-            attr__src: 'https://example.com/image.jpg',
-            attr__width: '100',
-            attr__height: '150',
+            attr__src: `${imageOrigin}${imagePath}`,
+            attr__width: imageWidth,
+            attr__height: imageHeight,
         },
     },
 ]
@@ -48,15 +53,15 @@ const mockElementsWithRelativeImage: ElementType[] = [
     {
         tag_name: 'img',
         attributes: {
-            attr__src: '/images/logo.png',
-            attr__width: '200',
-            attr__height: '100',
+            attr__src: imagePath,
+            attr__width: imageWidth,
+            attr__height: imageHeight,
         },
     },
 ]
 
 const mockPropertiesWithCurrentUrl = {
-    $current_url: 'https://mysite.com/page',
+    $current_url: `${imageOrigin}/website-page/path`,
     other_prop: 'value',
 }
 
