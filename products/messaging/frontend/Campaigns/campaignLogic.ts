@@ -1,8 +1,7 @@
-import { actions, afterMount, connect, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { campaignLogicType } from './campaignLogicType'
-import { campaignSceneLogic } from './campaignSceneLogic'
 import { Workflow } from './Workflows/temporary_workflow_types_for_dev_to_be_deleted'
 
 export interface CampaignLogicProps {
@@ -24,11 +23,8 @@ export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignLogic']),
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
-    connect(() => ({
-        values: [campaignSceneLogic, ['currentTab']],
-    })),
     actions({
-        updateCampaignName: (name: string) => ({ name }),
+        updateCampaign: (name: string) => ({ name }),
         updateWorkflow: (workflow: Workflow['workflow']) => ({ workflow }),
     }),
     loaders(({ props }) => ({
@@ -41,10 +37,10 @@ export const campaignLogic = kea<campaignLogicType>([
                     }
 
                     // TODO: Add GET /hog_flows/{id} API call
-                    return { ...DEFAULT_WORKFLOW, name: 'My campaign', description: 'Lorem ipsum dolor sit amet' }
+                    return { ...DEFAULT_WORKFLOW }
                 },
-                updateCampaignName: ({ name }: { name: string }) => {
-                    return { ...DEFAULT_WORKFLOW, name }
+                updateCampaign: ({ workflow }: { workflow: Partial<Workflow> }) => {
+                    return { ...DEFAULT_WORKFLOW, ...workflow }
                 },
             },
         ],

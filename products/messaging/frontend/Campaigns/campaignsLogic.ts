@@ -1,9 +1,6 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-
-import { Breadcrumb } from '~/types'
 
 import type { campaignsLogicType } from './campaignsLogicType'
 
@@ -14,25 +11,6 @@ export const campaignsLogic = kea<campaignsLogicType>([
     }),
     reducers({
         campaignId: [null as string | null, { editCampaign: (_, { id }) => id }],
-    }),
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.MessagingCampaigns,
-                        name: 'Messaging',
-                        path: urls.messagingCampaigns(),
-                    },
-                    {
-                        key: 'campaigns',
-                        name: 'Campaigns',
-                        path: urls.messagingCampaigns(),
-                    },
-                ]
-            },
-        ],
     }),
     urlToAction(({ actions }) => ({
         [urls.messagingCampaignNew()]: () => {

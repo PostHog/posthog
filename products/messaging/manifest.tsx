@@ -1,4 +1,4 @@
-import { IconMessage } from '@posthog/icons'
+import { IconCursor } from '@posthog/icons'
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -76,9 +76,10 @@ export const manifest: ProductManifest = {
             `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        messaging: {
-            name: 'Messaging',
-            icon: <IconMessage />,
+        campaign: {
+            name: 'Campaign',
+            icon: <IconCursor />,
+            iconColor: ['var(--product-messaging-light)'],
             href: (ref: string) => urls.messagingCampaign(ref),
             filterKey: 'messaging',
         },
@@ -89,6 +90,7 @@ export const manifest: ProductManifest = {
             href: urls.messagingCampaigns(),
             type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            category: 'Tools',
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },

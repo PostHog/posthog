@@ -328,6 +328,13 @@ export const productUrls = {
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
     action: { name: 'Action', icon: <IconCursor />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
+    campaign: {
+        name: 'Campaign',
+        icon: <IconCursor />,
+        iconColor: ['var(--product-messaging-light)'],
+        href: (ref: string) => urls.messagingCampaign(ref),
+        filterKey: 'messaging',
+    },
     cohort: { name: 'Cohort', icon: <IconPeople />, href: (ref: string) => urls.cohort(ref), filterKey: 'cohort' },
     dashboard: {
         name: 'Dashboard',
@@ -371,12 +378,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--product-links-light)'],
         filterKey: 'link',
         flag: FEATURE_FLAGS.LINKS,
-    },
-    messaging: {
-        name: 'Messaging',
-        icon: <IconMessage />,
-        href: (ref: string) => urls.messagingCampaign(ref),
-        filterKey: 'messaging',
     },
     notebook: {
         name: 'Notebook',
@@ -496,6 +497,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.messagingCampaigns(),
         type: 'messaging',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        category: 'Tools',
         tags: ['alpha'],
         flag: FEATURE_FLAGS.MESSAGING,
     },
