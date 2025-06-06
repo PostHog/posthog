@@ -85,7 +85,7 @@ interface EditAlertModalProps {
     alertId?: AlertType['id']
     insightId: QueryBasedInsightModel['id']
     insightShortId: InsightShortId
-    onEditSuccess: () => void
+    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
     insightLogicProps?: InsightLogicProps
 }
@@ -104,10 +104,13 @@ export function EditAlertModal({
     const { loadAlert } = useActions(_alertLogic)
 
     // need to reload edited alert as well
-    const _onEditSuccess = useCallback(() => {
-        loadAlert()
-        onEditSuccess()
-    }, [loadAlert, onEditSuccess])
+    const _onEditSuccess = useCallback(
+        (alertId: AlertType['id'] | undefined) => {
+            loadAlert()
+            onEditSuccess(alertId)
+        },
+        [loadAlert, onEditSuccess]
+    )
 
     const formLogicProps = {
         alert,
@@ -365,11 +368,17 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                {!!alertId && insightAlertsCDPFlag && (
+                                <h4>CDP Destinations</h4>
+
+                                {insightAlertsCDPFlag && (
                                     <div className="deprecated-space-y-5">
-                                        <div className="flex flex-col">
-                                            <AlertDestinationSelector alertId={alertId} />
-                                        </div>
+                                        {alertId ? (
+                                            <div className="flex flex-col">
+                                                <AlertDestinationSelector alertId={alertId} />
+                                            </div>
+                                        ) : (
+                                            <div className="text-muted-alt">Save alert first to add destinations</div>
+                                        )}
                                     </div>
                                 )}
                             </div>

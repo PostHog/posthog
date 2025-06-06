@@ -46,7 +46,7 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
-    onEditSuccess: () => void
+    onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
 }
 
@@ -135,7 +135,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         lemonToast.success(`Alert created.`)
-                        props.onEditSuccess()
+                        props.onEditSuccess(updatedAlert.id)
 
                         return updatedAlert
                     }
@@ -143,7 +143,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     lemonToast.success(`Alert saved.`)
-                    props.onEditSuccess()
+                    props.onEditSuccess(updatedAlert.id)
 
                     return updatedAlert
                 } catch (error: any) {
@@ -162,7 +162,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot delete alert that doesn't exist")
             }
             await api.alerts.delete(values.alertForm.id)
-            props.onEditSuccess()
+            props.onEditSuccess(undefined)
         },
         snoozeAlert: async ({ snoozeUntil }) => {
             // resolution only allowed on created alert (which will have alertId)
@@ -170,7 +170,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot resolve alert that doesn't exist")
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
-            props.onEditSuccess()
+            props.onEditSuccess(values.alertForm.id)
         },
         clearSnooze: async () => {
             // resolution only allowed on created alert (which will have alertId)
@@ -178,7 +178,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot resolve alert that doesn't exist")
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: null })
-            props.onEditSuccess()
+            props.onEditSuccess(values.alertForm.id)
         },
     })),
 ])
