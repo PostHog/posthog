@@ -1,1 +1,1 @@
-0759_add_errortrackingsymbolset_last_used_index
+0762_team_base_currency
