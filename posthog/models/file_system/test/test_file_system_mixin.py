@@ -167,3 +167,12 @@ class TestFileSystemSyncMixin(TestCase):
         note.delete()
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note_id)).first()
         assert fs_entry2 is None
+
+    def test_activity_logged_on_creation(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="Logged", deleted=False, created_by=self.user)
+        from posthog.models import ActivityLog, FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
+        assert fs_entry is not None
+        activity = ActivityLog.objects.filter(scope="FileSystem", activity="created", item_id=str(fs_entry.id)).first()
+        assert activity is not None
