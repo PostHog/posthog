@@ -86,30 +86,34 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         # If there's an invoice table we can generate the cohort entry
         # by looking at the first invoice for each customer
         if invoice_table is not None:
-            cohort_alias = next((alias for alias in query.select if alias.alias == "cohort"), None)
+            cohort_alias: ast.Alias | None = next(
+                (alias for alias in query.select if isinstance(alias, ast.Alias) and alias.alias == "cohort"), None
+            )
             if cohort_alias is not None:
                 cohort_alias.expr = ast.Field(chain=["cohort_readable"])
-                query.select_from.next_join = ast.JoinExpr(
-                    alias="cohort_inner",
-                    table=ast.SelectQuery(
-                        select=[
-                            ast.Field(chain=["customer_id"]),
-                            ast.Alias(alias="cohort", expr=parse_expr("toStartOfMonth(min(created_at))")),
-                            ast.Alias(alias="cohort_readable", expr=parse_expr("formatDateTime(cohort, '%Y-%m')")),
-                        ],
-                        select_from=ast.JoinExpr(alias="invoice", table=ast.Field(chain=[invoice_table.name])),
-                        group_by=[ast.Field(chain=["customer_id"])],
-                    ),
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        constraint_type="ON",
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["cohort_inner", "customer_id"]),
-                            right=ast.Field(chain=["outer", "id"]),
-                            op=ast.CompareOperationOp.Eq,
+
+                if query.select_from is not None:
+                    query.select_from.next_join = ast.JoinExpr(
+                        alias="cohort_inner",
+                        table=ast.SelectQuery(
+                            select=[
+                                ast.Field(chain=["customer_id"]),
+                                ast.Alias(alias="cohort", expr=parse_expr("toStartOfMonth(min(created_at))")),
+                                ast.Alias(alias="cohort_readable", expr=parse_expr("formatDateTime(cohort, '%Y-%m')")),
+                            ],
+                            select_from=ast.JoinExpr(alias="invoice", table=ast.Field(chain=[invoice_table.name])),
+                            group_by=[ast.Field(chain=["customer_id"])],
                         ),
-                    ),
-                )
+                        join_type="LEFT JOIN",
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["cohort_inner", "customer_id"]),
+                                right=ast.Field(chain=["outer", "id"]),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                        ),
+                    )
 
         return [
             RevenueAnalyticsCustomerView(
