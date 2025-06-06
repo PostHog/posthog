@@ -1,25 +1,5 @@
-// eslint-disable-next-line no-restricted-imports
-import {
-    ActiveElement,
-    Chart as RawChart,
-    ChartConfiguration,
-    ChartDataset,
-    ChartEvent,
-    ChartItem,
-    ChartOptions,
-    ChartType,
-    Color,
-    DefaultDataPoint,
-    GridLineOptions,
-    InteractionItem,
-    Plugin,
-    registerables,
-    ScriptableLineSegmentContext,
-    TickOptions,
-    Tooltip,
-    TooltipModel,
-    TooltipOptions,
-} from 'chart.js'
+/* eslint-disable no-restricted-imports */
+import { Chart as RawChart, ChartType, DefaultDataPoint, registerables, Tooltip } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import { inStorybookTestRunner } from 'lib/utils'
 
@@ -29,6 +9,11 @@ if (registerables) {
 }
 RawChart.register(CrosshairPlugin)
 RawChart.defaults.animation['duration'] = 0
+
+// Create positioner to put tooltip at cursor position
+Tooltip.positioners.cursor = function (_, coordinates) {
+    return coordinates
+}
 
 export class Chart<
     TType extends ChartType = ChartType,
@@ -44,25 +29,6 @@ export class Chart<
     }
 }
 
-// Create positioner to put tooltip at cursor position
-Tooltip.positioners.cursor = function (_, coordinates) {
-    return coordinates
-}
-
-export type {
-    ActiveElement,
-    ChartConfiguration,
-    ChartDataset,
-    ChartEvent,
-    ChartItem,
-    ChartOptions,
-    ChartType,
-    Color,
-    GridLineOptions,
-    InteractionItem,
-    Plugin,
-    ScriptableLineSegmentContext,
-    TickOptions,
-    TooltipModel,
-    TooltipOptions,
-}
+export type * from 'chart.js'
+export { defaults, registerables } from 'chart.js'
+/* eslint-enable no-restricted-imports */

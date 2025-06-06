@@ -1,4 +1,4 @@
-import { Chart } from 'chart.js'
+import { Chart } from 'lib/Chart'
 import { useMemo } from 'react'
 
 export interface AnnotationsPositioning {

@@ -4,6 +4,12 @@ import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
 import { lemonToast } from '@posthog/lemon-ui'
+import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
+import dataLabelsPlugin from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
+import clsx from 'clsx'
+import { useValues } from 'kea'
 import {
     ChartData,
     ChartType,
@@ -13,13 +19,7 @@ import {
     ScaleOptionsByType,
     TickOptions,
     TooltipModel,
-} from 'chart.js'
-import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
-import dataLabelsPlugin from 'chartjs-plugin-datalabels'
-import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
-import chartTrendline from 'chartjs-plugin-trendline'
-import clsx from 'clsx'
-import { useValues } from 'kea'
+} from 'lib/Chart'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
