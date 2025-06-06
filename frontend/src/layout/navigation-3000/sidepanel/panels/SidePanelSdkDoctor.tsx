@@ -1,11 +1,20 @@
 import { IconBolt, IconEllipsis, IconStethoscope, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTag, LemonTable, LemonTableColumns, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    LemonTagProps,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import React from 'react'
 
-import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
+import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -26,22 +35,29 @@ const numberToWord = (num: number): string => {
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
     const { sdkHealth, multipleInitSdks } = useValues(sidePanelSdkDoctorLogic)
-    
+
     const hasMultipleInits = multipleInitSdks.length > 0
-    
-    const title =
-        hasMultipleInits
-            ? 'SDK initialization issue detected!'
-            : sdkHealth !== 'healthy'
-            ? 'Outdated SDKs found'
-            : 'SDK health is good'
+
+    const title = hasMultipleInits
+        ? 'SDK initialization issue detected!'
+        : sdkHealth !== 'healthy'
+        ? 'Outdated SDKs found'
+        : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
             <span {...props}>
                 <IconWithBadge
                     content={hasMultipleInits ? '!!' : sdkHealth !== 'healthy' ? '!' : '✓'}
-                    status={hasMultipleInits ? 'danger' : sdkHealth === 'critical' ? 'danger' : sdkHealth === 'warning' ? 'warning' : 'success'}
+                    status={
+                        hasMultipleInits
+                            ? 'danger'
+                            : sdkHealth === 'critical'
+                            ? 'danger'
+                            : sdkHealth === 'warning'
+                            ? 'warning'
+                            : 'success'
+                    }
                 >
                     <IconStethoscope />
                 </IconWithBadge>
@@ -62,62 +78,62 @@ const sdkTypeMapping: Record<SdkType, { name: string; color: LemonTagProps['type
     go: { name: 'Go', color: 'muted' },
     flutter: { name: 'Flutter', color: 'default' },
     'react-native': { name: 'React Native', color: 'highlight' },
-    other: { name: 'Other', color: 'default' }
+    other: { name: 'Other', color: 'default' },
 }
 
 // SDK documentation links mapping
 const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
-    web: { 
+    web: {
         releases: 'https://github.com/PostHog/posthog-js/releases',
-        docs: 'https://posthog.com/docs/libraries/js'
+        docs: 'https://posthog.com/docs/libraries/js',
     },
-    ios: { 
+    ios: {
         releases: 'https://github.com/PostHog/posthog-ios/releases',
-        docs: 'https://posthog.com/docs/libraries/ios'
+        docs: 'https://posthog.com/docs/libraries/ios',
     },
-    android: { 
+    android: {
         releases: 'https://github.com/PostHog/posthog-android/releases',
-        docs: 'https://posthog.com/docs/libraries/android'
+        docs: 'https://posthog.com/docs/libraries/android',
     },
-    node: { 
+    node: {
         releases: 'https://github.com/PostHog/posthog-js-lite/blob/main/posthog-node/CHANGELOG.md',
-        docs: 'https://posthog.com/docs/libraries/node'
+        docs: 'https://posthog.com/docs/libraries/node',
     },
-    python: { 
+    python: {
         releases: 'https://github.com/PostHog/posthog-python/releases',
-        docs: 'https://posthog.com/docs/libraries/python'
+        docs: 'https://posthog.com/docs/libraries/python',
     },
-    php: { 
+    php: {
         releases: 'https://github.com/PostHog/posthog-php/blob/master/History.md',
-        docs: 'https://posthog.com/docs/libraries/php'
+        docs: 'https://posthog.com/docs/libraries/php',
     },
-    ruby: { 
+    ruby: {
         releases: 'https://github.com/PostHog/posthog-ruby/releases',
-        docs: 'https://posthog.com/docs/libraries/ruby'
+        docs: 'https://posthog.com/docs/libraries/ruby',
     },
-    go: { 
+    go: {
         releases: 'https://github.com/PostHog/posthog-go/releases',
-        docs: 'https://posthog.com/docs/libraries/go'
+        docs: 'https://posthog.com/docs/libraries/go',
     },
-    flutter: { 
+    flutter: {
         releases: 'https://github.com/PostHog/posthog-flutter/releases',
-        docs: 'https://posthog.com/docs/libraries/flutter'
+        docs: 'https://posthog.com/docs/libraries/flutter',
     },
-    'react-native': { 
+    'react-native': {
         releases: 'https://github.com/PostHog/posthog-react-native/releases',
-        docs: 'https://posthog.com/docs/libraries/react-native'
+        docs: 'https://posthog.com/docs/libraries/react-native',
     },
-    other: { 
+    other: {
         releases: 'https://github.com/PostHog',
-        docs: 'https://posthog.com/docs/libraries'
-    }
+        docs: 'https://posthog.com/docs/libraries',
+    },
 }
 
 // Component to render SDK links
 const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
     const links = sdkDocsLinks[sdkType]
     const sdkName = sdkTypeMapping[sdkType].name
-    
+
     return (
         <div className="flex justify-between items-center py-2 text-sm border-t border-border mt-2">
             <Link to={links.releases} target="_blank" targetBlankIcon>
@@ -130,17 +146,6 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
     )
 }
 
-// Helper function to get ordinal suffix
-const getOrdinalSuffix = (n: number): string => {
-    if (n > 3 && n < 21) return 'th';
-    switch (n % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-    }
-}
-
 export function SidePanelSdkDoctor(): JSX.Element {
     const { sdkVersions, sdkHealth, recentEventsLoading, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
@@ -149,7 +154,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
     const groupedVersions = sdkVersions.reduce((acc, sdk) => {
         const sdkType = sdk.type
         const sdkName = sdkTypeMapping[sdkType]?.name || 'Other'
-        
+
         if (!acc[sdkName]) {
             acc[sdkName] = []
         }
@@ -184,9 +189,13 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             {record.version}
                         </code>
                         {record.isOutdated ? (
-                            <Tooltip 
+                            <Tooltip
                                 placement="right"
-                                title={record.latestVersion ? `Latest version: ${record.latestVersion}` : 'Upgrade recommended'}
+                                title={
+                                    record.latestVersion
+                                        ? `Latest version: ${record.latestVersion}`
+                                        : 'Upgrade recommended'
+                                }
                             >
                                 <LemonTag type="warning" className="shrink-0">
                                     Outdated
@@ -198,7 +207,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             </LemonTag>
                         )}
                         {record.multipleInitializations && (
-                            <Tooltip 
+                            <Tooltip
                                 placement="right"
                                 title={`SDK initialized multiple times (${record.initCount} times).`}
                             >
@@ -230,7 +239,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
             </SidePanelPaneHeader>
             <div className="p-3 overflow-y-auto flex-1">
                 {/* Show warning for multiple initializations if detected */}
-                {sdkVersions.some(sdk => sdk.multipleInitializations) && (
+                {sdkVersions.some((sdk) => sdk.multipleInitializations) && (
                     <Section title="Multiple SDK initializations detected">
                         <div className="p-3 bg-danger/10 rounded border border-danger/20">
                             <div className="flex items-start">
@@ -240,30 +249,37 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         Whoops! You're initializing the JS SDK multiple times
                                     </p>
                                     <p className="text-sm mt-1">
-                                        This creates duplicate events and wastes resources. Just initialize once at your app's entry point.
+                                        This creates duplicate events and wastes resources. Just initialize once at your
+                                        app's entry point.
                                     </p>
                                     <div className="mt-2">
-                                        <Link to="https://posthog.com/docs/libraries/js/config" target="_blank" targetBlankIcon>
+                                        <Link
+                                            to="https://posthog.com/docs/libraries/js/config"
+                                            target="_blank"
+                                            targetBlankIcon
+                                        >
                                             View initialization docs
                                         </Link>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        
+
                         {/* Table showing the URLs/screens where multiple initializations happen */}
                         <div className="mt-3">
                             <h4 className="text-sm font-semibold mb-2">Sources of multiple initialization</h4>
                             <LemonTable
                                 dataSource={
                                     // Use the actual URLs from the events, or fallback to a default if none found
-                                    sdkVersions.find(sdk => sdk.multipleInitializations)?.initUrls?.map((item) => ({
-                                        url: item.url
-                                    })) || [
+                                    sdkVersions
+                                        .find((sdk) => sdk.multipleInitializations)
+                                        ?.initUrls?.map((item) => ({
+                                            url: item.url,
+                                        })) || [
                                         // Fallback data just in case
                                         {
-                                            url: 'Unknown source file'
-                                        }
+                                            url: 'Unknown source file',
+                                        },
                                     ]
                                 }
                                 columns={[
@@ -271,24 +287,23 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         title: 'URL / Screen',
                                         dataIndex: 'url',
                                         render: function RenderUrl(url) {
-                                            return (
-                                                <code className="text-xs truncate max-w-48">
-                                                    {url}
-                                                </code>
-                                            )
-                                        }
-                                    }
+                                            return <code className="text-xs truncate max-w-48">{url}</code>
+                                        },
+                                    },
                                 ]}
                                 size="small"
                                 className="ph-no-capture"
                             />
                             <div className="mt-2 text-xs text-muted">
-                                <p>Solution: Remove redundant initializations. Initialize the SDK only once at the top of your script or in your entry point file.</p>
+                                <p>
+                                    Solution: Remove redundant initializations. Initialize the SDK only once at the top
+                                    of your script or in your entry point file.
+                                </p>
                             </div>
                         </div>
                     </Section>
                 )}
-                
+
                 {sdkHealth !== 'healthy' ? (
                     <Section title="Outdated SDKs found">
                         <div className="p-3 bg-warning/10 rounded border border-warning/20">
@@ -296,44 +311,53 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 <IconWarning className="text-warning text-xl mt-0.5 mr-2 flex-shrink-0" />
                                 <div>
                                     <p className="font-semibold">
-                                        {outdatedSdkCount === 1 ? 'Your SDK is' : 'Your SDKs are'} falling behind! Time for an upgrade.
+                                        <>{outdatedSdkCount === 1 ? 'Your SDK is' : 'Your SDKs are'}</> falling behind!
+                                        Time for an upgrade.
                                     </p>
                                     <p className="text-sm mt-1">
-                                        {outdatedSdkCount === 1 
-                                            ? `${numberToWord(outdatedSdkCount)} outdated SDK means you're missing out on the latest features.` 
-                                            : `${numberToWord(outdatedSdkCount)} outdated SDKs mean you're missing out on the latest features.`
-                                        } Check the links below to catch up.
+                                        <>
+                                            {outdatedSdkCount === 1
+                                                ? `${numberToWord(
+                                                      outdatedSdkCount
+                                                  )} outdated SDK means you're missing out on the latest features.`
+                                                : `${numberToWord(
+                                                      outdatedSdkCount
+                                                  )} outdated SDKs mean you're missing out on the latest features.`}
+                                        </>{' '}
+                                        Check the links below to catch up.
                                     </p>
                                 </div>
                             </div>
                         </div>
                     </Section>
                 ) : (
-                    !sdkVersions.some(sdk => sdk.multipleInitializations) && (
+                    !sdkVersions.some((sdk) => sdk.multipleInitializations) && (
                         <Section title="SDK health is good">
                             <div className="p-3 bg-success/10 rounded border border-success/20">
                                 <div className="flex items-start">
                                     <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
                                     <div>
                                         <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                                        <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                                        <p className="text-sm mt-1">
+                                            You've got the latest. Nice work keeping everything current.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
                         </Section>
                     )
                 )}
-                
+
                 {/* Render a section for each SDK category with SDKs */}
                 {Object.entries(groupedVersions).map(([category, categorySDKs]) => {
                     if (categorySDKs.length === 0) {
                         return null
                     }
-                    
+
                     // Check if any SDKs in this category are outdated
-                    const outdatedSDKs = categorySDKs.filter(sdk => sdk.isOutdated)
+                    const outdatedSDKs = categorySDKs.filter((sdk) => sdk.isOutdated)
                     const hasOutdatedSDKs = outdatedSDKs.length > 0
-                    
+
                     return (
                         <div key={category} className="mb-6">
                             <LemonTable
@@ -344,11 +368,11 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 size="small"
                                 emptyState="No SDK information found. Try scanning recent events."
                             />
-                            
+
                             {/* Show documentation links for outdated SDKs in this category */}
                             {hasOutdatedSDKs && (
                                 <div className="mt-2">
-                                    {outdatedSDKs.map(sdk => (
+                                    {outdatedSDKs.map((sdk) => (
                                         <SdkLinks key={sdk.type} sdkType={sdk.type} />
                                     ))}
                                 </div>
@@ -356,7 +380,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         </div>
                     )
                 })}
-                
+
                 {Object.keys(groupedVersions).length === 0 && (
                     <div className="text-center text-muted p-4">
                         No SDK information found. Try scanning recent events.
