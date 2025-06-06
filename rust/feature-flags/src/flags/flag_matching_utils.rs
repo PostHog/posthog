@@ -9,8 +9,9 @@ use tokio::time::{sleep, timeout};
 use tracing::info;
 
 use crate::{
-    api::errors::FlagError,
+    api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
+    flags::flag_models::FeatureFlagId,
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
         FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
@@ -230,6 +231,41 @@ pub fn all_properties_match(
     flag_condition_properties
         .iter()
         .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
+}
+
+pub fn all_flag_values_match(
+    flag_condition_properties: &[PropertyFilter],
+    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+) -> bool {
+    flag_condition_properties
+        .iter()
+        .all(|property| match_flag_filter_value(property, flag_evaluation_results))
+}
+
+pub fn match_flag_filter_value(
+    filter: &PropertyFilter,
+    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+) -> bool {
+    let flag_id = filter.get_feature_flag_id();
+    if flag_id.is_none() {
+        return false;
+    }
+    // Grab the existing flag value for this flag id if any
+    let flag_value = flag_evaluation_results.get(&flag_id.unwrap());
+    if flag_value.is_none() {
+        // This means this condition depends on a flag that doesn't exist yet, so it's not a match
+        return false;
+    }
+    // If the filter flag value is boolean and is `true`, then we need to see if the `flag_value` is not `false`.
+    // If the filter flag value is boolean and is `false`, then we need to see if the `flag_value` is `false`.
+    // If the filter flag value is a string, we need to see if the `flag_value` is the same as the filter flag value.
+    let flag_value = flag_value.unwrap();
+    match filter.value {
+        Some(Value::Bool(true)) => flag_value != &FlagValue::Boolean(false),
+        Some(Value::Bool(false)) => flag_value == &FlagValue::Boolean(false),
+        Some(Value::String(ref s)) => flag_value == &FlagValue::String(s.clone()),
+        _ => false,
+    }
 }
 
 /// Retrieves feature flag hash key overrides for a list of distinct IDs.
@@ -623,5 +659,41 @@ mod tests {
         let result =
             locally_computable_property_overrides(&overrides, &property_filters_with_cohort);
         assert!(result.is_none());
+    }
+
+    #[rstest]
+    #[case("1", json!(true), FlagValue::Boolean(true), true)] // filter value true, flag_value is true, so true
+    #[case("1", json!(true), FlagValue::Boolean(false), false)] // filter value true, flag_value is false, so false
+    #[case("1", json!(true), FlagValue::String("some-variant".to_string()), true)]
+    // filter value true, flag_value is "some-variant", so true (filter value true means flag value can be true or any variant)
+    #[case("1", json!(true), FlagValue::String("other-variant".to_string()), true)] // filter value true, flag_value is "other-variant", so true (see above)
+    #[case("1", json!(false), FlagValue::Boolean(false), true)] // filter value false, flag_value is false, so true
+    #[case("1", json!(false), FlagValue::Boolean(true), false)] // filter value false, flag_value is true, so false
+    #[case("1", json!(false), FlagValue::String("some-variant".to_string()), false)] // filter value false, flag_value is "some-variant", so false
+    #[case("1", json!("some-variant"), FlagValue::String("some-variant".to_string()), true)] // flag value variant matches filter value variant, so true
+    #[case("1", json!("some-variant"), FlagValue::String("other-variant".to_string()), false)] // flag value variant doesn't match filter value variant, so false
+    #[case("1", json!("some-variant"), FlagValue::Boolean(true), false)] // even though flag value is true, it doesn't match the filter value variant, so false
+    #[case("1", json!("some-variant"), FlagValue::Boolean(false), false)] // flag value is false and doesn't match the filter value variant, so false
+    #[case("2", json!(true), FlagValue::Boolean(true), false)] // flag referenced by filter does not exist, so false
+    #[tokio::test]
+    async fn test_match_flag_filter_value(
+        #[case] filter_flag_id: i32,
+        #[case] filter_value: Value,
+        #[case] flag_value: FlagValue,
+        #[case] expected: bool,
+    ) {
+        let flag_evaluation_results = HashMap::from([(1, flag_value)]);
+
+        let filter = PropertyFilter {
+            key: filter_flag_id.to_string(),
+            value: Some(filter_value),
+            operator: None,
+            prop_type: PropertyType::Flag,
+            negation: None,
+            group_type_index: None,
+        };
+
+        let result = match_flag_filter_value(&filter, &flag_evaluation_results);
+        assert_eq!(result, expected);
     }
 }

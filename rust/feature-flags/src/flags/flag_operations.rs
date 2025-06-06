@@ -4,6 +4,7 @@ use crate::flags::flag_models::*;
 use crate::properties::property_models::{PropertyFilter, PropertyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -23,6 +24,20 @@ impl PropertyFilter {
             .as_ref()
             .and_then(|value| value.as_i64())
             .map(|id| id as CohortId)
+    }
+
+    /// Checks if the filter is a feature flag filter
+    pub fn is_feature_flag(&self) -> bool {
+        self.prop_type == PropertyType::Flag
+    }
+
+    /// Returns the feature flag id if the filter is a feature flag filter, or None if it's not a feature flag filter
+    /// or if the value cannot be parsed as a feature flag id
+    pub fn get_feature_flag_id(&self) -> Option<FeatureFlagId> {
+        if !self.is_feature_flag() {
+            return None;
+        }
+        self.key.parse::<FeatureFlagId>().ok()
     }
 }
 
@@ -48,6 +63,27 @@ impl FeatureFlag {
                 .as_object()
                 .and_then(|obj| obj.get(match_val).cloned())
         })
+    }
+
+    /// Extracts dependent FeatureFlagIds from the feature flag's filters
+    ///
+    /// # Returns
+    /// * `HashSet<FeatureFlagId>` - A set of dependent feature flag IDs
+    /// * `FlagError` - If there is an error parsing the filters
+    pub fn extract_dependencies(&self) -> Result<HashSet<FeatureFlagId>, FlagError> {
+        let mut dependencies = HashSet::new();
+        for group in &self.filters.groups {
+            if let Some(properties) = &group.properties {
+                for filter in properties {
+                    if filter.is_feature_flag() {
+                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
+                            dependencies.insert(feature_flag_id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(dependencies)
     }
 }
 
