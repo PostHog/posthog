@@ -117,7 +117,7 @@ def revenue_comparison_and_value_exprs_for_events(
 
 # This sums up the revenue from all events in the group
 def revenue_sum_expression_for_events(config: Union[Team, None]) -> ast.Expr:
-    if not config or not config.events:
+    if not config or not config.revenue_analytics_config or not config.revenue_analytics_config.events:
         return ast.Constant(value=None)
 
     exprs: list[ast.Expr] = []
