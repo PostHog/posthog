@@ -189,7 +189,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         String(team.id),
         event.distinct_id
     )
-    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, { batchWritingEnabled: true })
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
