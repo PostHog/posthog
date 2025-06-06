@@ -34,6 +34,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         CHARGEBEE = "Chargebee", "Chargebee"
         GOOGLEADS = "GoogleAds", "GoogleAds"
         TEMPORALIO = "TemporalIO", "TemporalIO"
+        DOIT = "DoIt", "DoIt"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
