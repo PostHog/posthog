@@ -58,7 +58,7 @@ export function parseEventTimestamp(
     const actualNow = DateTime.now().toUTC()
     if (
         isHistoricalEvent &&
-        (!data['timestamp'] || parseDate(originalTs).diff(actualNow).toMillis() < OneDayInMillis)
+        (!data['timestamp'] || actualNow.diff(parseDate(originalTs)).toMillis() < OneDayInMillis)
     ) {
         callback?.('historical_event_timestamp_too_recent', {
             eventTimestamp: originalTs,
