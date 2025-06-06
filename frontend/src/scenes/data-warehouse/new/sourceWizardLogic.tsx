@@ -819,6 +819,20 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
+    DoIt: {
+        name: 'DoIt',
+        label: 'DoIt',
+        caption: '',
+        fields: [
+            {
+                name: 'api_key',
+                label: 'API key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
     MetaAds: {
         name: 'MetaAds',
         label: 'Meta Ads',
