@@ -177,7 +177,6 @@ if (res.status >= 400) {
                 st: '{sha256Hex(lower(person.properties.$geoip_subdivision_1_code))}',
                 country: '{sha256Hex(lower(person.properties.$geoip_country_code))}',
                 zp: "{not empty (person.properties.$geoip_postal_code) ? sha256Hex(replaceAll(lower(person.properties.$geoip_postal_code), ' ', '')) : null}",
-                ttclid: '{person.properties.ttclid ?? person.properties.$initial_ttclid}',
                 client_ip_address: '{event.properties.$ip}',
                 external_id: '{sha256Hex(person.id)}',
             },
