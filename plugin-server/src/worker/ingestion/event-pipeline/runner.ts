@@ -8,7 +8,7 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { GroupStoreForDistinctIdBatch } from '../groups/group-store-for-distinct-id-batch'
+import { GroupStoreForBatch } from '../groups/group-store-for-batch'
 import { PersonsStoreForDistinctIdBatch } from '../persons/persons-store-for-distinct-id-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
@@ -59,7 +59,7 @@ export class EventPipelineRunner {
     hogTransformer: HogTransformerService | null
     breadcrumbs: KafkaConsumerBreadcrumb[]
     personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
-    groupStoreForDistinctId: GroupStoreForDistinctIdBatch
+    groupStoreForBatch: GroupStoreForBatch
 
     constructor(
         hub: Hub,
@@ -67,7 +67,7 @@ export class EventPipelineRunner {
         hogTransformer: HogTransformerService | null = null,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
-        groupStoreForDistinctId: GroupStoreForDistinctIdBatch
+        groupStoreForBatch: GroupStoreForBatch
     ) {
         this.hub = hub
         this.originalEvent = event
@@ -75,7 +75,7 @@ export class EventPipelineRunner {
         this.hogTransformer = hogTransformer
         this.breadcrumbs = breadcrumbs
         this.personsStoreForDistinctId = personsStoreForDistinctId
-        this.groupStoreForDistinctId = groupStoreForDistinctId
+        this.groupStoreForBatch = groupStoreForBatch
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {

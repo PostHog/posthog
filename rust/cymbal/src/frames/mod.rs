@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
-    langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
+    langs::{custom::CustomFrame, js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
     symbol_store::Catalog,
@@ -31,6 +31,8 @@ pub enum RawFrame {
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
+    #[serde(rename = "custom")]
+    Custom(CustomFrame),
 }
 
 impl RawFrame {
@@ -44,6 +46,7 @@ impl RawFrame {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+            RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
         };
 
         // The raw id of the frame is set after it's resolved
@@ -71,6 +74,7 @@ impl RawFrame {
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
             RawFrame::Python(_) => None,
+            RawFrame::Custom(_) => None,
         }
     }
 
@@ -79,6 +83,7 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Custom(raw) => raw.frame_id(),
         }
     }
 }

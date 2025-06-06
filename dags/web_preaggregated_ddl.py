@@ -1,5 +1,4 @@
 import dagster
-import structlog
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster
 from clickhouse_driver import Client
@@ -18,7 +17,10 @@ from posthog.models.web_preaggregated.sql import (
 )
 from dags.web_preaggregated_utils import web_analytics_retry_policy_def
 
-logger = structlog.get_logger(__name__)
+
+def execute_with_logging(client: Client, sql: str, context: dagster.AssetExecutionContext):
+    context.log.info(sql)
+    return client.execute(sql)
 
 
 @dagster.asset(
@@ -28,24 +30,29 @@ logger = structlog.get_logger(__name__)
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_preaggregated_hourly_tables(
+    context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
     def drop_tables(client: Client):
-        client.execute("DROP TABLE IF EXISTS web_stats_hourly SYNC")
-        client.execute("DROP TABLE IF EXISTS web_bounces_hourly SYNC")
-        client.execute("DROP TABLE IF EXISTS web_stats_hourly_staging SYNC")
-        client.execute("DROP TABLE IF EXISTS web_bounces_hourly_staging SYNC")
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_hourly SYNC", context)
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_hourly SYNC", context)
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_hourly_staging SYNC", context)
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_hourly_staging SYNC", context)
 
     def create_tables(client: Client):
-        client.execute(WEB_STATS_HOURLY_SQL())
-        client.execute(WEB_BOUNCES_HOURLY_SQL())
+        execute_with_logging(client, WEB_STATS_HOURLY_SQL(), context)
+        execute_with_logging(client, WEB_BOUNCES_HOURLY_SQL(), context)
 
         # Create staging tables with same structure
-        client.execute(WEB_STATS_HOURLY_SQL().replace("web_stats_hourly", "web_stats_hourly_staging"))
-        client.execute(WEB_BOUNCES_HOURLY_SQL().replace("web_bounces_hourly", "web_bounces_hourly_staging"))
+        execute_with_logging(
+            client, WEB_STATS_HOURLY_SQL().replace("web_stats_hourly", "web_stats_hourly_staging"), context
+        )
+        execute_with_logging(
+            client, WEB_BOUNCES_HOURLY_SQL().replace("web_bounces_hourly", "web_bounces_hourly_staging"), context
+        )
 
-        client.execute(DISTRIBUTED_WEB_STATS_HOURLY_SQL())
-        client.execute(DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL())
+        execute_with_logging(client, DISTRIBUTED_WEB_STATS_HOURLY_SQL(), context)
+        execute_with_logging(client, DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL(), context)
 
     cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
@@ -60,15 +67,16 @@ def web_analytics_preaggregated_hourly_tables(
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_combined_views(
+    context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
     def drop_views(client: Client):
-        client.execute("DROP VIEW IF EXISTS web_stats_combined SYNC")
-        client.execute("DROP VIEW IF EXISTS web_bounces_combined SYNC")
+        execute_with_logging(client, "DROP VIEW IF EXISTS web_stats_combined SYNC", context)
+        execute_with_logging(client, "DROP VIEW IF EXISTS web_bounces_combined SYNC", context)
 
     def create_views(client: Client):
-        client.execute(WEB_STATS_COMBINED_VIEW_SQL())
-        client.execute(WEB_BOUNCES_COMBINED_VIEW_SQL())
+        execute_with_logging(client, WEB_STATS_COMBINED_VIEW_SQL(), context)
+        execute_with_logging(client, WEB_BOUNCES_COMBINED_VIEW_SQL(), context)
 
     cluster.map_all_hosts(drop_views).result()
     cluster.map_all_hosts(create_views).result()
@@ -82,6 +90,7 @@ def web_analytics_combined_views(
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_preaggregated_tables(
+    context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
     """
@@ -92,25 +101,21 @@ def web_analytics_preaggregated_tables(
 
     def drop_tables(client: Client):
         try:
-            client.execute("DROP TABLE IF EXISTS web_stats_daily SYNC")
-            client.execute("DROP TABLE IF EXISTS web_bounces_daily SYNC")
-            logger.info("dropped_existing_tables", host=client.connection.host)
+            execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_daily SYNC", context)
+            execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_daily SYNC", context)
         except Exception as e:
-            logger.exception("failed_to_drop_tables", host=client.connection.host, error=str(e))
-            raise
+            raise dagster.Failure(f"Failed to drop tables: {str(e)}") from e
 
     def create_tables(client: Client):
-        client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
-        client.execute(WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"))
+        execute_with_logging(client, WEB_STATS_DAILY_SQL(table_name="web_stats_daily"), context)
+        execute_with_logging(client, WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"), context)
 
-        client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
-        client.execute(DISTRIBUTED_WEB_BOUNCES_DAILY_SQL())
+        execute_with_logging(client, DISTRIBUTED_WEB_STATS_DAILY_SQL(), context)
+        execute_with_logging(client, DISTRIBUTED_WEB_BOUNCES_DAILY_SQL(), context)
 
     try:
         cluster.map_all_hosts(drop_tables).result()
         cluster.map_all_hosts(create_tables).result()
-        logger.info("web_analytics_tables_setup_completed")
         return True
     except Exception as e:
-        logger.exception("web_analytics_tables_setup_failed", error=str(e))
         raise dagster.Failure(f"Failed to setup web analytics tables: {str(e)}") from e

@@ -563,6 +563,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     ? [
                           {
                               path: 'Groups',
+                              category: 'Groups',
                               iconType: 'cohort',
                               href: urls.groups(0),
                               visualOrder: 30,
@@ -570,6 +571,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                       ]
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                          category: 'Groups',
                           iconType: 'cohort',
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,

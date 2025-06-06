@@ -432,25 +432,25 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
     },
     email: {
         inputs_schema: [
-            { key: 'auth', type: 'dictionary', label: 'Mailjet', secret: false, required: true },
+            { key: 'auth', type: 'integration', label: 'Email integration', secret: false, required: true },
             { key: 'email', type: 'string', label: 'Email', secret: false, required: true },
         ],
         inputs: {
             auth: {
                 value: {
-                    api_key: 'test_api_key',
-                    secret_key: 'test_secret_key',
+                    domain: 'foobar.com',
+                    mailjet_verified: true,
                 },
                 bytecode: {
-                    api_key: ['_h', 32, 'test_api_key'],
-                    secret_key: ['_h', 32, 'test_secret_key'],
+                    domain: ['_h', 32, 'foobar.com'],
+                    mailjet_verified: ['_h', 32, true],
                 },
             },
             email: {
                 value: {
                     to: '{person.properties.email}',
                     body: 'Hello {person.properties.first_name} {person.properties.last_name}!\n\nThis is a broadcast',
-                    from: 'info@posthog.com',
+                    from: 'info@foobar.com',
                     html: '<html></html>',
                     subject: 'Hello {person.properties.email}',
                 },
@@ -485,7 +485,7 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
                         'concat',
                         5,
                     ],
-                    from: ['_H', 1, 32, 'info@posthog.com'],
+                    from: ['_H', 1, 32, 'info@foobar.com'],
                     html: ['_H', 1, 32, '<html></html>'],
                     subject: ['_H', 1, 32, 'Hello ', 32, 'email', 32, 'properties', 32, 'person', 1, 3, 2, 'concat', 2],
                 },

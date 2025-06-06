@@ -321,6 +321,7 @@ export async function createUserTeamAndOrganization(
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
     })
 }
@@ -450,6 +451,7 @@ export const createTeam = async (
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        base_currency: 'USD',
     })
     return id
 }

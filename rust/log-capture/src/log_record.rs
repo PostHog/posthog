@@ -166,8 +166,8 @@ fn normalize_severity_text(severity_text: String) -> String {
         "info" | "information" | "informational" => "info".to_string(),
         "debug" | "dbug" => "debug".to_string(),
         "trace" => "trace".to_string(),
-        "" => "info".to_string(),
-        _ => severity_text,
+        // don't allow arbitrary values in severity text. normalize unknown to info
+        _ => "info".to_string(),
     }
 }
 

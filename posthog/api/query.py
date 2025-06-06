@@ -30,7 +30,7 @@ from posthog.clickhouse.client.execute_async import (
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters,
     apply_dashboard_variables,
@@ -159,6 +159,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ResolutionError as e:
+            raise ValidationError(str(e))
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:

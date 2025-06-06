@@ -122,18 +122,20 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadMetricResults(true)
 
-            await expectLogic(logic).toDispatchActions(['setMetricResultsLoading', 'setMetricResults']).toMatchValues({
-                metricResults: [],
-                metricResultsLoading: true,
-                primaryMetricsResultErrors: [],
-            })
+            await expectLogic(logic)
+                .toDispatchActions(['setMetricResultsLoading', 'setLegacyMetricResults'])
+                .toMatchValues({
+                    legacyMetricResults: [],
+                    metricResultsLoading: true,
+                    primaryMetricsResultErrors: [],
+                })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setMetricResultsLoading'])
                 .toMatchValues({
-                    metricResults: [
+                    legacyMetricResults: [
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,
                             fakeInsightId: expect.any(String),
@@ -196,9 +198,9 @@ describe('experimentLogic', () => {
             const promise = logic.asyncActions.loadSecondaryMetricResults(true)
 
             await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
+                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setLegacySecondaryMetricResults'])
                 .toMatchValues({
-                    secondaryMetricResults: [],
+                    legacySecondaryMetricResults: [],
                     secondaryMetricResultsLoading: true,
                     secondaryMetricsResultErrors: [],
                 })
@@ -208,7 +210,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricResultsLoading'])
                 .toMatchValues({
-                    secondaryMetricResults: [
+                    legacySecondaryMetricResults: [
                         null,
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,

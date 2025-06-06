@@ -109,14 +109,6 @@ def summarized_actions_with_embeddings(summarized_actions) -> list[tuple[dict[st
     ]
 
 
-@pytest.fixture
-def mock_flag(ateam):
-    with patch(
-        "posthog.temporal.ai.sync_vectors._get_orgs_from_the_feature_flag", return_value=[str(ateam.organization.id)]
-    ) as mock:
-        yield mock
-
-
 def _wrap_embeddings_response(embeddings: list[list[float]]) -> EmbeddingsResult:
     return EmbeddingsResult(
         id="test",
@@ -143,7 +135,7 @@ def _query_pg_embeddings() -> list[tuple]:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs(mock_flag, actions):
+async def test_get_actions_qs(actions):
     qs = await get_actions_qs(timezone.now())
     assert await qs.acount() == 3
     qs = await get_actions_qs(timezone.now(), 0, 1)
@@ -162,7 +154,7 @@ async def test_get_actions_qs(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs_with_deleted_actions(mock_flag, actions):
+async def test_get_actions_qs_with_deleted_actions(actions):
     start_dt = timezone.now()
 
     # Never summarized and deleted
@@ -188,7 +180,7 @@ async def test_get_actions_qs_with_deleted_actions(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganization):
+async def test_get_actions_qs_with_unapproved_organization(aorganization):
     aorganization.is_ai_data_processing_approved = False
     await aorganization.asave()
     qs = await get_actions_qs(timezone.now())
@@ -197,14 +189,14 @@ async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganizat
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_approximate_actions_count(mock_flag, actions):
+async def test_get_approximate_actions_count(actions):
     res = await get_approximate_actions_count(GetApproximateActionsCountInputs(start_dt=timezone.now().isoformat()))
     assert res == 3
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_basic_batch_summarization(mock_flag, azure_mock, actions):
+async def test_basic_batch_summarization(azure_mock, actions):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
@@ -245,7 +237,7 @@ async def test_basic_batch_summarization(mock_flag, azure_mock, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_summarize_with_errors(mock_flag, azure_mock, actions: tuple[Action], ateam):
+async def test_batch_summarize_with_errors(azure_mock, actions: tuple[Action], ateam):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
@@ -288,7 +280,7 @@ async def test_batch_summarize_with_errors(mock_flag, azure_mock, actions: tuple
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embedding(mock_flag, azure_mock, actions):
+async def test_batch_embedding(azure_mock, actions):
     with (
         patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
     ):
@@ -326,7 +318,7 @@ async def test_batch_embedding(mock_flag, azure_mock, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embedding_with_errors(azure_mock, mock_flag, actions: tuple[Action]):
+async def test_batch_embedding_with_errors(azure_mock, actions: tuple[Action]):
     with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
         # batch_size=1, one call
         embeddings_mock.side_effect = ValueError("Test error")
@@ -381,7 +373,7 @@ def parse_records(rows: list[tuple]) -> list[PgEmbeddingRecord]:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_clickhouse_sync_single_batch(mock_flag, summarized_actions, summarized_actions_with_embeddings, ateam):
+async def test_clickhouse_sync_single_batch(summarized_actions, summarized_actions_with_embeddings, ateam):
     start_dt = timezone.now()
     async with get_client() as client:
         await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
@@ -414,9 +406,7 @@ async def test_clickhouse_sync_single_batch(mock_flag, summarized_actions, summa
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_clickhouse_sync_multiple_batches(
-    mock_flag, summarized_actions, summarized_actions_with_embeddings, ateam
-):
+async def test_clickhouse_sync_multiple_batches(summarized_actions, summarized_actions_with_embeddings, ateam):
     start_dt = timezone.now()
     async with get_client() as client:
         await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
@@ -449,7 +439,7 @@ async def test_clickhouse_sync_multiple_batches(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions(azure_mock, mock_flag, summarized_actions, ateam):
+async def test_batch_embed_and_sync_actions(azure_mock, summarized_actions, ateam):
     start_dt = timezone.now()
     embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
     with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
@@ -496,7 +486,7 @@ async def test_batch_embed_and_sync_actions(azure_mock, mock_flag, summarized_ac
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_in_batches(azure_mock, mock_flag, summarized_actions, ateam):
+async def test_batch_embed_and_sync_actions_in_batches(azure_mock, summarized_actions, ateam):
     start_dt = timezone.now()
     embeddings = [[0.12, 0.054]]
 
@@ -558,7 +548,7 @@ async def test_batch_embed_and_sync_actions_in_batches(azure_mock, mock_flag, su
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_filters_out_actions(azure_mock, mock_flag, ateam):
+async def test_batch_embed_and_sync_actions_filters_out_actions(azure_mock, ateam):
     start_dt = timezone.now()
     embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
 
@@ -604,7 +594,7 @@ async def test_batch_embed_and_sync_actions_filters_out_actions(azure_mock, mock
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(mock_flag, ateam):
+async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(ateam):
     start_dt = timezone.now()
 
     # Create actions with different last_summarized_at values
@@ -662,7 +652,7 @@ async def _create_actions_with_embedding_version(ateam, start_dt):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, mock_flag, ateam):
+async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, ateam):
     start_dt = timezone.now()
     embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
 

@@ -15,7 +15,7 @@ export function DataWarehouseIntegrationChoice({
         <IntegrationChoice
             {...props}
             integration={sourceConfig.name.toLowerCase()}
-            redirectUrl={urls.pipelineNodeNew(PipelineStage.Source, { kind: sourceConfig.name.toLowerCase() })}
+            redirectUrl={urls.pipelineNodeNew(PipelineStage.Source, { source: sourceConfig.name })}
         />
     )
 }

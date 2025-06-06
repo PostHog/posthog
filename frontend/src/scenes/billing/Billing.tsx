@@ -20,7 +20,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
@@ -204,7 +204,7 @@ export function Billing(): JSX.Element {
             {products
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.plans.some((plan: BillingPlanType) => !plan.included_if)
+                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>

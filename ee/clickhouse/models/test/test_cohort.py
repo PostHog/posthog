@@ -1098,8 +1098,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
         )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
+        self.assertEqual(len(result), 2)  # because we didn't precalculate the cohort, both people are in the cohort
+        self.assertEqual(result[0][1], "2")
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts(self):
@@ -1368,6 +1368,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         result = self._get_cohortpeople(cohort1)
@@ -1785,6 +1786,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             },
             name="cohort_3",
         )
+        self.calculate_cohort_hogql_test_harness(cohort_1, 0)
+        self.calculate_cohort_hogql_test_harness(cohort_2, 0)
         self.calculate_cohort_hogql_test_harness(cohort_3, 0)
 
         results = self._get_cohortpeople(cohort_3)

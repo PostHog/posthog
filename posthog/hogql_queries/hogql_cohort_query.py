@@ -377,6 +377,20 @@ class HogQLCohortQuery:
             ),
         )
 
+    def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
+        cohort_id = cast(int, prop.value)
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
+                SELECT person_id as id FROM cohort_people
+                WHERE cohort_id = {cohort_id}
+                AND team_id = {self.team.pk}
+                """,
+            ),
+        )
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         if prop.type == "behavioral":
             if prop.value == "performed_event":
@@ -397,10 +411,10 @@ class HogQLCohortQuery:
                 raise ValueError(f"Invalid behavioral property value for Cohort: {prop.value}")
         elif prop.type == "person":
             return self.get_person_condition(prop)
-        elif (
-            prop.type == "static-cohort"
-        ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
+        elif prop.type == "static-cohort":  # static cohorts are handled by flattening during initialization
             return self.get_static_cohort_condition(prop)
+        elif prop.type == "dynamic-cohort":
+            return self.get_dynamic_cohort_condition(prop)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 

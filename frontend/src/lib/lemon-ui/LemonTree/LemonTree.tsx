@@ -63,7 +63,7 @@ export type TreeDataItem = {
      * Type node, normal behavior
      * Type separator, render as separator
      */
-    type?: 'node' | 'separator' | 'empty-folder' | 'loading-indicator'
+    type?: 'node' | 'separator' | 'category' | 'empty-folder' | 'loading-indicator'
 
     /**
      * Handle a click on the item.
@@ -332,6 +332,16 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         return (
                             <div key={item.id} className="h-1 -mx-2 flex items-center">
                                 <div className="border-b border-primary h-px my-2 flex-1" />
+                            </div>
+                        )
+                    }
+                    if (item.type === 'category') {
+                        if (size !== 'default') {
+                            return null
+                        }
+                        return (
+                            <div key={item.id} className="mt-2 py-1 px-2 flex items-center">
+                                <span className="text-xs font-semibold text-quaternary">{item.displayName}</span>
                             </div>
                         )
                     }
