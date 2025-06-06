@@ -102,7 +102,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Broadcasts',
-            category: 'Behaviour',
+            category: 'Behavior',
             href: urls.messagingBroadcasts(),
             type: 'hog_function/broadcast',
             tags: ['alpha'],
@@ -110,7 +110,7 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Campaigns',
-            category: 'Behaviour',
+            category: 'Behavior',
             href: urls.messagingCampaigns(),
             type: 'hog_function/campaign',
             tags: ['alpha'],
