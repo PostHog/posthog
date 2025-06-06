@@ -10,8 +10,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
-import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
@@ -103,7 +103,7 @@ const WebOverviewItemCell = ({
     item: WebOverviewItem
     usedPreAggregatedTables: boolean
 }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
 
     const label = labelFromKey(item.key)
     const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
