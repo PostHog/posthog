@@ -160,8 +160,6 @@ def export_web_analytics_data(
         s3_path=s3_path,
     )
 
-    context.log.info(export_query)
-
     sync_execute(export_query)
 
     context.log.info(f"Successfully exported {table_name} to S3: {s3_path}")
