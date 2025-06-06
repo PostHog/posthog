@@ -1458,3 +1458,28 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         folder = folder_t2_qs.first()
         assert folder is not None
         assert folder.depth == 1
+
+    def test_activity_logged_on_create_update_delete(self):
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Logged/File.txt", "type": "doc"},
+        )
+        self.assertEqual(create_resp.status_code, status.HTTP_201_CREATED)
+        from posthog.models import ActivityLog
+
+        activity = ActivityLog.objects.filter(scope="FileSystem", activity="created").first()
+        assert activity is not None
+
+        file_id = create_resp.json()["id"]
+        update_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/file_system/{file_id}/",
+            {"path": "Logged/Renamed.txt"},
+        )
+        self.assertEqual(update_resp.status_code, status.HTTP_200_OK)
+        activity = ActivityLog.objects.filter(scope="FileSystem", activity="updated").first()
+        assert activity is not None
+
+        delete_resp = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_id}/")
+        self.assertEqual(delete_resp.status_code, status.HTTP_204_NO_CONTENT)
+        activity = ActivityLog.objects.filter(scope="FileSystem", activity="deleted").first()
+        assert activity is not None

@@ -44,6 +44,7 @@ ActivityScope = Literal[
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
+    "FileSystem",
     "Comment",
     "Team",
     "Project",

@@ -8,6 +8,14 @@ from django.db.models.functions import Lower, Concat
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
+import structlog
+from loginas.utils import is_impersonated_session
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,6 +26,28 @@ from posthog.models.user import User
 from posthog.models.team import Team
 
 HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
+
+logger = structlog.get_logger(__name__)
+
+
+def log_file_system_activity(
+    *,
+    activity: str,
+    file_system: FileSystem,
+    user: User,
+    was_impersonated: bool,
+    changes: Optional[list[Change]] = None,
+) -> None:
+    log_activity(
+        organization_id=file_system.team.organization_id,
+        team_id=file_system.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(file_system.id),
+        scope="FileSystem",
+        activity=activity,
+        detail=Detail(name=file_system.path, changes=changes, type=file_system.type),
+    )
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -44,7 +74,21 @@ class FileSystemSerializer(serializers.ModelSerializer):
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
         if "path" in validated_data:
             instance.depth = len(split_path(validated_data["path"]))
-        return super().update(instance, validated_data)
+        before_update = FileSystem.objects.get(pk=instance.pk)
+        updated_instance = super().update(instance, validated_data)
+        changes = changes_between(
+            "FileSystem",
+            previous=before_update,
+            current=updated_instance,
+        )
+        log_file_system_activity(
+            activity="updated",
+            file_system=updated_instance,
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            changes=changes,
+        )
+        return updated_instance
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystem:
         request = self.context["request"]
@@ -75,6 +119,12 @@ class FileSystemSerializer(serializers.ModelSerializer):
             created_by=request.user,
             depth=depth,
             **validated_data,
+        )
+        log_file_system_activity(
+            activity="created",
+            file_system=file_system,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
         )
 
         return file_system
@@ -328,6 +378,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             instance.delete()
 
+        log_file_system_activity(
+            activity="deleted",
+            file_system=instance,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+        )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["GET"], detail=False)
@@ -399,6 +456,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if first_leftover:
             self._assure_parent_folders(first_leftover.path, instance.created_by, first_leftover.team)
 
+        log_file_system_activity(
+            activity="updated",
+            file_system=instance,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="FileSystem",
+                    field="path",
+                    action="changed",
+                    before=old_path,
+                    after=instance.path,
+                )
+            ],
+        )
+
         return Response(
             FileSystemSerializer(instance).data,
             status=status.HTTP_200_OK,
@@ -407,6 +480,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        old_path = instance.path
         new_path = request.data.get("new_path")
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -449,6 +523,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.depth = len(split_path(instance.path))
             instance.shortcut = True
             instance.save()  # A new instance is created with a new id
+
+        log_file_system_activity(
+            activity="updated",
+            file_system=instance,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="FileSystem",
+                    field="path",
+                    action="changed",
+                    before=old_path,
+                    after=instance.path,
+                )
+            ],
+        )
 
         return Response(
             FileSystemSerializer(instance).data,
