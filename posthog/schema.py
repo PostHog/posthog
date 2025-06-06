@@ -1147,6 +1147,7 @@ class FileSystemImport(BaseModel):
     field_loading: Optional[bool] = Field(
         default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
     )
+    category: Optional[str] = Field(default=None, description="Category label to place this under")
     created_at: Optional[str] = Field(
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
@@ -1630,6 +1631,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    REVENUE_ANALYTICS = "revenue_analytics"
     LOG = "log"
 
 
@@ -1980,6 +1982,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
     LOGS = "logs"
     REPLAY = "replay"
+    REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
 
 
@@ -3076,6 +3079,14 @@ class MatchedRecording(BaseModel):
     session_id: Optional[str] = None
 
 
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
 class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3280,6 +3291,19 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class RevenueAnalyticsPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["revenue_analytics"] = "revenue_analytics"
+    value: Optional[
+        Union[list[Union[str, float, ErrorTrackingIssueAssignee]], Union[str, float, ErrorTrackingIssueAssignee]]
+    ] = None
 
 
 class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -4746,6 +4770,26 @@ class CachedLogsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBase
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class CachedPathsQueryResponse(BaseModel):
@@ -7318,6 +7362,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7331,6 +7376,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7344,6 +7390,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7357,6 +7404,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7378,6 +7426,7 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7393,6 +7442,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7406,6 +7456,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7420,6 +7471,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
     revenueSources: RevenueSources
 
@@ -7937,6 +7989,7 @@ class DashboardFilter(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -8022,6 +8075,7 @@ class DataWarehouseNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8068,6 +8122,7 @@ class DataWarehouseNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8100,6 +8155,7 @@ class EntityNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8144,6 +8200,7 @@ class EntityNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8190,6 +8247,7 @@ class EventsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8236,6 +8294,7 @@ class EventsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8268,6 +8327,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8312,6 +8372,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8344,6 +8405,7 @@ class ExperimentEventExposureConfig(BaseModel):
             DataWarehousePersonPropertyFilter,
             ErrorTrackingIssueFilter,
             LogPropertyFilter,
+            RevenueAnalyticsPropertyFilter,
         ]
     ]
 
@@ -8398,6 +8460,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8445,6 +8508,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8476,6 +8540,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8524,6 +8589,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8577,6 +8643,7 @@ class HogQLFilters(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -8641,6 +8708,7 @@ class PersonsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8672,6 +8740,7 @@ class PersonsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8704,6 +8773,7 @@ class PropertyGroupFilterValue(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ],
         ]
     ]
@@ -8760,6 +8830,7 @@ class RecordingsQuery(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -8791,6 +8862,7 @@ class RecordingsQuery(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -8827,6 +8899,7 @@ class RetentionEntity(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="filters on the event")
@@ -8952,6 +9025,7 @@ class TracesQuery(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -9021,6 +9095,7 @@ class ActionsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(
@@ -9066,6 +9141,7 @@ class ActionsNode(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -9273,6 +9349,7 @@ class RetentionQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9324,6 +9401,7 @@ class StickinessQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9382,6 +9460,7 @@ class TrendsQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9468,6 +9547,7 @@ class CalendarHeatmapQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9570,16 +9650,20 @@ class ExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
+    baseline: Optional[ExperimentStatsBase] = None
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    p_value: Optional[float] = None
+    probability: Optional[dict[str, float]] = None
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: Optional[bool] = None
     stats_version: Optional[int] = None
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+    variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -9640,6 +9724,7 @@ class FunnelsQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9686,6 +9771,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9729,6 +9815,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9772,6 +9859,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9815,6 +9903,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9858,6 +9947,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9901,6 +9991,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9908,6 +9999,22 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class LegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
 class LifecycleQuery(BaseModel):
@@ -9951,6 +10058,7 @@ class LifecycleQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -10019,16 +10127,20 @@ class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
+    baseline: Optional[ExperimentStatsBase] = None
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    p_value: Optional[float] = None
+    probability: Optional[dict[str, float]] = None
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: Optional[bool] = None
     stats_version: Optional[int] = None
-    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+    variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
 
 
 class QueryResponseAlternative45(BaseModel):
@@ -10252,6 +10364,38 @@ class CachedExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    baseline: Optional[ExperimentStatsBase] = None
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: Optional[dict[str, list[float]]] = None
+    insight: Optional[list[dict[str, Any]]] = None
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: datetime
+    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric]] = None
+    next_allowed_client_refresh: datetime
+    p_value: Optional[float] = None
+    probability: Optional[dict[str, float]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: Optional[ExperimentSignificanceCode] = None
+    significant: Optional[bool] = None
+    stats_version: Optional[int] = None
+    timezone: str
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+    variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
+
+
+class CachedLegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     cache_key: str
     cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
@@ -10439,6 +10583,7 @@ class PathsQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -10586,6 +10731,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = None
@@ -10701,6 +10847,7 @@ class EventsQuery(BaseModel):
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
                 ],
             ]
         ]
@@ -10735,6 +10882,7 @@ class EventsQuery(BaseModel):
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")

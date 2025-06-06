@@ -7,19 +7,25 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    STRIPE_CHARGE_RESOURCE_NAME,
-)
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
     STRIPE_CUSTOMER_RESOURCE_NAME,
 )
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import (
+    STRIPE_INVOICE_RESOURCE_NAME,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_product_view import (
+    STRIPE_PRODUCT_RESOURCE_NAME,
+)
+
 from posthog.schema import (
     CurrencyCode,
     DateRange,
+    HogQLQueryModifiers,
     RevenueSources,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
     RevenueAnalyticsTopCustomersGroupBy,
+    RevenueAnalyticsPropertyFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -33,11 +39,14 @@ from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
-    STRIPE_CHARGE_COLUMNS,
+    STRIPE_INVOICE_COLUMNS,
+    STRIPE_PRODUCT_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
 )
 
-TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges"
+INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices"
+PRODUCT_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_products"
+CUSTOMER_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers"
 
 
 @snapshot_clickhouse_queries
@@ -77,37 +86,57 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
     def setUp(self):
         super().setUp()
 
-        self.charges_csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
-        self.charges_table, self.source, self.credential, self.charges_csv_df, self.cleanUpChargesFilesystem = (
+        self.invoices_csv_path = Path(__file__).parent / "data" / "stripe_invoices.csv"
+        self.invoices_table, self.source, self.credential, self.invoices_csv_df, self.invoices_cleanup_filesystem = (
             create_data_warehouse_table_from_csv(
-                self.charges_csv_path,
-                "stripe_charge",
-                STRIPE_CHARGE_COLUMNS,
-                TEST_BUCKET,
+                self.invoices_csv_path,
+                "stripe_invoice",
+                STRIPE_INVOICE_COLUMNS,
+                INVOICE_TEST_BUCKET,
                 self.team,
             )
         )
 
-        self.customers_csv_path = Path(__file__).parent / "data" / "stripe_customers.csv"
-        self.customers_table, _, _, self.customers_csv_df, self.cleanUpCustomersFilesystem = (
+        self.products_csv_path = Path(__file__).parent / "data" / "stripe_products.csv"
+        self.products_table, _, _, self.products_csv_df, self.products_cleanup_filesystem = (
             create_data_warehouse_table_from_csv(
-                self.customers_csv_path,
-                "stripe_customer",
-                STRIPE_CUSTOMER_COLUMNS,
-                TEST_BUCKET,
+                self.products_csv_path,
+                "stripe_product",
+                STRIPE_PRODUCT_COLUMNS,
+                PRODUCT_TEST_BUCKET,
                 self.team,
                 credential=self.credential,
                 source=self.source,
             )
         )
 
+        self.customers_csv_path = Path(__file__).parent / "data" / "stripe_customers.csv"
+        self.customers_table, _, _, self.customers_csv_df, self.customers_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.customers_csv_path,
+                "stripe_customer",
+                STRIPE_CUSTOMER_COLUMNS,
+                CUSTOMER_TEST_BUCKET,
+                self.team,
+            )
+        )
+
         # Besides the default creations above, also create the external data schemas
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
-        self.charges_schema = ExternalDataSchema.objects.create(
+        self.invoices_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_CHARGE_RESOURCE_NAME,
+            name=STRIPE_INVOICE_RESOURCE_NAME,
             source=self.source,
-            table=self.charges_table,
+            table=self.invoices_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        self.products_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_PRODUCT_RESOURCE_NAME,
+            source=self.source,
+            table=self.products_table,
             should_sync=True,
             last_synced_at="2024-01-01",
         )
@@ -127,8 +156,9 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.team.save()
 
     def tearDown(self):
-        self.cleanUpChargesFilesystem()
-        self.cleanUpCustomersFilesystem()
+        self.invoices_cleanup_filesystem()
+        self.products_cleanup_filesystem()
+        self.customers_cleanup_filesystem()
         super().tearDown()
 
     def _run_revenue_analytics_top_customers_query(
@@ -137,31 +167,35 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         date_range: DateRange | None = None,
         group_by: RevenueAnalyticsTopCustomersGroupBy | None = None,
         revenue_sources: RevenueSources | None = None,
+        properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range: DateRange = DateRange(date_from="all")
-
         if group_by is None:
             group_by: RevenueAnalyticsTopCustomersGroupBy = "month"
-
         if revenue_sources is None:
             revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
+        if properties is None:
+            properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
             query = RevenueAnalyticsTopCustomersQuery(
                 dateRange=date_range,
                 groupBy=group_by,
                 revenueSources=revenue_sources,
+                properties=properties,
             )
-            runner = RevenueAnalyticsTopCustomersQueryRunner(team=self.team, query=query)
+            runner = RevenueAnalyticsTopCustomersQueryRunner(
+                team=self.team, query=query, modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
+            )
 
             response = runner.calculate()
             RevenueAnalyticsTopCustomersQueryResponse.model_validate(response)
 
             return response
 
-    def test_no_crash_when_no_charges_data(self):
-        self.charges_table.delete()
+    def test_no_crash_when_no_invoices_data(self):
+        self.invoices_table.delete()
         results = self._run_revenue_analytics_top_customers_query().results
 
         self.assertEqual(results, [])
@@ -179,21 +213,21 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 16)
+        self.assertEqual(len(results), 9)
 
     def test_with_data(self):
         results = self._run_revenue_analytics_top_customers_query().results
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 16)
+        self.assertEqual(len(results), 9)
 
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04"),
         ).results
 
-        self.assertEqual(len(results), 9)
+        self.assertEqual(len(results), 3)
 
     def test_with_data_group_by_all(self):
         results = self._run_revenue_analytics_top_customers_query(group_by="all").results
@@ -203,11 +237,12 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("John Doe", "cus_1", Decimal("480.34"), "all"),
-                ("Jane Doe", "cus_2", Decimal("725.6066001453"), "all"),
-                ("John Smith", "cus_3", Decimal("247.8088762801"), "all"),
-                ("Jane Smith", "cus_4", Decimal("570.4584866436"), "all"),
-                ("John Doe Jr", "cus_5", Decimal("399.8994324913"), "all"),
+                ("John Doe", "cus_1", Decimal("393.7"), "all"),
+                ("Jane Doe", "cus_2", Decimal("336.2"), "all"),
+                ("John Smith", "cus_3", Decimal("21898.92"), "all"),
+                ("Jane Smith", "cus_4", Decimal("214.5"), "all"),
+                ("John Doe Jr", "cus_5", Decimal("686.5"), "all"),
+                ("John Doe Jr Jr", "cus_6", Decimal("10987.18"), "all"),
             ],
         )
 

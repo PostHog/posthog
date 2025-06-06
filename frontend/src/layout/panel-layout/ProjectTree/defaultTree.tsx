@@ -23,7 +23,7 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
@@ -224,39 +224,46 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
+        category: 'Definitions',
         iconType: 'definitions',
         href: urls.eventDefinitions(),
     },
     {
         path: 'Property definitions',
+        category: 'Definitions',
         iconType: 'definitions',
         href: urls.propertyDefinitions(),
     },
     {
         path: 'Annotations',
+        category: 'Metadata',
         iconType: 'notification',
         href: urls.annotations(),
     },
     {
         path: 'Ingestion warnings',
+        category: 'Pipeline',
         iconType: 'warning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
     {
         path: `Sources`,
+        category: 'Pipeline',
         type: 'hog_function/source',
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Sources),
     } as FileSystemImport,
     {
         path: `Transformations`,
+        category: 'Pipeline',
         type: 'hog_function/transformation',
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Transformations),
     } as FileSystemImport,
     {
         path: `Destinations`,
+        category: 'Pipeline',
         type: 'hog_function/destination',
         iconType: 'plug',
         href: urls.pipeline(PipelineTab.Destinations),
@@ -267,30 +274,42 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
+            path: 'Dashboards',
+            category: 'Analytics',
+            type: 'dashboard',
+            href: urls.dashboards(),
+        },
+        {
+            path: 'Notebooks',
+            category: 'Tools',
+            type: 'notebook',
+            href: urls.notebooks(),
+        },
+        {
             path: `Data pipelines`,
+            category: 'Tools',
             type: 'hog_function',
             iconType: 'plug',
             href: urls.pipeline(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataPipeline,
         } as FileSystemImport,
         {
             path: `SQL editor`,
+            category: 'Analytics',
             type: 'sql',
             href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
         } as FileSystemImport,
         {
             path: 'Error tracking',
+            category: 'Behaviour',
             iconType: 'errorTracking',
             href: urls.errorTracking(),
-            visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,
         {
             path: 'Heatmaps',
+            category: 'Behaviour',
             iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
-            visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
             tags: ['alpha'],
         } as FileSystemImport,
     ].sort((a, b) => {
@@ -309,12 +328,14 @@ export const getDefaultTreeGames = (): FileSystemImport[] =>
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
+        category: 'People',
         iconType: 'cohort',
         href: urls.persons(),
         visualOrder: 10,
     },
     {
         path: 'Cohorts',
+        category: 'People',
         type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,

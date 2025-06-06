@@ -6,8 +6,8 @@ import { EventConfiguration } from 'products/revenue_analytics/frontend/settings
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
+import { ExceptionAutocaptureSettings } from 'scenes/error-tracking/configuration/ExceptionAutocaptureSettings'
 import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
-import { ErrorTrackingClientSuppression } from 'scenes/error-tracking/configuration/rules/ErrorTrackingClientSuppression'
 import { ErrorTrackingCustomGrouping } from 'scenes/error-tracking/configuration/rules/ErrorTrackingCustomGrouping'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -27,11 +27,7 @@ import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
 
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './environment/AutocaptureSettings'
+import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
@@ -412,12 +408,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Custom grouping rules',
                 component: <ErrorTrackingCustomGrouping />,
                 flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
-            },
-            {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                component: <ErrorTrackingClientSuppression />,
-                flag: 'ERROR_TRACKING_SUPPRESSION_RULES',
             },
             {
                 id: 'error-tracking-integrations',

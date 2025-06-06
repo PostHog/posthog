@@ -29,7 +29,11 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
 from posthog.temporal.data_imports.pipelines.chargebee import (
     validate_credentials as validate_chargebee_credentials,
 )
-from posthog.temporal.data_imports.pipelines.doit.source import DoItSourceConfig, doit_list_reports
+from posthog.temporal.data_imports.pipelines.doit.source import (
+    DOIT_INCREMENTAL_FIELDS,
+    DoItSourceConfig,
+    doit_list_reports,
+)
 from posthog.temporal.data_imports.pipelines.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas as get_google_ads_schemas,
@@ -1158,7 +1162,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "table": name,
                     "should_sync": False,
-                    "incremental_fields": [],
+                    "incremental_fields": DOIT_INCREMENTAL_FIELDS,
                     "incremental_available": False,
                     "incremental_field": None,
                     "sync_type": None,
