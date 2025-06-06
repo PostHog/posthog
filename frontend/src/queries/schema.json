@@ -532,6 +532,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
                 }
             ]
         },
@@ -2858,6 +2861,9 @@
         "CachedExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -2929,6 +2935,22 @@
                 "timezone": {
                     "type": "string"
                 },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
                 "variants": {
                     "anyOf": [
                         {
@@ -2946,22 +2968,7 @@
                     ]
                 }
             },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "metric",
-                "next_allowed_client_refresh",
-                "p_value",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
-            ],
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
         "CachedExperimentTrendsQueryResponse": {
@@ -3569,6 +3576,115 @@
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
+        "CachedLegacyExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "insight": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "stats_version": {
+                    "$ref": "#/definitions/integer"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "variants": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "cache_key",
+                "credible_intervals",
+                "insight",
+                "is_cached",
+                "kind",
+                "last_refresh",
+                "metric",
+                "next_allowed_client_refresh",
+                "p_value",
+                "probability",
+                "significance_code",
+                "significant",
+                "timezone",
+                "variants"
+            ],
+            "type": "object"
+        },
         "CachedLifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -3712,6 +3828,69 @@
                 "next_allowed_client_refresh",
                 "results",
                 "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedNewExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "baseline",
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "timezone",
+                "variant_results"
             ],
             "type": "object"
         },
@@ -9383,6 +9562,9 @@
         "ExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -9425,6 +9607,22 @@
                 "stats_version": {
                     "$ref": "#/definitions/integer"
                 },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
                 "variants": {
                     "anyOf": [
                         {
@@ -9442,17 +9640,6 @@
                     ]
                 }
             },
-            "required": [
-                "kind",
-                "insight",
-                "metric",
-                "variants",
-                "probability",
-                "significant",
-                "significance_code",
-                "p_value",
-                "credible_intervals"
-            ],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -9808,12 +9995,45 @@
             "required": ["id", "path"],
             "type": "object"
         },
+        "FileSystemIconType": {
+            "enum": [
+                "plug",
+                "cohort",
+                "insight",
+                "definitions",
+                "warning",
+                "errorTracking",
+                "ai",
+                "cursor",
+                "heatmap",
+                "database",
+                "folder",
+                "handMoney",
+                "live",
+                "notification",
+                "pieChart",
+                "piggyBank",
+                "sql",
+                "insightFunnel",
+                "insightTrends",
+                "insightRetention",
+                "insightUserPaths",
+                "insightLifecycle",
+                "insightStickiness",
+                "insightHogQL"
+            ],
+            "type": "string"
+        },
         "FileSystemImport": {
             "additionalProperties": false,
             "properties": {
                 "_loading": {
                     "description": "Used to indicate pending actions, frontend only",
                     "type": "boolean"
+                },
+                "category": {
+                    "description": "Category label to place this under",
+                    "type": "string"
                 },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
@@ -9827,7 +10047,7 @@
                     "type": "string"
                 },
                 "iconType": {
-                    "type": "string"
+                    "$ref": "#/definitions/FileSystemIconType"
                 },
                 "id": {
                     "type": "string"
@@ -12242,6 +12462,81 @@
             "required": ["uuid", "created_at", "properties", "distinct_id"],
             "type": "object"
         },
+        "LegacyExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "insight": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "stats_version": {
+                    "$ref": "#/definitions/integer"
+                },
+                "variants": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "kind",
+                "insight",
+                "metric",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "p_value",
+                "credible_intervals"
+            ],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12775,6 +13070,32 @@
             "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
             "type": "string"
         },
+        "NewExperimentQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBase"
+                },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["baseline", "variant_results"],
+            "type": "object"
+        },
         "NodeKind": {
             "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm --filter=@posthog/frontend run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm -w run schema:build:python\"",
             "enum": [
@@ -13299,6 +13620,7 @@
                 "data_warehouse",
                 "data_warehouse_person_property",
                 "error_tracking_issue",
+                "revenue_analytics",
                 "log"
             ],
             "type": "string"
@@ -14242,6 +14564,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "baseline": {
+                            "$ref": "#/definitions/ExperimentStatsBase"
+                        },
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -14284,6 +14609,22 @@
                         "stats_version": {
                             "$ref": "#/definitions/integer"
                         },
+                        "variant_results": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
+                        },
                         "variants": {
                             "anyOf": [
                                 {
@@ -14301,17 +14642,6 @@
                             ]
                         }
                     },
-                    "required": [
-                        "kind",
-                        "insight",
-                        "metric",
-                        "variants",
-                        "probability",
-                        "significant",
-                        "significance_code",
-                        "p_value",
-                        "credible_intervals"
-                    ],
                     "type": "object"
                 },
                 {
@@ -17212,6 +17542,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
@@ -17219,7 +17552,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse>": {
@@ -17235,6 +17568,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
                 },
@@ -17242,7 +17578,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse>": {
@@ -17258,6 +17594,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
                 },
@@ -17265,7 +17604,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
@@ -17281,6 +17620,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 },
@@ -17288,7 +17630,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsConfig": {
@@ -17370,6 +17712,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
@@ -17377,7 +17722,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
@@ -17437,6 +17782,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
                 },
@@ -17444,7 +17792,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "interval", "kind", "revenueSources"],
+            "required": ["groupBy", "interval", "kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
@@ -17519,6 +17867,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
                 },
@@ -17526,7 +17877,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": ["kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsOverviewQueryResponse": {
@@ -17565,6 +17916,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "RevenueAnalyticsPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "revenue_analytics",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "RevenueAnalyticsPropertyFilters": {
+            "items": {
+                "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+            },
+            "type": "array"
+        },
         "RevenueAnalyticsTopCustomersGroupBy": {
             "enum": ["month", "all"],
             "type": "string"
@@ -17586,6 +17966,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 },
@@ -17593,7 +17976,7 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "kind", "revenueSources"],
+            "required": ["groupBy", "kind", "properties", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -18660,6 +19043,7 @@
                 "error_tracking_issues",
                 "logs",
                 "replay",
+                "revenue_analytics_properties",
                 "resources"
             ],
             "type": "string"

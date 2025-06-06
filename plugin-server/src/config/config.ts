@@ -252,6 +252,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_ENABLED: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
+
+        // Messaging
+        MAILJET_PUBLIC_KEY: '',
+        MAILJET_SECRET_KEY: '',
+
         DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
