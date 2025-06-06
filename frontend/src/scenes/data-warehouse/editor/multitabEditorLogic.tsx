@@ -462,10 +462,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     props.editor?.setModel(existingModel)
                 }
             }
-
+            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
             actions._setSuggestionPayload(null)
             actions.updateState(true)
-            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
         },
         onRejectSuggestedQueryInput: () => {
             values.suggestionPayload?.onReject(actions, values, props)
@@ -494,10 +493,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     props.editor?.setModel(existingModel)
                 }
             }
-
+            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
             actions._setSuggestionPayload(null)
             actions.updateState(true)
-            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
@@ -866,6 +864,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ) : (
                         <LemonField name="viewName">
                             <LemonInput
+                                data-attr="sql-editor-input-save-view-name"
                                 disabled={isLoading}
                                 placeholder="Please enter the name of the view"
                                 autoFocus
