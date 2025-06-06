@@ -166,7 +166,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
                     if max_value:
-                        instance.update_incremental_field_last_value(max_value, save=False)
+                        instance.update_incremental_field_value(max_value, save=False)
                     else:
                         # if we can't get the max value, reset the table
                         payload["incremental_field_last_value"] = None

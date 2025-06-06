@@ -48,7 +48,7 @@ class ImportDataActivityInputs:
         }
 
 
-def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
     if value is None or value == "None" or field_type is None:
         return None
 
@@ -121,35 +121,57 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         endpoints = [schema.name]
         processed_incremental_last_value = None
+        processed_incremental_earliest_value = None
 
         if reset_pipeline is not True:
-            processed_incremental_last_value = process_incremental_last_value(
+            processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
+            )
+            processed_incremental_earliest_value = process_incremental_value(
+                schema.incremental_field_earliest_value,
+                schema.incremental_field_type,
             )
 
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
+        if processed_incremental_earliest_value:
+            logger.debug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
+
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
-            from posthog.temporal.data_imports.pipelines.stripe import stripe_source
+            from posthog.temporal.data_imports.pipelines.stripe import stripe_source, stripe_source_v2
 
             stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
             account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
             if not stripe_secret_key:
                 raise ValueError(f"Stripe secret key not found for job {model.id}")
 
-            source = stripe_source(
-                api_key=stripe_secret_key,
-                account_id=account_id,
-                endpoint=schema.name,
-                team_id=inputs.team_id,
-                job_id=inputs.run_id,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-            )
+            if str(inputs.team_id) in settings.STRIPE_V2_TEAM_IDS:
+                source = stripe_source_v2(
+                    api_key=stripe_secret_key,
+                    account_id=account_id,
+                    endpoint=schema.name,
+                    is_incremental=schema.is_incremental,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                    db_incremental_field_earliest_value=processed_incremental_earliest_value
+                    if schema.is_incremental
+                    else None,
+                )
+            else:
+                source = stripe_source(
+                    api_key=stripe_secret_key,
+                    account_id=account_id,
+                    endpoint=schema.name,
+                    team_id=inputs.team_id,
+                    job_id=inputs.run_id,
+                    is_incremental=schema.is_incremental,
+                    db_incremental_field_last_value=schema.incremental_field_earliest_value
+                    if schema.is_incremental
+                    else None,
+                )
 
             return _run(
                 job_inputs=job_inputs,

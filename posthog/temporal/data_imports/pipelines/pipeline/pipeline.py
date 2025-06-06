@@ -1,6 +1,6 @@
 import gc
 import time
-from typing import Any
+from typing import Any, Literal
 
 import deltalake as deltalake
 import posthoganalytics
@@ -268,14 +268,19 @@ class PipelineNonDLT:
         # `incremental_field_last_value` in the schema.
         # However, if the data is returned in descending order, we only want to update the
         # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
-        # we'd not process older data the next time we retry.
-        last_value = _get_incremental_field_last_value(self._schema, pa_table)
+        # we'd not process older data the next time we retry. But we do store the earliest available value so that we
+        # can resume syncs if they stop mid way through without having to start from the beginning
+        last_value = _get_incremental_field_value(self._schema, pa_table)
         if last_value is not None:
             if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
                 self._last_incremental_field_value = last_value
             if self._resource.sort_mode == "asc":
                 self._logger.debug(f"Updating incremental_field_last_value with {self._last_incremental_field_value}")
-                self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
+                self._schema.update_incremental_field_value(self._last_incremental_field_value)
+            if self._resource.sort_mode == "desc":
+                earliest_value = _get_incremental_field_value(self._schema, pa_table, aggregate="min")
+                self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
+                self._schema.update_incremental_field_value(earliest_value, type="earliest")
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
         decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
@@ -363,7 +368,7 @@ class PipelineNonDLT:
                 f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
             )
             self._schema.refresh_from_db()
-            self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
+            self._schema.update_incremental_field_value(self._last_incremental_field_value)
 
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
@@ -386,7 +391,9 @@ def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger)
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
-def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
+def _get_incremental_field_value(
+    schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
+) -> Any:
     if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
         return
 
@@ -397,8 +404,13 @@ def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: 
     column = table[normalize_column_name(incremental_field_name)]
     numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
 
-    # TODO(@Gilbert09): support different operations here (e.g. min)
-    last_value = numpy_arr.max()
+    if aggregate == "max":
+        last_value = numpy_arr.max()
+    elif aggregate == "min":
+        last_value = numpy_arr.min()
+    else:
+        raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
+
     return last_value
 
 
