@@ -56,7 +56,6 @@ export function ChartModal({
                 </div>
             </LemonBanner>
             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-            {/* Only show results query if the metric is a trends or funnels query */}
             {isLegacyResult ? (
                 <LegacyResultsQuery result={result} showTable={true} />
             ) : (

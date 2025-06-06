@@ -4,15 +4,9 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { performQuery } from '~/queries/query'
-import type {
-    AnyEntityNode,
-    ExperimentMetric,
-    FunnelsQuery,
-    FunnelStepsResults,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import type { AnyEntityNode, ExperimentMetric, FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import type { Experiment } from '~/types'
+import type { Experiment, FunnelStep, TrendResult } from '~/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { experimentResultBreakdownLogicType } from './experimentResultBreakdownLogicType'
@@ -124,7 +118,7 @@ export type ExperimentResultBreakdownLogicProps = {
 
 export type BreakDownResults = {
     query: FunnelsQuery | TrendsQuery
-    results: FunnelStepsResults
+    results: FunnelStep[] | FunnelStep[][] | TrendResult[]
 }
 
 /**
@@ -133,8 +127,8 @@ export type BreakDownResults = {
  */
 export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogicType>([
     props({
-        experiment: null as Experiment | null,
-        metric: null as ExperimentMetric | null,
+        experiment: {} as Experiment,
+        metric: {} as ExperimentMetric,
     } as ExperimentResultBreakdownLogicProps),
 
     key(
@@ -170,10 +164,10 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                             throw new Error('No results returned from query')
                         }
 
-                        let results = response.results as FunnelStepsResults
+                        let results = response.results as FunnelStep[] | FunnelStep[][] | TrendResult[]
 
                         /**
-                         * we need to filter the results to remove any non-variant brakedowns
+                         * we need to filter the results to remove any non-variant breakdown
                          */
                         const variants = experiment.parameters.feature_flag_variants.map(({ key }) => key)
 
@@ -182,7 +176,11 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                              * we filter from the series all the breakdowns that do not map
                              * to a feature flag variant
                              */
-                            results = results.filter((series) => variants.includes(series.breakdown_value))
+                            results = (results as TrendResult[]).filter(
+                                (series) =>
+                                    series.breakdown_value !== undefined &&
+                                    variants.includes(series.breakdown_value as string)
+                            )
                         }
 
                         return { query, results }
