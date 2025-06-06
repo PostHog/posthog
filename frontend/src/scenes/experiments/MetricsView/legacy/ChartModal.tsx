@@ -46,9 +46,11 @@ export function ChartModal({
                 </LemonButton>
             }
         >
-            <div className="flex justify-end">
-                <ExploreButton result={result} />
-            </div>
+            {isLegacyResult && (
+                <div className="flex justify-end">
+                    <ExploreButton result={result} />
+                </div>
+            )}
             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                 <div className="items-center inline-flex flex-wrap">
                     <WinningVariantText result={result} experimentId={experimentId} />
