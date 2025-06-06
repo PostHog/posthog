@@ -596,7 +596,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     name: !data.name ? 'Name is required' : undefined,
                     mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
                     filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
-                    ...values.inputFormErrors,
+                    ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
