@@ -24,12 +24,15 @@ function correctRelativeSrcImages(
         return null
     }
 
-    const isRelativePath = img.src?.startsWith('/')
+    const isRelativePath = img.src?.startsWith('/') && !img.src?.startsWith('//')
     const propertiesHasURL = !!properties?.['$current_url']
     if (isRelativePath && propertiesHasURL) {
         try {
             const origin = new URL(properties['$current_url'])?.origin
-            img.src = ensureNoTrailingSlash(origin) + img.src
+            return {
+                ...img,
+                src: ensureNoTrailingSlash(origin) + img.src,
+            }
         } catch (e) {
             posthog.captureException(e, { imageSource: img.src, properties: properties || {} })
             // don't show this image... something is unexpected about the URL
