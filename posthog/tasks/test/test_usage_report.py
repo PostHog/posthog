@@ -1291,6 +1291,59 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_active_hog_destinations_and_transformations_per_team(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+        self._setup_teams()
+
+        # Team 1: 2 active destinations, 1 active transformation
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 1"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 2"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 1"
+        )
+        # Team 2: 1 active destination, 2 active transformations
+        HogFunction.objects.create(
+            team=self.org_1_team_2, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 3"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_2, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 2"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_2, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 3"
+        )
+        # Add some inactive/deleted ones (should not be counted)
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=False, deleted=False, name="Inactive Dest"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_2,
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=True,
+            name="Deleted Trans",
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["teams"][str(self.org_1_team_1.id)]["active_hog_destinations_in_period"] == 2
+        assert org_1_report["teams"][str(self.org_1_team_1.id)]["active_hog_transformations_in_period"] == 1
+        assert org_1_report["teams"][str(self.org_1_team_2.id)]["active_hog_destinations_in_period"] == 1
+        assert org_1_report["teams"][str(self.org_1_team_2.id)]["active_hog_transformations_in_period"] == 2
+
 
 @freeze_time("2022-01-10T00:01:00Z")
 class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
