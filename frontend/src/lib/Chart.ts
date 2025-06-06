@@ -1,6 +1,8 @@
+// eslint-disable-next-line no-restricted-imports
 import {
     ActiveElement,
     Chart as RawChart,
+    ChartConfiguration,
     ChartDataset,
     ChartEvent,
     ChartItem,
@@ -49,6 +51,7 @@ Tooltip.positioners.cursor = function (_, coordinates) {
 
 export type {
     ActiveElement,
+    ChartConfiguration,
     ChartDataset,
     ChartEvent,
     ChartItem,

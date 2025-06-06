@@ -1,5 +1,5 @@
-import { Chart, ChartConfiguration } from 'chart.js/auto'
 import { useActions, useValues } from 'kea'
+import { Chart, ChartConfiguration } from 'lib/Chart'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useEffect } from 'react'
