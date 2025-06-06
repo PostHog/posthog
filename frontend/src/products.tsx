@@ -328,13 +328,6 @@ export const productUrls = {
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
     action: { name: 'Action', icon: <IconCursor />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
-    campaign: {
-        name: 'Campaign',
-        icon: <IconCursor />,
-        iconColor: ['var(--product-messaging-light)'],
-        href: (ref: string) => urls.messagingCampaign(ref),
-        filterKey: 'messaging',
-    },
     cohort: { name: 'Cohort', icon: <IconPeople />, href: (ref: string) => urls.cohort(ref), filterKey: 'cohort' },
     dashboard: {
         name: 'Dashboard',
@@ -378,6 +371,13 @@ export const fileSystemTypes = {
         iconColor: ['var(--product-links-light)'],
         filterKey: 'link',
         flag: FEATURE_FLAGS.LINKS,
+    },
+    messaging: {
+        name: 'Campaign',
+        icon: <IconCursor />,
+        iconColor: ['var(--product-messaging-light)'],
+        href: (ref: string) => urls.messagingCampaign(ref),
+        filterKey: 'messaging',
     },
     notebook: {
         name: 'Notebook',

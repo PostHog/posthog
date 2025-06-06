@@ -76,7 +76,7 @@ export const manifest: ProductManifest = {
             `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        campaign: {
+        messaging: {
             name: 'Campaign',
             icon: <IconCursor />,
             iconColor: ['var(--product-messaging-light)'],
