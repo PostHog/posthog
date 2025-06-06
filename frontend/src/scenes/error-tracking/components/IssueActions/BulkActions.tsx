@@ -2,13 +2,7 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import {
-    FilterLogicalOperator,
-    HogQLPropertyFilter,
-    PropertyFilterType,
-    UniversalFiltersGroup,
-    UniversalFiltersGroupValue,
-} from '~/types'
+import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../../errorTrackingSceneLogic'
 import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
@@ -17,10 +11,6 @@ import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
 import { GenericSelect } from '../GenericSelect'
 import { IssueStatus, StatusIndicator } from '../Indicator'
 import { issueActionsLogic } from './issueActionsLogic'
-
-function isUniversalGroup(value: UniversalFiltersGroupValue): value is UniversalFiltersGroup {
-    return 'type' in value && 'values' in value
-}
 
 export interface BulkActionsProps {
     issues: ErrorTrackingIssue[]
@@ -43,28 +33,14 @@ export function BulkActions({ issues, selectedIds }: BulkActionsProps): JSX.Elem
             value: null,
         }
 
-        const firstGroup = filterGroup.values[0]
-        let newFilterGroup = null
+        const firstGroup = filterGroup.values[0] as UniversalFiltersGroup
 
-        if (!isUniversalGroup(firstGroup)) {
-            // If first item isn't a group, create a new group with existing filters and new one
-            newFilterGroup = {
-                type: FilterLogicalOperator.And,
-                values: [...filterGroup.values, newFilter],
-            }
-        } else {
-            const updatedFirstGroup: UniversalFiltersGroup = {
-                ...firstGroup,
-                values: [...firstGroup.values, newFilter],
-            }
+        const updatedFirstGroup = { ...firstGroup, values: [...firstGroup.values, newFilter] }
 
-            newFilterGroup = {
-                type: FilterLogicalOperator.And,
-                values: [updatedFirstGroup, ...filterGroup.values.slice(1)],
-            }
-        }
-
-        setFilterGroup(newFilterGroup)
+        setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [updatedFirstGroup],
+        })
         setSelectedIssueIds([])
     }
 
