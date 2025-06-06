@@ -72,8 +72,6 @@ export const OBJECTS = {
         'IconRuler',
         'IconSignal',
         'IconTextWidthFixed',
-        'IconDeskHog',
-        'IconRuler',
     ],
     People: [
         'IconPeople',
@@ -166,8 +164,6 @@ export const TECHNOLOGY = {
         'IconMouseScrollDown',
         'IconDrag',
         'IconPointer',
-        'IconButton',
-        'IconCameraFrame',
     ],
 }
 
@@ -258,7 +254,6 @@ export const TEAMS_AND_COMPANIES = {
         'IconGraph',
         'IconLineGraph',
         'IconRetention',
-        'IconRetentionHeatmap',
         'IconFunnels',
         'IconGanttChart',
         'IconTrending',
