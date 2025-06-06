@@ -446,6 +446,12 @@ class ExperimentQueryRunner(QueryRunner):
                 match metric.source.math:
                     case ExperimentMetricMathType.UNIQUE_SESSION:
                         return parse_expr("toFloat(count(distinct metric_events.value))")
+                    case ExperimentMetricMathType.MIN:
+                        return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+                    case ExperimentMetricMathType.MAX:
+                        return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+                    case ExperimentMetricMathType.AVG:
+                        return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
                     case _:
                         return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
