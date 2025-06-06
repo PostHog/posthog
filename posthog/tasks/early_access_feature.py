@@ -42,6 +42,9 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         )
         return
 
+    print(f"[CELERY][EARLY ACCESS FEATURE] Feature flag: {feature_flag.key}")  # noqa: T201
+    print(f"[CELERY][EARLY ACCESS FEATURE] Team: {instance.team.id}")  # noqa: T201
+
     # Get the unique persons enrolled in the feature along with their distinct ID
     response = execute_hogql_query(
         """
@@ -50,7 +53,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             JSONExtractString(properties, 'email') AS email,
             argMax(pdi.distinct_id, created_at) as distinct_id
         FROM persons
-        WHERE JSONExtractString(properties, '{enrollment_key}') = 'true'
+        WHERE JSONExtractString(properties, {enrollment_key}) = 'true'
         AND team_id = {team_id}
         AND notEmpty(JSONExtractString(properties, 'email'))
         GROUP BY JSONExtractString(properties, 'email')
@@ -61,6 +64,8 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         },
         team=instance.team,
     )
+
+    print(f"[CELERY][EARLY ACCESS FEATURE] Query: {response.query}")  # noqa: T201
 
     enrolled_persons = response.results
 
