@@ -491,7 +491,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(no_modifications=False, is_actors_query=False, breakdown=breakdown),
+                    expr=self._get_events_subquery(no_modifications=False, breakdown=breakdown),
                     cte_type="subquery",
                 )
             }

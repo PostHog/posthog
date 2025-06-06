@@ -5500,7 +5500,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 query=self._create_trends_query(
                     date_from="-7d",
                     date_to=None,
-                    interval="day",
+                    interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
                     compare_filters=compare_filters,
@@ -5538,7 +5538,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 query=self._create_trends_query(
                     date_from="-7d",
                     date_to=None,
-                    interval="day",
+                    interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     trends_filters=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
                     compare_filters=compare_filters,

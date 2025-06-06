@@ -623,7 +623,7 @@ class TrendsQueryRunner(QueryRunner):
 
     @property
     def exact_timerange(self):
-        return self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
 
     @cached_property
     def query_date_range(self):
