@@ -53,7 +53,7 @@ for (let key, value in inputs.attributes) {
 }
 
 for (let key, value in attributes) {
-    if (value) {
+    if (value and typeof(value) == 'string') {
         if (length(value) > 1000) {
             attributes[key] := substring(value, 1, 1000)
         }
