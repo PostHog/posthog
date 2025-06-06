@@ -240,21 +240,21 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                     ],
                 )
 
-            # We wanna include a join with the product table to get the product name
+            # We wanna include a join with the customer table to get the cohort
             # and also change the `breakdown_by` to include that
-            # However, because we're already likely joining with the product because
+            # However, because we're already likely joining with the customer because
             # we might be filtering on item, we need to be extra safe here and guarantee
             # there's no join with the product table before adding this one
             if query.select_from is not None:
-                has_product_join = False
+                has_customer_join = False
                 current_join: ast.JoinExpr | None = query.select_from
                 while current_join is not None:
-                    if current_join.alias == RevenueAnalyticsProductView.get_generic_view_alias():
-                        has_product_join = True
+                    if current_join.alias == RevenueAnalyticsCustomerView.get_generic_view_alias():
+                        has_customer_join = True
                         break
                     current_join = current_join.next_join
 
-                if not has_product_join:
+                if not has_customer_join:
                     query.select_from = self.append_joins(
                         query.select_from,
                         [self.create_customer_join(customer_subquery)],
