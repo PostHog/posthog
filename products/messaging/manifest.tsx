@@ -32,6 +32,11 @@ export const manifest: ProductManifest = {
             name: 'Messaging',
             projectBased: true,
         },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
+            name: 'Messaging',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
@@ -49,6 +54,7 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',

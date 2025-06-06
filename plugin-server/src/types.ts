@@ -153,6 +153,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     PERSON_CACHE_ENABLED_FOR_UPDATES: boolean // whether to cache persons for fetchForUpdate calls
     PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
+    GROUP_BATCH_WRITING_ENABLED: boolean // whether to batch write groups Postgres updates/inserts
+    GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -333,6 +335,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
+
+    // Messaging
+    MAILJET_PUBLIC_KEY: string
+    MAILJET_SECRET_KEY: string
+
     DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
 

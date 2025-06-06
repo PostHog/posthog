@@ -1,5 +1,6 @@
 import pytest
 from parameterized import parameterized
+from django.db.utils import IntegrityError
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v1 import (
@@ -30,7 +31,11 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         assert team_id in ALLOWED_TEAM_IDS
 
         self.organization = Organization.objects.create(name="Test Organization")
-        self.team = Team.objects.create(organization=self.organization, id=team_id, pk=team_id)
+        try:
+            self.team = Team.objects.create(organization=self.organization, id=team_id, pk=team_id)
+        except IntegrityError:
+            # For some reasons, in CI, the team is already created, so let's just get it from the database
+            self.team = Team.objects.get(id=team_id)
 
     def __execute(self, query):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)

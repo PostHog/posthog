@@ -9,7 +9,10 @@ from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview
 from posthog.schema import (
     CurrencyCode,
     DateRange,
+    HogQLQueryModifiers,
     RevenueSources,
+    PropertyOperator,
+    RevenueAnalyticsPropertyFilter,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsOverviewItemKey,
@@ -25,20 +28,23 @@ from posthog.test.base import (
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    STRIPE_CHARGE_RESOURCE_NAME,
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import (
+    STRIPE_INVOICE_RESOURCE_NAME,
 )
+from products.revenue_analytics.backend.views.revenue_analytics_product_view import STRIPE_PRODUCT_RESOURCE_NAME
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
-    STRIPE_CHARGE_COLUMNS,
+    STRIPE_INVOICE_COLUMNS,
+    STRIPE_PRODUCT_COLUMNS,
 )
 
-TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges"
+INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_invoices"
+PRODUCT_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products"
 
 
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    QUERY_TIMESTAMP = "2025-02-15"
+    QUERY_TIMESTAMP = "2025-05-30"
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -73,24 +79,46 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
 
-        self.csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
-        self.table, self.source, self.credential, self.csv_df, self.cleanUpFilesystem = (
+        self.invoices_csv_path = Path(__file__).parent / "data" / "stripe_invoices.csv"
+        self.invoices_table, self.source, self.credential, self.invoices_csv_df, self.invoices_cleanup_filesystem = (
             create_data_warehouse_table_from_csv(
-                self.csv_path,
-                "stripe_charge",
-                STRIPE_CHARGE_COLUMNS,
-                TEST_BUCKET,
+                self.invoices_csv_path,
+                "stripe_invoice",
+                STRIPE_INVOICE_COLUMNS,
+                INVOICE_TEST_BUCKET,
                 self.team,
             )
         )
 
-        # Besides the default creations above, also create the external data schema
+        self.products_csv_path = Path(__file__).parent / "data" / "stripe_products.csv"
+        self.products_table, _, _, self.products_csv_df, self.products_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.products_csv_path,
+                "stripe_product",
+                STRIPE_PRODUCT_COLUMNS,
+                PRODUCT_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
+        # Besides the default creations above, also create the external data schemas
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
-        self.schema = ExternalDataSchema.objects.create(
+        self.invoices_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_CHARGE_RESOURCE_NAME,
+            name=STRIPE_INVOICE_RESOURCE_NAME,
             source=self.source,
-            table=self.table,
+            table=self.invoices_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        self.products_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_PRODUCT_RESOURCE_NAME,
+            source=self.source,
+            table=self.products_table,
             should_sync=True,
             last_synced_at="2024-01-01",
         )
@@ -100,21 +128,30 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.revenue_analytics_config.save()
 
     def tearDown(self):
-        self.cleanUpFilesystem()
+        self.invoices_cleanup_filesystem()
+        self.products_cleanup_filesystem()
         super().tearDown()
 
     def _run_revenue_analytics_overview_query(
         self,
         date_range: DateRange | None = None,
         revenue_sources: RevenueSources | None = None,
+        properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range = DateRange(date_from="-30d")
         if revenue_sources is None:
             revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
+        if properties is None:
+            properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsOverviewQuery(dateRange=date_range, revenueSources=revenue_sources)
+            query = RevenueAnalyticsOverviewQuery(
+                dateRange=date_range,
+                revenueSources=revenue_sources,
+                properties=properties,
+                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+            )
             runner = RevenueAnalyticsOverviewQueryRunner(
                 team=self.team,
                 query=query,
@@ -126,7 +163,8 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return response
 
     def test_no_crash_when_no_data(self):
-        self.table.delete()
+        self.invoices_table.delete()
+        self.products_table.delete()
         results = self._run_revenue_analytics_overview_query().results
 
         self.assertEqual(
@@ -144,12 +182,48 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("11122.75")),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1349.3495305777")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("3707.5833333333")
                 ),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=5),
+            ],
+        )
+
+    def test_with_data_and_empty_interval(self):
+        results = self._run_revenue_analytics_overview_query(
+            date_range=DateRange(date_from="2025-01-01", date_to="2025-01-02")
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("269.8699061155")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
+                ),
+            ],
+        )
+
+    def test_with_property_filter(self):
+        results = self._run_revenue_analytics_overview_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="product",
+                    operator=PropertyOperator.EXACT,
+                    value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
+                )
+            ]
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("12.23")),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=1),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("12.23")
                 ),
             ],
         )

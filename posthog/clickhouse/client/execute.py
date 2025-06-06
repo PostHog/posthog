@@ -1,5 +1,7 @@
 import json
+import logging
 import threading
+import traceback
 import types
 from collections.abc import Sequence
 from contextlib import contextmanager
@@ -99,6 +101,9 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+logger = logging.getLogger(__name__)
+
+
 @patchable
 def sync_execute(
     query,
@@ -113,6 +118,10 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    if not workload:
+        workload = Workload.DEFAULT
+        # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
+        logging.warning(f"workload is None", traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -315,7 +324,7 @@ def _prepare_query(
     return annotated_sql, prepared_args, tags
 
 
-def _annotate_tagged_query(query, workload):
+def _annotate_tagged_query(query, workload: Workload):
     """
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
