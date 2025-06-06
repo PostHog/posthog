@@ -256,6 +256,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="some-feature",
             created_by=self.user,
         )
+        original_updated_at = another_feature_flag.updated_at
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{another_feature_flag.pk}",
             {"name": "Beta feature", "key": "red_button"},
@@ -272,6 +273,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         another_feature_flag.refresh_from_db()
         self.assertEqual(another_feature_flag.key, "some-feature")
+        self.assertEqual(another_feature_flag.updated_at, original_updated_at)
 
         # Try updating the existing one
         response = self.client.patch(
@@ -368,7 +370,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        flag_id = response.json()["id"]
+        flag_json = response.json()
+        self.assertEqual(flag_json["created_at"], "2021-08-25T22:09:14.252000Z")
+        self.assertEqual(flag_json["updated_at"], "2021-08-25T22:09:14.252000Z")
+        flag_id = flag_json["id"]
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
 
@@ -739,7 +744,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            flag_id = response.json()["id"]
+            flag_json = response.json()
+            self.assertEqual(flag_json["created_at"], "2021-08-25T22:09:14.252000Z")
+            self.assertEqual(flag_json["updated_at"], "2021-08-25T22:09:14.252000Z")
+            flag_id = flag_json["id"]
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -768,8 +776,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.json()["name"], "Updated name")
-        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
+        updated_flag_json = response.json()
+        self.assertEqual(updated_flag_json["created_at"], "2021-08-25T22:09:14.252000Z")
+        self.assertEqual(updated_flag_json["updated_at"], "2021-08-25T22:19:14.252000Z")  # 10 minutes passed
+        self.assertEqual(updated_flag_json["name"], "Updated name")
+        self.assertEqual(updated_flag_json["filters"]["groups"][0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
         mock_capture.assert_called_with(
