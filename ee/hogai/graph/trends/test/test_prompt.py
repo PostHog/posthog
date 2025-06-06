@@ -14,7 +14,6 @@ class TestTrendsPrompts(BaseTest):
         ).format(
             groups=["org", "account"],
             react_format="",
-            react_format_reminder="",
         )
         self.assertIn("orgs, accounts,", prompt)
         self.assertIn("unique orgs", prompt)

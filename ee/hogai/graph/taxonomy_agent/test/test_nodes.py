@@ -7,8 +7,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from ee.hogai.graph.taxonomy_agent.nodes import (
     ChatPromptTemplate,
-    TaxonomyAgentPlannerNode,
-    TaxonomyAgentPlannerToolsNode,
+    QueryPlannerNode,
 )
 from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -30,13 +29,13 @@ class DummyToolkit(TaxonomyAgentToolkit):
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
+class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
     def _get_node(self):
-        class Node(TaxonomyAgentPlannerNode):
+        class Node(QueryPlannerNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
                 toolkit = DummyToolkit(self._team)
@@ -163,7 +162,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_handles_output_without_action_block(self):
         with patch(
-            "ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model",
+            "ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
         ):
             node = self._get_node()
@@ -177,7 +176,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_handles_output_with_malformed_json(self):
         with patch(
-            "ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model",
+            "ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Thought.\nAction: abc")),
         ):
             node = self._get_node()
@@ -270,7 +269,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
-        class Node(TaxonomyAgentPlannerToolsNode):
+        class Node(QueryPlannerNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 toolkit = DummyToolkit(self._team)
                 return super()._run_with_toolkit(state, toolkit, config=config)
