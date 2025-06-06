@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +28,8 @@ type SimpleDataWarehouseTable = {
 // It's a workaround to allow users to map columns to the correct fields in the Marketing Analytics product.
 // An example of native integration is the Google Ads integration.
 export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
-    const { dataWarehouseSources, sources_map } = useValues(marketingAnalyticsSettingsLogic)
+    const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
+    const { sources_map } = useValues(marketingAnalyticsSettingsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const marketingSources =
         dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
