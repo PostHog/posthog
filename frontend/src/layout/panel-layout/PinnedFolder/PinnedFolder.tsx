@@ -1,6 +1,7 @@
-import { IconGear } from '@posthog/icons'
+import { IconCheck, IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -8,6 +9,8 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
@@ -31,6 +34,34 @@ export function PinnedFolder(): JSX.Element {
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                <DropdownMenuLabel>Choose pinned folder</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        setPinnedFolder('products://')
+                    }}
+                    data-attr="tree-item-menu-open-link-button"
+                >
+                    <ButtonPrimitive menuItem>
+                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
+                        Products
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        setPinnedFolder('shortcuts://')
+                    }}
+                    data-attr="tree-item-menu-open-link-button"
+                >
+                    <ButtonPrimitive menuItem>
+                        {pinnedFolder === 'shortcuts://' ? <IconCheck /> : <IconBlank />}
+                        Shortcuts
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                     asChild
                     onClick={(e) => {
@@ -39,7 +70,14 @@ export function PinnedFolder(): JSX.Element {
                     }}
                     data-attr="tree-item-menu-open-link-button"
                 >
-                    <ButtonPrimitive menuItem>Change pinned folder</ButtonPrimitive>
+                    <ButtonPrimitive menuItem>
+                        {pinnedFolder && pinnedFolder !== 'products://' && pinnedFolder !== 'shortcuts://' ? (
+                            <IconCheck />
+                        ) : (
+                            <IconBlank />
+                        )}
+                        Custom...
+                    </ButtonPrimitive>
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
