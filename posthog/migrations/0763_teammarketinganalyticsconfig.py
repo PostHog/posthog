@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("_sources_map", models.JSONField(blank=True, db_column="sources_map", default=dict, null=True)),
+                ("_sources_map", models.JSONField(blank=True, db_column="sources_map", default=dict, null=False)),
             ],
         ),
     ]

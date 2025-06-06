@@ -24,9 +24,9 @@ type SimpleDataWarehouseTable = {
     columns?: { name: string; type: string }[]
 }
 
-// This is to map tables that are not natively integrated with PostHog.
-// It's a workaround to allow users to map columns to the correct fields in the Marketing Analytics product.
-// An example of native integration is the Google Ads integration.
+// This allows users to map columns from data warehouse sources (BigQuery, Postgres, etc.)
+// to the correct fields in the Marketing Analytics product.
+// These sources don't have predefined schemas like native integrations, so users need to manually map their columns.
 export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
     const { sources_map } = useValues(marketingAnalyticsSettingsLogic)

@@ -13,5 +13,3 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchema
     date: { type: ['datetime', 'date'], required: true },
     source_name: { type: ['string'], required: false },
 }
-
-export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
