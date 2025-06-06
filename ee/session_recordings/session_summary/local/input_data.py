@@ -31,7 +31,7 @@ def _ch_client_local_reads_prod():
 def _get_production_session_metadata_locally(
     events_obj: SessionReplayEvents,
     session_id: str,
-    team_pk: int,
+    team: Team,
     recording_start_time: Optional[datetime.datetime] = None,
 ) -> RecordingMetadata | None:
     query = events_obj.get_metadata_query(recording_start_time)
@@ -39,7 +39,7 @@ def _get_production_session_metadata_locally(
         replay_response = client.execute(
             query,
             {
-                "team_id": team_pk,
+                "team_id": team.pk,
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
             },

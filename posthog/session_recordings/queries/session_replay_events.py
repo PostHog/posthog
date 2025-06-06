@@ -177,14 +177,14 @@ class SessionReplayEvents:
     def get_metadata(
         self,
         session_id: str,
-        team_pk: int,
+        team: Team,
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
             query,
             {
-                "team_id": team_pk,
+                "team_id": team.pk,
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
