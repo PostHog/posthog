@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0759_add_errortrackingsymbolset_last_used_index"),
+        ("posthog", "0763_migrate_team_base_currency"),
     ]
 
     operations = [
