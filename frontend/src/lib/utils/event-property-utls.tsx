@@ -31,7 +31,9 @@ function correctRelativeSrcImages(
             const origin = new URL(properties['$current_url'])?.origin
             img.src = ensureNoTrailingSlash(origin) + img.src
         } catch (e) {
-            posthog.captureException(e)
+            posthog.captureException(e, { imageSource: img.src, properties: properties || {} })
+            // don't show this image... something is unexpected about the URL
+            return null
         }
     }
     return img
