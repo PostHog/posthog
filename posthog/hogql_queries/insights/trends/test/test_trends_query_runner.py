@@ -5448,7 +5448,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
         self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)
 
-    def _compare_trends_test(self, query: TrendsQuery):
+    def _compare_trends_test(self, compare_filters: CompareFilter):
         """
         Test a TrendsQuery with daily aggregation that has compare to previous period enabled.
         It uses a -7d window, sets the team's timezone to US/Pacific, and generates events at 9PM and 11PM each day.
@@ -5470,27 +5470,30 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             hour=22, minute=0, second=0, microsecond=0
         )
 
-        # Generate one event at 9PM and another at 11PM each day for the past 16 days
-        for days_ago in range(0, 16):
+        # Generate one event at 9PM and another at 11PM each day for the past 16 days.
+        # On the first day at 9 PM and on the last day at 11 PM, generate 10 events
+        for days_ago in range(0, 15):
             event_date = freeze_time_at - timedelta(days=days_ago)
 
             # Create event at 9PM
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="test_user",
-                timestamp=(event_date - timedelta(hours=1)).isoformat(),  # 9PM
-                properties={"key": "value"},
-            )
+            for _ in range(10 if days_ago == 14 else 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="test_user",
+                    timestamp=(event_date - timedelta(hours=1)).isoformat(),  # 9PM
+                    properties={"key": "value"},
+                )
 
             # Create event at 11PM
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="test_user",
-                timestamp=(event_date + timedelta(hours=1)).isoformat(),  # 11PM
-                properties={"key": "value"},
-            )
+            for _ in range(10 if days_ago == 0 else 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="test_user",
+                    timestamp=(event_date + timedelta(hours=1)).isoformat(),  # 11PM
+                    properties={"key": "value"},
+                )
 
         with freeze_time(freeze_time_at.isoformat()):
             response = TrendsQueryRunner(
@@ -5499,8 +5502,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     date_to=None,
                     interval="day",
                     series=[EventsNode(event="$pageview")],
-                    trends_filters=TrendsFilter(display="ActionsLineGraph"),
-                    compare_filters=CompareFilter(compare=True),
+                    trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    compare_filters=compare_filters,
                 ),
                 team=self.team,
             ).calculate()
@@ -5521,34 +5524,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(8, len(response.results[1]["data"]))
 
         # Each day should have 2 events (9PM and 11PM)
-        for value in response.results[0]["data"][:-1]:
+        for value in response.results[0]["data"][0:-1]:
             self.assertEqual(2, value)
-        self.assertEqual(1, response.results[0]["data"][-1])
+        self.assertEqual(11, response.results[0]["data"][-1])
 
-        for value in response.results[1]["data"][:-1]:
+        for value in response.results[1]["data"][1:-1]:
             self.assertEqual(2, value)
-        self.assertEqual(1, response.results[1]["data"][-1])
+        self.assertEqual(11, response.results[1]["data"][0])
+
+        # Test with bold number to make sure it represents just a week
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval="day",
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                    compare_filters=compare_filters,
+                ),
+                team=self.team,
+            ).calculate()
+
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
 
     def test_trends_daily_compare_to_previous_period(self):
-        self._compare_trends_test(
-            self._create_trends_query(
-                date_from="-7d",
-                date_to=None,
-                interval="day",
-                series=[EventsNode(event="$pageview")],
-                trends_filters=TrendsFilter(display="ActionsLineGraph"),
-                compare_filters=CompareFilter(compare=True),
-            )
-        )
+        self._compare_trends_test(CompareFilter(compare=True))
 
     def test_trends_daily_compare_to_7_days_ago(self):
-        self._compare_trends_test(
-            self._create_trends_query(
-                date_from="-7d",
-                date_to=None,
-                interval="day",
-                series=[EventsNode(event="$pageview")],
-                trends_filters=TrendsFilter(display="ActionsLineGraph"),
-                compare_filters=CompareFilter(compare=True, compare_to="-7d"),
-            )
-        )
+        self._compare_trends_test(CompareFilter(compare=True, compare_to="-7d"))

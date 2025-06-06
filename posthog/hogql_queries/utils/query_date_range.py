@@ -54,7 +54,7 @@ class QueryDateRange:
         earliest_timestamp_fallback: Optional[datetime] = None,
         interval_count: Optional[int] = None,
         timezone_info: Optional[ZoneInfo] = None,
-        truncate_to_now: bool = False,  # Setting this to true causes a relative date range to end at exactly now, and not at the end of the current interval. This excludes future timestamped events and changes how compare_to intervals are computed in trends queries
+        exact_timerange: bool = False,  # Setting this to true stops a relative time range from including the time between the intervalStart and the date_range start, as well as cuts off the interval at precisely now()
     ) -> None:
         self._team = team
         self._date_range = date_range
@@ -63,6 +63,7 @@ class QueryDateRange:
         self._now_without_timezone = now
         self._earliest_timestamp_fallback = earliest_timestamp_fallback
         self._timezone_info = timezone_info or self._team.timezone_info
+        self._exact_timerange = exact_timerange
 
         # Hour intervals have strange behaviour in clickhouse:
         # From the docs:
@@ -90,7 +91,7 @@ class QueryDateRange:
                 always_truncate=False,
                 now=self.now_with_timezone,
             )
-        elif self.truncate_to_now:
+        elif self._exact_timerange:
             return date_to
 
         if not self._date_range or not self._date_range.explicitDate:
@@ -123,7 +124,7 @@ class QueryDateRange:
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
-                always_truncate=self.interval_name != "minute",
+                always_truncate=not (self.interval_name == "minute" or self._exact_timerange),
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -271,6 +272,9 @@ class QueryDateRange:
 
     # Returns whether we should wrap `date_from` with `toStartOf<Interval>` dependent on the interval period
     def use_start_of_interval(self):
+        if self._exact_timerange:
+            return False
+
         if self._date_range is None or self._date_range.date_from is None:
             return True
 

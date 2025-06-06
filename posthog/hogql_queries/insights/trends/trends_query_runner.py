@@ -621,6 +621,10 @@ class TrendsQueryRunner(QueryRunner):
             res.append(series_object)
         return res
 
+    @property
+    def exact_timerange(self):
+        return self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+
     @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
@@ -629,12 +633,12 @@ class TrendsQueryRunner(QueryRunner):
             team=self.team,
             interval=interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
     def query_previous_date_range(self):
-        # We set truncate_to_now here because we want to compare to the previous period that has happened up to this exact time
-        truncate_to_now = self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        # We set exact_timerange here because we want to compare to the previous period that has happened up to this exact time
         if self.query.compareFilter is not None and isinstance(self.query.compareFilter.compare_to, str):
             return QueryCompareToDateRange(
                 date_range=self.query.dateRange,
@@ -642,14 +646,14 @@ class TrendsQueryRunner(QueryRunner):
                 interval=self.query.interval,
                 now=datetime.now(),
                 compare_to=self.query.compareFilter.compare_to,
-                truncate_to_now=truncate_to_now,
+                exact_timerange=self.exact_timerange,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
-            truncate_to_now=truncate_to_now,
+            exact_timerange=self.exact_timerange,
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:

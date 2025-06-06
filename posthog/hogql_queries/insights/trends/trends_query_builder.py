@@ -63,7 +63,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
+        events_query = self._get_events_subquery(False, breakdown=breakdown)
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -145,15 +145,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     def _get_events_subquery(
         self,
         no_modifications: Optional[bool],
-        is_actors_query: bool,
         breakdown: Breakdown,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
-            is_actors_query=is_actors_query,
-            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = ast.SelectQuery(
@@ -659,10 +655,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _events_filter(
         self,
-        is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
