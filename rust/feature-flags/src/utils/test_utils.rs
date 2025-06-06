@@ -548,7 +548,7 @@ pub async fn insert_suppression_rule_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     filters: serde_json::Value,
-) -> Result<uuid::Uuid, sqlx::Error> {
+) -> Result<uuid::Uuid, Error> {
     let mut conn = client.get_connection().await?;
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
@@ -569,7 +569,7 @@ pub async fn update_team_autocapture_exceptions(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     enabled: bool,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), Error> {
     let mut conn = client.get_connection().await?;
     sqlx::query("UPDATE posthog_team SET autocapture_exceptions_opt_in = $1 WHERE id = $2")
         .bind(enabled)
