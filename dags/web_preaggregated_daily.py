@@ -143,7 +143,7 @@ def export_web_analytics_data(
     export_prefix: str,
 ) -> dagster.Output[str]:
     config = context.op_config
-    team_ids = config.get("team_ids", [1, 2])
+    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
 
     if DEBUG:
