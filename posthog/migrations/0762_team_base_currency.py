@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0759_add_errortrackingsymbolset_last_used_index"),
+        ("posthog", "0761_drop_is_user_fk_and_index"),
     ]
 
     operations = [

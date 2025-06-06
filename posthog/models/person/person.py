@@ -43,7 +43,7 @@ class Person(models.Model):
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     properties = models.JSONField(default=dict)
-    is_user = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+    is_user = models.IntegerField(null=True, blank=True, db_column="is_user_id")
     is_identified = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 

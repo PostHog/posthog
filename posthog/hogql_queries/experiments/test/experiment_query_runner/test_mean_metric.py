@@ -8,6 +8,7 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentVariantTrendsBaseStats,
     ExperimentMeanMetric,
+    LegacyExperimentQueryResponse,
 )
 from posthog.test.base import (
     flush_persons_and_events,
@@ -49,7 +50,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -144,7 +145,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -241,7 +242,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -334,7 +335,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
