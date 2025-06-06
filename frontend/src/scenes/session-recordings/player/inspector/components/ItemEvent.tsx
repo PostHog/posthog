@@ -70,7 +70,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
-            <AutocapturePreviewImage elements={item.data.elements} />
+            <AutocapturePreviewImage elements={item.data.elements} properties={item.data.properties} />
         ) : item.data.event === '$ai_generation' ||
           item.data.event === '$ai_span' ||
           item.data.event === '$ai_trace' ? (
@@ -270,7 +270,12 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     ? {
                                           key: 'image',
                                           label: 'Image',
-                                          content: <AutocaptureImageTab elements={item.data.elements} />,
+                                          content: (
+                                              <AutocaptureImageTab
+                                                  elements={item.data.elements}
+                                                  properties={item.data.properties}
+                                              />
+                                          ),
                                       }
                                     : null,
                                 // Add conversation tab for $ai_generation events

@@ -132,7 +132,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         tabs.push({
             key: 'image',
             label: 'Image',
-            content: <AutocaptureImageTab elements={event.elements} />,
+            content: <AutocaptureImageTab elements={event.elements} properties={event.properties} />,
         })
     }
 
