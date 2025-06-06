@@ -17,11 +17,10 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { experimentResultBreakdownLogicType } from './experimentResultBreakdownLogicType'
 
-export type ExperimentResultBreakdownLogicProps = {
-    experiment: Experiment
-    metric: ExperimentMetric
-}
-
+/**
+ * takes the experiment's exposure criteria and feature flag settings to create a
+ * EntityNode series that can be used on a Funnel or Trends query.
+ */
 const exposureCriteriaToEntityNode = (experiment: Experiment): AnyEntityNode[] => {
     const series: AnyEntityNode[] = []
 
@@ -60,7 +59,11 @@ const exposureCriteriaToEntityNode = (experiment: Experiment): AnyEntityNode[] =
     return series
 }
 
-const experimentMetricToInisghtQuery = (
+/**
+ * takes and experiment metric and an experiment (for the exposure criteria) and
+ * returns a Funnel or Trends query to be used to make an insight query.
+ */
+const experimentMetricToInsightQuery = (
     metric: ExperimentMetric,
     experiment: Experiment
 ): FunnelsQuery | TrendsQuery => {
@@ -114,12 +117,25 @@ const experimentMetricToInisghtQuery = (
     } as FunnelsQuery | TrendsQuery
 }
 
+export type ExperimentResultBreakdownLogicProps = {
+    experiment: Experiment
+    metric: ExperimentMetric
+}
+
+export type BreakDownResults = {
+    query: FunnelsQuery | TrendsQuery
+    results: FunnelStepsResults
+}
+
 /**
  * This logic only works with modern engines, like bayesian and frequentist.
  * Legacy Funnels and Trends engine are resolved backend side.
  */
 export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogicType>([
-    props({ experiment: {} as Experiment, metric: {} as ExperimentMetric } as ExperimentResultBreakdownLogicProps),
+    props({
+        experiment: null as Experiment | null,
+        metric: null as ExperimentMetric | null,
+    } as ExperimentResultBreakdownLogicProps),
 
     key(
         ({ experiment, metric }: ExperimentResultBreakdownLogicProps) =>
@@ -134,48 +150,63 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
 
     loaders(({ props }) => ({
         breakdownResults: [
-            null as any,
+            null as BreakDownResults | null,
             {
-                loadBreakdownResults: async (): Promise<{
-                    query: FunnelsQuery | TrendsQuery
-                    results: FunnelStepsResults
-                }> => {
-                    const { metric, experiment } = props
-                    /**
-                     * take the metric and the experiment and create a new Funnel or Trends query.
-                     * we need the experiment for exposure configuration.
-                     */
-                    const query = experimentMetricToInisghtQuery(metric, experiment)
-
-                    /**
-                     * perform the query
-                     */
-                    const response = await performQuery(query)
-
-                    /**
-                     * we need to filter the results
-                     */
-                    let results = response.results as FunnelStepsResults
-
-                    const variants = experiment.parameters.feature_flag_variants.map(({ key }) => key)
-
-                    if (query.kind === NodeKind.TrendsQuery) {
+                loadBreakdownResults: async (): Promise<BreakDownResults> => {
+                    try {
+                        const { metric, experiment } = props
                         /**
-                         * we filter from the series all the breakdowns that do not map
-                         * to a feature flag variant
+                         * take the metric and the experiment and create a new Funnel or Trends query.
+                         * we need the experiment for exposure configuration.
                          */
-                        results = results.filter((series) => variants.includes(series.breakdown_value))
-                    }
+                        const query = experimentMetricToInsightQuery(metric, experiment)
 
-                    return { query, results }
+                        /**
+                         * perform the query
+                         */
+                        const response = await performQuery(query)
+
+                        if (!response?.results) {
+                            throw new Error('No results returned from query')
+                        }
+
+                        let results = response.results as FunnelStepsResults
+
+                        /**
+                         * we need to filter the results to remove any non-variant brakedowns
+                         */
+                        const variants = experiment.parameters.feature_flag_variants.map(({ key }) => key)
+
+                        if (query.kind === NodeKind.TrendsQuery) {
+                            /**
+                             * we filter from the series all the breakdowns that do not map
+                             * to a feature flag variant
+                             */
+                            results = results.filter((series) => variants.includes(series.breakdown_value))
+                        }
+
+                        return { query, results }
+                    } catch (error) {
+                        throw new Error(
+                            error instanceof Error
+                                ? `Failed to load experiment results: ${error.message}`
+                                : 'Failed to load experiment results'
+                        )
+                    }
                 },
             },
         ],
     })),
 
     afterMount(({ actions, props }) => {
-        const { metric } = props
+        const { metric, experiment } = props
 
+        // bail if no valid props
+        if (!experiment || !metric) {
+            return
+        }
+
+        // bail if unsupported metric type
         if (metric.kind !== NodeKind.ExperimentMetric) {
             return
         }
