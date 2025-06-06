@@ -294,7 +294,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: `SQL editor`,
-            category: 'Tools',
+            category: 'Analytics',
             type: 'sql',
             href: urls.sqlEditor(),
         } as FileSystemImport,
