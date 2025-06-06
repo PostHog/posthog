@@ -49,7 +49,7 @@ export function autocaptureToImage(elements: ElementType[]): null | Autocaptured
     return image.src ? image : null
 }
 
-export function AutocaptureImage({ img }: { img: AutocapturedImage }): JSX.Element | null {
+function AutocaptureImage({ img }: { img: AutocapturedImage }): JSX.Element | null {
     if (img) {
         return (
             <div className="flex bg-primary items-center justify-center relative border-2">
