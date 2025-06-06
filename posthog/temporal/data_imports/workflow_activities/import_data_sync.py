@@ -168,9 +168,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     team_id=inputs.team_id,
                     job_id=inputs.run_id,
                     is_incremental=schema.is_incremental,
-                    db_incremental_field_last_value=schema.incremental_field_earliest_value
-                    if schema.is_incremental
-                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 )
 
             return _run(

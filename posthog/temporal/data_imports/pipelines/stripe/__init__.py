@@ -395,7 +395,7 @@ def stripe_source_v2(
                 params={**default_params, **resource.params, "created[gt]": db_incremental_field_last_value}
             )
             for obj in stripe_objects.auto_paging_iter():
-                if obj["created"] < db_incremental_field_last_value:
+                if obj["created"] <= db_incremental_field_last_value:
                     break
 
                 yield obj
@@ -512,10 +512,6 @@ def validate_credentials(api_key: str) -> bool:
     - Raise Exception if the API key is invalid or there's any other error
     """
     client = StripeClient(api_key)
-
-    invoices = client.invoices.list(params={})
-    for i in invoices:
-        i.to_dict()
 
     # Test access to all resources we're pulling
     resources_to_check = [
