@@ -20,9 +20,6 @@ const DEFAULT_WORKFLOW: Workflow = {
     version: 1,
 }
 
-export const CampaignTabs = ['overview', 'workflow'] as const
-export type CampaignTab = (typeof CampaignTabs)[number]
-
 export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignLogic']),
     props({ id: 'new' } as CampaignLogicProps),

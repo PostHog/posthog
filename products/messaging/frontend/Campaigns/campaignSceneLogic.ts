@@ -2,8 +2,10 @@ import { actions, kea, path, props, reducers } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
-import { CampaignTab } from './campaignLogic'
 import type { campaignSceneLogicType } from './campaignSceneLogicType'
+
+export const CampaignTabs = ['overview', 'workflow'] as const
+export type CampaignTab = (typeof CampaignTabs)[number]
 
 export interface CampaignSceneLogicProps {
     id?: string

@@ -5,9 +5,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { CampaignTab } from './campaignLogic'
 import { CampaignOverview } from './CampaignOverview'
-import { campaignSceneLogic, CampaignSceneLogicProps } from './campaignSceneLogic'
+import { campaignSceneLogic, CampaignSceneLogicProps, CampaignTab } from './campaignSceneLogic'
 import { CampaignWorkflow } from './CampaignWorkflow'
 
 export const scene: SceneExport = {
