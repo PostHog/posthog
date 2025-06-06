@@ -17,7 +17,7 @@ import { CacheMetrics, GroupStoreForDistinctIdBatch } from './group-store-for-di
 import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
 import {
     groupCacheOperationsCounter,
-    groupCacheSizeGauge,
+    groupCacheSizeHistogram,
     groupDatabaseOperationsPerBatchHistogram,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
@@ -183,11 +183,11 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     }
 
     reportBatch(): void {
+        groupCacheSizeHistogram.observe(this.groupCache.size)
         for (const store of this.distinctIdStores.values()) {
             const cacheMetrics = store.getCacheMetrics()
             groupCacheOperationsCounter.inc({ operation: 'hit' }, cacheMetrics.cacheHits)
             groupCacheOperationsCounter.inc({ operation: 'miss' }, cacheMetrics.cacheMisses)
-            groupCacheSizeGauge.observe(cacheMetrics.cacheSize)
         }
         for (const [operation, count] of this.databaseOperationCounts.entries()) {
             groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
@@ -212,7 +212,6 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         this.cacheMetrics = {
             cacheHits: 0,
             cacheMisses: 0,
-            cacheSize: 0,
         }
     }
 
@@ -479,11 +478,9 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
                                 ...groupUpdate,
                                 needsWrite: true,
                             })
-                            this.cacheMetrics.cacheSize++
                             return groupUpdate
                         } else {
                             this.addGroupToCache(teamId, groupKey, null)
-                            this.cacheMetrics.cacheSize++
                             return null
                         }
                     }

@@ -1,1 +1,1 @@
-0754_organization_is_platform
+0760_alter_person_is_user

@@ -25,21 +25,20 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
-const seenId: string | null = null
-const processSnapshots = new Map<SourceKey, RecordingSnapshot[]>()
-
+/**
+ * NB this both mutates and returns snapshotsBySource
+ *
+ * there are several steps to processing snapshots as received from the API
+ * before they are playable, vanilla rrweb data
+ */
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    snapshotsBySource: Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> | null,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
-): RecordingSnapshot[] {
+): Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> {
     if (!sources || !snapshotsBySource) {
-        return []
-    }
-
-    if (seenId !== sessionRecordingId) {
-        processSnapshots.clear()
+        return { processed: {} }
     }
 
     const result: RecordingSnapshot[] = []
@@ -55,12 +54,12 @@ export function processAllSnapshots(
     for (const source of sources) {
         const sourceKey = keyForSource(source)
 
-        if (processSnapshots.has(sourceKey)) {
+        if (snapshotsBySource?.[sourceKey]?.processed) {
             // If we already processed this source, skip it
-            // doing push.apply to mutate the original array
-            // and avoid a spread on a large array
-            // eslint-disable-next-line prefer-spread
-            result.push.apply(result, processSnapshots.get(sourceKey)!)
+            // here we loop and push one by one, to avoid a spread on a large array
+            for (const snapshot of snapshotsBySource[sourceKey].snapshots || []) {
+                result.push(snapshot)
+            }
             continue
         }
 
@@ -117,11 +116,14 @@ export function processAllSnapshots(
             sourceResult.push(snapshot)
         }
 
-        processSnapshots.set(sourceKey, sourceResult)
+        snapshotsBySource[sourceKey] = snapshotsBySource[sourceKey] || {}
+        snapshotsBySource[sourceKey].snapshots = sourceResult
+        snapshotsBySource[sourceKey].processed = true
         // doing push.apply to mutate the original array
         // and avoid a spread on a large array
-        // eslint-disable-next-line prefer-spread
-        result.push.apply(result, sourceResult)
+        for (const snapshot of sourceResult) {
+            result.push(snapshot)
+        }
     }
 
     // sorting is very cheap for already sorted lists
@@ -129,7 +131,15 @@ export function processAllSnapshots(
 
     // Optional second pass: patch meta-events on the sorted array
     const needToPatchMeta = fullSnapshotCount > 0 && fullSnapshotCount > metaCount
-    return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
+    snapshotsBySource['processed'] = {
+        source: 'processed',
+        processed: true,
+        sourceLoaded: true,
+        snapshots: needToPatchMeta
+            ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId)
+            : result,
+    }
+    return snapshotsBySource
 }
 
 let postHogEEModule: PostHogEE

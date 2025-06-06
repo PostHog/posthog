@@ -11,7 +11,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { CustomMenuProps } from '../types'
 
-export function DashboardsMenu({ MenuItem = DropdownMenuItem }: CustomMenuProps): JSX.Element {
+export function DashboardsMenuItems({ MenuItem = DropdownMenuItem }: CustomMenuProps): JSX.Element {
     const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { mainContentRef } = useValues(panelLayoutLogic)
 
@@ -19,7 +19,7 @@ export function DashboardsMenu({ MenuItem = DropdownMenuItem }: CustomMenuProps)
         <>
             {pinnedDashboards.length > 0 ? (
                 pinnedDashboards.map((dashboard) => (
-                    <MenuItem key={dashboard.id} asChild>
+                    <MenuItem asChild key={dashboard.id}>
                         <Link
                             buttonProps={{
                                 menuItem: true,

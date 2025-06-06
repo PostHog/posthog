@@ -28,6 +28,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
     EventMetadataPropertyFilter,
+    RevenueAnalyticsPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -56,6 +57,8 @@ from django.db import models
 
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -292,6 +295,7 @@ def property_to_expr(
         | ElementPropertyFilter
         | SessionPropertyFilter
         | EventMetadataPropertyFilter
+        | RevenueAnalyticsPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -305,7 +309,7 @@ def property_to_expr(
         | LogPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
@@ -387,11 +391,14 @@ def property_to_expr(
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
         or property.type == "log"
+        or property.type == "revenue_analytics"
     ):
         if (
             (scope == "person" and property.type != "person")
             or (scope == "session" and property.type != "session")
             or (scope != "event" and property.type == "event_metadata")
+            or (scope == "revenue_analytics" and property.type != "revenue_analytics")
+            or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -461,6 +468,9 @@ def property_to_expr(
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
+
+        if property.type == "revenue_analytics":
+            expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
 
         is_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
@@ -640,6 +650,15 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
+
+
+def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
+    if property.key == "product":
+        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
+    elif property.key == "amount":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+    else:
+        raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 
 
 def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:

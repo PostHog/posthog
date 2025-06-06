@@ -599,7 +599,6 @@ class SessionsRecordBatchModel(RecordBatchModel):
 
 def resolve_batch_exports_model(
     team_id: int,
-    is_backfill: bool,
     batch_export_model: BatchExportModel | None = None,
     batch_export_schema: BatchExportSchema | None = None,
 ):
@@ -794,6 +793,7 @@ class Producer:
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
         filters: list[dict[str, str | list[str]]] | None = None,
+        order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -866,7 +866,12 @@ class Producer:
             if filters_str:
                 filters_str = f"AND {filters_str}"
 
-            query = query_template.safe_substitute(fields=query_fields, filters=filters_str)
+            if str(team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS or not order_columns:
+                order = ""
+            else:
+                order = f"ORDER BY {','.join(order_columns)}"
+
+            query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order=order)
 
         parameters["team_id"] = team_id
         parameters = {**parameters, **extra_query_parameters}
@@ -940,6 +945,7 @@ class Producer:
                     query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_id = uuid.uuid4()
+                await self.logger.ainfo(f"Executing query with ID = {query_id}")
 
                 if isinstance(query_or_model, RecordBatchModel):
                     query, query_parameters = await query_or_model.as_query_with_parameters(
