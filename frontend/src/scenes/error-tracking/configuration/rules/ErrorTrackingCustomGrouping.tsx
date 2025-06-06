@@ -7,7 +7,7 @@ import { ErrorTrackingGroupingRule, ErrorTrackingRuleType } from './types'
 export function ErrorTrackingCustomGrouping(): JSX.Element {
     return (
         <>
-            <p>Group exceptions into issues using properties of the event.</p>
+            <p>Use the properties of an exception to decide how it should be grouped as an issue.</p>
             <ErrorTrackingRules<ErrorTrackingGroupingRule> ruleType={ErrorTrackingRuleType.Grouping}>
                 {({ rule, editable }) => {
                     return (
