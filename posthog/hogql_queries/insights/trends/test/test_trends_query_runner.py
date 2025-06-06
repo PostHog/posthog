@@ -5464,7 +5464,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={},
         )
 
-        # Get the current time and generate events for the past 16 days
+        # Get the current time and generate events for the past 15 days
         # We'll freeze time at 10PM Pacific time
         freeze_time_at = datetime.now(zoneinfo.ZoneInfo("US/Pacific")).replace(
             hour=22, minute=0, second=0, microsecond=0
@@ -5511,10 +5511,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Verify the response
         self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
 
-        # Check that both results have compare=True
-        self.assertEqual(True, response.results[0]["compare"])
-        self.assertEqual(True, response.results[1]["compare"])
-
         # Check compare labels
         self.assertEqual("current", response.results[0]["compare_label"])
         self.assertEqual("previous", response.results[1]["compare_label"])
@@ -5547,6 +5543,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ).calculate()
 
         self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+        for result in response.results:
+            self.assertEqual(14, result["aggregated_value"])
 
     def test_trends_daily_compare_to_previous_period(self):
         self._compare_trends_test(CompareFilter(compare=True))
