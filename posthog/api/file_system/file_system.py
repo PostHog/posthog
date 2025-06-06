@@ -459,7 +459,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_file_system_activity(
             activity="updated",
             file_system=instance,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             changes=[
                 Change(
@@ -527,7 +527,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         log_file_system_activity(
             activity="updated",
             file_system=instance,
-            user=request.user,
+            user=cast(User, request.user),
             was_impersonated=is_impersonated_session(request),
             changes=[
                 Change(
