@@ -1,1 +1,1 @@
-0760_alter_person_is_user
+0761_drop_is_user_fk_and_index
