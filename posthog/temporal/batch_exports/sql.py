@@ -249,8 +249,7 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
+    $order
 ) AS events
 FORMAT ArrowStream
 SETTINGS
@@ -289,8 +288,7 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
+    $order
 ) AS events
 FORMAT ArrowStream
 SETTINGS
@@ -330,8 +328,7 @@ FROM (
         AND (length({include_events}::Array(String)) = 0 OR event IN {include_events}::Array(String))
         AND (length({exclude_events}::Array(String)) = 0 OR event NOT IN {exclude_events}::Array(String))
         $filters
-    ORDER BY
-        _inserted_at, event
+    $order
 ) AS events
 FORMAT ArrowStream
 SETTINGS
@@ -373,8 +370,7 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
+    $order
 ) AS events
 FORMAT ArrowStream
 SETTINGS
@@ -412,8 +408,7 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
+    $order
 ) as events
 FORMAT ArrowStream
 SETTINGS

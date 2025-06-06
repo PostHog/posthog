@@ -22,6 +22,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+import products.revenue_analytics.backend.api as revenue_analytics
 import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -727,5 +728,12 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/taxonomy",
+    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
+    "environment_revenue_analytics_taxonomy",
     ["team_id"],
 )
