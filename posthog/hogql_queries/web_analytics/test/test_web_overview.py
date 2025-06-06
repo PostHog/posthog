@@ -32,6 +32,8 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from posthog.hogql.printer import print_ast
+from posthog.hogql.context import HogQLContext
 
 
 @snapshot_clickhouse_queries
@@ -1011,3 +1013,27 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(
             pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
         )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_preaggregated_date_filtering_uses_utc(self):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+
+        hogql_query = pre_agg_builder.get_query()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = print_ast(hogql_query, context=context, dialect="clickhouse")
+
+        self.assertIn("toDate('2023-11-01')", sql, "Should use toDate for date filtering")
+        self.assertIn("toDate('2023-11-30')", sql, "Should use toDate for date filtering")
+
+        self.assertNotIn("America/New_York", sql, "Should not convert to team timezone")
+        self.assertNotIn("toDateTime(", sql, "Should not use toDateTime for date filtering")
+
+        self.assertTrue(pre_agg_builder.can_use_preaggregated_tables(), "Should be able to use pre-aggregated tables")
