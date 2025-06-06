@@ -358,9 +358,9 @@ export function EditAlertModal({
                                 </div>
                             </div>
 
-                            <div className="deprecated-space-y-2">
+                            <div>
                                 <h3>Notification</h3>
-                                <div className="flex gap-4 items-center">
+                                <div className="flex gap-4 items-center mt-2">
                                     <div>E-mail</div>
                                     <div className="flex-auto">
                                         <MemberSelectMultiple
@@ -370,10 +370,10 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                <h4>CDP Destinations</h4>
 
+                                <h4 className="mt-4">CDP Destinations</h4>
                                 {insightAlertsCDPFlag && (
-                                    <div className="deprecated-space-y-5">
+                                    <div className="mt-2">
                                         {alertId ? (
                                             <div className="flex flex-col">
                                                 <AlertDestinationSelector alertId={alertId} />
