@@ -106,7 +106,9 @@ export function EditAlertModal({
     // need to reload edited alert as well
     const _onEditSuccess = useCallback(
         (alertId: AlertType['id'] | undefined) => {
-            loadAlert()
+            if (alertId) {
+                loadAlert()
+            }
             onEditSuccess(alertId)
         },
         [loadAlert, onEditSuccess]

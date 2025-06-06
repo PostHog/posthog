@@ -162,6 +162,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot delete alert that doesn't exist")
             }
             await api.alerts.delete(values.alertForm.id)
+            lemonToast.success('Alert deleted.')
             props.onEditSuccess(undefined)
         },
         snoozeAlert: async ({ snoozeUntil }) => {
