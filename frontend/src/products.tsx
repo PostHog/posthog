@@ -493,7 +493,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Broadcasts',
-        category: 'Behaviour',
+        category: 'Behavior',
         href: urls.messagingBroadcasts(),
         type: 'hog_function/broadcast',
         tags: ['alpha'],
@@ -501,7 +501,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Campaigns',
-        category: 'Behaviour',
+        category: 'Behavior',
         href: urls.messagingCampaigns(),
         type: 'hog_function/campaign',
         tags: ['alpha'],
@@ -536,14 +536,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Session replay',
-        category: 'Behaviour',
+        category: 'Behavior',
         href: urls.replay(ReplayTabs.Home),
         type: 'session_recording_playlist',
     },
-    { path: 'Surveys', category: 'Behaviour', type: 'survey', href: urls.surveys() },
+    { path: 'Surveys', category: 'Behavior', type: 'survey', href: urls.surveys() },
     {
         path: 'User interviews',
-        category: 'Behaviour',
+        category: 'Behavior',
         href: urls.userInterviews(),
         type: 'user_interview',
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
