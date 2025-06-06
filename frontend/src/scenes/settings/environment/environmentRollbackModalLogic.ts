@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -112,6 +113,19 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
             (s) => [s.projectsWithEnvironments],
             (projectsWithEnvironments: ProjectWithEnvironments[]): Team[] => {
                 return projectsWithEnvironments.flatMap((project) => project.environments)
+            },
+        ],
+        // Format projects and environments as LemonSelect options
+        environmentSelectOptions: [
+            (s) => [s.projectsWithEnvironments],
+            (projectsWithEnvironments: ProjectWithEnvironments[]): LemonSelectOptions<number> => {
+                return projectsWithEnvironments.map((project) => ({
+                    title: project.name,
+                    options: project.environments.map((env) => ({
+                        value: env.id,
+                        label: env.name,
+                    })),
+                }))
             },
         ],
     }),

@@ -1,8 +1,9 @@
-import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { pluralize } from 'lib/utils'
 
-import { environmentRollbackModalLogic, ProjectWithEnvironments, Team } from './environmentRollbackModalLogic'
+import { environmentRollbackModalLogic } from './environmentRollbackModalLogic'
 
 function ModalDescription(): JSX.Element {
     return (
@@ -18,37 +19,6 @@ function ModalDescription(): JSX.Element {
     )
 }
 
-interface ProjectEnvironmentsProps {
-    project: ProjectWithEnvironments
-}
-
-function ProjectEnvironments({ project }: ProjectEnvironmentsProps): JSX.Element {
-    const { selectedEnvironmentId } = useValues(environmentRollbackModalLogic)
-    const { setSelectedEnvironmentId } = useActions(environmentRollbackModalLogic)
-
-    return (
-        <div className="border rounded p-4">
-            <h4 className="mb-2">Project: {project.name}</h4>
-            <div className="space-y-2">
-                {project.environments.map((env: Team) => (
-                    <div key={env.id} className="flex items-center gap-2">
-                        <div className="flex items-center">
-                            <input
-                                type="radio"
-                                checked={selectedEnvironmentId === env.id}
-                                onChange={() => setSelectedEnvironmentId(env.id)}
-                                id={`env-${env.id}`}
-                                className="mr-2"
-                            />
-                            <label htmlFor={`env-${env.id}`}>{env.name}</label>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    )
-}
-
 function ModalFooter(): JSX.Element {
     const { closeModal, submitEnvironmentRollback } = useActions(environmentRollbackModalLogic)
     const { projectsWithEnvironments, hiddenProjectsCount, selectedEnvironmentId } =
@@ -58,8 +28,8 @@ function ModalFooter(): JSX.Element {
         <div className="space-y-2">
             {hiddenProjectsCount > 0 && (
                 <div className="text-muted text-sm">
-                    {hiddenProjectsCount} project{hiddenProjectsCount !== 1 ? 's' : ''} with only 1 environment found,
-                    these can be safely ignored
+                    {pluralize(hiddenProjectsCount, 'project')} with only 1 environment found, these can be safely
+                    ignored.
                 </div>
             )}
             <LemonBanner type="warning">
@@ -83,8 +53,17 @@ function ModalFooter(): JSX.Element {
 }
 
 export function EnvironmentRollbackModal(): JSX.Element {
-    const { isOpen, projectsWithEnvironments, currentOrganizationLoading } = useValues(environmentRollbackModalLogic)
-    const { closeModal } = useActions(environmentRollbackModalLogic)
+    const { isOpen, projectsWithEnvironments, currentOrganizationLoading, selectedEnvironmentId } =
+        useValues(environmentRollbackModalLogic)
+    const { closeModal, setSelectedEnvironmentId } = useActions(environmentRollbackModalLogic)
+
+    const selectOptions = projectsWithEnvironments.map((project) => ({
+        title: `Project: ${project.name}`,
+        options: project.environments.map((env) => ({
+            value: env.id,
+            label: env.name,
+        })),
+    }))
 
     return (
         <LemonModal
@@ -95,19 +74,21 @@ export function EnvironmentRollbackModal(): JSX.Element {
             width={600}
         >
             <div className="space-y-4">
-                <div className="space-y-2">
+                <div className="space-y-2 flex justify-center items-center">
                     {currentOrganizationLoading ? (
-                        <div className="flex justify-center items-center p-4">
+                        <div className="p-4">
                             <Spinner />
                         </div>
                     ) : projectsWithEnvironments.length === 0 ? (
-                        <div className="flex justify-center items-center p-4 text-muted">
-                            No projects with multiple environments found
-                        </div>
+                        <div className="text-muted">No projects with multiple environments found</div>
                     ) : (
-                        projectsWithEnvironments.map((project: ProjectWithEnvironments) => (
-                            <ProjectEnvironments key={project.id} project={project} />
-                        ))
+                        <LemonSelect
+                            className="py-6"
+                            value={selectedEnvironmentId}
+                            onChange={(value) => setSelectedEnvironmentId(value)}
+                            options={selectOptions}
+                            placeholder="Select an environment"
+                        />
                     )}
                 </div>
 
