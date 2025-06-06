@@ -300,8 +300,8 @@ def WEB_STATS_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}') - INTERVAL 2 DAY
+                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}') + INTERVAL 2 DAY
             GROUP BY
                 raw_sessions.session_id_v7
             SETTINGS {settings}
@@ -320,8 +320,8 @@ def WEB_STATS_INSERT_SQL(
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
             AND (e.`$session_id` IS NOT NULL)
-            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}') - INTERVAL 2 DAY
+            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}') + INTERVAL 2 DAY
         GROUP BY
             events__session.session_id,
             e.team_id,
@@ -346,6 +346,8 @@ def WEB_STATS_INSERT_SQL(
             region_name
         SETTINGS {settings}
     )
+    WHERE {time_bucket_func}(start_timestamp) >= toDateTime('{date_start}', '{timezone}')
+        AND {time_bucket_func}(start_timestamp) < toDateTime('{date_end}', '{timezone}')
     GROUP BY
         period_bucket,
         team_id,
@@ -476,8 +478,8 @@ def WEB_BOUNCES_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}') - INTERVAL 2 DAY
+                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}') + INTERVAL 2 DAY
             GROUP BY raw_sessions.session_id_v7
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
@@ -493,8 +495,8 @@ def WEB_BOUNCES_INSERT_SQL(
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
             AND (e.`$session_id` IS NOT NULL)
-            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}') - INTERVAL 2 DAY
+            AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}') + INTERVAL 2 DAY
         GROUP BY
             session_id,
             team_id,
@@ -517,6 +519,8 @@ def WEB_BOUNCES_INSERT_SQL(
             viewport_width,
             viewport_height
     )
+    WHERE {time_bucket_func}(start_timestamp) >= toDateTime('{date_start}', '{timezone}')
+        AND {time_bucket_func}(start_timestamp) < toDateTime('{date_end}', '{timezone}')
     GROUP BY
         period_bucket,
         team_id,
