@@ -1,4 +1,4 @@
-from posthog.hogql_queries.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
+from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
 from posthog.models import Insight, DashboardTile, InsightViewed, Dashboard
 
 from datetime import datetime, timedelta, UTC

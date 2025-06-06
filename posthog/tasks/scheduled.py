@@ -6,7 +6,7 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 from django.conf import settings
 
-from posthog.hogql_queries.warming import schedule_warming_for_teams_task
+from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
