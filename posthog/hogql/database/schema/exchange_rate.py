@@ -1,6 +1,6 @@
 from typing import Union
 
-from posthog.caching.test.test_stale_utils import Team
+from posthog.models.team.team import Team
 from posthog.hogql import ast
 from posthog.schema import (
     RevenueAnalyticsEventItem,
