@@ -1,4 +1,4 @@
-import type { TooltipPositionerFunction } from 'chart.js'
+import type { TooltipPositionerFunction } from 'lib/Chart'
 
 declare module 'chart.js' {
     // Extend tooltip positioner map

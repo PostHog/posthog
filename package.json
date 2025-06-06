@@ -108,11 +108,7 @@
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
         ],
-        "common/**/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "common/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
+        "common/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
         ],

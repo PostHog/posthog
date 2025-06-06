@@ -18,6 +18,7 @@ interface MaxToolProps extends ToolDefinition {
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
     initialMaxPrompt?: string
     onMaxOpen?: () => void
+    className?: string
 }
 
 function generateBurstPoints(spikeCount: number, spikiness: number): string {
@@ -52,6 +53,7 @@ export function MaxTool({
     children: Children,
     initialMaxPrompt,
     onMaxOpen,
+    className,
 }: MaxToolProps): JSX.Element {
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
@@ -119,9 +121,10 @@ export function MaxTool({
     return (
         <div
             className={clsx(
-                'relative',
+                'relative flex flex-col',
                 // Rounding is +1px to account for the border
-                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]'
+                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                className
             )}
         >
             {content}

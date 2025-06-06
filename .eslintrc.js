@@ -132,6 +132,14 @@ module.exports = {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
                     },
+                    {
+                        name: 'chart.js',
+                        message: "Do not directly import chart.js. Only import the Chart and friends exported from lib/Chart.",
+                    },
+                    {
+                        name: 'chart.js/auto',
+                        message: "Do not directly import chart.js/auto. Only import the Chart and friends exported from lib/Chart.",
+                    },
                 ],
             },
         ],
