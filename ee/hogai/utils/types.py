@@ -1,3 +1,4 @@
+import json
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
@@ -65,6 +66,28 @@ def add_and_merge_messages(
     return merged
 
 
+IntermediateStep = tuple[AgentAction, Optional[str]]
+
+
+def update_intermediate_steps(
+    left: Optional[list[IntermediateStep]], right: list[IntermediateStep]
+) -> list[IntermediateStep]:
+    """If a step with the same tool and tool input already exists, update that; otherwise append."""
+    if not right:
+        return []  # Reset on empty `right`
+    left_action_map = {
+        (step[0].tool, json.dumps(step[0].tool_input, sort_keys=True)): i for i, step in enumerate(left or [])
+    }
+    new_left = left.copy() if left else []
+    for new_step in right:
+        key = (new_step[0].tool, json.dumps(new_step[0].tool_input, sort_keys=True))
+        if existing_step_idx := left_action_map.get(key):
+            new_left[existing_step_idx] = new_step
+        else:
+            new_left.append(new_step)
+    return new_left
+
+
 class _SharedAssistantState(BaseModel):
     """
     The state of the root node.
@@ -79,7 +102,7 @@ class _SharedAssistantState(BaseModel):
     Whether the graph was interrupted or resumed.
     """
 
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    intermediate_steps: Annotated[Optional[list[IntermediateStep]], update_intermediate_steps] = Field(default=None)
     """
     Actions taken by the ReAct agent.
     """
@@ -114,7 +137,7 @@ class _SharedAssistantState(BaseModel):
     """
     The insight plan to generate.
     """
-    root_tool_insight_type: Optional[str] = Field(default=None)
+    root_tool_insight_type: Optional[str] = Field(default=None, deprecated=True)
     """
     The type of insight to generate.
     """
@@ -169,20 +192,14 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
-    TRENDS_PLANNER = "trends_planner"
-    TRENDS_PLANNER_TOOLS = "trends_planner_tools"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
-    FUNNEL_PLANNER = "funnel_planner"
-    FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
     FUNNEL_GENERATOR = "funnel_generator"
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
-    RETENTION_PLANNER = "retention_planner"
-    RETENTION_PLANNER_TOOLS = "retention_planner_tools"
     RETENTION_GENERATOR = "retention_generator"
     RETENTION_GENERATOR_TOOLS = "retention_generator_tools"
-    SQL_PLANNER = "sql_planner"
-    SQL_PLANNER_TOOLS = "sql_planner_tools"
+    QUERY_PLANNER = "query_planner"
+    QUERY_PLANNER_TOOLS = "query_planner_tools"
     SQL_GENERATOR = "sql_generator"
     SQL_GENERATOR_TOOLS = "sql_generator_tools"
     QUERY_EXECUTOR = "query_executor"

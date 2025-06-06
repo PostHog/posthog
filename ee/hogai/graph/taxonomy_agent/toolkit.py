@@ -1,12 +1,10 @@
-import re
 import xml.etree.ElementTree as ET
-from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from functools import cached_property
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import BaseModel, Field, RootModel
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
@@ -65,23 +63,6 @@ class RetrieveActionPropertiesValuesTool(BaseModel):
     arguments: RetrieveActionPropertiesValuesArgs
 
 
-class FinalAnswerTool(BaseModel):
-    name: Literal["final_answer"]
-    arguments: str
-
-    @field_validator("arguments", mode="before")
-    def normalize_plan(cls, plan: str) -> str:
-        """
-        Normalize the generated plan, so the `action` entity becomes `event`.
-        """
-        return re.sub(
-            r"-\s*(entity:)?\s*action(?!\s*id)",
-            "- entity: event",
-            plan,
-            flags=re.IGNORECASE | re.MULTILINE,
-        )
-
-
 class SingleArgumentTaxonomyAgentTool(BaseModel):
     name: Literal[
         "retrieve_entity_properties",
@@ -98,7 +79,6 @@ TaxonomyAgentToolUnion = Union[
     RetrieveEventPropertiesValuesTool,
     RetrieveActionPropertiesTool,
     RetrieveActionPropertiesValuesTool,
-    FinalAnswerTool,
 ]
 
 
@@ -106,7 +86,7 @@ class TaxonomyAgentTool(RootModel[TaxonomyAgentToolUnion]):
     root: TaxonomyAgentToolUnion = Field(..., discriminator="name")
 
 
-class TaxonomyAgentToolkit(ABC):
+class TaxonomyAgentToolkit:
     _team: Team
 
     def __init__(self, team: Team):
@@ -123,9 +103,8 @@ class TaxonomyAgentToolkit(ABC):
             for tool in self._get_tools()
         ]
 
-    @abstractmethod
     def _get_tools(self) -> list[ToolkitTool]:
-        raise NotImplementedError
+        return self._default_tools
 
     @property
     def _default_tools(self) -> list[ToolkitTool]:
@@ -218,29 +197,6 @@ class TaxonomyAgentToolkit(ABC):
                 """,
             },
         ]
-
-    def render_text_description(self) -> str:
-        """
-        Render the tool name and description in plain text.
-
-        Returns:
-            The rendered text.
-
-        Output will be in the format of:
-
-        .. code-block:: markdown
-
-            search: This tool is used for search
-            calculator: This tool is used for math
-        """
-        root = ET.Element("tools")
-        for tool in self.tools:
-            tool_tag = ET.SubElement(root, "tool")
-            name_tag = ET.SubElement(tool_tag, "name")
-            name_tag.text = f"{tool['name']}{tool['signature']}"
-            description_tag = ET.SubElement(tool_tag, "description")
-            description_tag.text = tool["description"]
-        return ET.tostring(root, encoding="unicode")
 
     @property
     def _groups(self):

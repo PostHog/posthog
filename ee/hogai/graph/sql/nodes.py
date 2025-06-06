@@ -4,9 +4,7 @@ from langchain_core.runnables import RunnableConfig
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ..schema_generator.utils import SchemaGeneratorOutput
-from ..taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from .prompts import SQL_REACT_SYSTEM_PROMPT
-from .toolkit import SQL_SCHEMA, SQLTaxonomyAgentToolkit
+from .toolkit import SQL_SCHEMA
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import HOGQL_EXAMPLE_MESSAGE, IDENTITY_MESSAGE, SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
@@ -15,25 +13,6 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.schema import AssistantHogQLQuery
-
-
-class SQLPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = SQLTaxonomyAgentToolkit(self._team)
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", SQL_REACT_SYSTEM_PROMPT),
-            ],
-            template_format="mustache",
-        )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
-
-
-class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = SQLTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
-
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 

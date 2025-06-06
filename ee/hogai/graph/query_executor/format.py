@@ -516,7 +516,7 @@ class SQLResultsFormatter:
     Compresses and formats SQL results into a LLM-friendly string.
     """
 
-    def __init__(self, query: AssistantHogQLQuery, results: list[dict[str, Any]], columns: list[str]):
+    def __init__(self, query: AssistantHogQLQuery, results: list[list[Any]], columns: list[str]):
         self._query = query
         self._results = results
         self._columns = columns
@@ -525,5 +525,5 @@ class SQLResultsFormatter:
         lines: list[str] = []
         lines.append("|".join(self._columns))
         for row in self._results:
-            lines.append("|".join([str(cell) for cell in row.values()]))
+            lines.append("|".join([str(cell) for cell in row]))
         return "\n".join(lines)
