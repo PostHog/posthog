@@ -9,6 +9,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -16,7 +17,6 @@ import { urls } from 'scenes/urls'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
-    CurrencyCode,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,
@@ -210,7 +210,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? CurrencyCode.USD)
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? DEFAULT_CURRENCY)
         return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
             isPrefix ? '' : ' ' + symbol
         }`

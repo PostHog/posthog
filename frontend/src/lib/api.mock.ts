@@ -169,6 +169,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     marketing_analytics_config: {
         sources_map: {},
     },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

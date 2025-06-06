@@ -38,6 +38,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
+    CurrencyCode,
     DashboardFilter,
     DatabaseSchemaField,
     ErrorTrackingIssueAssignee,
@@ -643,6 +644,7 @@ export interface TeamType extends TeamBasicType {
     default_data_theme?: number
     flags_persistence_default: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
+    base_currency: CurrencyCode
 }
 
 export interface ProductIntentType {

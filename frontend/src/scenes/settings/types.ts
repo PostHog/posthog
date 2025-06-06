@@ -142,6 +142,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
     | 'marketing-analytics-external-data-sources'
+    | 'base-currency'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

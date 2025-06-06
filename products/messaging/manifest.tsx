@@ -1,5 +1,5 @@
 import { IconCursor } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -102,17 +102,17 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Broadcasts',
+            category: 'Behavior',
             href: urls.messagingBroadcasts(),
             type: 'hog_function/broadcast',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: 'Campaigns',
+            category: 'Behavior',
             href: urls.messagingCampaigns(),
             type: 'hog_function/campaign',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },
