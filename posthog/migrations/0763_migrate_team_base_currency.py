@@ -39,7 +39,7 @@ def migrate_revenue_base_currency(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0760_team_base_currency"),
+        ("posthog", "0762_team_base_currency"),
     ]
 
     operations = [
