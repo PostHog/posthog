@@ -47,6 +47,7 @@ export interface PersonsStoreForBatch {
     updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
+        distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]>
 
@@ -58,6 +59,7 @@ export interface PersonsStoreForBatch {
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
+        distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]>
 
@@ -67,13 +69,14 @@ export interface PersonsStoreForBatch {
     updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
+        distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]>
 
     /**
      * Deletes a person
      */
-    deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]>
 
     /**
      * Adds a distinct ID to a person
@@ -88,7 +91,12 @@ export interface PersonsStoreForBatch {
     /**
      * Moves distinct IDs from one person to another
      */
-    moveDistinctIds(source: InternalPerson, target: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
+    moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<TopicMessage[]>
 
     /**
      * Updates cohorts and feature flags for merged persons
@@ -97,6 +105,7 @@ export interface PersonsStoreForBatch {
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
         targetPersonID: InternalPerson['id'],
+        distinctId: string,
         tx?: TransactionClient
     ): Promise<void>
 
