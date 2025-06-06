@@ -16,7 +16,14 @@ import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTest
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb, HogFunctionType, HogFunctionTypeType, PipelineTab } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    HogFunctionFilterPropertyFilter,
+    HogFunctionType,
+    HogFunctionTypeType,
+    PipelineTab,
+} from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
@@ -58,7 +65,9 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 if (!configuration?.filters?.properties) {
                     return undefined
                 }
-                const alertIdProp = configuration.filters.properties.find((p: any) => p.key === 'alert_id')
+                const alertIdProp = configuration.filters.properties.find(
+                    (p: HogFunctionFilterPropertyFilter) => p.key === 'alert_id'
+                )
                 const value = alertIdProp?.value
                 return value ? String(value) : undefined
             },
@@ -126,24 +135,21 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 if (type === 'internal_destination') {
                     // Returns a Scene that is closest to the element based on the configuration.
                     // This is used to help the HogFunctionScene render correct breadcrumbs and redirections
-                    if (configuration?.type === 'internal_destination') {
-                        if (configuration?.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
-                            // Error tracking scene
-                            return [
-                                {
-                                    key: Scene.ErrorTracking,
-                                    name: 'Error tracking',
-                                    path: urls.errorTracking(),
-                                },
-                                {
-                                    key: Scene.HogFunction,
-                                    name: 'Alerts',
-                                    path:
-                                        urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
-                                },
-                                finalCrumb,
-                            ]
-                        }
+                    if (configuration?.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
+                        // Error tracking scene
+                        return [
+                            {
+                                key: Scene.ErrorTracking,
+                                name: 'Error tracking',
+                                path: urls.errorTracking(),
+                            },
+                            {
+                                key: Scene.HogFunction,
+                                name: 'Alerts',
+                                path: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
+                            },
+                            finalCrumb,
+                        ]
                     }
 
                     return [
