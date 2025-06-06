@@ -565,17 +565,17 @@ def WEB_STATS_EXPORT_SQL(
         'Native'
     )
     SELECT
-        day_bucket,
+        period_bucket,
         team_id,
         persons_uniq_state,
         sessions_uniq_state,
         pageviews_count_state
     FROM {table_name}
-    WHERE day_bucket >= toDateTime('{date_start}', '{timezone}')
-        AND day_bucket < toDateTime('{date_end}', '{timezone}')
+    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
+        AND period_bucket < toDateTime('{date_end}', '{timezone}')
         {team_ids_filter}
-    GROUP BY team_id, day_bucket, persons_uniq_state, sessions_uniq_state, pageviews_count_state
-    ORDER BY team_id, day_bucket
+    GROUP BY team_id, period_bucket, persons_uniq_state, sessions_uniq_state, pageviews_count_state
+    ORDER BY team_id, period_bucket
     SETTINGS {settings}
     """
 
@@ -599,7 +599,7 @@ def WEB_BOUNCES_EXPORT_SQL(
         'Native'
     )
     SELECT
-        day_bucket,
+        period_bucket,
         team_id,
         persons_uniq_state,
         sessions_uniq_state,
@@ -607,11 +607,11 @@ def WEB_BOUNCES_EXPORT_SQL(
         bounces_count_state,
         total_session_duration_state
     FROM {table_name}
-    WHERE day_bucket >= toDateTime('{date_start}', '{timezone}')
-        AND day_bucket < toDateTime('{date_end}', '{timezone}')
+    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
+        AND period_bucket < toDateTime('{date_end}', '{timezone}')
         {team_ids_filter}
-    GROUP BY day_bucket, team_id, persons_uniq_state, sessions_uniq_state, pageviews_count_state, bounces_count_state, total_session_duration_state
-    ORDER BY team_id, day_bucket
+    GROUP BY period_bucket, team_id, persons_uniq_state, sessions_uniq_state, pageviews_count_state, bounces_count_state, total_session_duration_state
+    ORDER BY team_id, period_bucket
     SETTINGS {settings}
     """
 
