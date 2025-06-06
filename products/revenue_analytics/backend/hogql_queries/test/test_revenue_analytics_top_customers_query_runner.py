@@ -236,12 +236,12 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("John Doe", "cus_1", Decimal("393.7"), "all"),
-                ("Jane Doe", "cus_2", Decimal("336.2"), "all"),
-                ("John Smith", "cus_3", Decimal("21898.92"), "all"),
-                ("Jane Smith", "cus_4", Decimal("214.5"), "all"),
-                ("John Doe Jr", "cus_5", Decimal("686.5"), "all"),
-                ("John Doe Jr Jr", "cus_6", Decimal("10987.18"), "all"),
+                ("John Doe", "cus_1", Decimal("313.7789"), "all"),
+                ("Jane Doe", "cus_2", Decimal("267.9514"), "all"),
+                ("John Smith", "cus_3", Decimal("17453.43924"), "all"),
+                ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
+                ("John Doe Jr", "cus_5", Decimal("547.1405"), "all"),
+                ("John Doe Jr Jr", "cus_6", Decimal("8756.78246"), "all"),
             ],
         )
 
