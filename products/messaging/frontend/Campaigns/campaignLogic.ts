@@ -1,4 +1,5 @@
-import { actions, afterMount, connect, kea, key, path, props } from 'kea'
+import { afterMount, connect, kea, key, path, props } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import type { campaignLogicType } from './campaignLogicType'
@@ -27,10 +28,25 @@ export const campaignLogic = kea<campaignLogicType>([
     connect(() => ({
         values: [campaignSceneLogic, ['currentTab']],
     })),
-    actions({
-        updateCampaignName: (name: string) => ({ name }),
-        updateWorkflow: (workflow: Workflow['workflow']) => ({ workflow }),
-    }),
+    forms(() => ({
+        campaign: {
+            defaults: {
+                ...DEFAULT_WORKFLOW,
+                triggerEvents: {},
+                hasConversionGoal: false,
+                conversionProperties: [],
+                conversionWindowMinutes: 7 * 24 * 60, // 7 days in minutes
+                collectionMethod: 'exit_only_at_end',
+            },
+            errors: ({ name }) => ({
+                name: !name ? 'Please enter a name' : undefined,
+            }),
+            submit: async (values) => {
+                // TODO: Add API call to save campaign
+                alert(`Submitting campaign: ${JSON.stringify(values)}`)
+            },
+        },
+    })),
     loaders(({ props }) => ({
         campaign: [
             { ...DEFAULT_WORKFLOW } as Workflow,
@@ -42,9 +58,6 @@ export const campaignLogic = kea<campaignLogicType>([
 
                     // TODO: Add GET /hog_flows/{id} API call
                     return { ...DEFAULT_WORKFLOW, name: 'My campaign', description: 'Lorem ipsum dolor sit amet' }
-                },
-                updateCampaignName: ({ name }: { name: string }) => {
-                    return { ...DEFAULT_WORKFLOW, name }
                 },
             },
         ],
