@@ -1,5 +1,5 @@
 import { IconCursor } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -18,12 +18,17 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/Library/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/Library/MessageTemplate'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -43,6 +48,7 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
@@ -96,17 +102,17 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Broadcasts',
+            category: 'Behaviour',
             href: urls.messagingBroadcasts(),
             type: 'hog_function/broadcast',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: 'Campaigns',
+            category: 'Behaviour',
             href: urls.messagingCampaigns(),
             type: 'hog_function/campaign',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },

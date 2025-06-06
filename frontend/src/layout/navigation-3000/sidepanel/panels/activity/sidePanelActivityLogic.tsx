@@ -122,6 +122,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         const pollTimeoutMilliseconds = values.errorCounter
                             ? POLL_TIMEOUT * values.errorCounter
                             : POLL_TIMEOUT
+                        // eslint-disable-next-line @typescript-eslint/no-implied-eval
                         cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
                     }
                 },

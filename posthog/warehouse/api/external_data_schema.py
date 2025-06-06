@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
 )
+from posthog.temporal.data_imports.pipelines.doit.source import DOIT_INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.pipelines.mssql import (
     MSSQLSourceConfig,
     get_schemas as get_mssql_schemas,
@@ -55,7 +56,7 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from posthog.warehouse.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
 
@@ -366,14 +367,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
         elif source.source_type == ExternalDataSource.Type.DOIT:
-            incremental_columns = [
-                {
-                    "field": "timestamp",
-                    "field_type": IncrementalFieldType.Timestamp,
-                    "label": "timestamp",
-                    "type": IncrementalFieldType.Timestamp,
-                }
-            ]
+            incremental_columns = DOIT_INCREMENTAL_FIELDS
 
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
