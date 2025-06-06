@@ -32,7 +32,6 @@ from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
 from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
-from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
 from .mailchimp.template_mailchimp import template as mailchimp
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
@@ -76,7 +75,6 @@ HOG_FUNCTION_TEMPLATES = [
     discord,
     engage,
     gleap,
-    google_ads,
     google_cloud_storage,
     google_pubsub,
     hubspot,
