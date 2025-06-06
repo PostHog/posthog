@@ -6,6 +6,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
 import posthoganalytics
 
+
 logger = structlog.get_logger(__name__)
 
 POSTHOG_TEAM_ID = 2
@@ -41,15 +42,23 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         )
         return
 
+    # Get the unique persons enrolled in the feature along with their distinct ID
     response = execute_hogql_query(
         """
         SELECT
-            id,
-            JSONExtractString(properties, 'email') as email
+            argMax(id, created_at) AS id,
+            JSONExtractString(properties, 'email') AS email,
+            argMax(pdi.distinct_id, created_at) as distinct_id
         FROM persons
-        WHERE JSONExtractString(properties, {enrollment_key}) = 'true'
+        WHERE JSONExtractString(properties, '{enrollment_key}') = 'true'
+        AND team_id = {team_id}
+        AND notEmpty(JSONExtractString(properties, 'email'))
+        GROUP BY JSONExtractString(properties, 'email')
         """,
-        placeholders={"enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature_flag.key}")},
+        placeholders={
+            "enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature_flag.key}"),
+            "team_id": ast.Constant(value=instance.team.id),
+        },
         team=instance.team,
     )
 
@@ -57,13 +66,11 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     print(f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature {feature_id}")  # noqa: T201
 
-    for person in enrolled_persons:
-        [id, email] = person
-
-        print(f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {id}")  # noqa: T201
+    for id, email, distinct_id in enrolled_persons:
+        print(f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {id} with distinct_id {distinct_id}")  # noqa: T201
 
         posthoganalytics.capture(
-            str(id),
+            distinct_id,
             "user moved feature preview stage",
             {
                 "from": from_stage,
@@ -75,4 +82,4 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             },
         )
 
-        print(f"[CELERY][EARLY ACCESS FEATURE] Sent event for person {id}")  # noqa: T201
+        print(f"[CELERY][EARLY ACCESS FEATURE] Sent event for person {id} with distinct_id {distinct_id}")  # noqa: T201
