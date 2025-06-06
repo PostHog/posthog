@@ -12,7 +12,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
 import { uuidFromDistinctId } from './person-uuid'
-import { PersonsStoreForDistinctIdBatch } from './persons/persons-store-for-distinct-id-batch'
+import { PersonsStoreForBatch } from './persons/persons-store-for-batch'
 import { captureIngestionWarning } from './utils'
 
 interface PropertyUpdates {
@@ -126,7 +126,7 @@ export class PersonState {
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
         private kafkaProducer: KafkaProducerWrapper,
-        private personStore: PersonsStoreForDistinctIdBatch,
+        private personStore: PersonsStoreForBatch,
         private measurePersonJsonbSize: number = 0,
         private useOptimizedJSONBUpdates: number = 0.0
     ) {

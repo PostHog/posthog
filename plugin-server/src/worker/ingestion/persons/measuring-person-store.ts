@@ -5,7 +5,6 @@ import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
-import { logger } from '../../../utils/logger'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -15,7 +14,6 @@ import {
 } from './metrics'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
-import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
 
 type MethodName =
     | 'fetchForChecking'
@@ -71,52 +69,6 @@ export class MeasuringPersonsStore implements PersonsStore {
 }
 
 export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
-    private distinctIdStores: Map<string, MeasuringPersonsStoreForDistinctIdBatch>
-
-    constructor(private db: DB, private options: PersonsStoreOptions) {
-        this.distinctIdStores = new Map()
-    }
-
-    forDistinctID(token: string, distinctId: string): PersonsStoreForDistinctIdBatch {
-        const key = `${token}:${distinctId}`
-        if (!this.distinctIdStores.has(key)) {
-            this.distinctIdStores.set(
-                key,
-                new MeasuringPersonsStoreForDistinctIdBatch(this.db, token, distinctId, this.options)
-            )
-        } else {
-            logger.warn('⚠️', 'Reusing existing persons store for distinct ID in batch', { token, distinctId })
-        }
-        return this.distinctIdStores.get(key)!
-    }
-
-    reportBatch(): void {
-        for (const store of this.distinctIdStores.values()) {
-            const methodCounts = store.getMethodCounts()
-            for (const [method, count] of methodCounts.entries()) {
-                personMethodCallsPerBatchHistogram.observe({ method }, count)
-            }
-
-            const databaseCounts = store.getDatabaseOperationCounts()
-            for (const [operation, count] of databaseCounts.entries()) {
-                personDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
-            }
-
-            const updateLatencyPerDistinctId = store.getUpdateLatencyPerDistinctIdSeconds()
-            for (const [updateType, latency] of updateLatencyPerDistinctId.entries()) {
-                totalPersonUpdateLatencyPerBatchHistogram.observe({ update_type: updateType }, latency)
-            }
-
-            const cacheMetrics = store.getCacheMetrics()
-            personCacheOperationsCounter.inc({ cache: 'update', operation: 'hit' }, cacheMetrics.updateCacheHits)
-            personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, cacheMetrics.updateCacheMisses)
-            personCacheOperationsCounter.inc({ cache: 'check', operation: 'hit' }, cacheMetrics.checkCacheHits)
-            personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, cacheMetrics.checkCacheMisses)
-        }
-    }
-}
-
-export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
     private cacheMetrics: CacheMetrics
     private databaseOperationCounts: Map<MethodName, number>
@@ -140,12 +92,12 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     constructor(
         private db: DB,
-        private token: string,
-        private distinctId: string,
         private options: PersonsStoreOptions = {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
-        }
+        },
+        private token?: string,
+        private distinctId?: string
     ) {
         this.methodCounts = new Map()
         this.databaseOperationCounts = new Map()
@@ -171,7 +123,24 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         }
     }
 
-    // Public interface methods
+    reportBatch(): void {
+        for (const [method, count] of this.getMethodCounts().entries()) {
+            personMethodCallsPerBatchHistogram.observe({ method }, count)
+        }
+
+        for (const [operation, count] of this.getDatabaseOperationCounts().entries()) {
+            personDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
+        }
+
+        for (const [updateType, latency] of this.getUpdateLatencyPerDistinctIdSeconds().entries()) {
+            totalPersonUpdateLatencyPerBatchHistogram.observe({ update_type: updateType }, latency)
+        }
+
+        personCacheOperationsCounter.inc({ cache: 'update', operation: 'hit' }, this.cacheMetrics.updateCacheHits)
+        personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, this.cacheMetrics.updateCacheMisses)
+        personCacheOperationsCounter.inc({ cache: 'check', operation: 'hit' }, this.cacheMetrics.checkCacheHits)
+        personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, this.cacheMetrics.checkCacheMisses)
+    }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
         return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)

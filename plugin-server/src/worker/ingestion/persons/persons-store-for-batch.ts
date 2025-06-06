@@ -1,12 +1,119 @@
-import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
+import { Properties } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
+
+import { TopicMessage } from '../../../kafka/producer'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
+import { TransactionClient } from '../../../utils/db/postgres'
 
 export interface PersonsStoreForBatch {
     /**
-     * Returns an instance of PersonsStoreForDistinctID for handling distinct ID operations
-     * @param token - The token (team ID) for the distinct ID operations
-     * @param distinctId - The distinct ID to operate on
+     * Executes a function within a transaction
+     * @param description - Description of the transaction for logging
+     * @param transaction - Function to execute within the transaction, receives a transaction client
      */
-    forDistinctID(token: string, distinctId: string): PersonsStoreForDistinctIdBatch
+    inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T>
+
+    /**
+     * Fetches a person by team ID and distinct ID for checking existence
+     * Uses read replica when available
+     */
+    fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null>
+
+    /**
+     * Fetches a person by team ID and distinct ID with a row-level lock
+     * Always uses primary database
+     */
+    fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null>
+
+    /**
+     * Creates a new person
+     */
+    createPerson(
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        teamId: number,
+        isUserId: number | null,
+        isIdentified: boolean,
+        uuid: string,
+        distinctIds?: { distinctId: string; version?: number }[],
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
+
+    /**
+     * Updates an existing person for regular updates
+     */
+    updatePersonForUpdate(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
+
+    /**
+     * Updates an existing person with a properties diff rather than the entire property object
+     */
+    updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
+
+    /**
+     * Updates an existing person for merge operations
+     */
+    updatePersonForMerge(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
+
+    /**
+     * Deletes a person
+     */
+    deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
+
+    /**
+     * Adds a distinct ID to a person
+     */
+    addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<TopicMessage[]>
+
+    /**
+     * Moves distinct IDs from one person to another
+     */
+    moveDistinctIds(source: InternalPerson, target: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
+
+    /**
+     * Updates cohorts and feature flags for merged persons
+     */
+    updateCohortsAndFeatureFlagsForMerge(
+        teamID: Team['id'],
+        sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        tx?: TransactionClient
+    ): Promise<void>
+
+    /**
+     * Adds a personless distinct ID
+     */
+    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
+
+    /**
+     * Adds a personless distinct ID during merge
+     */
+    addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean>
+
+    /**
+     * Returns the size of the person properties
+     */
+    personPropertiesSize(teamId: number, distinctId: string): Promise<number>
 
     /**
      * Reports metrics about person operations in batch
