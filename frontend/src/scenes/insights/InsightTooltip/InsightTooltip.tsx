@@ -45,7 +45,7 @@ export function ClickToInspectActors({
 }
 
 function renderDatumToTableCell(
-    datumMathProperty: string | undefined,
+    datumMathProperty: string | undefined | null,
     datumValue: number | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode,
@@ -82,25 +82,24 @@ export function InsightTooltip({
     embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
-    formula,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
     groupTypeLabel = 'people',
     breakdownFilter,
 }: InsightTooltipProps): JSX.Element {
-    // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
-    // If only a single entity exists, itemize entity counts as rows.
-    // Throw these rules out the window if `formula` is set
+    // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
+    // and the insight has a breakdown or compare option enabled. This gives us space for labels
+    // in the first column of each row.
     const itemizeEntitiesAsColumns =
-        !!formula ||
-        ((seriesData?.length ?? 0) > 1 &&
-            (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined))
+        (seriesData?.length ?? 0) > 1 &&
+        (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const concreteTooltipTitle = getTooltipTitle(seriesData, altTitle, date)
     const title: ReactNode | null =
-        getTooltipTitle(seriesData, altTitle, date) ||
+        concreteTooltipTitle ||
         (date
             ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
                   timezone ? shortTimeZone(timezone) : 'UTC'
@@ -139,13 +138,14 @@ export function InsightTooltip({
                     align: 'right',
                     title:
                         (colIdx === 0 ? rightTitle : undefined) ||
-                        (!altTitle &&
+                        (!concreteTooltipTitle &&
+                            numDataPoints > 1 &&
                             renderSeries(
                                 <InsightLabel
                                     action={seriesColumn.action}
                                     fallbackName={seriesColumn.label}
-                                    hideBreakdown
                                     showSingleName
+                                    hideBreakdown
                                     hideCompare
                                     hideIcon
                                     allowWrap
@@ -205,8 +205,8 @@ export function InsightTooltip({
                 <InsightLabel
                     action={datum.action}
                     fallbackName={datum.label}
-                    hideBreakdown
                     showSingleName
+                    hideBreakdown
                     hideCompare
                     hideIcon
                     allowWrap
