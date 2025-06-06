@@ -125,7 +125,7 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                 Object.entries(actual.snapshotsByWindowId).map(([windowId, snapshots]) => [
                     windowId,
                     snapshots.map((snapshot) => {
-                        const { seen, ...rest } = snapshot
+                        const { seen, ...rest } = snapshot as any
                         return rest
                     }),
                 ])
