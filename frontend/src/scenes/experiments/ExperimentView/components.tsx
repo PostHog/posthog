@@ -28,7 +28,9 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
+    CachedExperimentQueryResponse,
     ExperimentFunnelsQueryResponse,
+    ExperimentQueryResponse,
     ExperimentTrendsQueryResponse,
     FunnelsQuery,
     InsightQueryNode,
@@ -49,8 +51,9 @@ import {
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
+import { experimentResultBreakdownLogic } from '../experimentResultBreakdownLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { getExperimentInsightColour } from '../utils'
+import { getExperimentInsightColour, metricToQuery } from '../utils'
 
 export function VariantTag({
     experimentId,
@@ -134,7 +137,63 @@ export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.E
     )
 }
 
+/**
+ * shows a breakdown of the results for ExperimentQueryResponse
+ */
 export function ResultsQuery({
+    result,
+    experiment,
+}: {
+    result: CachedExperimentQueryResponse
+    experiment: Experiment
+}): JSX.Element | null {
+    /**
+     * we get the generated query and the results from the breakdown logic
+     */
+    const { breakdownResults } = useValues(experimentResultBreakdownLogic({ experiment, metric: result.metric }))
+
+    if (!breakdownResults) {
+        return null
+    }
+
+    const { query, results } = breakdownResults
+
+    const fakeInsightId = Math.random().toString(36).substring(2, 15)
+
+    return (
+        <Query
+            query={{
+                kind: NodeKind.InsightVizNode,
+                source: query,
+                showTable: true,
+                showLastComputation: true,
+                showLastComputationRefresh: false,
+            }}
+            context={{
+                insightProps: {
+                    dashboardItemId: fakeInsightId as InsightShortId,
+                    cachedInsight: {
+                        short_id: fakeInsightId as InsightShortId,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: query,
+                        } as InsightVizNode,
+                        result: results,
+                        disable_baseline: true,
+                    },
+                    doNotLoad: true,
+                },
+            }}
+            readOnly
+        />
+    )
+}
+
+/**
+ * shows a breakdown query for legacy metrics
+ * @deprecated use ResultsQuery
+ */
+export function LegacyResultsQuery({
     result,
     showTable,
 }: {
@@ -146,6 +205,7 @@ export function ResultsQuery({
     }
 
     const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
+
     const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
     return (
@@ -181,18 +241,27 @@ export function ExploreButton({
     result,
     size = 'small',
 }: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    result: ExperimentQueryResponse | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     size?: 'xsmall' | 'small' | 'large'
 }): JSX.Element {
     if (!result) {
         return <></>
     }
 
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: (result.kind === NodeKind.ExperimentTrendsQuery
-            ? result.count_query
-            : result.funnels_query) as InsightQueryNode,
+    let query: InsightVizNode
+
+    if (result.kind === NodeKind.ExperimentQuery) {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: metricToQuery(result.metric, true) as InsightQueryNode,
+        }
+    } else {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: (result.kind === NodeKind.ExperimentTrendsQuery
+                ? result.count_query
+                : result.funnels_query) as InsightQueryNode,
+        }
     }
 
     return (

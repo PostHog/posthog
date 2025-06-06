@@ -2,6 +2,8 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
+import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -11,9 +13,11 @@ import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
+import { isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     ExploreButton,
+    LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
     ResultsQuery,
@@ -37,6 +41,7 @@ const ResultsTab = (): JSX.Element => {
         metricResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
+
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
@@ -58,28 +63,46 @@ const ResultsTab = (): JSX.Element => {
                     <Overview />
                 </div>
             )}
+            {/**
+             * Primary Metrics Panel (Add Metric and Delta Chart)
+             */}
             <MetricsView isSecondary={false} />
-            {/* Show detailed results if there's only a single primary metric */}
+            {/**
+             * Show a detailed results if:
+             * - there's a single primary metric
+             * - if the metric has insight results
+             * - if we have the minimum number of exposures
+             * - if it's the first primary metric (?)
+             */}
             {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                     </div>
-                    {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                    {metricResults?.[0] &&
-                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                            <>
+                    {metricResults?.[0] && (
+                        <>
+                            {isLegacyExperimentQuery(metricResults[0]) && (
                                 <div className="flex justify-end">
                                     <ExploreButton result={metricResults[0]} size="xsmall" />
                                 </div>
-                                <div className="pb-4">
-                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
-                                </div>
-                            </>
-                        )}
+                            )}
+                            <div className="pb-4">
+                                {isLegacyExperimentQuery(metricResults[0]) ? (
+                                    <LegacyResultsQuery result={metricResults[0] || null} showTable={true} />
+                                ) : (
+                                    <ResultsQuery
+                                        experiment={experiment}
+                                        result={metricResults[0] as CachedExperimentQueryResponse}
+                                    />
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
+            {/**
+             * Secondary Metrics Panel
+             */}
             <MetricsView isSecondary={true} />
         </>
     )

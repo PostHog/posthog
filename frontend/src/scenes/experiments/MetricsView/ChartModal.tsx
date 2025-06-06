@@ -6,9 +6,9 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { ExperimentIdType } from '~/types'
+import type { Experiment, ExperimentIdType } from '~/types'
 
-import { ExploreButton, ResultsQuery } from '../ExperimentView/components'
+import { ExploreButton, LegacyResultsQuery, ResultsQuery } from '../ExperimentView/components'
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 
@@ -20,6 +20,7 @@ interface ChartModalProps {
     isSecondary: boolean
     result: any
     experimentId: ExperimentIdType
+    experiment: Experiment
 }
 
 export function ChartModal({
@@ -30,6 +31,7 @@ export function ChartModal({
     isSecondary,
     result,
     experimentId,
+    experiment,
 }: ChartModalProps): JSX.Element {
     const isLegacyResult =
         result && (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery)
@@ -45,7 +47,6 @@ export function ChartModal({
                 </LemonButton>
             }
         >
-            {/* Only show explore button if the metric is a trends or funnels query */}
             {isLegacyResult && (
                 <div className="flex justify-end">
                     <ExploreButton result={result} />
@@ -58,8 +59,11 @@ export function ChartModal({
                 </div>
             </LemonBanner>
             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-            {/* Only show results query if the metric is a trends or funnels query */}
-            {isLegacyResult && <ResultsQuery result={result} showTable={true} />}
+            {isLegacyResult ? (
+                <LegacyResultsQuery result={result} showTable={true} />
+            ) : (
+                <ResultsQuery experiment={experiment} result={result} />
+            )}
         </LemonModal>
     )
 }
