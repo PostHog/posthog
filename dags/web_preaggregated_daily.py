@@ -21,8 +21,7 @@ from posthog.models.web_preaggregated.sql import (
 
 # From my tests, 14 (two weeks) is a sane value for production.
 # But locally we can run more partitions per run to speed up testing (e.g: 3000 to materialize everything on a single run)
-# TODO: I am currently setting it to 2 so the backfill can be kept running without clickinghouse getting overwhelmed
-max_partitions_per_run = int(os.getenv("DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN", 2))
+max_partitions_per_run = int(os.getenv("DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN", 14))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
 
 partition_def = DailyPartitionsDefinition(start_date="2020-01-01")
@@ -130,7 +129,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # The intance level config limits the job concurrency on the run queue
+        # The instance level config limits the job concurrency on the run queue
         # https://github.com/PostHog/charts/blob/chore/dagster-config/config/dagster/prod-us.yaml#L179-L181
     },
     # This limit the concurrency of the assets inside the job, so they run sequentially
