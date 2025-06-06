@@ -361,7 +361,8 @@ export class PersonState {
                 person,
                 propertyUpdate.toSet,
                 propertyUpdate.toUnset,
-                otherUpdates
+                otherUpdates,
+                this.distinctId
             )
             const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
@@ -382,7 +383,11 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonForUpdate(person, update)
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonForUpdate(
+                person,
+                update,
+                this.distinctId
+            )
             const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
@@ -883,6 +888,7 @@ export class PersonState {
                     //    Person_1(version:7) will "lose" to this new Person_1.
                     version: Math.max(mergeInto.version, otherPerson.version) + 1,
                 },
+                this.distinctId,
                 tx
             )
 
@@ -892,12 +898,18 @@ export class PersonState {
                 otherPerson.team_id,
                 otherPerson.id,
                 mergeInto.id,
+                this.distinctId,
                 tx
             )
 
-            const distinctIdMessages = await this.personStore.moveDistinctIds(otherPerson, mergeInto, tx)
+            const distinctIdMessages = await this.personStore.moveDistinctIds(
+                otherPerson,
+                mergeInto,
+                this.distinctId,
+                tx
+            )
 
-            const deletePersonMessages = await this.personStore.deletePerson(otherPerson, tx)
+            const deletePersonMessages = await this.personStore.deletePerson(otherPerson, this.distinctId, tx)
 
             return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
         })
