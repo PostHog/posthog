@@ -2,11 +2,11 @@ import asyncio
 from collections.abc import Generator
 from dataclasses import dataclass
 import dataclasses
+from datetime import timedelta
 import json
 import uuid
 import aiohttp
 import temporalio
-import time
 
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
@@ -26,7 +26,7 @@ class SessionSummaryInputs:
     user_pk: int
     summary_prompt: str
     system_prompt: str
-    simplified_events_mapping: dict[str, list[str | int | None]]
+    simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
     simplified_events_columns: list[str]
     url_mapping_reversed: dict[str, str]
     window_mapping_reversed: dict[str, str]
@@ -41,6 +41,28 @@ async def test_summary_activity(inputs: SessionSummaryInputs) -> SessionSummaryI
             return await resp.text()
 
 
+@temporalio.activity.defn
+async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
+    last_chunk = ""
+    session_summary_generator = stream_llm_session_summary(
+        session_id=inputs.session_id,
+        user_pk=inputs.user_pk,
+        summary_prompt=inputs.summary_prompt,
+        system_prompt=inputs.system_prompt,
+        allowed_event_ids=list(inputs.simplified_events_mapping.keys()),
+        simplified_events_mapping=inputs.simplified_events_mapping,
+        simplified_events_columns=inputs.simplified_events_columns,
+        url_mapping_reversed=inputs.url_mapping_reversed,
+        window_mapping_reversed=inputs.window_mapping_reversed,
+        session_start_time_str=inputs.session_start_time_str,
+        session_duration=inputs.session_duration,
+    )
+    # Iterate the async generator, store chunks, and return the combined result
+    async for chunk in session_summary_generator:
+        last_chunk = chunk
+    return last_chunk
+
+
 @temporalio.workflow.defn(name="summarize-session")
 class SummarizeSessionWorkflow(PostHogWorkflow):
     def __init__(self):
@@ -53,29 +75,24 @@ class SummarizeSessionWorkflow(PostHogWorkflow):
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> None:
-        parsed_inputs = json.loads(inputs[0])
-        return SessionSummaryInputs(**parsed_inputs)
+        try:
+            parsed_inputs = json.loads(inputs[0])
+            return SessionSummaryInputs(**parsed_inputs)
+        except Exception as e:
+            raise ValueError(f"Failed to parse inputs: {e}") from e
 
     @temporalio.workflow.run
     async def run(self, inputs: list[str]) -> str:
         parsed_inputs = self.parse_inputs(inputs)
-        session_summary_generator = stream_llm_session_summary(
-            session_id=parsed_inputs.session_id,
-            user_pk=parsed_inputs.user_pk,
-            summary_prompt=parsed_inputs.summary_prompt,
-            system_prompt=parsed_inputs.system_prompt,
-            allowed_event_ids=list(parsed_inputs.simplified_events_mapping.keys()),
-            simplified_events_mapping=parsed_inputs.simplified_events_mapping,
-            simplified_events_columns=parsed_inputs.simplified_events_columns,
-            url_mapping_reversed=parsed_inputs.url_mapping_reversed,
-            window_mapping_reversed=parsed_inputs.window_mapping_reversed,
-            session_start_time_str=parsed_inputs.session_start_time_str,
-            session_duration=parsed_inputs.session_duration,
+        # Run as activity with heartbeat timeout
+        result = await temporalio.workflow.execute_activity(
+            stream_llm_summary_activity,
+            parsed_inputs,
+            start_to_close_timeout=timedelta(minutes=5),
+            # heartbeat_timeout=timedelta(seconds=30),  # Important!
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        # Iterate the async generator, store chunks, and return the combined result
-        async for chunk in session_summary_generator:
-            self.chunks.append(chunk)
-        return "".join(self.chunks)
+        return result
 
 
 def excectute_test_summarize_session(
@@ -135,8 +152,8 @@ def excectute_test_summarize_session(
     )
     str_inputs = [json.dumps(dataclasses.asdict(inputs))]
     # Start streaming the workflow
-    handle = asyncio.run(
-        client.start_workflow(
+    result = asyncio.run(
+        client.execute_workflow(
             "summarize-session",
             str_inputs,
             id=random_id,
@@ -145,20 +162,21 @@ def excectute_test_summarize_session(
             retry_policy=retry_policy,
         )
     )
-    last_yielded = 0
-    while True:
-        # Query for current chunks
-        chunks = asyncio.run(handle.query("get_chunks"))
-        # Yield any new chunks
-        for chunk in chunks[last_yielded:]:
-            yield chunk
-        last_yielded = len(chunks)
-        # Check if workflow is done
-        desc = asyncio.run(handle.describe())
-        if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):  # all done states
-            break
-        time.sleep(0.5)
-    # After workflow is done, yield any remaining chunks (if any)
-    chunks = asyncio.run(handle.query("get_chunks"))
-    for chunk in chunks[last_yielded:]:
-        yield chunk
+    return result
+    # last_yielded = 0
+    # while True:
+    #     # Query for current chunks
+    #     chunks = asyncio.run(handle.query("get_chunks"))
+    #     # Yield any new chunks
+    #     for chunk in chunks[last_yielded:]:
+    #         yield chunk
+    #     last_yielded = len(chunks)
+    #     # Check if workflow is done
+    #     desc = asyncio.run(handle.describe())
+    #     if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):  # all done states
+    #         break
+    #     time.sleep(0.5)
+    # # After workflow is done, yield any remaining chunks (if any)
+    # chunks = asyncio.run(handle.query("get_chunks"))
+    # for chunk in chunks[last_yielded:]:
+    #     yield chunk
