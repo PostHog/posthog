@@ -12,7 +12,7 @@ import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsS
 
 export type SimpleDataWarehouseTable = {
     name: string
-    source_type: ExternalDataSource['source_type']
+    source_type: string
     id: string
     source_id: string
     source_prefix: string
@@ -28,7 +28,7 @@ interface SharedExternalDataSourceConfigurationProps {
     loading: boolean
     validSources: ExternalDataSource['source_type'][] | ManualLinkSourceType[]
     renderSourceIcon: (item: SimpleDataWarehouseTable) => JSX.Element
-    onSourceAdd: (source: any) => void
+    onSourceAdd: (source: any) => void // Need any because self-managed and non-native sources have different types
 }
 
 export function SharedExternalDataSourceConfiguration({
@@ -88,7 +88,7 @@ export function SharedExternalDataSourceConfiguration({
     }
 
     const removeTableMapping = (tableId: string): void => {
-        // Remove all field mappings for this table by setting each to undefined
+        // Remove all field mappings for this table by setting each to null
         const sourceMapping = sources_map?.[tableId]
 
         if (sourceMapping) {

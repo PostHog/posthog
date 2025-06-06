@@ -152,17 +152,19 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     )
 }
 
+const DOCS_BASE_URL = 'https://posthog.com/docs/cdp/sources/'
+
 export function getDataWarehouseSourceUrl(service: string): string {
     switch (service) {
         case 'aws':
-            return 'https://posthog.com/docs/cdp/sources/s3'
+            return `${DOCS_BASE_URL}s3`
         case 'google-cloud':
-            return 'https://posthog.com/docs/cdp/sources/gcs'
+            return `${DOCS_BASE_URL}gcs`
         case 'azure':
-            return 'https://posthog.com/docs/cdp/sources/azure-blob'
+            return `${DOCS_BASE_URL}azure-blob`
         case 'cloudflare-r2':
-            return 'https://posthog.com/docs/cdp/sources/r2'
+            return `${DOCS_BASE_URL}r2`
         default:
-            return `https://posthog.com/docs/cdp/sources/${service.toLowerCase()}`
+            return `${DOCS_BASE_URL}${service.toLowerCase()}`
     }
 }

@@ -9,7 +9,7 @@ import {
 } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, ManualLinkSourceType, PipelineNodeTab, PipelineStage } from '~/types'
+import { ManualLinkSourceType, PipelineNodeTab, PipelineStage } from '~/types'
 
 import {
     SharedExternalDataSourceConfiguration,
@@ -28,7 +28,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
         .map((source) => ({
             ...source,
             id: source.id,
-            source_type: mapUrlToSourceName(source.url_pattern) as ExternalDataSource['source_type'],
+            source_type: mapUrlToSourceName(source.url_pattern),
             source_id: source.id,
             source_prefix: '',
             name: source.name,

@@ -13,10 +13,10 @@ import {
 
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']
 
-const transformSourcesIntoTables = (sources: any[]): SimpleDataWarehouseTable[] => {
+const transformSourcesIntoTables = (sources: ExternalDataSource[]): SimpleDataWarehouseTable[] => {
     return sources
         .map((source) =>
-            source.schemas.map((schema: any) => ({
+            source.schemas.map((schema) => ({
                 ...schema,
                 source_type: source.source_type,
                 source_id: source.id,
