@@ -14,7 +14,6 @@ from temporalio.exceptions import ActivityError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
-from posthog.temporal.common.sentry import SentryInterceptor
 
 
 @dataclass
@@ -107,7 +106,7 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
             task_queue=task_queue,
             workflows=[OptionallyFailingWorkflow, OptionallyFailingWorkflowWithPropertiesToLog],
             activities=[failing_activity, failing_activity_with_properties_to_log],
-            interceptors=[SentryInterceptor(), PostHogClientInterceptor()],
+            interceptors=[PostHogClientInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             if fail:
