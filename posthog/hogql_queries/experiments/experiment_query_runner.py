@@ -58,7 +58,6 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
-    ExperimentMetricResult,
     ExperimentQueryResponse,
     ExperimentStatsBase,
     ExperimentSignificanceCode,
@@ -628,7 +627,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return sorted_results
 
-    def calculate(self) -> ExperimentQueryResponse | ExperimentMetricResult:
+    def calculate(self) -> ExperimentQueryResponse:
         sorted_results = self._evaluate_experiment_query()
 
         if self.stats_method == "frequentist":
@@ -769,6 +768,7 @@ class ExperimentQueryRunner(QueryRunner):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["experiment_response_version"] = 2
+        payload["stats_method"] = self.stats_method
         return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
