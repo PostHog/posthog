@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
@@ -8,7 +9,6 @@ import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipelin
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
-import { KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
 
 jest.mock('../../../../src/utils/logger')
 
