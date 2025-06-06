@@ -4014,7 +4014,7 @@ requires-dist = [
     { name = "statshog", specifier = "==1.0.6" },
     { name = "stripe", specifier = "==10.3.0" },
     { name = "structlog", specifier = "==23.2.0" },
-    { name = "temporalio", specifier = "==1.7.1" },
+    { name = "temporalio", specifier = "==1.8.0" },
     { name = "tenacity", specifier = ">=8.4.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
@@ -5655,20 +5655,20 @@ wheels = [
 
 [[package]]
 name = "temporalio"
-version = "1.7.1"
+version = "1.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
     { name = "types-protobuf" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/48/c8/2e3aa7eb5ff75129fd0531a9c0b854f35a41b32c4b373f1ddeb6acf2f658/temporalio-1.7.1.tar.gz", hash = "sha256:8250c391b33dd498dfd7d65a880c72b17e9b0e7cc04e7d444400be74c0fe4c85", size = 1300517 }
+sdist = { url = "https://files.pythonhosted.org/packages/10/25/90efe7c75de3c3c8fc14272edd7296c61f8a5c22c6cc6b0366f42fdf4a58/temporalio-1.8.0.tar.gz", hash = "sha256:b9e239b8bfd60126a4b591c6e2e691392b69afc8cac9db452d692654bf85f9cc", size = 1303762 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/1b/defa7afb3b26bb8f05202b26d32398a3611551d67d41409c789784959892/temporalio-1.7.1-cp38-abi3-macosx_10_9_x86_64.whl", hash = "sha256:3aff503662255c3e2fa1e9c07b8a702bf8ff1f7d99370b4a6785699c45e75527", size = 10377078 },
-    { url = "https://files.pythonhosted.org/packages/33/bb/1c1271c8c2d4ea0fe959a98450c45abce4ddfab698115640aaf6ef28c14f/temporalio-1.7.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:0685c7ece5ba639a1af7eb39939726c70c99ffe6c212be3f01f213753923fd88", size = 10066864 },
-    { url = "https://files.pythonhosted.org/packages/97/d9/b03168bb89bd77de14a94ab04e37bbced094ba0a16d2c9f703c17737c37d/temporalio-1.7.1-cp38-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:396e608c227a4f20cde7dfd3c7c8e2d8a9039cd76a40171668bb2b9a84d36bea", size = 10885210 },
-    { url = "https://files.pythonhosted.org/packages/30/41/e382acec104423cff27efd9fa5321296fd688f617a4d0997bfacb60d2ff8/temporalio-1.7.1-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:a38652e2556c384261f81f820b5f65f3b099767f18b9332628ec730cd31f0972", size = 10783356 },
-    { url = "https://files.pythonhosted.org/packages/31/bc/233f98d39887d98073898b182de4ce76853f21f1517c60dd580bf0c81807/temporalio-1.7.1-cp38-abi3-win_amd64.whl", hash = "sha256:9b3aea332f6686a424467b026cbc8a1e93c550dfb6f7d983d392090de3d92847", size = 10920946 },
+    { url = "https://files.pythonhosted.org/packages/b5/a2/3e2ac571de8645f9fcdad80faaf564dd865060c538239494c54a629eb798/temporalio-1.8.0-cp38-abi3-macosx_10_9_x86_64.whl", hash = "sha256:c6acb217d4bd7297389db756dd9da73ef2bae17f6afee1faa8bf77be200e8b93", size = 10377752 },
+    { url = "https://files.pythonhosted.org/packages/48/f1/f68064bd821a9c8eed1a139fa6e3865df1b0e3295f2fa74d8e0980cf373d/temporalio-1.8.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:6ec61660631b2513ce710b468068135280996af105571126295c9645bf29ee22", size = 10068302 },
+    { url = "https://files.pythonhosted.org/packages/43/76/73274306e1d09defb57ff246123c2018757fc6aaa6e9d510cbc2d6a8e917/temporalio-1.8.0-cp38-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:4ee13d155dc917e7792b87d1e37b1a0e837c361deb722ccc294edaa5344f2fa2", size = 10887067 },
+    { url = "https://files.pythonhosted.org/packages/ff/34/f812ddf9aeca077d16858c197c7879eeddba74bea8390e97d41466f75e0f/temporalio-1.8.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6b67c115b6eaceddae373dc2c597e5ad5dd567282f4bb0ee63c99124f5f0c12d", size = 10784271 },
+    { url = "https://files.pythonhosted.org/packages/d8/92/6550a06cbc27f5f3d416384c8d9fefbad9d2a5ffd21e7319daced402b1a1/temporalio-1.8.0-cp38-abi3-win_amd64.whl", hash = "sha256:6a45571c09859b6cbf33be26dd5d5fab7e7ee3625750a7b91ebde5770e61015b", size = 10922417 },
 ]
 
 [[package]]
