@@ -83,6 +83,7 @@ class QueryDateRange:
 
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone
+        delta_mapping = None
 
         if self._date_range and self._date_range.date_to:
             date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
