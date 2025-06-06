@@ -6,7 +6,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataJobStatus, manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataJobStatus, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
@@ -153,9 +153,16 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
 }
 
 export function getDataWarehouseSourceUrl(service: string): string {
-    if (manualLinkSources.includes(service)) {
-        return 'https://posthog.com/docs/cdp/sources/s3'
+    switch (service) {
+        case 'aws':
+            return 'https://posthog.com/docs/cdp/sources/s3'
+        case 'google-cloud':
+            return 'https://posthog.com/docs/cdp/sources/gcs'
+        case 'azure':
+            return 'https://posthog.com/docs/cdp/sources/azure-blob'
+        case 'cloudflare-r2':
+            return 'https://posthog.com/docs/cdp/sources/r2'
+        default:
+            return `https://posthog.com/docs/cdp/sources/${service.toLowerCase()}`
     }
-
-    return `https://posthog.com/docs/cdp/sources/${service.toLowerCase()}`
 }
