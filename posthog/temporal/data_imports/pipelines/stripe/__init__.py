@@ -385,14 +385,6 @@ def stripe_dlt_source(
     yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
-def _ensure_property_field(resource: DltResource, property_name: str, default_value: Any) -> DltResource:
-    """
-    Force a specific property to be present in the resource data, defaulting to a specific value if not present.
-    This is because Stripe omits null values for expanded fields.
-    """
-    return resource.add_map(lambda item: {**item, property_name: item.get(property_name, default_value)})
-
-
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -413,9 +405,6 @@ def stripe_source(
     resources = list(dlt_source.resources.items())
     assert len(resources) == 1
     resource_name, resource = resources[0]
-
-    if endpoint == PRICE_RESOURCE_NAME:
-        resource = _ensure_property_field(resource, "tiers", [])
 
     return SourceResponse(
         items=resource,

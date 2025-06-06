@@ -7,8 +7,6 @@ import pytest
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.temporal.data_imports.pipelines.stripe import _ensure_property_field
-from dlt.sources import DltResource
 
 from .data import BALANCE_TRANSACTIONS
 
@@ -144,30 +142,3 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
         "created[gt]": [f"{third_item_created}"],
         "limit": ["100"],
     }
-
-
-def test_ensure_property_field():
-    test_data = [
-        {"id": 1, "name": "test1"},  # should add tiers with [] as default
-        {"id": 2, "name": "test2", "tiers": ["tier1"]},  # should keep existing tiers
-        {"id": 3, "name": "test3"},  # should add tiers with [] as default
-    ]
-
-    mock_resource = mock.MagicMock(spec=DltResource)
-    mock_resource.add_map.return_value = mock_resource
-
-    result = _ensure_property_field(mock_resource, "tiers", [])
-
-    mock_resource.add_map.assert_called_once()
-    transform_func = mock_resource.add_map.call_args[0][0]
-
-    transformed_data = [transform_func(item) for item in test_data]
-
-    assert transformed_data[0]["tiers"] == []
-    assert transformed_data[1]["tiers"] == ["tier1"]
-    assert transformed_data[2]["tiers"] == []
-
-    assert all(item["id"] in [1, 2, 3] for item in transformed_data)
-    assert all(item["name"] in ["test1", "test2", "test3"] for item in transformed_data)
-
-    assert result == mock_resource
