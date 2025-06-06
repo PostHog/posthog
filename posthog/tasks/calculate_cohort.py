@@ -115,7 +115,6 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
-    """Helper function to prepare a cohort for calculation (increment version, set flags)"""
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
