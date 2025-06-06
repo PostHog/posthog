@@ -178,7 +178,6 @@ export function PanelLayoutPanel({
             }}
             aria-label="Resize handle for panel layout panel"
             borderPosition="right"
-            innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
             data-attr="tree-panel-resizer"
