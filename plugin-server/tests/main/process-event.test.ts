@@ -121,7 +121,7 @@ async function processEvent(
     } as any as PluginEvent
 
     const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
-    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, { batchWritingEnabled: true })
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
 
