@@ -1,5 +1,5 @@
 import { IconChat } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -41,10 +41,10 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'User interviews',
+            category: 'Behaviour',
             href: urls.userInterviews(),
             type: 'user_interview',
             flag: FEATURE_FLAGS.USER_INTERVIEWS,
-            visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
             tags: ['alpha'],
         },
     ],

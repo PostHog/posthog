@@ -29,6 +29,11 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
 from posthog.temporal.data_imports.pipelines.chargebee import (
     validate_credentials as validate_chargebee_credentials,
 )
+from posthog.temporal.data_imports.pipelines.doit.source import (
+    DOIT_INCREMENTAL_FIELDS,
+    DoItSourceConfig,
+    doit_list_reports,
+)
 from posthog.temporal.data_imports.pipelines.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas as get_google_ads_schemas,
@@ -488,6 +493,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.TEMPORALIO:
             new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.DOIT:
+            new_source_model, doit_schemas = self._handle_doit_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -505,6 +512,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = bigquery_schemas
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             default_schemas = google_ads_schemas
+        elif source_type == ExternalDataSource.Type.DOIT:
+            default_schemas = doit_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
@@ -675,6 +684,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return new_source_model
+
+    def _handle_doit_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        api_key = payload.get("api_key", "")
+
+        if len(api_key) == 0:
+            raise Exception("Missing api_key")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "api_key": api_key,
+            },
+            prefix=prefix,
+        )
+
+        reports = doit_list_reports(DoItSourceConfig(api_key=api_key))
+
+        return new_source_model, [name for name, _ in reports]
 
     def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
@@ -1107,6 +1144,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "sync_type": None,
                 }
                 for name, _ in google_ads_schemas.items()
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.DOIT:
+            api_key = request.data.get("api_key")
+
+            if not api_key:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required input: 'api_key'"},
+                )
+
+            doit_config = DoItSourceConfig(api_key=api_key)
+            reports = doit_list_reports(doit_config)
+            result_mapped_to_options = [
+                {
+                    "table": name,
+                    "should_sync": False,
+                    "incremental_fields": DOIT_INCREMENTAL_FIELDS,
+                    "incremental_available": False,
+                    "incremental_field": None,
+                    "sync_type": None,
+                }
+                for name, _ in reports
             ]
 
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
