@@ -6,6 +6,7 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.settings.base_variables import DEBUG
 
 CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
 CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
@@ -187,6 +188,13 @@ def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
 
 def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
+
+
+def get_s3_function_args(s3_path):
+    if DEBUG:
+        return f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
+    else:
+        return f"'{s3_path}', 'Native'"
 
 
 def get_team_filters(team_ids):
@@ -557,13 +565,10 @@ def WEB_STATS_EXPORT_SQL(
     if not s3_path:
         raise ValueError("s3_path is required")
 
+    s3_function_args = get_s3_function_args(s3_path)
+
     return f"""
-    INSERT INTO FUNCTION s3(
-        '{s3_path}',
-        '{OBJECT_STORAGE_ACCESS_KEY_ID}',
-        '{OBJECT_STORAGE_SECRET_ACCESS_KEY}',
-        'Native'
-    )
+    INSERT INTO FUNCTION s3({s3_function_args})
     SELECT
         day_bucket,
         team_id,
@@ -591,13 +596,10 @@ def WEB_BOUNCES_EXPORT_SQL(
     if not s3_path:
         raise ValueError("s3_path is required")
 
+    s3_function_args = get_s3_function_args(s3_path)
+
     return f"""
-    INSERT INTO FUNCTION s3(
-        '{s3_path}',
-        '{OBJECT_STORAGE_ACCESS_KEY_ID}',
-        '{OBJECT_STORAGE_SECRET_ACCESS_KEY}',
-        'Native'
-    )
+    INSERT INTO FUNCTION s3({s3_function_args})
     SELECT
         day_bucket,
         team_id,

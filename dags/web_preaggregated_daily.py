@@ -22,6 +22,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
 )
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
@@ -149,7 +150,7 @@ def export_web_analytics_data(
     if DEBUG:
         s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
     else:
-        s3_path = f"https://{OBJECT_STORAGE_BUCKET}.s3.amazonaws.com/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
+        s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
 
     export_query = sql_generator(
         date_start="2020-01-01",
