@@ -166,9 +166,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
             props.onEditSuccess(undefined)
         },
         snoozeAlert: async ({ snoozeUntil }) => {
-            // resolution only allowed on created alert (which will have alertId)
+            // snoozing only allowed on created alert (which will have alertId)
             if (!values.alertForm.id) {
-                throw new Error("Cannot resolve alert that doesn't exist")
+                throw new Error("Cannot snooze alert that doesn't exist")
             }
             await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
             props.onEditSuccess(values.alertForm.id)
