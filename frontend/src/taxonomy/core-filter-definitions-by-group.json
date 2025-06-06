@@ -3796,6 +3796,11 @@
             "label": "Amount",
             "type": "Numeric"
         },
+        "cohort": {
+            "description": "The cohort of the customer connected to the revenue event.",
+            "label": "Cohort",
+            "type": "String"
+        },
         "product": {
             "description": "The product of the revenue event.",
             "label": "Product",
