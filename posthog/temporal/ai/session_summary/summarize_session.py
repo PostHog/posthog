@@ -4,12 +4,14 @@ from dataclasses import dataclass
 import dataclasses
 from datetime import timedelta
 import json
+import time
 import uuid
 import aiohttp
 import temporalio
-
+from temporalio.api.common.v1 import Payload
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
+from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
@@ -18,6 +20,8 @@ from ee.session_recordings.session_summary.summarize_session import (
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
+from posthog.settings import SERVER_GATEWAY_INTERFACE
+from posthog.temporal.common.codec import EncryptionCodec
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -60,6 +64,8 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
     # Iterate the async generator, store chunks, and return the combined result
     async for chunk in session_summary_generator:
         last_chunk = chunk
+        # Send heartbeat with current accumulated content
+        temporalio.activity.heartbeat({"last_chunk": last_chunk})
     return last_chunk
 
 
@@ -89,7 +95,7 @@ class SummarizeSessionWorkflow(PostHogWorkflow):
             stream_llm_summary_activity,
             parsed_inputs,
             start_to_close_timeout=timedelta(minutes=5),
-            # heartbeat_timeout=timedelta(seconds=30),  # Important!
+            heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return result
@@ -152,8 +158,8 @@ def excectute_test_summarize_session(
     )
     str_inputs = [json.dumps(dataclasses.asdict(inputs))]
     # Start streaming the workflow
-    result = asyncio.run(
-        client.execute_workflow(
+    handle = asyncio.run(
+        client.start_workflow(
             "summarize-session",
             str_inputs,
             id=random_id,
@@ -162,21 +168,69 @@ def excectute_test_summarize_session(
             retry_policy=retry_policy,
         )
     )
-    return result
-    # last_yielded = 0
-    # while True:
-    #     # Query for current chunks
-    #     chunks = asyncio.run(handle.query("get_chunks"))
-    #     # Yield any new chunks
-    #     for chunk in chunks[last_yielded:]:
-    #         yield chunk
-    #     last_yielded = len(chunks)
-    #     # Check if workflow is done
-    #     desc = asyncio.run(handle.describe())
-    #     if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):  # all done states
-    #         break
-    #     time.sleep(0.5)
-    # # After workflow is done, yield any remaining chunks (if any)
-    # chunks = asyncio.run(handle.query("get_chunks"))
-    # for chunk in chunks[last_yielded:]:
-    #     yield chunk
+    while True:
+        desc = asyncio.run(handle.describe())
+        # Access heartbeat details from activity
+        if not desc.raw_description.pending_activities:
+            continue
+        for activity in desc.raw_description.pending_activities:
+            if not activity.heartbeat_details:
+                continue
+            heartbeat_payloads = activity.heartbeat_details.payloads
+            for payload in heartbeat_payloads:
+                # Decode payloads
+                decrypted_payload = Payload.FromString(EncryptionCodec(settings).decrypt(payload.data))
+                # Get chunk
+                data = decrypted_payload.data
+                json_data = json.loads(data)
+                last_chunk = json_data.get("last_chunk")
+                if not last_chunk:
+                    continue
+                # Yield chunk
+                yield last_chunk
+        if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+            break
+        # Wait till next heartbeat
+        time.sleep(0.5)
+
+
+def stream_recording_summary(
+    session_id: str,
+    user_pk: int,
+    team: Team,
+    extra_summary_context: ExtraSummaryContext | None = None,
+    local_reads_prod: bool = False,
+) -> SyncIterableToAsync | Generator[str, None, None]:
+    if SERVER_GATEWAY_INTERFACE == "ASGI":
+        return _astream(
+            session_id=session_id,
+            user_pk=user_pk,
+            team=team,
+            extra_summary_context=extra_summary_context,
+            local_reads_prod=local_reads_prod,
+        )
+    return excectute_test_summarize_session(
+        session_id=session_id,
+        user_pk=user_pk,
+        team=team,
+        extra_summary_context=extra_summary_context,
+        local_reads_prod=local_reads_prod,
+    )
+
+
+def _astream(
+    session_id: str,
+    user_pk: int,
+    team: Team,
+    extra_summary_context: ExtraSummaryContext | None = None,
+    local_reads_prod: bool = False,
+) -> SyncIterableToAsync:
+    return SyncIterableToAsync(
+        excectute_test_summarize_session(
+            session_id=session_id,
+            user_pk=user_pk,
+            team=team,
+            extra_summary_context=extra_summary_context,
+            local_reads_prod=local_reads_prod,
+        )
+    )
