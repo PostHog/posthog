@@ -148,7 +148,7 @@ export function BulkActions({ issues, selectedIds }: BulkActionsProps): JSX.Elem
                 </AssigneeSelect>
             </div>
             <LemonButton type="secondary" size="small" onClick={excludeSelectedIssues}>
-                Hide From Search
+                Hide from search
             </LemonButton>
         </div>
     )
