@@ -291,7 +291,10 @@ def optimize_property_definitions(
 
 @dagster.job(
     name="property_definitions_ingestion",
-    tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        "disable_slack_notifications": True,  # NOTE: remove when enabled for production use
+    },
 )
 def property_definitions_ingestion_job():
     """

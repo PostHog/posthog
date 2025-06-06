@@ -1,5 +1,4 @@
 import { IconToggle } from '@posthog/icons'
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -13,9 +12,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         feature_flag: {
+            name: 'Feature flag',
             icon: <IconToggle />,
             href: (ref: string) => urls.featureFlag(ref),
             iconColor: ['var(--product-feature-flags-light)'],
+            filterKey: 'feature_flag',
         },
     },
     treeItemsNew: [
@@ -28,12 +29,9 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Feature flags`,
+            category: 'Features',
             type: 'feature_flag',
             href: urls.featureFlags(),
-            visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
         },
     ],
-    fileSystemFilterTypes: {
-        feature_flag: { name: 'Feature flags' },
-    },
 }

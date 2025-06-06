@@ -34,7 +34,6 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -46,7 +45,6 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -272,15 +270,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsOverviewQuery]: {
-        name: 'Revenue Analytics Overview',
-        description: 'View revenue analytics overview.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
         name: 'Revenue Analytics Growth Rate',
         description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsInsightsQuery]: {
+        name: 'Revenue Analytics Insights',
+        description: 'View revenue analytics insights.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -574,9 +578,6 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showAlerts = featureFlags[FEATURE_FLAGS.ALERTS]
-
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
@@ -749,14 +750,10 @@ export function SavedInsights(): JSX.Element {
                     { key: SavedInsightsTabs.Yours, label: 'Your insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
-                    ...(showAlerts
-                        ? [
-                              {
-                                  key: SavedInsightsTabs.Alerts,
-                                  label: <div className="flex items-center gap-2">Alerts</div>,
-                              },
-                          ]
-                        : []),
+                    {
+                        key: SavedInsightsTabs.Alerts,
+                        label: <div className="flex items-center gap-2">Alerts</div>,
+                    },
                 ]}
             />
 

@@ -1,8 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
-import { getDefaultInterval } from 'lib/utils'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
@@ -14,9 +12,12 @@ import {
     NodeKind,
     QuerySchema,
     RevenueAnalyticsEventItem,
+    RevenueAnalyticsInsightsQueryGroupBy,
+    RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
+import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { Breadcrumb, ExternalDataSource, InsightLogicProps } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -35,6 +36,7 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
     return `new-AdHoc.revenue-analytics.${queryType}`
 }
 
+const INITIAL_REVENUE_ANALYTICS_FILTER = [] as RevenueAnalyticsPropertyFilters
 const INITIAL_DATE_FROM = 'yStart' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
@@ -66,6 +68,16 @@ const wrapWithDataTableNodeIfNeeded = (
     }
 }
 
+const setQueryParams = (params: Record<string, string>): string => {
+    const searchParams = { ...router.values.searchParams }
+    const urlParams = new URLSearchParams(searchParams)
+    Object.entries(params).forEach(([key, value]) => {
+        urlParams.set(key, value)
+    })
+
+    return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+}
+
 export type LineOrTableChart = 'line' | 'table'
 export type RawRevenueSources = {
     events: RevenueAnalyticsEventItem[]
@@ -85,9 +97,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
+            revenueAnalyticsFilters,
+        }),
         setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setRevenueSources: (revenueSources: RawRevenueSources) => ({ revenueSources }),
+        setGrossRevenueGroupBy: (groupBy: RevenueAnalyticsInsightsQueryGroupBy) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -101,7 +117,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }),
             },
         ],
-
+        revenueAnalyticsFilter: [
+            INITIAL_REVENUE_ANALYTICS_FILTER,
+            persistConfig,
+            { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
+        ],
+        grossRevenueGroupBy: [
+            'all' as RevenueAnalyticsInsightsQueryGroupBy,
+            persistConfig,
+            {
+                setGrossRevenueGroupBy: (_, { groupBy }) => groupBy,
+            },
+        ],
         growthRateDisplayMode: [
             'line' as LineOrTableChart,
             persistConfig,
@@ -212,29 +239,25 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         queries: [
             (s) => [
                 s.dateFilter,
+                s.revenueAnalyticsFilter,
                 s.rawRevenueSources,
-                s.chargeRevenueViews,
-                s.revenueGoals,
                 s.topCustomersDisplayMode,
                 s.growthRateDisplayMode,
-                s.baseCurrency,
+                s.grossRevenueGroupBy,
             ],
             (
                 dateFilter,
+                revenueAnalyticsFilter,
                 rawRevenueSources,
-                chargeRevenueViews,
-                revenueGoals,
                 topCustomersDisplayMode,
                 growthRateDisplayMode,
-                baseCurrency
+                grossRevenueGroupBy
             ): Record<RevenueAnalyticsQuery, QuerySchema> => {
                 const { dateFrom, dateTo, interval } = dateFilter
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
                 const topCustomersGroupBy: RevenueAnalyticsTopCustomersGroupBy =
                     topCustomersDisplayMode === 'table' ? 'all' : 'month'
-
-                const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
                 // Convert from the raw revenue sources (events and data warehouse sources) to the revenue sources
                 // that the RevenueAnalyticsOverviewQuery expects which is just a list of event names and data warehouse source IDs
@@ -246,65 +269,32 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 return {
                     [RevenueAnalyticsQuery.OVERVIEW]: {
                         kind: NodeKind.RevenueAnalyticsOverviewQuery,
+                        properties: revenueAnalyticsFilter,
                         revenueSources,
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.InsightVizNode,
-                        embedded: false,
-                        hidePersonsModal: true,
-                        hideTooltipOnScroll: true,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: chargeRevenueViews.map((view) => ({
-                                kind: NodeKind.DataWarehouseNode,
-                                id: view.name,
-                                name: view.name,
-                                custom_name:
-                                    chargeRevenueViews.length > 1 ? `Gross revenue for ${view.name}` : 'Gross revenue',
-                                id_field: 'id',
-                                distinct_id_field: 'id',
-                                timestamp_field: 'timestamp',
-                                table_name: view.name,
-                                math: PropertyMathType.Sum,
-                                math_property: 'amount',
-                            })),
-                            interval,
-                            dateRange,
-                            trendsFilter: {
-                                display:
-                                    chargeRevenueViews.length > 1
-                                        ? ChartDisplayType.ActionsAreaGraph
-                                        : ChartDisplayType.ActionsLineGraph,
-                                aggregationAxisFormat: 'numeric',
-                                aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                                aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                                goalLines: revenueGoals.map((goal) => {
-                                    const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
-
-                                    return {
-                                        label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
-                                        value: goal.goal,
-                                        displayLabel: true,
-                                        borderColor: isFuture ? 'green' : 'red',
-
-                                        // Only display smaller goals that are in the future
-                                        // This implies that past goals that have been achieved already
-                                        // will not be displayed
-                                        displayIfCrossed: isFuture,
-                                    }
-                                }),
-                            },
-                        },
+                        kind: NodeKind.RevenueAnalyticsInsightsQuery,
+                        properties: revenueAnalyticsFilter,
+                        revenueSources,
+                        groupBy: grossRevenueGroupBy,
+                        interval,
+                        dateRange,
                     },
                     [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
-                        { kind: NodeKind.RevenueAnalyticsGrowthRateQuery, dateRange, revenueSources },
+                        {
+                            kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
+                            properties: revenueAnalyticsFilter,
+                            dateRange,
+                            revenueSources,
+                        },
                         ['month', 'mrr', 'previous_mrr', 'mrr_growth_rate'],
                         growthRateDisplayMode === 'table'
                     ),
                     [RevenueAnalyticsQuery.TOP_CUSTOMERS]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsTopCustomersQuery,
+                            properties: revenueAnalyticsFilter,
                             dateRange,
                             revenueSources,
                             groupBy: topCustomersGroupBy,
@@ -317,23 +307,28 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
     }),
     actionToUrl(() => ({
-        setDates: ({ dateFrom, dateTo }): string => {
-            const searchParams = { ...router.values.searchParams }
-            const urlParams = new URLSearchParams(searchParams)
-
-            urlParams.set('date_from', dateFrom ?? '')
-            urlParams.set('date_to', dateTo ?? '')
-
-            return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
-        },
+        setDates: ({ dateFrom, dateTo }): string =>
+            setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
+        setGrossRevenueGroupBy: ({ groupBy }): string => setQueryParams({ revenue_group_by: groupBy ?? '' }),
+        setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
+            setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.revenueAnalytics()]: (_, { date_from, date_to }) => {
+        [urls.revenueAnalytics()]: (_, { filters, date_from, date_to, revenue_group_by }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
                 (date_to && date_to !== values.dateFilter.dateTo)
             ) {
                 actions.setDates(date_from, date_to)
+            }
+
+            if (revenue_group_by && revenue_group_by !== values.grossRevenueGroupBy) {
+                actions.setGrossRevenueGroupBy(revenue_group_by)
+            }
+
+            const parsedFilters = isRevenueAnalyticsPropertyFilters(filters) ? filters : undefined
+            if (parsedFilters && !objectsEqual(parsedFilters, values.revenueAnalyticsFilter)) {
+                actions.setRevenueAnalyticsFilters(parsedFilters)
             }
         },
     })),

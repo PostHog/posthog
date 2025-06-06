@@ -32,7 +32,8 @@ from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPI
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
@@ -164,6 +165,7 @@ TEAM_CONFIG_FIELDS = (
     "default_data_theme",
     "revenue_analytics_config",
     "onboarding_tasks",
+    "base_currency",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -204,6 +206,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
+    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
         model = Team

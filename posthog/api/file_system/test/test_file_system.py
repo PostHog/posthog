@@ -1,8 +1,9 @@
 import pytest
 from freezegun import freeze_time
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 from posthog.test.base import APIBaseTest
-from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
+from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook, Team, Project
 from posthog.models.file_system.file_system import FileSystem
 from unittest.mock import patch
 from ee.models.rbac.access_control import AccessControl
@@ -645,21 +646,28 @@ class TestFileSystemAPI(APIBaseTest):
         # Clear existing FileSystem entries to start fresh.
         FileSystem.objects.all().delete()
         test_path = "A/B/C"
-        # Import the function to be tested.
-        from posthog.api.file_system.file_system import assure_parent_folders
 
-        assure_parent_folders(test_path, self.team, self.user)
+        from posthog.api.file_system.file_system import FileSystemViewSet
+
+        viewset = FileSystemViewSet()
+        factory = APIRequestFactory()
+        viewset.request = factory.get("/")  # needed by mixins
+        viewset.team = self.team  # used inside the helper
+        viewset.organization = self.team.organization
+        viewset.parent_query_kwargs = {"team_id": self.team.id}
+
+        viewset._assure_parent_folders(test_path, created_by=self.user)
 
         # For the path "A/B/C", we expect the parent folders "A" and "A/B" to be created.
         folder_a = FileSystem.objects.filter(team=self.team, path="A", type="folder").first()
         folder_ab = FileSystem.objects.filter(team=self.team, path="A/B", type="folder").first()
         assert folder_a is not None
-        self.assertEqual(folder_a.depth, 1)
+        assert folder_a.depth == 1
         assert folder_ab is not None
-        self.assertEqual(folder_ab.depth, 2)
+        assert folder_ab.depth == 2
         # The full path "A/B/C" should NOT be created by assure_parent_folders.
         folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
-        self.assertIsNone(folder_abc)
+        assert folder_abc is None
 
     def test_list_depth_folders_first_case_insensitive(self):
         """
@@ -904,6 +912,28 @@ class TestFileSystemAPI(APIBaseTest):
         # meta mirrors those values
         self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
         self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
+
+    def test_search_with_slash_inside_segment(self):
+        r"""
+        A path segment that originally contained “/” is stored as “\/”.
+        Plain-text searches such as 'go/revenue', 'banana/go', or the full
+        'banana/go/revenue' must still find the item.
+        """
+        # This is the path PostHog generates for   Banana   /   go/revenue
+        FileSystem.objects.create(
+            team=self.team,
+            path="Banana/go\\/revenue",  # ← stored form, depth = 2
+            depth=2,
+            type="doc",
+            created_by=self.user,
+        )
+
+        base = f"/api/projects/{self.team.id}/file_system/?search="
+        for query in ["go/revenue", "banana/go", "banana/go/revenue"]:
+            resp = self.client.get(base + query)
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+            self.assertEqual(resp.json()["count"], 1, f"Failed for query: {query}")
+            self.assertEqual(resp.json()["results"][0]["path"], "Banana/go\\/revenue")
 
 
 @pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)
@@ -1179,3 +1209,252 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         self.assertEqual(file1_data["meta"]["created_by"], self.user.pk)
         self.assertEqual(file2_data["meta"]["created_by"], second_user.pk)
+
+
+@pytest.mark.django_db
+class TestFileSystemProjectScoping(APIBaseTest):
+    """
+    - Any *non-hog_function* item belonging to **any team in the same project**
+      must be visible & editable.
+    - Items whose type starts with "hog_function/" are **team-scoped** and
+      must be hidden from sibling teams.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+
+        self.team2 = Team.objects.create(
+            project=self.project,
+            organization=self.organization,
+            api_token="token-env-2",
+            name="Env-2",
+        )
+
+        project_other = Project.objects.create(
+            id=Team.objects.increment_id_sequence(),
+            organization=self.organization,
+        )
+        self.team3 = Team.objects.create(
+            id=project_other.id,
+            project=project_other,
+            organization=self.organization,
+            api_token="token-other",
+            name="Other-Project-Team",
+        )
+
+        # visible everywhere inside the project
+        self.doc_t1 = FileSystem.objects.create(team=self.team, path="Shared/Doc-T1", type="doc", created_by=self.user)
+        self.doc_t2 = FileSystem.objects.create(team=self.team2, path="Shared/Doc-T2", type="doc", created_by=self.user)
+        # never visible from self.team
+        self.doc_t3 = FileSystem.objects.create(team=self.team3, path="Shared/Doc-T3", type="doc", created_by=self.user)
+
+        # hog_function – team-scoped
+        self.hog_t1 = FileSystem.objects.create(
+            team=self.team, path="Functions/Hog-T1", type="hog_function/source", created_by=self.user
+        )
+        self.hog_t2 = FileSystem.objects.create(
+            team=self.team2, path="Functions/Hog-T2", type="hog_function/source", created_by=self.user
+        )
+        self.hog_t3 = FileSystem.objects.create(
+            team=self.team3, path="Functions/Hog-T3", type="hog_function/source", created_by=self.user
+        )
+
+    # LIST
+    def test_list_scopes_correctly(self):
+        resp = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        paths = {item["path"] for item in resp.json()["results"]}
+
+        # Non-hog_function items from *both* teams in the project
+        self.assertIn("Shared/Doc-T1", paths)
+        self.assertIn("Shared/Doc-T2", paths)
+        # But not from a different project
+        self.assertNotIn("Shared/Doc-T3", paths)
+
+        # hog_function only from the *current* team
+        self.assertIn("Functions/Hog-T1", paths)
+        self.assertNotIn("Functions/Hog-T2", paths)
+        self.assertNotIn("Functions/Hog-T3", paths)
+
+    # RETRIEVE
+    def test_retrieve_non_hog_function_from_other_team_is_allowed(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.doc_t2.id}/"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["path"], "Shared/Doc-T2")
+
+    def test_retrieve_hog_function_from_other_team_is_forbidden(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.hog_t2.id}/"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    # UPDATE (PATCH)
+    def test_update_non_hog_function_from_other_team_is_allowed(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.doc_t2.id}/"
+        resp = self.client.patch(url, {"path": "Shared/Doc-T2-Renamed"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
+        self.doc_t2.refresh_from_db()
+        self.assertEqual(self.doc_t2.path, "Shared/Doc-T2-Renamed")
+
+    def test_update_hog_function_from_other_team_is_forbidden(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.hog_t2.id}/"
+        resp = self.client.patch(url, {"path": "Functions/Hog-T2-Renamed"})
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@pytest.mark.django_db
+class TestMoveRepairsLeftoverHogFunctions(APIBaseTest):
+    """
+    When a folder is moved we copy / delete only the rows that belong to the
+    *current* team. `hog_function/*` rows owned by *other* teams stay where they
+    are – so the code must recreate the folder hierarchy they still depend on.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        # Keep permissions out of the picture
+        self.user.is_staff = True
+        self.user.save()
+
+        # Second team in **the same project**
+        self.team2 = Team.objects.create(
+            project=self.project,
+            organization=self.organization,
+            api_token="token-env-2",
+            name="Env 2",
+        )
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", "pass")
+
+        # ── Build a small tree ────────────────────────────────────────────
+        # Team-1 items (will be moved)
+        self.folder_t1 = FileSystem.objects.create(
+            team=self.team,
+            path="Shared",
+            depth=1,
+            type="folder",
+            created_by=self.user,
+        )
+        self.doc_t1 = FileSystem.objects.create(
+            team=self.team,
+            path="Shared/Doc-1.txt",
+            depth=2,
+            type="doc",
+            created_by=self.user,
+        )
+
+        # Team-2 HOG function (stays behind)
+        self.hog_t2 = FileSystem.objects.create(
+            team=self.team2,
+            path="Shared/Hog-func.js",
+            depth=2,
+            type="hog_function/source",
+            created_by=self.other_user,
+        )
+
+    # ------------------------------------------------------------------ #
+    #  TEST
+    # ------------------------------------------------------------------ #
+    def test_move_recreates_folder_for_leftover_items(self):
+        move_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/move"
+        response = self.client.post(move_url, {"new_path": "SharedRenamed"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # ─── Team-1 items moved ------------------------------------------------
+        self.doc_t1.refresh_from_db()
+        self.assertEqual(self.doc_t1.path, "SharedRenamed/Doc-1.txt")
+
+        # ─── Team-2 hog_function stayed in place ------------------------------
+        self.hog_t2.refresh_from_db()
+        self.assertEqual(self.hog_t2.path, "Shared/Hog-func.js")
+
+        # ─── Parent folders exist for both teams ------------------------------
+        #  • Team-1 now has “SharedRenamed”
+        self.assertTrue(
+            FileSystem.objects.filter(team=self.team, path="SharedRenamed", type="folder").exists(),
+            "Folder for team-1 after move is missing",
+        )
+        #  • Team-2 still has “Shared” (re-created by the repair step)
+        folder_t2_qs = FileSystem.objects.filter(team=self.team2, path="Shared", type="folder")
+        self.assertTrue(folder_t2_qs.exists(), "Left-behind hog_function lost its parent folder")
+        folder = folder_t2_qs.first()
+        assert folder is not None
+        self.assertEqual(folder.depth, 1)
+
+        #  • Team-1 should *not* have a leftover “Shared” folder any more
+        self.assertFalse(
+            FileSystem.objects.filter(team=self.team, path="Shared", type="folder").exists(),
+            "Old folder for team-1 should have been moved away",
+        )
+
+
+@pytest.mark.django_db
+class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        # Ignore ACL complications
+        self.user.is_staff = True
+        self.user.save()
+
+        # -- another team in the *same* project --------------------------------
+        self.team2 = Team.objects.create(
+            project=self.project,
+            organization=self.organization,
+            api_token="token-env-2",
+            name="Env-2",
+        )
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", "pass")
+
+        # -- build an initial tree ---------------------------------------------
+        # Folder + file for *team 1*  (will be deleted)
+        self.folder_t1 = FileSystem.objects.create(
+            team=self.team,
+            path="Shared",
+            depth=1,
+            type="folder",
+            created_by=self.user,
+        )
+        self.doc_t1 = FileSystem.objects.create(
+            team=self.team,
+            path="Shared/Doc-1.txt",
+            depth=2,
+            type="doc",
+            created_by=self.user,
+        )
+
+        # Hog-function file for *team 2*  (stays behind; no parent folder yet)
+        self.hog_t2 = FileSystem.objects.create(
+            team=self.team2,
+            path="Shared/Hog-func.js",
+            depth=2,
+            type="hog_function/source",
+            created_by=self.other_user,
+        )
+
+    def test_destroy_folder_repairs_for_leftover_items(self):
+        delete_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/"
+        resp = self.client.delete(delete_url)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertFalse(
+            FileSystem.objects.filter(team=self.team, path__startswith="Shared").exists(),
+            "Team-1 rows should have been deleted",
+        )
+
+        self.assertTrue(
+            FileSystem.objects.filter(id=self.hog_t2.id).exists(),
+            "Leftover hog_function row was deleted erroneously",
+        )
+
+        folder_t2_qs = FileSystem.objects.filter(team=self.team2, path="Shared", type="folder")
+        self.assertTrue(
+            folder_t2_qs.exists(),
+            "Destroy did not recreate the folder hierarchy for leftovers",
+        )
+        folder = folder_t2_qs.first()
+        assert folder is not None
+        assert folder.depth == 1

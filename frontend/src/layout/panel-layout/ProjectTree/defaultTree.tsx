@@ -3,38 +3,50 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBug,
     IconChevronRight,
+    IconCursor,
     IconDatabase,
+    IconFunnels,
+    IconGraph,
     IconHandMoney,
+    IconHogQL,
+    IconLifecycle,
     IconLive,
     IconNotification,
     IconPieChart,
     IconPiggyBank,
     IconPlug,
+    IconRetention,
     IconServer,
+    IconStickiness,
+    IconTrends,
+    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
     fileSystemTypes,
-    getTreeItemsDataManagement,
     getTreeItemsGames,
+    getTreeItemsMetadata,
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineStage } from '~/types'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 
-const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
         icon: <IconAI />,
         iconColor: ['var(--product-max-ai-light)'],
     },
-    cursorClick: {
+    cursor: {
+        icon: <IconCursor />,
+    },
+    heatmap: {
         icon: <IconApp />,
         iconColor: ['var(--product-heatmaps-light)', 'var(--product-heatmaps-dark)'],
     },
@@ -78,9 +90,44 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
     warning: {
         icon: <IconWarning />,
     },
-    bug: {
-        icon: <IconBug />,
+    errorTracking: {
+        icon: <IconWarning />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
+    },
+    insightFunnel: {
+        icon: <IconFunnels />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightTrends: {
+        icon: <IconTrends />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightRetention: {
+        icon: <IconRetention />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightUserPaths: {
+        icon: <IconUserPaths />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightLifecycle: {
+        icon: <IconLifecycle />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightStickiness: {
+        icon: <IconStickiness />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    insightHogQL: {
+        icon: <IconHogQL />,
+        iconColor: ['var(--product-product-analytics-light)'],
+    },
+    cohort: {
+        icon: <IconCohort />,
+    },
+    insight: {
+        icon: <IconGraph />,
+        iconColor: ['var(--product-product-analytics-light)'],
     },
 }
 
@@ -88,7 +135,8 @@ const getIconColor = (type?: string): FileSystemIconColor => {
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
-    const iconTypeColor = type && iconTypes[type]?.iconColor
+
+    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
 
     const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
     return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
@@ -127,7 +175,7 @@ export function iconForType(type?: string): JSX.Element {
     }
 
     if (type in iconTypes) {
-        return <ProductIconWrapper type={type}>{iconTypes[type].icon}</ProductIconWrapper>
+        return <ProductIconWrapper type={type}>{iconTypes[type as keyof typeof iconTypes].icon}</ProductIconWrapper>
     }
 
     // Handle hog_function types
@@ -172,72 +220,96 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
-    ...getTreeItemsDataManagement(),
+export const getDefaultTreeData = (): FileSystemImport[] => [
+    ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
+        category: 'Definitions',
         iconType: 'definitions',
         href: urls.eventDefinitions(),
     },
     {
         path: 'Property definitions',
+        category: 'Definitions',
         iconType: 'definitions',
         href: urls.propertyDefinitions(),
     },
     {
         path: 'Annotations',
+        category: 'Metadata',
         iconType: 'notification',
         href: urls.annotations(),
     },
     {
         path: 'Ingestion warnings',
+        category: 'Pipeline',
         iconType: 'warning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
+    {
+        path: `Sources`,
+        category: 'Pipeline',
+        type: 'hog_function/source',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Sources),
+    } as FileSystemImport,
+    {
+        path: `Transformations`,
+        category: 'Pipeline',
+        type: 'hog_function/transformation',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Transformations),
+    } as FileSystemImport,
+    {
+        path: `Destinations`,
+        category: 'Pipeline',
+        type: 'hog_function/destination',
+        iconType: 'plug',
+        href: urls.pipeline(PipelineTab.Destinations),
+    } as FileSystemImport,
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `AI chat`,
-            type: 'aichat',
-            href: urls.max(),
-            flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-            visualOrder: PRODUCT_VISUAL_ORDER.aiChat,
-        } as FileSystemImport,
+            path: 'Dashboards',
+            category: 'Analytics',
+            type: 'dashboard',
+            href: urls.dashboards(),
+        },
+        {
+            path: 'Notebooks',
+            category: 'Tools',
+            type: 'notebook',
+            href: urls.notebooks(),
+        },
         {
             path: `Data pipelines`,
+            category: 'Tools',
             type: 'hog_function',
             iconType: 'plug',
             href: urls.pipeline(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataPipeline,
         } as FileSystemImport,
         {
             path: `SQL editor`,
+            category: 'Analytics',
             type: 'sql',
             href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
-        } as FileSystemImport,
-        {
-            path: 'Data warehouse',
-            iconType: 'database',
-            href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataWarehouse,
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            iconType: 'bug',
+            category: 'Behavior',
+            iconType: 'errorTracking',
             href: urls.errorTracking(),
-            visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            iconType: 'cursorClick',
+            category: 'Behavior',
+            iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
-            visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
             tags: ['alpha'],
         } as FileSystemImport,
     ].sort((a, b) => {
@@ -256,12 +328,14 @@ export const getDefaultTreeGames = (): FileSystemImport[] =>
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
+        category: 'People',
         iconType: 'cohort',
         href: urls.persons(),
         visualOrder: 10,
     },
     {
         path: 'Cohorts',
+        category: 'People',
         type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,

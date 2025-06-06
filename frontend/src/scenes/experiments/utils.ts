@@ -1,6 +1,7 @@
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -22,12 +23,15 @@ import {
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     type FunnelsQuery,
+    InsightQueryNode,
+    InsightVizNode,
     NodeKind,
     type TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ActionFilter,
+    BillingType,
     ChartDisplayType,
     Experiment,
     ExperimentMetricMathType,
@@ -86,7 +90,7 @@ export function transformFiltersForWinningVariant(
     }
 }
 
-function seriesToFilter(
+function seriesToFilterLegacy(
     series: AnyEntityNode,
     featureFlagKey: string,
     variantKey: string
@@ -115,7 +119,109 @@ function seriesToFilter(
     return null
 }
 
+function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | null {
+    if (series.kind === NodeKind.EventsNode) {
+        return {
+            id: series.event ?? null,
+            name: series.event as string,
+            type: 'events',
+            properties: series.properties ?? [],
+        }
+    }
+
+    if (series.kind === NodeKind.ActionsNode) {
+        return {
+            id: series.id,
+            name: series.name,
+            type: 'actions',
+        }
+    }
+
+    return null
+}
+/**
+ * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
+ * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
+ *
+ * TODO: refactor the *ToFilter functions so we can use bits of them.
+ */
 export function getViewRecordingFilters(
+    experiment: Experiment,
+    metric: ExperimentMetric,
+    variantKey: string
+): UniversalFiltersGroupValue[] {
+    const filters: UniversalFiltersGroupValue[] = []
+    /**
+     * We need to check the exposure criteria as the first on the filter chain.
+     * exposure criteria can only be events, not actions
+     */
+    const exposureCriteria = experiment.exposure_criteria?.exposure_config
+    if (exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
+        filters.push({
+            id: exposureCriteria.event,
+            name: exposureCriteria.event,
+            type: 'events',
+            properties: [
+                ...(exposureCriteria.properties || []),
+                {
+                    key: `$feature/${experiment.feature_flag_key}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    } else {
+        filters.push({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: experiment.feature_flag_key,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    }
+
+    /**
+     * for mean metrics, we add the single action/event to the filters
+     */
+    if (
+        metric.metric_type === ExperimentMetricType.MEAN &&
+        (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
+    ) {
+        const meanFilter = seriesToFilter(metric.source)
+        if (meanFilter) {
+            filters.push(meanFilter)
+        }
+    }
+
+    /**
+     * for funnel metrics, we need to add each element in the series as a filter
+     */
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        metric.series.forEach((series) => {
+            const funnelMetric = seriesToFilter(series)
+            if (funnelMetric) {
+                filters.push(funnelMetric)
+            }
+        })
+    }
+
+    return filters
+}
+
+export function getViewRecordingFiltersLegacy(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
@@ -144,7 +250,7 @@ export function getViewRecordingFilters(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
+            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
                 filters.push(exposure_filter)
             }
@@ -169,14 +275,14 @@ export function getViewRecordingFilters(
                 ],
             })
         }
-        const count_filter = seriesToFilter(metric.count_query.series[0], featureFlagKey, variantKey)
+        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
         if (count_filter) {
             filters.push(count_filter)
         }
         return filters
     }
     metric.funnels_query.series.forEach((series) => {
-        const filter = seriesToFilter(series, featureFlagKey, variantKey)
+        const filter = seriesToFilterLegacy(series, featureFlagKey, variantKey)
         if (filter) {
             filters.push(filter)
         }
@@ -685,6 +791,49 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
     }
 }
 
+type AllowedNodeKind =
+    | typeof NodeKind.ExperimentTrendsQuery
+    | typeof NodeKind.ExperimentFunnelsQuery
+    | typeof NodeKind.ExperimentMetric
+    | typeof NodeKind.ExperimentQuery
+
+type AllowedQuery = { kind: AllowedNodeKind } & Record<string, any>
+
+type QueryHandler = (query: AllowedQuery) => InsightQueryNode | undefined
+
+const queryKindtoSource: Record<AllowedNodeKind, QueryHandler> = {
+    /**
+     * Legacy Experiments
+     */
+    [NodeKind.ExperimentTrendsQuery]: ({ count_query }) => count_query,
+    [NodeKind.ExperimentFunnelsQuery]: ({ funnels_query }) => funnels_query,
+    /**
+     * I know that this may be confusing. With the Legacy Engine,
+     * metrics had a query property, but the ExperimentMetric
+     * has a more flatten structure, and we have the helper functions
+     * to convert to queries. Experiment stores Metrics, results come from queries.
+     */
+    [NodeKind.ExperimentMetric]: (query) => metricToQuery(query as ExperimentMetric, false),
+    [NodeKind.ExperimentQuery]: ({ metric }) => metricToQuery(metric, false),
+}
+
+export const toInsightVizNode = <T extends AllowedQuery>(query: T): InsightVizNode => {
+    const handler = queryKindtoSource[query.kind]
+    if (!handler) {
+        throw new Error(`Unsupported query kind: ${query.kind}`)
+    }
+
+    const source = handler(query)
+    if (!source) {
+        throw new Error(`Could not transform query into insight`)
+    }
+
+    return {
+        kind: NodeKind.InsightVizNode,
+        source,
+    }
+}
+
 /**
  * Check if a query is a legacy experiment metric.
  *
@@ -717,3 +866,15 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
+
+export const shouldUseNewQueryRunnerForNewObjects = (featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
+    // For non-paying users, we use dedicated flag to control the rollout of the new query runner
+    const isOnFreePlan = billing?.subscription_level === 'free'
+    if (isOnFreePlan && !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN]) {
+        return true
+    }
+
+    // If the users org. is on a paid plan, or the feature flag above is disabled, we use the default
+    // feature flag to control the rollout of the new query runner
+    return !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+}

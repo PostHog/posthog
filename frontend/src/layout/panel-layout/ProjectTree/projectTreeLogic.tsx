@@ -23,6 +23,7 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
+    splitProtocolPath,
 } from './utils'
 
 export type ProjectTreeSortMethod = 'folder' | 'recent'
@@ -69,6 +70,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'loadingPaths',
                 'lastNewFolder',
                 'getStaticTreeItems',
+                'shortcutData',
             ],
         ],
         actions: [
@@ -338,7 +340,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         expandedSearchFolders: [
-            ['/', 'project://Unfiled'] as string[],
+            ['/', 'project://', 'project://Unfiled'] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
                 loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {
@@ -399,7 +401,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         sortMethod: [
-            'alphabetical' as ProjectTreeSortMethod,
+            'folder' as ProjectTreeSortMethod,
             {
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },
@@ -463,6 +465,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `recent-loading/`,
                         name: 'Loading...',
+                        displayName: <>Loading...</>,
                         icon: <Spinner />,
                         disableSelect: true,
                         type: 'loading-indicator',
@@ -471,6 +474,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `recent-load-more/`,
                         name: 'Load more...',
+                        displayName: <>Load more...</>,
                         icon: <IconPlus />,
                         disableSelect: true,
                         onClick: () => projectTreeLogic.actions.loadRecentResults('end'),
@@ -515,6 +519,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `search-loading/`,
                         name: 'Loading...',
+                        displayName: <>Loading...</>,
                         icon: <Spinner />,
                         disableSelect: true,
                         type: 'loading-indicator',
@@ -523,6 +528,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `search-load-more/${searchResults.searchTerm}`,
                         name: 'Load more...',
+                        displayName: <>Load more...</>,
                         icon: <IconPlus />,
                         disableSelect: true,
                         onClick: () =>
@@ -624,7 +630,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (rootWithProtocol) {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
-                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    const firstFolder = fullFileSystem.find((item) => item.id === protocol)
                     if (firstFolder) {
                         if (ref) {
                             const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
@@ -656,7 +662,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 // no client side filtering under project://
-                if (!searchTerm || root.startsWith('project://')) {
+                if (!searchTerm || !root || root.startsWith('project://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()
@@ -1063,6 +1069,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         loadFolderIfNotLoaded: ({ folderId }) => {
+            if (folderId.startsWith('shortcuts://')) {
+                const [, path] = splitProtocolPath(folderId)
+                const firstFolder = splitPath(path)[0]
+
+                const shortcut = values.shortcutData.find((s) => s.path === firstFolder && s.type === 'folder')
+                if (shortcut?.ref) {
+                    actions.loadFolderIfNotLoaded('project://' + shortcut.ref)
+                }
+            }
+
             if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
                 const folder = findInProjectTree(folderId, values.projectTree)
                 if (folder) {

@@ -3,11 +3,12 @@ import json
 from datetime import datetime
 from typing import Optional, cast
 from unittest import mock
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 
 from zoneinfo import ZoneInfo
 from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
+from posthog.api.test.test_hog_function import _create_template_from_mock
 from rest_framework import status
 from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -52,6 +53,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
+
+            _create_template_from_mock(MOCK_NODE_TEMPLATES[12])
+            _create_template_from_mock(MOCK_NODE_TEMPLATES[16])
 
     def _get_plugin_activity(self, expected_status: int = status.HTTP_200_OK):
         activity = self.client.get(f"/api/organizations/@current/plugins/activity")
@@ -1674,48 +1678,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
                 # Verify no hog function was created
                 assert HogFunction.objects.count() == 0
-
-    @patch("posthog.api.plugin.validate_plugin_job_payload")
-    @patch("posthog.api.plugin.connections")
-    def test_job_trigger(self, db_connections, mock_validate_plugin_job_payload, mock_get, mock_reload):
-        response = self.client.post(
-            "/api/organizations/@current/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
-        )
-        plugin_id = response.json()["id"]
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps({"bar": "moop"}),
-            },
-            format="multipart",
-        )
-        plugin_config_id = response.json()["id"]
-        response = self.client.post(
-            f"/api/plugin_config/{plugin_config_id}/job",
-            {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 200)
-        execute_fn = db_connections["default"].cursor().__enter__().execute
-        self.assertEqual(execute_fn.call_count, 1)
-
-        execute_fn_args = execute_fn.mock_calls[0].args
-        self.assertEqual(execute_fn_args[0], "SELECT graphile_worker.add_job('pluginJob', %s)")
-        self.assertDictEqual(
-            json.loads(execute_fn_args[1][0]),
-            {
-                "type": "myJob",
-                "payload": {"a": 1, "$operation": "stop", "$job_id": ANY},
-                "pluginConfigId": plugin_config_id,
-                "pluginConfigTeam": self.team.pk,
-            },
-        )
-
-        mock_validate_plugin_job_payload.assert_called_with(ANY, "myJob", {"a": 1}, is_staff=False)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(

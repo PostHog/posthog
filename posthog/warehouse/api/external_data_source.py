@@ -29,6 +29,15 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
 from posthog.temporal.data_imports.pipelines.chargebee import (
     validate_credentials as validate_chargebee_credentials,
 )
+from posthog.temporal.data_imports.pipelines.doit.source import (
+    DOIT_INCREMENTAL_FIELDS,
+    DoItSourceConfig,
+    doit_list_reports,
+)
+from posthog.temporal.data_imports.pipelines.google_ads import (
+    GoogleAdsServiceAccountSourceConfig,
+    get_schemas as get_google_ads_schemas,
+)
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
@@ -143,8 +152,11 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
         ]
 
     def get_status(self, instance: ExternalDataJob):
-        if instance.status == ExternalDataJob.Status.CANCELLED:
+        if instance.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
+
+        if instance.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limit too low"
 
         return instance.status
 
@@ -234,6 +246,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "project_id",
             "client_email",
             "token_uri",
+            "temporary-dataset",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -253,6 +266,13 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                 }
                 job_inputs["ssh-tunnel"] = ssh_tunnel
 
+            # Reconstruct BigQuery structure for UI handling
+            if job_inputs.get("using_temporary_dataset") == "True":  # encrypted as string
+                job_inputs["temporary-dataset"] = {
+                    "enabled": True,
+                    "temporary_dataset_id": job_inputs.pop("temporary_dataset_id", None),
+                }
+
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
                 if key not in whitelisted_keys:
@@ -270,16 +290,23 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
-        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
-        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in active_schemas)
+        any_billing_limits_reached = any(
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in active_schemas
+        )
+        any_billing_limits_too_low = any(
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in active_schemas
+        )
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
         any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
         any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
 
         if any_failures:
-            return ExternalDataSchema.Status.ERROR
-        elif any_cancelled:
+            return ExternalDataSchema.Status.FAILED
+        elif any_billing_limits_reached:
             return "Billing limits"
+        elif any_billing_limits_too_low:
+            return "Billing limits too low"
         elif any_paused:
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
@@ -312,6 +339,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # values without a prefix.
             # TODO: Integrate configuration class here.
             new_job_inputs = {f"zendesk_{k}": v for k, v in new_job_inputs.items()}
+
+        elif instance.source_type == ExternalDataSource.Type.BIGQUERY:
+            new_job_inputs = parse_bigquery_job_inputs(new_job_inputs)
 
         if existing_job_inputs:
             validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
@@ -459,6 +489,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model, bigquery_schemas = self._handle_bigquery_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.CHARGEBEE:
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.TEMPORALIO:
+            new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.DOIT:
+            new_source_model, doit_schemas = self._handle_doit_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -474,6 +510,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = snowflake_schemas
         elif source_type == ExternalDataSource.Type.BIGQUERY:
             default_schemas = bigquery_schemas
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            default_schemas = google_ads_schemas
+        elif source_type == ExternalDataSource.Type.DOIT:
+            default_schemas = doit_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
@@ -609,6 +649,69 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return new_source_model
+
+    def _handle_temporalio_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        host = payload.get("host", "")
+        port = payload.get("port", "")
+        namespace = payload.get("namespace", "")
+        encryption_key = payload.get("encryption_key", None)
+        server_client_root_ca = payload.get("server_client_root_ca", "")
+        client_certificate = payload.get("client_certificate", "")
+        client_private_key = payload.get("client_private_key", "")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "host": host,
+                "port": port,
+                "namespace": namespace,
+                "encryption_key": encryption_key,
+                "server_client_root_ca": server_client_root_ca,
+                "client_certificate": client_certificate,
+                "client_private_key": client_private_key,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_doit_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        api_key = payload.get("api_key", "")
+
+        if len(api_key) == 0:
+            raise Exception("Missing api_key")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "api_key": api_key,
+            },
+            prefix=prefix,
+        )
+
+        reports = doit_list_reports(DoItSourceConfig(api_key=api_key))
+
+        return new_source_model, [name for name, _ in reports]
 
     def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
@@ -781,42 +884,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        key_file = payload.get("key_file", {})
-        project_id = key_file.get("project_id")
-
-        dataset_id = payload.get("dataset_id")
-        # Very common to include the project_id as a prefix of the dataset_id.
-        # We remove it if it's there.
-        if dataset_id:
-            dataset_id = dataset_id.removeprefix(f"{project_id}.")
-
-        private_key = key_file.get("private_key")
-        private_key_id = key_file.get("private_key_id")
-        client_email = key_file.get("client_email")
-        token_uri = key_file.get("token_uri")
-
-        temporary_dataset = request.data.get("temporary-dataset", {})
-        using_temporary_dataset = temporary_dataset.get("enabled", False)
-        temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
-
-        job_inputs = {
-            "dataset_id": dataset_id,
-            "project_id": project_id,
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "client_email": client_email,
-            "token_uri": token_uri,
-            "using_temporary_dataset": using_temporary_dataset,
-            "temporary_dataset_id": temporary_dataset_id,
-        }
-
-        required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
-        have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
-
-        if not have_all_required:
-            included_inputs = {k for k, v in job_inputs.items() if v is not None}
-            missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
-            raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+        job_inputs = parse_bigquery_job_inputs(payload)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -831,6 +899,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         schemas = get_bigquery_schemas(BigQuerySourceConfig.from_dict(new_source_model.job_inputs))
+
+        return new_source_model, list(schemas.keys())
+
+    def _handle_google_ads_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        customer_id = payload.get("customer_id", "")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"customer_id": customer_id},
+            prefix=prefix,
+        )
+
+        config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
+        schemas = get_google_ads_schemas(config)
 
         return new_source_model, list(schemas.keys())
 
@@ -1021,6 +1115,62 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Chargebee credentials are incorrect"},
                 )
+
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            customer_id = request.data.get("customer_id")
+            resource_name = request.data.get("resource_name", "")
+
+            if not customer_id:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required input: 'customer_id'"},
+                )
+
+            google_ads_config = GoogleAdsServiceAccountSourceConfig(
+                customer_id=customer_id, resource_name=resource_name
+            )
+
+            google_ads_schemas = get_google_ads_schemas(
+                google_ads_config,
+            )
+
+            result_mapped_to_options = [
+                {
+                    "table": name,
+                    "should_sync": False,
+                    "incremental_fields": [],
+                    "incremental_available": False,
+                    "incremental_field": None,
+                    "sync_type": None,
+                }
+                for name, _ in google_ads_schemas.items()
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.DOIT:
+            api_key = request.data.get("api_key")
+
+            if not api_key:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required input: 'api_key'"},
+                )
+
+            doit_config = DoItSourceConfig(api_key=api_key)
+            reports = doit_list_reports(doit_config)
+            result_mapped_to_options = [
+                {
+                    "table": name,
+                    "should_sync": False,
+                    "incremental_fields": DOIT_INCREMENTAL_FIELDS,
+                    "incremental_available": False,
+                    "incremental_field": None,
+                    "sync_type": None,
+                }
+                for name, _ in reports
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Get schemas and validate SQL credentials
         if source_type in [
@@ -1438,3 +1588,44 @@ def parse_snowflake_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
         "passphrase": auth_type_passphrase,
         "private_key": auth_type_private_key,
     }
+
+
+def parse_bigquery_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    key_file = payload.get("key_file", {})
+    project_id = key_file.get("project_id")
+
+    dataset_id = payload.get("dataset_id")
+    # Very common to include the project_id as a prefix of the dataset_id.
+    # We remove it if it's there.
+    if dataset_id:
+        dataset_id = dataset_id.removeprefix(f"{project_id}.")
+
+    private_key = key_file.get("private_key")
+    private_key_id = key_file.get("private_key_id")
+    client_email = key_file.get("client_email")
+    token_uri = key_file.get("token_uri")
+
+    temporary_dataset = payload.get("temporary-dataset", {})
+    using_temporary_dataset = temporary_dataset.get("enabled", False)
+    temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
+
+    job_inputs = {
+        "dataset_id": dataset_id,
+        "project_id": project_id,
+        "private_key": private_key,
+        "private_key_id": private_key_id,
+        "client_email": client_email,
+        "token_uri": token_uri,
+        "using_temporary_dataset": using_temporary_dataset,
+        "temporary_dataset_id": temporary_dataset_id,
+    }
+
+    required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
+    have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
+
+    if not have_all_required:
+        included_inputs = {k for k, v in job_inputs.items() if v is not None}
+        missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
+        raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+
+    return job_inputs

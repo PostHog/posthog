@@ -49,6 +49,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "autocapture_exceptions_opt_in": false,
         "autocapture_opt_out": true,
         "autocapture_web_vitals_opt_in": false,
+        "base_currency": "USD",
         "capture_console_log_opt_in": true,
         "capture_dead_clicks": false,
         "capture_performance_opt_in": true,
@@ -151,13 +152,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
             },
             {
               "due_date": "2035-12-31",
-              "goal": 10000000,
+              "goal": 1500000,
               "name": "2035 Q4",
-            },
-            {
-              "due_date": "2045-12-31",
-              "goal": 100000000,
-              "name": "2045 Q4",
             },
           ],
         },

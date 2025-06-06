@@ -7,6 +7,7 @@ import {
     IconRetention,
     IconRetentionHeatmap,
     IconRewindPlay,
+    IconSquareRoot,
     IconStickiness,
     IconTrends,
     IconUpload,
@@ -354,6 +355,16 @@ order by count() desc
         command: async (chain, pos) => {
             return chain.insertContentAt(pos, buildNodeEmbed())
         },
+    },
+    {
+        title: 'LaTeX',
+        search: 'latex math formula equation',
+        icon: <IconSquareRoot color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Latex,
+                attrs: { content: '' }, // Default empty content
+            }),
     },
 ]
 

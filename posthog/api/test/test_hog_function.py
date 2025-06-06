@@ -10,17 +10,18 @@ from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models.team import Team
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
+geoip_template = MOCK_NODE_TEMPLATES[2]
 
 
 EXAMPLE_FULL = {
@@ -77,9 +78,22 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
+def _create_template_from_mock(template_data):
+    serializer = HogFunctionTemplateSerializer(data=template_data)
+    serializer.is_valid(raise_exception=True)
+    template = serializer.save()
+    DBHogFunctionTemplate.create_from_dataclass(template)
+    return template
+
+
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
+        # Create slack template in DB
+        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        _create_template_from_mock(webhook_template)
+
+        # Mock the API call to get templates
         with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
@@ -187,6 +201,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+        # Create slack template in DB
+        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        _create_template_from_mock(webhook_template)
+        _create_template_from_mock(geoip_template)
+
+        # Mock the API call to get templates
         with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
@@ -1519,7 +1539,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
         )
 
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=False)
     def test_transformation_functions_require_template_when_disabled(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1537,60 +1557,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "detail": "Transformation functions must be created from a template.",
             "attr": "template_id",
         }
-
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
-    def test_transformation_functions_preserve_template_code_when_disabled(self):
-        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
-            mock_template.return_value = template_slack  # Use existing template instead of creating mock
-
-            # First create with transformations enabled
-            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"]):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        "name": "Template Transform",
-                        "type": "transformation",
-                        "template_id": template_slack.id,
-                        "hog": "return event",
-                        "inputs": {
-                            "slack_workspace": {"value": 1},
-                            "channel": {"value": "#general"},
-                        },
-                    },
-                )
-                assert response.status_code == status.HTTP_201_CREATED, response.json()
-                function_id = response.json()["id"]
-
-            # Try to update with transformations disabled
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
-                data={
-                    "hog": "return another_event",
-                },
-            )
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json()["hog"] == template_slack.hog  # Original template code preserved
-
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
-    def test_transformation_uses_template_code_even_when_enabled(self):
-        # Even with transformations enabled, we should still use template code
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "type": "transformation",
-                "name": "Test Function",
-                "description": "Test description",
-                "template_id": template_slack.id,
-                "hog": "return event",  # This should be ignored
-                "inputs": {
-                    "slack_workspace": {"value": 1},
-                    "channel": {"value": "#general"},
-                },
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["hog"] == template_slack.hog  # Should always use template code
 
     def test_transformation_type_gets_execution_order_automatically(self):
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
@@ -1693,88 +1659,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "Function 4",  # execution_order=null
         ]
 
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
-    def test_transformation_code_editing_restricted_by_team(self):
-        # Create team with ID 2
-        team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
-        self.team = team_2  # Switch to team 2 context
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Custom Transform",
-                "type": "transformation",
-                "hog": "return event",
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == "return event"
-
-        # Create and switch to team 3
-        team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
-        self.team = team_3
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Custom Transform",
-                "type": "transformation",
-                "hog": "return event",
-            },
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Transformation functions must be created from a template.",
-            "attr": "template_id",
-        }
-
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
-    def test_transformation_code_editing_with_template_restricted_by_team(self):
-        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
-            mock_template.return_value = template_slack
-
-            # Create and test with team ID 2
-            team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
-            self.team = team_2
-
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Template Transform",
-                    "type": "transformation",
-                    "template_id": template_slack.id,
-                    "hog": "return event",
-                    "inputs": {
-                        "slack_workspace": {"value": 1},
-                        "channel": {"value": "#general"},
-                    },
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-            assert response.json()["hog"] == "return event"  # Custom code allowed
-
-            # Create and test with team ID 3
-            team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
-            self.team = team_3
-
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Template Transform",
-                    "type": "transformation",
-                    "template_id": template_slack.id,
-                    "hog": "return event",
-                    "inputs": {
-                        "slack_workspace": {"value": 1},
-                        "channel": {"value": "#general"},
-                    },
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-            assert response.json()["hog"] == template_slack.hog  # Template code enforced
-
     def test_can_call_a_test_invocation(self):
         with patch("posthog.api.hog_function.create_hog_invocation_test") as mock_create_hog_invocation_test:
             res = MagicMock(status_code=200, json=lambda: {"status": "success"})
@@ -1863,7 +1747,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=True):
             # 1. Create several disabled transformations (more than the limit)
             for i in range(5):
                 response = self.client.post(
@@ -1940,7 +1824,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK
 
     def test_validates_raw_hog_code_size(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=True):
             """Test that we validate the raw HOG code size before compiling it."""
             # Generate a large HOG code string that exceeds the maximum allowed size
             large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
@@ -1962,7 +1846,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in response.json()["detail"]
 
     def test_validates_raw_hog_code_size_during_update(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=True):
             """Test that we validate the raw HOG code size when updating an existing function."""
             # First create a hog function with small, valid code
             response = self.client.post(

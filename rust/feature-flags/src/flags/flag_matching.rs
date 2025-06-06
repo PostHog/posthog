@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
+use crate::api::types::{ConfigResponse, FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -270,12 +270,14 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse::new(
-            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
-            flags_response.flags,
-            None,
+        FlagsResponse {
+            errors_while_computing_flags: flag_hash_key_override_error
+                || flags_response.errors_while_computing_flags,
+            flags: flags_response.flags,
+            quota_limited: None,
             request_id,
-        )
+            config: ConfigResponse::default(),
+        }
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -531,12 +533,13 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                return FlagsResponse::new(
+                return FlagsResponse {
                     errors_while_computing_flags,
-                    flag_details_map,
-                    None,
+                    flags: flag_details_map,
+                    quota_limited: None,
                     request_id,
-                );
+                    config: ConfigResponse::default(),
+                };
             }
 
             // Step 3: Evaluate remaining flags with cached properties
@@ -595,12 +598,13 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        FlagsResponse::new(
+        FlagsResponse {
             errors_while_computing_flags,
-            flag_details_map,
-            None,
+            flags: flag_details_map,
+            quota_limited: None,
             request_id,
-        )
+            config: ConfigResponse::default(),
+        }
     }
 
     /// Matches a feature flag with property overrides.
@@ -1049,7 +1053,7 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
-        if let Some(first_condition) = feature_flag
+        if let Some(super_condition) = feature_flag
             .filters
             .super_groups
             .as_ref()
@@ -1057,11 +1061,11 @@ impl FeatureFlagMatcher {
         {
             let person_properties = self.get_person_properties(
                 property_overrides.clone(),
-                first_condition.properties.as_deref().unwrap_or(&[]),
+                super_condition.properties.as_deref().unwrap_or(&[]),
             )?;
 
             let has_relevant_super_condition_properties =
-                first_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().map_or(false, |props| {
                     props
                         .iter()
                         .any(|prop| person_properties.contains_key(&prop.key))
@@ -1069,7 +1073,7 @@ impl FeatureFlagMatcher {
 
             let (is_match, _) = self.is_condition_match(
                 feature_flag,
-                first_condition,
+                super_condition,
                 Some(person_properties),
                 hash_key_overrides,
             )?;

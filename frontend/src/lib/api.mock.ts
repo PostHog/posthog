@@ -153,12 +153,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
             {
                 due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
                 name: '2035 Q4',
-                goal: 10_000_000,
-            },
-            {
-                due_date: '2045-12-31',
-                name: '2045 Q4',
-                goal: 100_000_000,
+                goal: 1_500_000,
             },
         ],
     },
@@ -171,6 +166,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

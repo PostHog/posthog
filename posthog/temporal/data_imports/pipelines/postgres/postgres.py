@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    QueryTimeout,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
@@ -173,9 +174,36 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
     return None
 
 
-def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> int:
+def _has_duplicate_primary_keys(
+    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None
+) -> bool:
+    if not primary_keys or len(primary_keys) == 0:
+        return False
+
+    try:
+        sql_query = cast(
+            LiteralString,
+            f"""
+            SELECT {", ".join(["{}" for _ in primary_keys])}
+            FROM {{}}.{{}}
+            GROUP BY {", ".join([str(i + 1) for i, _ in enumerate(primary_keys)])}
+            HAVING COUNT(*) > 1
+            LIMIT 1
+        """,
+        )
+        query = sql.SQL(sql_query).format(
+            *[sql.Identifier(key) for key in primary_keys], sql.Identifier(schema), sql.Identifier(table_name)
+        )
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        return row is not None
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
+def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
             SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
@@ -436,16 +464,31 @@ def postgres_source(
                 incremental_field_type,
                 db_incremental_field_last_value,
             )
+            cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                )
+            )
+            try:
+                primary_keys = _get_primary_keys(cursor, schema, table_name)
+                table = _get_table(cursor, schema, table_name)
+                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+                has_duplicate_primary_keys = False
 
-            primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table = _get_table(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, schema, table_name, logger)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
-            partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
-
-            # Fallback on checking for an `id` field on the table
-            if primary_keys is None and "id" in table:
-                primary_keys = ["id"]
+                # Fallback on checking for an `id` field on the table
+                if primary_keys is None and "id" in table:
+                    primary_keys = ["id"]
+                    has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
+            except psycopg.errors.QueryCanceled:
+                if is_incremental:
+                    raise QueryTimeout(
+                        f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+                    )
+                raise
+            except Exception:
+                raise
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
@@ -503,4 +546,5 @@ def postgres_source(
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
+        has_duplicate_primary_keys=has_duplicate_primary_keys,
     )
