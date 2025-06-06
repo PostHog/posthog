@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -61,21 +61,13 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
-            hub.db,
-            String(teamId),
-            event.distinct_id
-        )
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         await expect(
-            new EventPipelineRunner(
-                hub,
+            new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(
                 event,
-                null,
-                [],
-                personsStoreForDistinctId,
-                groupStoreForBatch
-            ).runEventPipeline(event, team)
+                team
+            )
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
     })

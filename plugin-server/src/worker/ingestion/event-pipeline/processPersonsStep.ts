@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { Person, Team } from '~/src/types'
 
 import { PersonState } from '../person-state'
-import { PersonsStoreForDistinctIdBatch } from '../persons/persons-store-for-distinct-id-batch'
+import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
@@ -13,7 +13,7 @@ export async function processPersonsStep(
     team: Team,
     timestamp: DateTime,
     processPerson: boolean,
-    distinctIdBatchStore: PersonsStoreForDistinctIdBatch
+    distinctIdBatchStore: PersonsStoreForBatch
 ): Promise<[PluginEvent, Person, Promise<void>]> {
     const [person, kafkaAck] = await new PersonState(
         event,
