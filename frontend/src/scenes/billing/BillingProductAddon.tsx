@@ -101,14 +101,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 </div>
                             )}
                         </div>
-                        <p className="ml-0 mb-0">
-                            {addon.description}{' '}
-                            {addon.docs_url && (
-                                <>
-                                    <Link to={addon.docs_url}>Read the docs</Link> for more information.
-                                </>
-                            )}
-                        </p>
+                        <p className="ml-0 mb-0">{addon.description} </p>
                         {is_enhanced_persons_og_customer && (
                             <p className="mt-2 mb-0">
                                 <Link
@@ -190,6 +183,14 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         {showTierBreakdown && <BillingProductPricingTable product={addon} />}
                     </>
                 )}
+
+                <p className="ml-0 mb-0 mt-2">
+                    {addon.docs_url && (
+                        <>
+                            <Link to={addon.docs_url}>Read the docs</Link> for more information.
+                        </>
+                    )}
+                </p>
             </div>
 
             {/* Pricing modal */}
