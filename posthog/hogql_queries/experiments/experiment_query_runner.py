@@ -43,6 +43,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
     get_data_warehouse_metric_source,
     get_metric_value,
+    is_continuous,
 )
 from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_steps_to_filter,
@@ -656,8 +657,8 @@ class ExperimentQueryRunner(QueryRunner):
                     trends_variants = get_legacy_trends_variant_results(sorted_results)
                     self._validate_event_variants(trends_variants)
                     trends_control_variant, trends_test_variants = split_baseline_and_test_variants(trends_variants)
-                    match self.metric.source.math:
-                        case ExperimentMetricMathType.SUM:
+                    match is_continuous(self.metric.source.math):
+                        case True:
                             probabilities = calculate_probabilities_v2_continuous(
                                 control_variant=trends_control_variant,
                                 test_variants=trends_test_variants,
@@ -671,7 +672,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 [trends_control_variant, *trends_test_variants]
                             )
                         # Otherwise, we default to count
-                        case _:
+                        case False:
                             probabilities = calculate_probabilities_v2_count(
                                 control_variant=trends_control_variant,
                                 test_variants=trends_test_variants,

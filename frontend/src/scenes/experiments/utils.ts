@@ -784,6 +784,9 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.Avg,
+                ExperimentMetricMathType.Min,
+                ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
             ]
         default:
