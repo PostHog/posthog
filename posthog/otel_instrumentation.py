@@ -88,19 +88,9 @@ def initialize_otel():
 
         try:
             # Add Sentry context to OpenTelemetry spans
-            def _otel_django_request_hook_with_sentry(span, request):
-                if span and span.is_recording():
-                    actual_path = request.path or ""  # Use empty string if path is None
-                    http_method = request.method
-                    span.set_attribute("http.method", http_method)
-                    span.set_attribute("http.url", actual_path)
-                    # Add Sentry context
-                    span.set_attribute("sentry.sampled", "true")
-                    # span.update_name(f"{http_method} {actual_path}") # Use with caution - high cardinality
-
             DjangoInstrumentor().instrument(
                 tracer_provider=provider,
-                request_hook=_otel_django_request_hook_with_sentry,
+                request_hook=_otel_django_request_hook,
                 response_hook=_otel_django_response_hook,
             )
             logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")

@@ -117,7 +117,7 @@ class TestOtelInstrumentation(BaseTest):
 
         instrument_call_args = mock_django_instrumentor_instance.instrument.call_args
         self.assertEqual(instrument_call_args[1]["tracer_provider"], mock_provider_instance)
-        self.assertEqual(instrument_call_args[1]["request_hook"], _otel_django_request_hook)
+        self.assertEqual(instrument_call_args[1]["request_hook"].__name__, "_otel_django_request_hook")
         self.assertEqual(instrument_call_args[1]["response_hook"], _otel_django_response_hook)
 
         # Assert RedisInstrumentor call
