@@ -107,7 +107,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "live_events_columns": null,
         "live_events_token": "123",
         "marketing_analytics_config": {
-"sources_map": {},
+          "sources_map": {},
         },
         "name": "MockHog App + Marketing",
         "onboarding_tasks": {
