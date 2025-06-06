@@ -139,6 +139,9 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                             <b>
                                                 {feature.name}
                                                 {feature.note ? ': ' + feature.note : ''}
+                                                {feature.limit && feature.unit
+                                                    ? ': ' + feature.limit + ' ' + feature.unit
+                                                    : ''}
                                             </b>
                                         </Tooltip>
                                     </div>
