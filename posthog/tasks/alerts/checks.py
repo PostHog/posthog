@@ -25,6 +25,7 @@ from posthog.schema import (
     AlertState,
 )
 from posthog.utils import get_from_dict_or_attr
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from django.db.models import Q, F
 from collections import defaultdict
 from posthog.tasks.alerts.utils import (
@@ -421,6 +422,35 @@ def add_alert_check(
         error=error,
     )
 
+    # Emit internal CDP event when threshold is crossed
+    if breaches:
+        emit_alert_breach_internal_event(alert, value, breaches)
+
     alert.save()
 
     return alert_check
+
+
+def emit_alert_breach_internal_event(alert: AlertConfiguration, value: float | None, breaches: list[str]) -> None:
+    """
+    Emit an internal CDP event for each breached threshold
+    """
+    try:
+        for breach in breaches:
+            event = InternalEventEvent(
+                event="alert_threshold_breached",
+                distinct_id=f"alert_{alert.id}",
+                properties={
+                    "alert_id": str(alert.id),
+                    "alert_name": alert.name,
+                    "calculated_value": value,
+                    "threshold": alert.threshold,
+                    "condition": alert.condition,
+                    "breach": breach,
+                    "insight_id": alert.insight_id,
+                },
+            )
+            produce_internal_event(team_id=alert.team_id, event=event)
+            logger.info("Emitted alert breach internal event", alert_id=alert.id, breach=breach)
+    except Exception as e:
+        logger.exception("Failed to emit alert breach internal event", alert_id=alert.id, error=str(e))
