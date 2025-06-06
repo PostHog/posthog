@@ -747,6 +747,27 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
             )
+        elif model.pipeline.source_type == ExternalDataSource.Type.DOIT:
+            from posthog.temporal.data_imports.pipelines.doit.source import (
+                DoItSourceConfig,
+                doit_source,
+            )
+
+            doit_config = DoItSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = doit_source(
+                doit_config,
+                schema.name,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
 
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")

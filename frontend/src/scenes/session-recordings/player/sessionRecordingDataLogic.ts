@@ -33,7 +33,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -251,7 +251,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     sources.forEach((s) => {
                         const k = keyForSource(s)
                         // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || { snapshots: [] }
+                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
+                        cache.snapshotsBySource[k].sourceLoaded = true
                     })
 
                     return { sources: sources }
@@ -495,11 +496,13 @@ LIMIT 1000000
                 const nextSourcesToLoad =
                     values.snapshotSources?.filter((s) => {
                         const sourceKey = keyForSource(s)
-                        return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                        return (
+                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
+                        )
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 100))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 50))
                 }
 
                 if (!props.blobV2PollingDisabled) {
@@ -508,7 +511,7 @@ LIMIT 1000000
             } else {
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
                     const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
                 })
 
                 if (nextSourceToLoad) {
@@ -831,12 +834,13 @@ LIMIT 1000000
                 if (!sources || !cache.snapshotsBySource) {
                     return []
                 }
-                return processAllSnapshots(
+                const processedSnapshots = processAllSnapshots(
                     sources,
                     cache.snapshotsBySource || {},
                     viewportForTimestamp,
                     sessionRecordingId
                 )
+                return processedSnapshots['processed'].snapshots || []
             },
         ],
 
@@ -931,15 +935,22 @@ LIMIT 1000000
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
-                return () => ({
-                    version: '2023-04-28',
-                    data: {
-                        id: sessionPlayerMetaData?.id ?? '',
-                        person: sessionPlayerMetaData?.person,
-                        snapshots: snapshots,
-                    },
-                })
+            (
+                sessionPlayerMetaData,
+                snapshots
+            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
+                return (type?: ExportedSessionType) => {
+                    return type === 'rrweb'
+                        ? snapshots
+                        : {
+                              version: '2023-04-28',
+                              data: {
+                                  id: sessionPlayerMetaData?.id ?? '',
+                                  person: sessionPlayerMetaData?.person,
+                                  snapshots: snapshots,
+                              },
+                          }
+                }
             },
         ],
 

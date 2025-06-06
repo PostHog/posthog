@@ -1,5 +1,5 @@
 import { IconCursor } from '@posthog/icons'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -18,12 +18,17 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/Library/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/Library/MessageTemplate'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -43,6 +48,7 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
@@ -76,7 +82,7 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.messagingCampaign(ref),
             iconColor: ['var(--product-messaging-light)'],
             filterKey: 'campaign',
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     },
     treeItemsNew: [
@@ -90,25 +96,25 @@ export const manifest: ProductManifest = {
             path: `Campaign`,
             type: 'hog_function/campaign',
             href: urls.messagingCampaignNew(),
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
     treeItemsProducts: [
         {
             path: 'Broadcasts',
+            category: 'Behavior',
             href: urls.messagingBroadcasts(),
             type: 'hog_function/broadcast',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: 'Campaigns',
+            category: 'Behavior',
             href: urls.messagingCampaigns(),
             type: 'hog_function/campaign',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
 }

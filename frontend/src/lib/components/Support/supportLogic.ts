@@ -97,14 +97,39 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
+                value: 'billing',
+                'data-attr': `support-form-target-area-billing`,
+                label: 'Billing',
+            },
+            {
+                value: 'cohorts',
+                'data-attr': `support-form-target-area-cohorts`,
+                label: 'Cohorts',
+            },
+            {
+                value: 'data_ingestion',
+                'data-attr': `support-form-target-area-data_ingestion`,
+                label: 'Data ingestion',
+            },
+            {
+                value: 'data_management',
+                'data-attr': `support-form-target-area-data_management`,
+                label: 'Data management (incl. events, actions, properties)',
+            },
+            {
                 value: 'login',
                 'data-attr': `support-form-target-area-login`,
                 label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
-                value: 'billing',
-                'data-attr': `support-form-target-area-billing`,
-                label: 'Billing',
+                value: 'mobile',
+                'data-attr': `support-form-target-area-mobile`,
+                label: 'Mobile',
+            },
+            {
+                value: 'notebooks',
+                'data-attr': `support-form-target-area-notebooks`,
+                label: 'Notebooks',
             },
             {
                 value: 'onboarding',
@@ -116,45 +141,15 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
             },
-            {
-                value: 'cohorts',
-                'data-attr': `support-form-target-area-cohorts`,
-                label: 'Cohorts',
-            },
-            {
-                value: 'data_management',
-                'data-attr': `support-form-target-area-data_management`,
-                label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'data_ingestion',
-                'data-attr': `support-form-target-area-data_ingestion`,
-                label: 'Data ingestion',
-            },
-            {
-                value: 'notebooks',
-                'data-attr': `support-form-target-area-notebooks`,
-                label: 'Notebooks',
-            },
-            {
-                value: 'mobile',
-                'data-attr': `support-form-target-area-mobile`,
-                label: 'Mobile',
-            },
         ],
     },
     {
         title: 'Individual product',
         options: [
             {
-                value: 'experiments',
-                'data-attr': `support-form-target-area-experiments`,
-                label: 'Experiments',
-            },
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
+                value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
+                label: 'Product analytics (incl. insights, dashboards, annotations)',
             },
             {
                 value: 'batch_exports',
@@ -167,19 +162,44 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Destinations (real-time)',
             },
             {
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (sources)',
+            },
+            {
+                value: 'error_tracking',
+                'data-attr': `support-form-target-area-error_tracking`,
+                label: 'Error tracking',
+            },
+            {
+                value: 'experiments',
+                'data-attr': `support-form-target-area-experiments`,
+                label: 'Experiments',
+            },
+            {
                 value: 'feature_flags',
                 'data-attr': `support-form-target-area-feature_flags`,
                 label: 'Feature flags',
             },
             {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, annotations)',
-            },
-            {
                 value: 'group_analytics',
                 'data-attr': `support-form-target-area-group-analytics`,
                 label: 'Group analytics',
+            },
+            {
+                value: 'llm-observability',
+                'data-attr': `support-form-target-area-llm-observability`,
+                label: 'LLM observability',
+            },
+            {
+                value: 'max-ai',
+                'data-attr': `support-form-target-area-max-ai`,
+                label: 'Max AI',
+            },
+            {
+                value: 'messaging',
+                'data-attr': `support-form-target-area-messaging`,
+                label: 'Messaging',
             },
             {
                 value: 'revenue_analytics',
@@ -192,34 +212,19 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Session replay (incl. recordings)',
             },
             {
-                value: 'toolbar',
-                'data-attr': `support-form-target-area-toolbar`,
-                label: 'Toolbar (incl. heatmaps)',
-            },
-            {
                 value: 'surveys',
                 'data-attr': `support-form-target-area-surveys`,
                 label: 'Surveys',
             },
             {
+                value: 'toolbar',
+                'data-attr': `support-form-target-area-toolbar`,
+                label: 'Toolbar (incl. heatmaps)',
+            },
+            {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web analytics',
-            },
-            {
-                value: 'error_tracking',
-                'data-attr': `support-form-target-area-error_tracking`,
-                label: 'Error tracking',
-            },
-            {
-                value: 'llm-observability',
-                'data-attr': `support-form-target-area-llm-observability`,
-                label: 'LLM observability',
-            },
-            {
-                value: 'messaging',
-                'data-attr': `support-form-target-area-messaging`,
-                label: 'Messaging',
             },
         ],
     },

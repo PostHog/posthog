@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional, Union
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -11,11 +12,10 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
 )
-from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
-from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
-from ..views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from ..views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
-from ..views.revenue_analytics_product_view import RevenueAnalyticsProductView
+from products.revenue_analytics.backend.utils import revenue_selects_from_database
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -31,67 +31,102 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         RevenueAnalyticsTopCustomersQuery,
     ]
 
-    def revenue_selects(
-        self,
-    ) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
-        selects: defaultdict[str, dict[str, ast.SelectQuery | None]] = defaultdict(
-            lambda: {"charge": None, "customer": None, "invoice_item": None, "product": None}
+    @cached_property
+    def where_property_exprs(self) -> list[ast.Expr]:
+        return [property_to_expr(property, self.team, scope="revenue_analytics") for property in self.query.properties]
+
+    @cached_property
+    def joins_set_for_properties(self) -> set[str]:
+        joins_set = set()
+        for property in self.query.properties:
+            if property.key == "product":
+                joins_set.add("products")
+            elif property.key == "customer":
+                joins_set.add("customers")
+        return joins_set
+
+    # This assumes there's a base select coming from the `invoice_items` view
+    # and we can then join from that table with the other tables so that's
+    # why we'll never see a join for the `invoice_items` table - it's supposed to be there already
+    @cached_property
+    def joins_for_properties(self) -> list[ast.JoinExpr]:
+        _, customer_subquery, _, product_subquery = self.revenue_subqueries
+
+        joins = []
+        for join in self.joins_set_for_properties:
+            if join == "products":
+                if product_subquery is not None:
+                    joins.append(self.create_product_join(product_subquery))
+            elif join == "customers":
+                if customer_subquery is not None:
+                    joins.append(self.create_customer_join(customer_subquery))
+
+        return joins
+
+    # Recursively appends joins to the initial join
+    # by using the `next_join` field of the last dangling join
+    def append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
+        base_join = initial_join
+        for current_join in joins:
+            while base_join.next_join is not None:
+                base_join = base_join.next_join
+            base_join.next_join = current_join
+        return initial_join
+
+    def create_product_join(self, product_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            alias=RevenueAnalyticsProductView.get_generic_view_alias(),
+            table=product_subquery,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                constraint_type="ON",
+                expr=ast.CompareOperation(
+                    left=ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "id"]),
+                    right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "product_id"]),
+                    op=ast.CompareOperationOp.Eq,
+                ),
+            ),
         )
 
-        for view_name in self.database.get_views():
-            view = self.database.get_table(view_name)
+    def create_customer_join(self, customer_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+            table=customer_subquery,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                constraint_type="ON",
+                expr=ast.CompareOperation(
+                    left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                    right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "customer_id"]),
+                    op=ast.CompareOperationOp.Eq,
+                ),
+            ),
+        )
 
-            if isinstance(view, RevenueAnalyticsBaseView):
-                if view.source_id is not None and view.source_id in self.query.revenueSources.dataWarehouseSources:
-                    select = ast.SelectQuery(
-                        select=[ast.Field(chain=["*"])],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
-                    )
+    @cached_property
+    def revenue_selects(self) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
+        return revenue_selects_from_database(self.database, self.query.revenueSources)
 
-                    if isinstance(view, RevenueAnalyticsChargeView):
-                        selects[view.prefix]["charge"] = select
-                    elif isinstance(view, RevenueAnalyticsCustomerView):
-                        selects[view.prefix]["customer"] = select
-                    elif isinstance(view, RevenueAnalyticsInvoiceItemView):
-                        selects[view.prefix]["invoice_item"] = select
-                    elif isinstance(view, RevenueAnalyticsProductView):
-                        selects[view.prefix]["product"] = select
-                elif view.source_id is None and isinstance(view, RevenueAnalyticsChargeView):
-                    if len(self.query.revenueSources.events) > 0:
-                        select = ast.SelectQuery(
-                            select=[ast.Field(chain=["*"])],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
-                            where=ast.Call(
-                                name="in",
-                                args=[
-                                    ast.Field(chain=["event_name"]),
-                                    ast.Constant(value=self.query.revenueSources.events),
-                                ],
-                            ),
-                        )
-                        selects[view.prefix]["charge"] = select
-
-        return selects
-
+    @cached_property
     def revenue_subqueries(
         self,
     ) -> tuple[
         ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None
     ]:
-        revenue_selects = self.revenue_selects()
-
         # Remove the view name because it's not useful for the select query
         parsed_charge_selects = [
-            selects["charge"] for _, selects in revenue_selects.items() if selects["charge"] is not None
+            selects["charge"] for _, selects in self.revenue_selects.items() if selects["charge"] is not None
         ]
         parsed_customer_selects = [
-            selects["customer"] for _, selects in revenue_selects.items() if selects["customer"] is not None
+            selects["customer"] for _, selects in self.revenue_selects.items() if selects["customer"] is not None
         ]
         parsed_invoice_item_selects = [
-            selects["invoice_item"] for _, selects in revenue_selects.items() if selects["invoice_item"] is not None
+            selects["invoice_item"]
+            for _, selects in self.revenue_selects.items()
+            if selects["invoice_item"] is not None
         ]
         parsed_product_selects = [
-            selects["product"] for _, selects in revenue_selects.items() if selects["product"] is not None
+            selects["product"] for _, selects in self.revenue_selects.items() if selects["product"] is not None
         ]
 
         return (

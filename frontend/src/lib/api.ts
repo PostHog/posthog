@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/Library/messageTemplatesLogic'
 import { ErrorTrackingRule, ErrorTrackingRuleType } from 'scenes/error-tracking/configuration/rules/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -59,6 +59,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    EmailSenderDomainStatus,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -86,6 +87,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LineageGraph,
     LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
@@ -296,11 +298,11 @@ export class ApiConfig {
     }
 }
 
-class ApiRequest {
+export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
 
-    constructor() {
+    public constructor() {
         this.pathComponents = []
     }
 
@@ -325,6 +327,11 @@ class ApiRequest {
 
     private addPathComponent(component: string | number): ApiRequest {
         this.pathComponents.push(component.toString())
+        return this
+    }
+
+    private addEncodedPathComponent(component: string | number): ApiRequest {
+        this.pathComponents.push(encodeURIComponent(component.toString()))
         return this
     }
 
@@ -365,7 +372,7 @@ class ApiRequest {
         return this.organizations()
             .addPathComponent(orgId)
             .addPathComponent('feature_flags')
-            .addPathComponent(featureFlagKey)
+            .addEncodedPathComponent(featureFlagKey) // Never trust user input.
     }
 
     public copyOrganizationFeatureFlags(orgId: OrganizationType['id']): ApiRequest {
@@ -414,6 +421,10 @@ class ApiRequest {
 
     public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
+    public insightsCancel(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('cancel')
     }
 
     // # File System
@@ -1044,6 +1055,10 @@ class ApiRequest {
             .withQueryString({ accountId })
     }
 
+    public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -1191,6 +1206,15 @@ class ApiRequest {
 
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
+    }
+
+    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('lineage')
+            .addPathComponent('get_upstream')
+            .withQueryString({
+                model_id: modelId,
+            })
     }
 
     // ActivityLog
@@ -1352,6 +1376,9 @@ const api = {
         },
         async update(id: number, data: any): Promise<InsightModel> {
             return await new ApiRequest().insight(id).update({ data })
+        },
+        async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
     },
 
@@ -3183,7 +3210,11 @@ const api = {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
-
+    upstream: {
+        async get(modelId: string): Promise<LineageGraph> {
+            return await new ApiRequest().upstream(modelId).get()
+        },
+    },
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -3276,6 +3307,9 @@ const api = {
             accountId: string
         ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
             return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
+        },
+        async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
+            return await new ApiRequest().integrationEmailVerify(id).create()
         },
     },
 

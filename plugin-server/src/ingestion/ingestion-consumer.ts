@@ -31,6 +31,8 @@ import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
 import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populateTeamDataStep'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
+import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
 import { MemoryRateLimiter } from './utils/overflow-detector'
@@ -91,6 +93,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personStore: MeasuringPersonsStore
+    public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
@@ -139,6 +142,14 @@ export class IngestionConsumer {
             personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
             personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
         })
+
+        this.groupStore = new BatchWritingGroupStore(this.hub.db, {
+            batchWritingEnabled: this.hub.GROUP_BATCH_WRITING_ENABLED,
+            maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL,
+        })
+
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
@@ -261,7 +272,7 @@ export class IngestionConsumer {
         }
 
         const personsStoreForBatch = this.personStore.forBatch()
-
+        const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(groupedMessages).map(async (events) => {
@@ -273,13 +284,15 @@ export class IngestionConsumer {
                     )
 
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForDistinctId)
+                        this.processEventsForDistinctId(eventsToProcess, personsStoreForDistinctId, groupStoreForBatch)
                     )
                 })
             )
         })
 
         personsStoreForBatch.reportBatch()
+        groupStoreForBatch.reportBatch()
+        await groupStoreForBatch.flush()
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -400,19 +413,21 @@ export class IngestionConsumer {
 
     private async processEventsForDistinctId(
         eventsForDistinctId: EventsForDistinctId,
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-            await this.runEventRunnerV1(incomingEvent, personsStoreForDistinctId)
+            await this.runEventRunnerV1(incomingEvent, personsStoreForDistinctId, groupStoreForBatch)
         }
     }
 
     private async runEventRunnerV1(
         incomingEvent: IncomingEventWithTeam,
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        groupStoreForBatch: GroupStoreForBatch
     ): Promise<EventPipelineResult | undefined> {
         const { event, message, team } = incomingEvent
 
@@ -423,7 +438,12 @@ export class IngestionConsumer {
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
-                    const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs, personsStoreForDistinctId)
+                    const runner = this.getEventPipelineRunnerV1(
+                        event,
+                        allBreadcrumbs,
+                        personsStoreForDistinctId,
+                        groupStoreForBatch
+                    )
                     return await runner.runEventPipeline(event, team)
                 })
             )
@@ -493,9 +513,17 @@ export class IngestionConsumer {
     private getEventPipelineRunnerV1(
         event: PipelineEvent,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        groupStoreForBatch: GroupStoreForBatch
     ): EventPipelineRunner {
-        return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
+        return new EventPipelineRunner(
+            this.hub,
+            event,
+            this.hogTransformer,
+            breadcrumbs,
+            personsStoreForDistinctId,
+            groupStoreForBatch
+        )
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {

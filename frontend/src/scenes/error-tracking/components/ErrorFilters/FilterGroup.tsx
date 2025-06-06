@@ -9,7 +9,7 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { useEffect, useRef, useState } from 'react'
 
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { errorFiltersLogic } from './errorFiltersLogic'
 
@@ -86,7 +86,7 @@ const UniversalSearch = (): JSX.Element => {
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
-                    prefix={<RecordingsUniversalFilterGroup />}
+                    prefix={<UniversalFilterGroup />}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
@@ -99,7 +99,7 @@ const UniversalSearch = (): JSX.Element => {
     )
 }
 
-const RecordingsUniversalFilterGroup = (): JSX.Element => {
+const UniversalFilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
@@ -122,7 +122,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen}
+                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
                     />
                 )
             })}
