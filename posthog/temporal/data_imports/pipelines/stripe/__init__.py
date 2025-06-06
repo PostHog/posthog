@@ -24,7 +24,6 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-from dlt.sources import DltResource
 
 DEFAULT_LIMIT = 100
 
@@ -405,7 +404,6 @@ def stripe_source(
     resources = list(dlt_source.resources.items())
     assert len(resources) == 1
     resource_name, resource = resources[0]
-
     return SourceResponse(
         items=resource,
         primary_keys=_get_primary_keys(resource),
