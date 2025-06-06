@@ -26,7 +26,7 @@ def symbol_sets_to_delete(config: SymbolSetSelectionConfig) -> list[ErrorTrackin
     if config.delete_unused:
         query_filter = query_filter | Q(last_used__isnull=True)
 
-    symbol_sets = ErrorTrackingSymbolSet.objects.filter(query_filter).order_by("last_used")[: config.batch_size]
+    symbol_sets = ErrorTrackingSymbolSet.objects.filter(query_filter).order_by("last_used")[:config.batch_size]
 
     return list(symbol_sets)
 
