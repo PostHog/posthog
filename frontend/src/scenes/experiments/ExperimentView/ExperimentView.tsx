@@ -88,7 +88,11 @@ const ResultsTab = (): JSX.Element => {
                                             <ExploreButton result={legacyMetricResults[0]} size="xsmall" />
                                         </div>
                                         <div className="pb-4">
-                                            <ResultsQuery result={legacyMetricResults?.[0] || null} showTable={true} />
+                                            <ResultsQuery
+                                                experiment={experiment}
+                                                result={legacyMetricResults?.[0] || null}
+                                                showTable={true}
+                                            />
                                         </div>
                                     </>
                                 )}
