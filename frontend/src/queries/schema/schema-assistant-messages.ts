@@ -115,3 +115,4 @@ export type AssistantContextualTool =
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
+    | 'create_hog_transformation_function'
