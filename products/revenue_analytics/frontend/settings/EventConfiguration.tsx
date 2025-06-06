@@ -1,6 +1,7 @@
 import { IconInfo, IconTrash } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,7 +10,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
-import { CurrencyDropdown } from '../../../../frontend/src/lib/components/BaseCurrency/CurrencyDropdown'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
