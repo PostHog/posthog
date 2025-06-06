@@ -78,12 +78,18 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
                 ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
-                ast.Alias(alias="cohort", expr=ast.Field(chain=["cohort_readable"])),
+                ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
             ],
-            select_from=ast.JoinExpr(
-                alias="outer",
-                table=ast.Field(chain=[table.name]),
-                next_join=ast.JoinExpr(
+            select_from=ast.JoinExpr(alias="outer", table=ast.Field(chain=[table.name])),
+        )
+
+        # If there's an invoice table we can generate the cohort entry
+        # by looking at the first invoice for each customer
+        if invoice_table is not None:
+            cohort_alias = next((alias for alias in query.select if alias.alias == "cohort"), None)
+            if cohort_alias is not None:
+                cohort_alias.expr = ast.Field(chain=["cohort_readable"])
+                query.select_from.next_join = ast.JoinExpr(
                     alias="cohort_inner",
                     table=ast.SelectQuery(
                         select=[
@@ -103,17 +109,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                             op=ast.CompareOperationOp.Eq,
                         ),
                     ),
-                ),
-            ),
-        )
-
-        # If there's an invoice table we can generate the cohort entry
-        # by looking at the first invoice for each customer
-        # if invoice_table is not None:
-        #     cohort_alias = next((alias for alias in query.select if alias.alias == "cohort"), None)
-        #     if cohort_alias is not None:
-        #         cohort_alias.expr = ast.Field(chain=["cohort_readable"])
-        #         query.select_from.next_join =
+                )
 
         return [
             RevenueAnalyticsCustomerView(
