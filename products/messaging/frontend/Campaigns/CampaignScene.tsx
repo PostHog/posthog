@@ -6,7 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { CampaignOverview } from './CampaignOverview'
-import { campaignSceneLogic, CampaignSceneLogicProps, CampaignTab } from './campaignSceneLogic'
+import { campaignSceneLogic, CampaignSceneLogicProps } from './campaignSceneLogic'
 import { CampaignWorkflow } from './CampaignWorkflow'
 
 export const scene: SceneExport = {
@@ -41,7 +41,7 @@ export function CampaignScene({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.messagingCampaignTab(id, tab as CampaignTab))}
+                onChange={(tab) => router.actions.push(urls.messagingCampaignTab(id, tab))}
                 tabs={tabs}
             />
         </div>
