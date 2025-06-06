@@ -31,16 +31,19 @@ from posthog.warehouse.models import ExternalDataSchema
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
+    STRIPE_CUSTOMER_COLUMNS,
 )
 
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
+CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 
 LAST_6_MONTHS_LABELS = ["Nov 2024", "Dec 2024", "Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
 LAST_6_MONTHS_DAYS = ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"]
@@ -108,6 +111,19 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
+        self.customers_csv_path = Path(__file__).parent / "data" / "stripe_customers.csv"
+        self.customers_table, _, _, self.customers_csv_df, self.customers_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.customers_csv_path,
+                "stripe_customer",
+                STRIPE_CUSTOMER_COLUMNS,
+                CUSTOMERS_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
         # Besides the default creations above, also create the external data schema
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.products_schema = ExternalDataSchema.objects.create(
@@ -128,6 +144,15 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             last_synced_at="2024-01-01",
         )
 
+        self.customers_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            source=self.source,
+            table=self.customers_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         self.team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
@@ -135,6 +160,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def tearDown(self):
         self.invoices_cleanup_filesystem()
         self.products_cleanup_filesystem()
+        self.customers_cleanup_filesystem()
         super().tearDown()
 
     def _run_revenue_analytics_insights_query(
@@ -178,6 +204,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_no_crash_when_no_data(self):
         self.invoices_table.delete()
         self.products_table.delete()
+        self.customers_table.delete()
         results = self._run_revenue_analytics_insights_query().results
 
         self.assertEqual(results, [])
@@ -202,11 +229,11 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "data": [
                         0,
                         0,
-                        Decimal("11323.97"),
-                        Decimal("11888.18"),
-                        Decimal("11304.85"),
-                        Decimal("11144.98"),
-                        Decimal("11122.75"),
+                        Decimal("9025.20409"),
+                        Decimal("9474.87946"),
+                        Decimal("9009.96545"),
+                        Decimal("8882.54906"),
+                        Decimal("8864.83175"),
                     ],
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
@@ -230,7 +257,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "label": "stripe.posthog_test",
                     "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
                     "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
-                    "data": [Decimal("11888.18"), Decimal("11304.85"), Decimal("11144.98"), 0],
+                    "data": [Decimal("9474.87946"), Decimal("9009.96545"), Decimal("8882.54906"), 0],
                     "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
                 }
             ],
@@ -266,22 +293,85 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     0,
                     0,
-                    Decimal("10454.64"),
-                    Decimal("10454.64"),
-                    Decimal("10454.64"),
-                    Decimal("10454.64"),
-                    Decimal("10454.64"),
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
                 ],
-                [0, 0, Decimal("485.45"), Decimal("485.45"), Decimal("485.45"), Decimal("485.45"), Decimal("485.45")],
-                [0, 0, Decimal("123.5"), Decimal("214.5"), Decimal("270.2"), Decimal("104.35"), Decimal("145.5")],
-                [0, 0, Decimal("245.5"), Decimal("686.5"), Decimal("90.7"), Decimal("99.99"), Decimal("24.5")],
-                [0, 0, Decimal("14.45"), Decimal("46.66"), Decimal("3.43"), Decimal("0.12"), Decimal("12.23")],
-                [0, 0, Decimal("0.43"), Decimal("0.43"), Decimal("0.43"), Decimal("0.43"), Decimal("0.43")],
+                [
+                    0,
+                    0,
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("98.4295"),
+                    Decimal("170.9565"),
+                    Decimal("215.3494"),
+                    Decimal("83.16695"),
+                    Decimal("115.9635"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("195.6635"),
+                    Decimal("547.1405"),
+                    Decimal("72.2879"),
+                    Decimal("79.69203"),
+                    Decimal("19.5265"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("11.51665"),
+                    Decimal("37.18802"),
+                    Decimal("2.73371"),
+                    Decimal("0.09564"),
+                    Decimal("9.74731"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                ],
             ],
         )
 
-    def test_with_data_filter(self):
-        expected_data = [[0, 0, Decimal("14.45"), Decimal("46.66"), Decimal("3.43"), Decimal("0.12"), Decimal("12.23")]]
+    def test_with_data_for_cohort_grouping(self):
+        results = self._run_revenue_analytics_insights_query(
+            group_by=RevenueAnalyticsInsightsQueryGroupBy.COHORT
+        ).results
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(
+            [result["label"] for result in results],
+            [
+                "stripe.posthog_test - 2025-01",
+                "stripe.posthog_test - 2025-02",
+            ],
+        )
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
+                [0, 0, Decimal("9025.20409"), 0, Decimal("9009.96545"), 0, Decimal("8864.83175")],
+                [0, 0, 0, Decimal("9474.87946"), 0, Decimal("8882.54906"), 0],
+            ],
+        )
+
+    def test_with_product_filter(self):
+        expected_data = [
+            [0, 0, Decimal("11.51665"), Decimal("37.18802"), Decimal("2.73371"), Decimal("0.09564"), Decimal("9.74731")]
+        ]
 
         results = self._run_revenue_analytics_insights_query(
             properties=[
