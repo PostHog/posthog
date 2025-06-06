@@ -12,7 +12,7 @@ import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/src/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import {
     ClickHouseEvent,
@@ -120,9 +120,9 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId, groupStoreForBatch)
+    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
 
     await delayUntilEventIngested(async () => {
@@ -184,13 +184,9 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
-        hub.db,
-        String(team.id),
-        event.distinct_id
-    )
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, { batchWritingEnabled: true })
-    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId, groupStoreForBatch)
+    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
