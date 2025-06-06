@@ -1443,7 +1443,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({
