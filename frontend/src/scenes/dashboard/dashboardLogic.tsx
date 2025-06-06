@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     actions,
     connect,
@@ -21,7 +22,6 @@ import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
@@ -95,6 +95,8 @@ const QUERY_VARIABLES_KEY = 'query_variables'
  */
 const MAX_TILES_FOR_AUTOPREVIEW = 5
 
+const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
@@ -112,6 +114,9 @@ export interface RefreshStatus {
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+
+// Helper function for exponential backoff
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
@@ -1446,55 +1451,59 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Set insight as refreshing
                         actions.setRefreshStatus(insight.short_id, true, true)
 
-                        try {
-                            // Make a synchronous POST /query call
-                            const filtersOverride = action === 'preview' ? values.temporaryFilters : values.filters
-                            const variablesOverride =
-                                action === 'preview' ? values.temporaryVariables : values.insightVariables
+                        let attempt = 0
+                        const maxAttempts = 5
+                        const initialDelay = 1200
 
-                            await api.query(
-                                insight.query!,
-                                methodOptions,
-                                queryId,
-                                'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
-                                filtersOverride,
-                                variablesOverride
-                            )
-
-                            // Fetch the insight with the calculated result from cache
-                            const syncInsight = await getSingleInsight(
-                                values.currentTeamId,
-                                insight,
-                                dashboardId,
-                                queryId,
-                                'force_cache',
-                                methodOptions,
-                                // dashboard id already passed above
-                                action === 'preview' ? values.temporaryFilters : undefined,
-                                action === 'preview' ? values.temporaryVariables : undefined
-                            )
-
-                            if (action === 'preview' && syncInsight?.dashboard_tiles) {
-                                // If we're previewing, only update the insight on this dashboard
-                                syncInsight.dashboards = [dashboardId]
-                            }
-
-                            // Update the insight in the model
-                            dashboardsModel.actions.updateDashboardInsight(syncInsight!)
-
-                            // Update refresh status
-                            actions.setRefreshStatus(insight.short_id)
-                        } catch (e: any) {
-                            if (shouldCancelQuery(e)) {
-                                console.warn(
-                                    `Insight refresh cancelled for ${insight.short_id} due to abort signal:`,
-                                    e
+                        while (attempt < maxAttempts) {
+                            try {
+                                const syncInsight = await getSingleInsight(
+                                    values.currentTeamId,
+                                    insight,
+                                    dashboardId,
+                                    queryId,
+                                    'blocking',
+                                    methodOptions,
+                                    action === 'preview' ? values.temporaryFilters : undefined,
+                                    action === 'preview' ? values.temporaryVariables : undefined
                                 )
-                                // Do not set refresh error if cancelled by abort
-                                actions.abortQuery({ queryId, queryStartTime })
-                            } else {
-                                actions.setRefreshError(insight.short_id)
-                                console.error('Error loading insight synchronously:', e)
+
+                                if (syncInsight?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+                                    attempt++
+                                    if (attempt >= maxAttempts) {
+                                        lemonToast.error(
+                                            `Insight "${
+                                                insight.name || insight.derived_name || insight.short_id
+                                            }" failed to load after ${maxAttempts} attempts due to high load. Please try again later.`,
+                                            { toastId: `insight-concurrency-error-${insight.short_id}` }
+                                        )
+                                        actions.setRefreshError(insight.short_id)
+                                        break // Exit retry loop
+                                    }
+                                    const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
+                                    await wait(delay)
+                                    continue // Retry
+                                }
+
+                                if (action === 'preview' && syncInsight?.dashboard_tiles) {
+                                    syncInsight.dashboards = [dashboardId]
+                                }
+
+                                dashboardsModel.actions.updateDashboardInsight(syncInsight!)
+                                actions.setRefreshStatus(insight.short_id)
+                                break // Success, exit retry loop
+                            } catch (e: any) {
+                                if (shouldCancelQuery(e)) {
+                                    console.warn(
+                                        `Insight refresh cancelled for ${insight.short_id} due to abort signal:`,
+                                        e
+                                    )
+                                    actions.abortQuery({ queryId, queryStartTime })
+                                } else {
+                                    actions.setRefreshError(insight.short_id)
+                                    console.error('Error loading insight synchronously:', e)
+                                }
+                                break // Error, exit retry loop
                             }
                         }
                     })
@@ -1732,9 +1741,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
-            const { currentTeamId } = values
+            const { currentTeamId, featureFlags } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                if (featureFlags[FEATURE_FLAGS.DASHBOARD_SYNC_INSIGHT_LOADING]) {
+                    await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
+                } else {
+                    await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                }
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

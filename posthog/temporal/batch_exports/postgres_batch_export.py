@@ -5,6 +5,7 @@ import csv
 import dataclasses
 import datetime as dt
 import json
+import re
 import typing
 
 import psycopg
@@ -58,6 +59,15 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
+
+# Compiled regex patterns for PostgreSQL data cleaning
+NULL_UNICODE_PATTERN = re.compile(rb"(?<!\\)\\u0000")
+UNPAIRED_SURROGATE_PATTERN = re.compile(
+    rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2})"
+)
+UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
+    rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})"
+)
 
 
 class PostgreSQLConnectionError(Exception):
@@ -418,10 +428,21 @@ class PostgreSQLClient:
                     )
                 ) as copy:
                     while data := await asyncio.to_thread(tsv_file.read):
-                        # \u0000 cannot be present in PostgreSQL's jsonb type, and will cause an error.
-                        # See: https://www.postgresql.org/docs/17/datatype-json.html
-                        data = data.replace(b"\\u0000", b"")
+                        data = remove_invalid_json(data)
                         await copy.write(data)
+
+
+def remove_invalid_json(data: bytes) -> bytes:
+    """Remove invalid JSON from a byte string."""
+    # \u0000 cannot be present in PostgreSQL's jsonb type, and will cause an error.
+    # See: https://www.postgresql.org/docs/17/datatype-json.html
+    # We use a regex to avoid replacing escaped \u0000 (for example, \\u0000, which we have seen in
+    # some actual data)
+    data = NULL_UNICODE_PATTERN.sub(b"", data)
+    # Remove unpaired unicode surrogates
+    data = UNPAIRED_SURROGATE_PATTERN.sub(rb"\1", data)
+    data = UNPAIRED_SURROGATE_PATTERN_2.sub(rb"\1", data)
+    return data
 
 
 def postgres_default_fields() -> list[BatchExportField]:
@@ -586,7 +607,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         done_ranges: list[DateRange] = details.done_ranges
 
         model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
 
         data_interval_start = (

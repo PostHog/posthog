@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -182,7 +182,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 if (n.should_sync) {
                     return {
                         ...n,
-                        status: 'Running',
+                        status: ExternalDataSchemaStatus.Running,
                     }
                 }
 

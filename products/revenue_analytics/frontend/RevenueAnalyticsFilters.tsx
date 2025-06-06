@@ -3,13 +3,19 @@ import { LemonButton, LemonDropdown, LemonSwitch, Link, Tooltip } from '@posthog
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { DateMappingOption, ExternalDataSource } from '~/types'
@@ -61,62 +67,80 @@ const buildEvents = (allEvents: RevenueAnalyticsEventItem[], state: ParsedRecord
     }, state)
 }
 
-const buildDataWarehouseSources = (
-    allDataWarehouseSources: ExternalDataSource[],
-    state: ParsedRecord
-): ParsedRecord => {
-    return allDataWarehouseSources
-        .filter((source) => source.revenue_analytics_enabled)
-        .reduce((acc, source) => {
-            if (!(source.id in acc)) {
-                acc[source.id] = true
-            }
-            return acc
-        }, state)
+const buildDataWarehouseSources = (sources: ExternalDataSource[], state: ParsedRecord): ParsedRecord => {
+    return sources.reduce((acc, source) => {
+        if (!(source.id in acc)) {
+            acc[source.id] = true
+        }
+        return acc
+    }, state)
 }
 
 export const RevenueAnalyticsFilters = (): JSX.Element => {
+    const { mobileLayout } = useValues(navigationLogic)
     const {
+        revenueAnalyticsFilter,
         dateFilter: { dateTo, dateFrom },
     } = useValues(revenueAnalyticsLogic)
-    const { setDates } = useActions(revenueAnalyticsLogic)
+
+    const { setDates, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+
+    const revenueAnalyticsFiltersEnabled = useFeatureFlag('REVENUE_ANALYTICS_FILTERS')
 
     return (
-        <div className="flex flex-row w-full justify-between gap-1">
-            <div className="flex flex-row gap-1">
-                <DateFilter
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onChange={setDates}
-                    dateOptions={DATE_FILTER_DATE_OPTIONS}
-                />
+        <div
+            className={cn(
+                'sticky z-20 bg-primary border-b py-2',
+                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+            )}
+        >
+            <div className="flex flex-row w-full justify-between gap-1">
+                <div className="flex flex-row gap-1">
+                    <Tooltip title="Refresh data">
+                        <ReloadAll iconOnly />
+                    </Tooltip>
 
-                <Tooltip title="Refresh data">
-                    <ReloadAll iconOnly />
-                </Tooltip>
+                    <DateFilter
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={setDates}
+                        dateOptions={DATE_FILTER_DATE_OPTIONS}
+                    />
+
+                    {revenueAnalyticsFiltersEnabled && (
+                        <PropertyFilters
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
+                            onChange={(filters) =>
+                                setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
+                            }
+                            propertyFilters={revenueAnalyticsFilter}
+                            pageKey="revenue-analytics"
+                        />
+                    )}
+                </div>
+
+                <RevenueAnalyticsFiltersModal />
             </div>
-
-            <RevenueAnalyticsFiltersModal />
         </div>
     )
 }
 
 const RevenueAnalyticsFiltersModal = (): JSX.Element => {
-    const { allEvents, allDataWarehouseSources } = useValues(revenueAnalyticsLogic)
+    const { revenueEnabledEvents, revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
     const { setRevenueSources } = useActions(revenueAnalyticsLogic)
 
-    const [events, setEvents] = useState(() => buildEvents(allEvents, {}))
+    const [events, setEvents] = useState(() => buildEvents(revenueEnabledEvents, {}))
     const [dataWarehouseSources, setDataWarehouseSources] = useState(() =>
-        buildDataWarehouseSources(allDataWarehouseSources?.results ?? [], {})
+        buildDataWarehouseSources(revenueEnabledDataWarehouseSources ?? [], {})
     )
 
     // When the revenue sources change, we need to update the events and data warehouse sources
     useEffect(() => {
-        setEvents((events) => buildEvents(allEvents, events))
+        setEvents((events) => buildEvents(revenueEnabledEvents, events))
         setDataWarehouseSources((dataWarehouseSources) =>
-            buildDataWarehouseSources(allDataWarehouseSources?.results ?? [], dataWarehouseSources)
+            buildDataWarehouseSources(revenueEnabledDataWarehouseSources ?? [], dataWarehouseSources)
         )
-    }, [allEvents, allDataWarehouseSources])
+    }, [revenueEnabledEvents, revenueEnabledDataWarehouseSources])
 
     // The modal below insists in keeping references to the old values because of the way `Overlay` works.
     // So we need to keep our own references to the values and update them on every render.
@@ -154,10 +178,11 @@ const RevenueAnalyticsFiltersModal = (): JSX.Element => {
                     return
                 }
 
-                const selectedEvents = allEvents.filter((event) => eventsRef.current[event.eventName])
+                const selectedEvents = revenueEnabledEvents.filter((event) => eventsRef.current[event.eventName])
                 const selectedDataWarehouseSources =
-                    allDataWarehouseSources?.results.filter((source) => dataWarehouseSourcesRef.current[source.id]) ??
-                    []
+                    revenueEnabledDataWarehouseSources?.filter(
+                        (source) => dataWarehouseSourcesRef.current[source.id]
+                    ) ?? []
                 setRevenueSources({ events: selectedEvents, dataWarehouseSources: selectedDataWarehouseSources })
             }}
             overlay={
@@ -170,7 +195,7 @@ const RevenueAnalyticsFiltersModal = (): JSX.Element => {
                             </Link>
                         </span>
                         <div className="flex flex-col gap-1">
-                            {allEvents.map((event) => (
+                            {revenueEnabledEvents.map((event) => (
                                 <div className="flex flex-row gap-1" key={event.eventName}>
                                     <LemonSwitch
                                         checked={events[event.eventName]}
@@ -180,7 +205,7 @@ const RevenueAnalyticsFiltersModal = (): JSX.Element => {
                                 </div>
                             ))}
 
-                            {allEvents.length === 0 && (
+                            {revenueEnabledEvents.length === 0 && (
                                 <>
                                     <span className="text-sm text-muted-alt">No revenue events found</span>
                                 </>
@@ -195,7 +220,7 @@ const RevenueAnalyticsFiltersModal = (): JSX.Element => {
                             </Link>
                         </span>
                         <div className="flex flex-col gap-1">
-                            {allDataWarehouseSources?.results.map((source) => (
+                            {revenueEnabledDataWarehouseSources?.map((source) => (
                                 <div className="flex flex-row gap-1" key={source.id}>
                                     <LemonSwitch
                                         checked={dataWarehouseSources[source.id]}
@@ -206,7 +231,7 @@ const RevenueAnalyticsFiltersModal = (): JSX.Element => {
                                 </div>
                             ))}
 
-                            {!allDataWarehouseSources?.results.length && (
+                            {!revenueEnabledDataWarehouseSources?.length && (
                                 <>
                                     <span className="text-sm text-muted-alt">
                                         No enabled revenue data warehouse sources found

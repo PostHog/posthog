@@ -99,7 +99,8 @@
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_global_filters
@@ -176,7 +177,8 @@
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
@@ -253,7 +255,8 @@
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
@@ -263,7 +266,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                       and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -277,7 +280,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -296,7 +299,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
@@ -306,7 +310,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                       and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -320,7 +324,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(if(ifNull(less(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -339,13 +343,14 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -355,7 +360,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -368,13 +373,14 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -401,7 +407,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(greater(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(greater(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -414,13 +420,14 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -430,7 +437,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -443,13 +450,14 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -476,7 +484,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(greater(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(greater(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -489,13 +497,14 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -522,7 +531,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -535,13 +544,14 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -568,7 +578,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(less(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(less(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -581,7 +591,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1
@@ -1049,10 +1060,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1061,7 +1074,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -1130,10 +1144,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1142,7 +1158,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -1321,10 +1338,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1333,7 +1352,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
@@ -1402,10 +1422,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1414,7 +1436,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999
@@ -1429,10 +1452,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1441,7 +1466,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -1775,10 +1801,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1787,7 +1815,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -1914,10 +1943,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1926,7 +1957,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -2041,10 +2073,12 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2053,7 +2087,8 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 99999

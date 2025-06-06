@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { IconGraph, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, lemonToast, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, lemonToast, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -15,7 +15,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -78,6 +80,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
+                                <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                                    Have any questions or feedback?
+                                </LemonButton>
                                 <More
                                     overlay={
                                         <>
@@ -301,7 +306,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <div>
                                         <p>Get notified whenever a survey result is submitted</p>
                                         <LinkedHogFunctions
-                                            logicKey="survey"
                                             type="destination"
                                             subTemplateIds={['survey-response']}
                                             filters={{
@@ -333,6 +337,26 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     />
                 </>
             )}
+        </div>
+    )
+}
+
+function SurveyResponsesByQuestionV2(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+
+    return (
+        <div className="flex flex-col gap-2">
+            {survey.questions.map((question, i) => {
+                if (!question.id || question.type === SurveyQuestionType.Link) {
+                    return null
+                }
+                return (
+                    <div key={question.id} className="flex flex-col gap-2">
+                        <SurveyQuestionVisualization question={question} questionIndex={i} />
+                        <LemonDivider />
+                    </div>
+                )
+            })}
         </div>
     )
 }
@@ -429,12 +453,18 @@ export function SurveyResponsesByQuestion(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        isNewQuestionVizEnabled,
+    } = useValues(surveyLogic)
 
-    const atLeastOneResonse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
-    if (isAnyResultsLoading) {
+    if (isAnyResultsLoading && !isNewQuestionVizEnabled) {
         lemonToast.info('Loading survey results...', {
             toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
             hideProgressBar: true,
@@ -454,9 +484,9 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         <div className="deprecated-space-y-4">
             <SurveyResponseFilters />
             <SurveyStatsSummary />
-            {isAnyResultsLoading || atLeastOneResonse ? (
+            {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
-                    <SurveyResponsesByQuestion />
+                    {isNewQuestionVizEnabled ? <SurveyResponsesByQuestionV2 /> : <SurveyResponsesByQuestion />}
                     <LemonButton
                         type="primary"
                         data-attr="survey-results-explore"
@@ -476,9 +506,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         ))}
                 </>
             ) : (
-                <LemonBanner type="info">
-                    Your survey has not been answered yet. Once there is at least one response, they will appear here.
-                </LemonBanner>
+                <SurveyNoResponsesBanner type="survey" />
             )}
         </div>
     )

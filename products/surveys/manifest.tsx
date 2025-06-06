@@ -14,8 +14,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         survey: {
+            name: 'Survey',
             icon: <IconMessage />,
             href: (ref: string) => urls.survey(ref),
+            iconColor: ['var(--product-surveys-light)'],
+            filterKey: 'survey',
         },
     },
     treeItemsNew: [
@@ -28,6 +31,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Surveys',
+            category: 'Behaviour',
             type: 'survey',
             href: urls.surveys(),
         },

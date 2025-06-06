@@ -1,0 +1,72 @@
+{
+    "cache_key": "cache_72810558d9f07a15c1d11594b8b9665a",
+    "cache_target_age": "2025-06-04T14:27:04.516802Z",
+    "calculation_trigger": null,
+    "credible_intervals": {
+        "control": [1.3893462731916975, 1.7797968870585916],
+        "test-1": [1.2464895511364196, 1.5898896951446966],
+        "test-2": [1.7220207019951232, 2.0819525719843472]
+    },
+    "insight": [],
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-06-03T14:27:04.516802Z",
+    "metric": {
+        "conversion_window": null,
+        "conversion_window_unit": null,
+        "kind": "ExperimentMetric",
+        "lower_bound_percentile": null,
+        "metric_type": "mean",
+        "name": null,
+        "source": {
+            "custom_name": null,
+            "event": "$pageview",
+            "fixedProperties": null,
+            "kind": "EventsNode",
+            "limit": null,
+            "math": "total",
+            "math_group_type_index": null,
+            "math_hogql": null,
+            "math_property": null,
+            "math_property_revenue_currency": null,
+            "math_property_type": null,
+            "name": null,
+            "orderBy": null,
+            "properties": null,
+            "response": null
+        },
+        "upper_bound_percentile": null
+    },
+    "next_allowed_client_refresh": "2025-06-03T14:28:04.516802Z",
+    "p_value": 0.000463377344065578,
+    "probability": {
+        "control": 0.009,
+        "test-1": 0.1053,
+        "test-2": 0.991
+    },
+    "query_status": null,
+    "significance_code": "significant",
+    "significant": true,
+    "stats_version": 2,
+    "timezone": "UTC",
+    "variants": [
+        {
+            "absolute_exposure": 158.0,
+            "count": 250.0,
+            "exposure": 158.0,
+            "key": "control"
+        },
+        {
+            "absolute_exposure": 183.0,
+            "count": 259.0,
+            "exposure": 183.0,
+            "key": "test-1"
+        },
+        {
+            "absolute_exposure": 224.0,
+            "count": 426.0,
+            "exposure": 224.0,
+            "key": "test-2"
+        }
+    ]
+}

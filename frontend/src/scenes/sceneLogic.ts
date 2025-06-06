@@ -2,8 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
@@ -76,14 +75,7 @@ export const sceneLogic = kea<sceneLogicType>([
             sourceWizardLogic,
             ['selectConnector', 'handleRedirect', 'setStep'],
         ],
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-        ],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -474,7 +466,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions }) => {
         const mapping: Record<
             string,
             (
@@ -496,17 +488,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            if (
-                values.featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] &&
-                scene === Scene.PersonsManagement &&
-                path === urls.groups(':groupTypeIndex')
-            ) {
-                mapping[path] = (params, searchParams, hashParams, { method }) =>
-                    actions.openScene(Scene.Groups, 'groups', { params, searchParams, hashParams }, method)
-            } else {
-                mapping[path] = (params, searchParams, hashParams, { method }) =>
-                    actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
-            }
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
         }
 
         mapping['/*'] = (_, __, { method }) => {

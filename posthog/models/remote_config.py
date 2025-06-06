@@ -12,6 +12,7 @@ import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
 from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
@@ -125,6 +126,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
         from posthog.api.survey import get_surveys_response, get_surveys_opt_in
+        from posthog.api.error_tracking import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -148,13 +150,7 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "autocapture_opt_out": bool(team.autocapture_opt_out),
-            "autocaptureExceptions": (
-                {
-                    "endpoint": "/e/",
-                }
-                if team.autocapture_exceptions_opt_in
-                else False
-            ),
+            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
         }
 
         if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
@@ -163,7 +159,13 @@ class RemoteConfig(UUIDModel):
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
             config["elementsChainAsString"] = True
 
-        # MARK: Session Recording
+        # MARK: Error tracking
+        config["errorTracking"] = {
+            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
+            "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
+        }
+
+        # MARK: Session recording
         session_recording_config_response: bool | dict = False
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
@@ -478,4 +480,9 @@ def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
+    _update_team_remote_config(instance.team_id)
+
+
+@receiver(post_save, sender=ErrorTrackingSuppressionRule)
+def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
     _update_team_remote_config(instance.team_id)

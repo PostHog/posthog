@@ -255,7 +255,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'traces',
                         onDataPointClick: () => {
-                            router.actions.push(urls.llmObservabilityTraces(), router.values.searchParams)
+                            router.actions.push(urls.llmObservabilityTraces(), {
+                                ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
+                            })
                         },
                     },
                 },
@@ -329,6 +334,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: ({ breakdown }) => {
                             router.actions.push(urls.llmObservabilityTraces(), {
                                 ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...(router.values.searchParams.filters || []),
                                     {
@@ -456,6 +464,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: (series) => {
                             router.actions.push(urls.llmObservabilityGenerations(), {
                                 ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...(router.values.searchParams.filters || []),
                                     {
@@ -527,7 +538,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 source: {
                     kind: NodeKind.EventsQuery,
                     select: [
-                        '*',
                         'uuid',
                         'properties.$ai_trace_id',
                         'person',

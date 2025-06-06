@@ -35,7 +35,7 @@ const ResultsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         metricResultsLoading,
-        hasEnoughDataForResults,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
@@ -53,14 +53,14 @@ const ResultsTab = (): JSX.Element => {
                 </>
             )}
             {/* Show overview if there's only a single primary metric */}
-            {hasSinglePrimaryMetric && hasEnoughDataForResults && (
+            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
             <MetricsView isSecondary={false} />
             {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+            {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
@@ -95,7 +95,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -108,7 +108,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}
@@ -129,7 +129,7 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {shouldUseExperimentMetrics ? (
+                        {usesNewQueryRunner ? (
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />

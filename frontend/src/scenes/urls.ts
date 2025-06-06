@@ -135,10 +135,13 @@ export const urls = {
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
+                // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
                     (acc, [key, val]) => ({
                         ...acc,
+                        // just sends the key and not a value
+                        // e.g., &showInspector not &showInspector=true
                         [key]: val === true ? null : val,
                     }),
                     {}
@@ -159,7 +162,20 @@ export const urls = {
     link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
+    messagingLibrary: (): string => '/messaging/library',
+    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
+    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
+    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
+    messagingSenders: (): string => '/messaging/senders',
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
+    dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,

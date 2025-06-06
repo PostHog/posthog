@@ -1,5 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
@@ -28,6 +28,10 @@ export type ActivityFilters = {
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
+    // Images can be embedded directly in the markdown using ![alt text](url) syntax.
+    // LemonMarkdown will render them.
+    // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
+    // and optimized for web (e.g., < 500KB).
 }
 
 export interface ChangesResponse {
@@ -91,10 +95,37 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values, cache }) => ({
+    lazyLoaders(({ actions, values, cache }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
+                loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
+                    await breakpoint(1)
+
+                    clearTimeout(cache.pollTimeout)
+
+                    try {
+                        const response = await api.get<ChangesResponse>(
+                            `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
+                                toParams({ unread: onlyUnread })
+                        )
+
+                        // we can't rely on automatic success action here because we swallow errors so always succeed
+                        actions.clearErrorCount()
+                        return response
+                    } catch (e) {
+                        // swallow errors as this isn't user initiated
+                        // increment a counter to backoff calling the API while errors persist
+                        actions.incrementErrorCount()
+                        return null
+                    } finally {
+                        const pollTimeoutMilliseconds = values.errorCounter
+                            ? POLL_TIMEOUT * values.errorCounter
+                            : POLL_TIMEOUT
+                        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+                        cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                    }
+                },
                 markAllAsRead: async () => {
                     const current = values.importantChanges
                     if (!current) {
@@ -122,32 +153,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         last_read: latestNotification.created_at.toISOString(),
                         next: current.next,
                         results: current.results.map((ic) => ({ ...ic, unread: false })),
-                    }
-                },
-                loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
-                    await breakpoint(1)
-
-                    clearTimeout(cache.pollTimeout)
-
-                    try {
-                        const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
-                                toParams({ unread: onlyUnread })
-                        )
-
-                        // we can't rely on automatic success action here because we swallow errors so always succeed
-                        actions.clearErrorCount()
-                        return response
-                    } catch (e) {
-                        // swallow errors as this isn't user initiated
-                        // increment a counter to backoff calling the API while errors persist
-                        actions.incrementErrorCount()
-                        return null
-                    } finally {
-                        const pollTimeoutMilliseconds = values.errorCounter
-                            ? POLL_TIMEOUT * values.errorCounter
-                            : POLL_TIMEOUT
-                        cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
                     }
                 },
             },
@@ -224,6 +229,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         changelogNotification = {
                             markdown: flagPayload['markdown'],
                             notificationDate: dayjs(flagPayload['notificationDate']),
+                            // The separate image field is no longer used.
+                            // Images should be embedded in the markdown string.
                         } as ChangelogFlagPayload
                     }
 
@@ -291,8 +298,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadImportantChanges()
-
         const activityFilters = values.sceneSidePanelContext
         actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
     }),
