@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     ExternalDataSourceCreatePayload,
+    externalDataSources,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     manualLinkSources,
@@ -60,7 +61,7 @@ const StripeCaption = (): JSX.Element => (
 )
 
 export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { kind: 'hubspot' })}`
+    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { source: 'Hubspot' })}`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -947,7 +948,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (kind: string, searchParams?: any) => ({ kind, searchParams }),
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
         onBack: true,
         onNext: true,
@@ -1353,11 +1354,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setIsLoading(false)
             }
         },
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'hubspot': {
+        handleRedirect: async ({ source, searchParams }) => {
+            switch (source) {
+                case 'Hubspot': {
                     actions.updateSource({
-                        source_type: 'Hubspot',
+                        source_type: source,
                         payload: {
                             code: searchParams?.code,
                             redirect_uri: getHubspotRedirectUri(),
@@ -1365,20 +1366,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     })
                     return
                 }
-                case 'salesforce': {
-                    actions.updateSource({
-                        source_type: 'Salesforce',
-                    })
-                    break
-                }
-                case 'stripe': {
-                    actions.updateSource({
-                        source_type: 'Stripe',
-                    })
-                    break
-                }
+
                 default:
-                    lemonToast.error(`Something went wrong.`)
+                    // By default, we assume the source is a valid external data source
+                    if (externalDataSources.includes(source)) {
+                        actions.updateSource({
+                            source_type: source,
+                        })
+                    } else {
+                        lemonToast.error(`Something went wrong.`)
+                    }
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -1420,23 +1417,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
     urlToAction(({ actions }) => ({
         [urls.pipelineNodeNew(PipelineStage.Source)]: (_, searchParams) => {
-            if (searchParams.kind == 'hubspot' && searchParams.code) {
-                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                actions.handleRedirect(searchParams.kind, {
+            const source = Object.values(SOURCE_DETAILS).find(
+                (source) => source.name.toLowerCase() === searchParams.kind
+            )
+
+            if (source?.name === 'Hubspot' && searchParams.code) {
+                actions.selectConnector(source)
+                actions.handleRedirect(source.name, {
                     code: searchParams.code,
                 })
                 actions.setStep(2)
+                return
             }
-            if (searchParams.kind == 'salesforce') {
-                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind)
+
+            if (source) {
+                actions.selectConnector(source)
+                actions.handleRedirect(source.name)
                 actions.setStep(2)
+                return
             }
-            if (searchParams.kind == 'stripe') {
-                actions.selectConnector(SOURCE_DETAILS['Stripe'])
-                actions.handleRedirect(searchParams.kind)
-                actions.setStep(2)
-            }
+
+            lemonToast.error(`Something went wrong.`)
         },
     })),
     forms(({ actions, values }) => ({
