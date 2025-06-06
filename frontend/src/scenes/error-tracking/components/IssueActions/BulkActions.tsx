@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
+    HogQLPropertyFilter,
     PropertyFilterType,
-    PropertyOperator,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -36,12 +36,12 @@ export function BulkActions({ issues, selectedIds }: BulkActionsProps): JSX.Elem
     const hasAtLeastTwoIssues = selectedIds.length >= 2
 
     const excludeSelectedIssues = (): void => {
-        const newFilter = {
-            key: '$exception_issue_id',
-            type: PropertyFilterType.Event,
-            operator: PropertyOperator.IsNot,
-            value: selectedIds,
-        } as const
+        const quotedIds = selectedIds.map((id) => `'${id}'`).join(', ')
+        const newFilter: HogQLPropertyFilter = {
+            key: `issue_id NOT IN (${quotedIds})`,
+            type: PropertyFilterType.HogQL,
+            value: null,
+        }
 
         const firstGroup = filterGroup.values[0]
         let newFilterGroup = null
