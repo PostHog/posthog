@@ -12,13 +12,12 @@ use crate::{
     metrics_consts::{
         CACHE_CONSUMED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
         V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, V2_EVENT_DEFS_BATCH_SIZE,
-        V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_HIT, V2_EVENT_DEFS_CACHE_MISS,
-        V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_CACHE_TIME,
-        V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, V2_EVENT_PROPS_BATCH_SIZE,
-        V2_EVENT_PROPS_BATCH_WRITE_TIME, V2_EVENT_PROPS_CACHE_HIT, V2_EVENT_PROPS_CACHE_MISS,
+        V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED, V2_EVENT_PROPS_BATCH_ATTEMPT,
+        V2_EVENT_PROPS_BATCH_CACHE_TIME, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
+        V2_EVENT_PROPS_BATCH_SIZE, V2_EVENT_PROPS_BATCH_WRITE_TIME, V2_EVENT_PROPS_CACHE_REMOVED,
         V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_CACHE_TIME,
         V2_PROP_DEFS_BATCH_ROWS_AFFECTED, V2_PROP_DEFS_BATCH_SIZE, V2_PROP_DEFS_BATCH_WRITE_TIME,
-        V2_PROP_DEFS_CACHE_HIT, V2_PROP_DEFS_CACHE_MISS,
+        V2_PROP_DEFS_CACHE_REMOVED,
     },
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType, Update,
@@ -73,17 +72,14 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
-    pub fn cache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
-            if cache.contains_key(&update) {
-                metrics::counter!(V2_EVENT_PROPS_CACHE_HIT).increment(1);
-            } else {
-                cache.insert(update, ());
-                metrics::counter!(V2_EVENT_PROPS_CACHE_MISS).increment(1);
-            }
+            cache.remove(&update);
+            metrics::counter!(V2_EVENT_PROPS_CACHE_REMOVED).increment(1);
         }
+
         timer.fin();
     }
 }
@@ -134,16 +130,14 @@ impl EventDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn cache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
         let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
+
         for update in self.to_cache.drain(..) {
-            if cache.contains_key(&update) {
-                metrics::counter!(V2_EVENT_DEFS_CACHE_HIT).increment(1);
-            } else {
-                cache.insert(update, ());
-                metrics::counter!(V2_EVENT_DEFS_CACHE_MISS).increment(1);
-            }
+            cache.remove(&update);
+            metrics::counter!(V2_EVENT_DEFS_CACHE_REMOVED).increment(1);
         }
+
         timer.fin();
     }
 }
@@ -229,16 +223,14 @@ impl PropertyDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn cache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
+
         for update in self.to_cache.drain(..) {
-            if cache.contains_key(&update) {
-                metrics::counter!(V2_PROP_DEFS_CACHE_HIT).increment(1);
-            } else {
-                cache.insert(update, ());
-                metrics::counter!(V2_PROP_DEFS_CACHE_MISS).increment(1);
-            }
+            cache.remove(&update);
+            metrics::counter!(V2_PROP_DEFS_CACHE_REMOVED).increment(1);
         }
+
         timer.fin();
     }
 }
@@ -399,6 +391,12 @@ async fn write_event_properties_batch(
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+
+                    // following the old strategy - if the batch write fails,
+                    // remove all entries from cache so they get another shot
+                    // at persisting on future event submissions
+                    batch.uncache_batch(&cache);
+
                     return Err(e);
                 }
 
@@ -414,11 +412,6 @@ async fn write_event_properties_batch(
                 let count = pgq_result.rows_affected();
                 total_time.fin();
 
-                // now it's safe to cache the original updates
-                // timing is measured internally for this step
-                batch.cache_batch(&cache);
-
-                // don't report success if the batch cache insetions failed!
                 metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")])
                     .increment(1);
                 metrics::counter!(V2_EVENT_PROPS_BATCH_SIZE).increment(batch.len() as u64);
@@ -478,6 +471,12 @@ async fn write_property_definitions_batch(
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+
+                    // following the old strategy - if the batch write fails,
+                    // remove all entries from cache so they get another shot
+                    // at persisting on future event submissions
+                    batch.uncache_batch(&cache);
+
                     return Err(e);
                 }
 
@@ -492,10 +491,6 @@ async fn write_property_definitions_batch(
                 let count = pgq_result.rows_affected();
                 total_time.fin();
 
-                // now it's safe to cache the original updates
-                batch.cache_batch(&cache);
-
-                // don't report success if the batch cache insetions failed!
                 metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")])
                     .increment(1);
                 metrics::counter!(V2_PROP_DEFS_BATCH_SIZE).increment(batch.len() as u64);
@@ -550,6 +545,12 @@ async fn write_event_definitions_batch(
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+
+                    // following the old strategy - if the batch write fails,
+                    // remove all entries from cache so they get another shot
+                    // at persisting on future event submissions
+                    batch.uncache_batch(&cache);
+
                     return Err(e);
                 }
 
@@ -563,10 +564,6 @@ async fn write_event_definitions_batch(
                 let count = pgq_result.rows_affected();
                 total_time.fin();
 
-                // now it's safe to cache the original updates
-                batch.cache_batch(&cache);
-
-                // don't report success if the batch cache insertions failed!
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")])
                     .increment(1);
                 metrics::counter!(V2_EVENT_DEFS_BATCH_SIZE).increment(batch.len() as u64);
