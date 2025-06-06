@@ -71,7 +71,7 @@ class QueryKindSelection(ScorerWithPartial):
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
         if not output.get("query"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No query present"})
+            return Score(name=self._name(), score=None, metadata={"reason": "No query present"})
         score = 1 if output["query"].kind == self._expected else 0
         return Score(
             name=self._name(),
