@@ -59,10 +59,10 @@ class MockStripeAPI:
             created_gt = int(query["created[gt]"][0])
             filtered_data = [tx for tx in filtered_data if tx["created"] > created_gt]
         if "created[lte]" in query:
-            created_gte = int(query["created[gte]"][0])
+            created_gte = int(query["created[lte]"][0])
             filtered_data = [tx for tx in filtered_data if tx["created"] <= created_gte]
         elif "created[lt]" in query:
-            created_gt = int(query["created[gt]"][0])
+            created_gt = int(query["created[lt]"][0])
             filtered_data = [tx for tx in filtered_data if tx["created"] < created_gt]
 
         if "starting_after" in query:
