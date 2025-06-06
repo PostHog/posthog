@@ -127,6 +127,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The icon for the side action, defaults to ellipsis */
     itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
+    /** The button to render for the item's side action. */
+    itemSideActionButton?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
@@ -245,6 +247,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             depth = 0,
             itemSideAction,
             itemSideActionIcon,
+            itemSideActionButton,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -564,15 +567,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             size === 'default' && (
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
-                                                        <ButtonPrimitive
-                                                            iconOnly
-                                                            isSideActionRight
-                                                            className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
-                                                        >
-                                                            {itemSideActionIcon?.(item) ?? (
+                                                        {itemSideActionButton?.(item) ?? (
+                                                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
                                                                 <IconEllipsis className="size-3 text-tertiary" />
-                                                            )}
-                                                        </ButtonPrimitive>
+                                                            </ButtonPrimitive>
+                                                        )}
                                                     </DropdownMenuTrigger>
 
                                                     {/* The Dropdown content menu */}
