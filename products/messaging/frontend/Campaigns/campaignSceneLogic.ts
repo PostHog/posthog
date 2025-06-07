@@ -52,9 +52,8 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                     {
                         key: 'campaign',
                         name: campaign.name || 'Untitled Campaign',
-                        path: urls.messagingCampaign(campaign.id),
-                        onRename: (name: string) => {
-                            actions.updateCampaign(campaign.id, name)
+                        onRename: async (name: string): Promise<void> => {
+                            alert(`Renaming campaign to ${name}`)
                         },
                     },
                 ]
