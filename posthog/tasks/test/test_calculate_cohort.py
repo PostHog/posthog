@@ -1,13 +1,18 @@
 from collections.abc import Callable
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list, enqueue_cohorts_to_calculate, MAX_AGE_MINUTES
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_from_list,
+    enqueue_cohorts_to_calculate,
+    increment_version_and_enqueue_calculate_cohort,
+    MAX_AGE_MINUTES,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -90,5 +95,76 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             )
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
+
+        @patch("posthog.tasks.calculate_cohort.chain")
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+        def test_increment_version_and_enqueue_calculate_cohort_with_nested_cohorts(
+            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+        ) -> None:
+            # Create leaf cohort A
+            cohort_a = Cohort.objects.create(
+                team=self.team,
+                name="Cohort A",
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                is_static=False,
+            )
+
+            # Create cohort B that depends on cohort A
+            cohort_b = Cohort.objects.create(
+                team=self.team,
+                name="Cohort B",
+                groups=[{"properties": [{"key": "id", "value": cohort_a.id, "type": "cohort"}]}],
+                is_static=False,
+            )
+
+            # Create cohort C that depends on cohort B
+            cohort_c = Cohort.objects.create(
+                team=self.team,
+                name="Cohort C",
+                groups=[{"properties": [{"key": "id", "value": cohort_b.id, "type": "cohort"}]}],
+                is_static=False,
+            )
+
+            # Mock chain application
+            mock_chain_instance = MagicMock()
+            mock_chain.return_value = mock_chain_instance
+
+            # Mock task signatures
+            mock_task_a = MagicMock()
+            mock_task_b = MagicMock()
+            mock_task_c = MagicMock()
+            mock_calculate_cohort_ch_si.side_effect = [mock_task_a, mock_task_b, mock_task_c]
+
+            # Call the function with cohort C (which has dependencies)
+            increment_version_and_enqueue_calculate_cohort(cohort_c, initiating_user=None)
+
+            # Verify that all cohorts have their versions incremented and are marked as calculating
+            cohort_a.refresh_from_db()
+            cohort_b.refresh_from_db()
+            cohort_c.refresh_from_db()
+
+            self.assertEqual(cohort_a.pending_version, 1)
+            self.assertEqual(cohort_b.pending_version, 1)
+            self.assertEqual(cohort_c.pending_version, 1)
+            self.assertTrue(cohort_a.is_calculating)
+            self.assertTrue(cohort_b.is_calculating)
+            self.assertTrue(cohort_c.is_calculating)
+
+            # Verify that calculate_cohort_ch.si was called for each cohort in the correct order
+            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
+
+            # Check that tasks were created with correct arguments (order: A, B, C)
+            expected_calls = [
+                call(cohort_a.id, 1, None),
+                call(cohort_b.id, 1, None),
+                call(cohort_c.id, 1, None),
+            ]
+            mock_calculate_cohort_ch_si.assert_has_calls(expected_calls)
+
+            # Verify that chain was called with the tasks in the correct order
+            mock_chain.assert_called_once_with(mock_task_a, mock_task_b, mock_task_c)
+
+            # Verify that the chain was applied async
+            mock_chain_instance.apply_async.assert_called_once()
 
     return TestCalculateCohort
