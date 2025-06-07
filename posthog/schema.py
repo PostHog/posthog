@@ -1027,6 +1027,9 @@ class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
     UNIQUE_SESSION = "unique_session"
+    MIN = "min"
+    MAX = "max"
+    AVG = "avg"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
