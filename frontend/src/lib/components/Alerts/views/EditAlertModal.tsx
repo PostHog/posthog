@@ -85,7 +85,7 @@ interface EditAlertModalProps {
     alertId?: AlertType['id']
     insightId: QueryBasedInsightModel['id']
     insightShortId: InsightShortId
-    onEditSuccess: () => void
+    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
     insightLogicProps?: InsightLogicProps
 }
@@ -104,10 +104,15 @@ export function EditAlertModal({
     const { loadAlert } = useActions(_alertLogic)
 
     // need to reload edited alert as well
-    const _onEditSuccess = useCallback(() => {
-        loadAlert()
-        onEditSuccess()
-    }, [loadAlert, onEditSuccess])
+    const _onEditSuccess = useCallback(
+        (alertId: AlertType['id'] | undefined) => {
+            if (alertId) {
+                loadAlert()
+            }
+            onEditSuccess(alertId)
+        },
+        [loadAlert, onEditSuccess]
+    )
 
     const formLogicProps = {
         alert,
@@ -353,9 +358,9 @@ export function EditAlertModal({
                                 </div>
                             </div>
 
-                            <div className="deprecated-space-y-2">
+                            <div>
                                 <h3>Notification</h3>
-                                <div className="flex gap-4 items-center">
+                                <div className="flex gap-4 items-center mt-2">
                                     <div>E-mail</div>
                                     <div className="flex-auto">
                                         <MemberSelectMultiple
@@ -365,11 +370,17 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                {!!alertId && insightAlertsCDPFlag && (
-                                    <div className="deprecated-space-y-5">
-                                        <div className="flex flex-col">
-                                            <AlertDestinationSelector alertId={alertId} />
-                                        </div>
+
+                                <h4 className="mt-4">CDP Destinations</h4>
+                                {insightAlertsCDPFlag && (
+                                    <div className="mt-2">
+                                        {alertId ? (
+                                            <div className="flex flex-col">
+                                                <AlertDestinationSelector alertId={alertId} />
+                                            </div>
+                                        ) : (
+                                            <div className="text-muted-alt">Save alert first to add destinations</div>
+                                        )}
                                     </div>
                                 )}
                             </div>

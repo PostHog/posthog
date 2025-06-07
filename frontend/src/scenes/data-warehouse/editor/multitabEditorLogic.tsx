@@ -31,6 +31,7 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     ExportContext,
+    LineageGraph,
     QueryBasedInsightModel,
     QueryTabState,
 } from '~/types'
@@ -160,6 +161,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             view,
             insight,
         }),
+        loadUpstream: (modelId: string) => ({ modelId }),
         deleteTab: (tab: QueryTab) => ({ tab }),
         _deleteTab: (tab: QueryTab) => ({ tab }),
         removeTab: (tab: QueryTab) => ({ tab }),
@@ -240,6 +242,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     return queryTabStateModel
+                },
+            },
+        ],
+        upstream: [
+            null as LineageGraph | null,
+            {
+                loadUpstream: async (payload: { modelId: string }) => {
+                    const upstream = await api.upstream.get(payload.modelId)
+                    return upstream
                 },
             },
         ],
@@ -1142,6 +1153,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (editingView) {
                 actions.resetDataModelingJobs()
                 actions.loadDataModelingJobs(editingView.id)
+                actions.loadUpstream(editingView.id)
             }
         },
     })),
