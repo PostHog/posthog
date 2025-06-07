@@ -32,6 +32,8 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import print_ast
 
 
 @snapshot_clickhouse_queries
@@ -1012,3 +1014,64 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(
             pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
         )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_preaggregated_queries_use_utc_filtering(self):
+        # Set team timezone to something other than UTC
+        self.team.timezone = "America/New_York"  # UTC-5 (or UTC-4 during DST)
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        hogql_query = pre_agg_builder.get_query()
+
+        context_with_tz = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=True),
+        )
+        sql_with_tz = print_ast(hogql_query, context=context_with_tz, dialect="clickhouse")
+
+        context_utc = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+
+        # Verify our fix uses explicit UTC (parameterized)
+        # Our UTC query should use simple toDateTime(period_bucket, 'UTC') pattern
+        self.assertIn("toDateTime(web_bounces_combined.period_bucket,", sql_utc)
+
+        # The problematic version should use toTimeZone wrapper (double conversion)
+        self.assertIn("toTimeZone(web_bounces_combined.period_bucket,", sql_with_tz)
+
+    @snapshot_clickhouse_queries
+    def test_preaggregated_query_sql_snapshot_with_timezone(self):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+
+        hogql_query = pre_agg_builder.get_query()
+
+        context_utc = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+
+        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+
+        # Verify our fix uses explicit UTC (parameterized)
+        self.assertIn("toDateTime(web_bounces_combined.period_bucket,", sql_utc)
+        self.assertNotIn("toTimeZone(web_bounces_combined.period_bucket,", sql_utc)
