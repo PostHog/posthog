@@ -107,7 +107,7 @@ export const EditorSidebar = ({
                     }}
                     tabs={tabs}
                     size="small"
-                    barClassName="flex justify-center h-10 items-center"
+                    barClassName="flex justify-center items-center"
                 />
             </div>
             {renderTabContent()}
