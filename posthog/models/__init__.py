@@ -69,6 +69,7 @@ from .integration import Integration
 from .link import Link
 from .message_template import MessageTemplate
 from .messaging import MessagingRecord
+from .message_preferences import MessageCategory, MessageRecipientPreference
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -163,6 +164,8 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MessageCategory",
+    "MessageRecipientPreference",
     "MessageTemplate",
     "MessagingRecord",
     "Notebook",
