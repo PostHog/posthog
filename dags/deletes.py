@@ -745,13 +745,17 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(create_pending_deletions_table.drop).result()
 
     # Mark adhoc event deletes as verified
-    cluster.any_host(
-        lambda client: client.execute(f"""
-            INSERT INTO {create_adhoc_event_deletes_dict.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
-            SELECT team_id, uuid, created_at, now64(), 1
-            FROM {create_adhoc_event_deletes_dict.qualified_name}
-    """)
-    ).result()
+    def mark_adhoc_event_deletes_done(client: Client) -> None:
+        # XXX: temporary fix to allow job to resume if the dictionary was deleted but subsequent steps failed; marking
+        # completion and dropping the dictionary should be split into separate ops to ensure both can complete safely
+        if create_adhoc_event_deletes_dict.exists(client):
+            client.execute(f"""
+                INSERT INTO {create_adhoc_event_deletes_dict.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
+                SELECT team_id, uuid, created_at, now64(), 1
+                FROM {create_adhoc_event_deletes_dict.qualified_name}
+            """)
+
+    cluster.any_host(mark_adhoc_event_deletes_done).result()
     cluster.map_all_hosts(create_adhoc_event_deletes_dict.drop).result()
     cluster.any_host(create_adhoc_event_deletes_dict.source.optimize).result()
     return True

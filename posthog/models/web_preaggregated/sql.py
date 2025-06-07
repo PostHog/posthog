@@ -2,6 +2,11 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.settings.object_storage import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+from posthog.settings.base_variables import DEBUG
 
 CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
 CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
@@ -183,6 +188,13 @@ def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
 
 def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
+
+
+def get_s3_function_args(s3_path):
+    if DEBUG:
+        return f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
+    else:
+        return f"'{s3_path}', 'Native'"
 
 
 def get_team_filters(team_ids):
@@ -538,6 +550,70 @@ def WEB_BOUNCES_INSERT_SQL(
         os,
         viewport_width,
         viewport_height
+    SETTINGS {settings}
+    """
+
+
+def WEB_STATS_EXPORT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", s3_path=None
+):
+    team_ids_filter = ""
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        team_ids_filter = f"AND team_id IN ({team_ids_str})"
+
+    if not s3_path:
+        raise ValueError("s3_path is required")
+
+    s3_function_args = get_s3_function_args(s3_path)
+
+    return f"""
+    INSERT INTO FUNCTION s3({s3_function_args})
+    SELECT
+        period_bucket,
+        team_id,
+        persons_uniq_state,
+        sessions_uniq_state,
+        pageviews_count_state
+    FROM {table_name}
+    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
+        AND period_bucket < toDateTime('{date_end}', '{timezone}')
+        {team_ids_filter}
+    GROUP BY team_id, period_bucket, persons_uniq_state, sessions_uniq_state, pageviews_count_state
+    ORDER BY team_id, period_bucket
+    SETTINGS {settings}
+    """
+
+
+def WEB_BOUNCES_EXPORT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_bounces_daily", s3_path=None
+):
+    team_ids_filter = ""
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        team_ids_filter = f"AND team_id IN ({team_ids_str})"
+
+    if not s3_path:
+        raise ValueError("s3_path is required")
+
+    s3_function_args = get_s3_function_args(s3_path)
+
+    return f"""
+    INSERT INTO FUNCTION s3({s3_function_args})
+    SELECT
+        period_bucket,
+        team_id,
+        persons_uniq_state,
+        sessions_uniq_state,
+        pageviews_count_state,
+        bounces_count_state,
+        total_session_duration_state
+    FROM {table_name}
+    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
+        AND period_bucket < toDateTime('{date_end}', '{timezone}')
+        {team_ids_filter}
+    GROUP BY period_bucket, team_id, persons_uniq_state, sessions_uniq_state, pageviews_count_state, bounces_count_state, total_session_duration_state
+    ORDER BY team_id, period_bucket
     SETTINGS {settings}
     """
 

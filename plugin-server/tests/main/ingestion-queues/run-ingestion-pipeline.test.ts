@@ -8,7 +8,7 @@ import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
-import { BatchWritingGroupStoreForDistinctIdBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { BatchWritingGroupStoreForBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
@@ -66,7 +66,7 @@ describe('workerTasks.runEventPipeline()', () => {
             String(teamId),
             event.distinct_id
         )
-        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         await expect(
             new EventPipelineRunner(
                 hub,
@@ -74,7 +74,7 @@ describe('workerTasks.runEventPipeline()', () => {
                 null,
                 [],
                 personsStoreForDistinctId,
-                groupStoreForDistinctId
+                groupStoreForBatch
             ).runEventPipeline(event, team)
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()

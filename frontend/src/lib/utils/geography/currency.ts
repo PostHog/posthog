@@ -341,3 +341,5 @@ export const getCurrencySymbol = (currency: string): { symbol: string; isPrefix:
 
     return { symbol: symbol ?? currency, isPrefix }
 }
+
+export const DEFAULT_CURRENCY = CurrencyCode.USD
