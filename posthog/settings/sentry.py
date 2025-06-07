@@ -70,6 +70,10 @@ def traces_sampler(sampling_context: dict) -> float:
     if transaction_context is None:
         return 0
 
+    # Skip Sentry for OpenTelemetry traces to avoid duplicates
+    if sampling_context.get("otel_context") is not None:
+        return 0.0
+
     op = transaction_context.get("op")
 
     if op == "http.server":
@@ -86,31 +90,36 @@ def traces_sampler(sampling_context: dict) -> float:
         if force_sample:
             return 1.0  # 100%
         # Ingestion endpoints (high volume)
-        elif path.startswith("/batch"):
+        elif path and path.startswith("/batch"):
             return 0.00000001  # 0.000001%
         # Ingestion endpoints (high volume)
-        elif path.startswith(("/capture", "/track", "/s", "/e")):
+        elif path and path.startswith(("/capture", "/track", "/s", "/e")):
             return 0.0000001  # 0.00001%
         # Get more traces for /decide than other high volume endpoints
-        elif path.startswith("/decide"):
+        elif path and path.startswith("/decide"):
             # decide sampling happens in before_send_transaction,
             # where we sample on duration instead of no. of requests
             return 1.0  # 100%
         # Probes/monitoring endpoints
-        elif path.startswith(("/_health", "/_readyz", "/_livez")):
+        elif path and path.startswith(("/_health", "/_readyz", "/_livez")):
             return 0.00001  # 0.001%
         # API endpoints
-        elif path.startswith("/api/projects") and path.endswith("/persons/"):
+        elif path and path.startswith("/api/projects") and path.endswith("/persons/"):
             return 0.00001  # 0.001%
-        elif path.startswith("/api/persons/"):
+        elif path and path.startswith("/api/persons/"):
             return 0.00001  # 0.001%
-        elif path.startswith("/api/feature_flag"):
+        elif path and path.startswith("/api/feature_flag"):
             return 0.00001  # 0.001%
-        elif path.startswith("/api/projects") and ("dashboard" in path or "insight" in path) and "timing" not in path:
+        elif (
+            path
+            and path.startswith("/api/projects")
+            and ("dashboard" in path or "insight" in path)
+            and "timing" not in path
+        ):
             return 0.001  # 0.1%
-        elif path.startswith("/api/projects") and path.endswith("/query/"):
+        elif path and path.startswith("/api/projects") and path.endswith("/query/"):
             return 0.001  # 0.1%
-        elif path.startswith("/api"):
+        elif path and path.startswith("/api"):
             return 0.001  # 0.1%
         else:
             # Default sample rate for HTTP requests
