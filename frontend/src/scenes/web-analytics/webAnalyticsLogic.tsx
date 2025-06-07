@@ -864,9 +864,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return `
                         SELECT 
                             ${fieldMapping.campaign_name} as campaignname,
-                            ${fieldMapping.total_cost} as cost,
-                            toFloat(coalesce(${fieldMapping.clicks}, 0)) as clicks,
-                            toFloat(coalesce(${fieldMapping.impressions}, 0)) as impressions,
+                            toFloat(coalesce(${fieldMapping.total_cost}, 0)) as cost,
+                            toFloat(coalesce(${fieldMapping.clicks || '0'}, 0)) as clicks,
+                            toFloat(coalesce(${fieldMapping.impressions || '0'}, 0)) as impressions,
                             ${fieldMapping.source_name || `'${schemaName}'`} as source_name
                         FROM ${tableName}
                         WHERE ${fieldMapping.date} >= '2025-01-01'
