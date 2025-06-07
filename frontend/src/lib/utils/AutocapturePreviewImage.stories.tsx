@@ -11,6 +11,9 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        testOptions: {
+            allowImagesWithoutWidth: true,
+        },
     },
     decorators: [
         mswDecorator({
