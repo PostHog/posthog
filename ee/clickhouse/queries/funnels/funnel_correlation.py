@@ -259,7 +259,7 @@ class FunnelCorrelation:
 
     def get_event_property_query(self) -> tuple[str, dict[str, Any]]:
         if not self._filter.correlation_event_names:
-            raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
+            raise ValidationError("Event Property Correlation expects at least one event name to run correlation on")
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
@@ -339,7 +339,7 @@ class FunnelCorrelation:
 
     def get_properties_query(self) -> tuple[str, dict[str, Any]]:
         if not self._filter.correlation_property_names:
-            raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
+            raise ValidationError("Property Correlation expects at least one Property to run correlation on")
 
         funnel_actors_query, funnel_actors_params = self.get_funnel_actors_cte()
 
@@ -606,7 +606,7 @@ class FunnelCorrelation:
 
         Requirements:
 
-         - Intitially we only need to consider the names of events that a cohort
+         - Initially we only need to consider the names of events that a cohort
            person has emitted. So we explicitly are not interested in e.g.
            correlating properties, although this will be a follow-up.
 
@@ -832,7 +832,7 @@ class FunnelCorrelation:
     def get_partial_event_contingency_tables(self) -> tuple[list[EventContingencyTable], int, int]:
         """
         For each event a person that started going through the funnel, gets stats
-        for how many of these users are sucessful and how many are unsuccessful.
+        for how many of these users are successful and how many are unsuccessful.
 
         It's a partial table as it doesn't include numbers of the negation of the
         event, but does include the total success/failure numbers, which is enough

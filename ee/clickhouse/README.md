@@ -1,6 +1,6 @@
 ## Clickhouse Support (Enterprise Feature)
 
-To accomodate high volume deployments, PostHog can use Clickhouse instead of Postgres. Clickhouse isn't used by default because Postgres is easier to deploy and maintain on smaller instances and on platforms such as Heroku.
+To accommodate high volume deployments, PostHog can use Clickhouse instead of Postgres. Clickhouse isn't used by default because Postgres is easier to deploy and maintain on smaller instances and on platforms such as Heroku.
 
 Clickhouse Support works by swapping in separate queries and classes in the system for models that are most impacted by high volume usage (ex: events and actions).
 

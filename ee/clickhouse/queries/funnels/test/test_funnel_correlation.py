@@ -1815,7 +1815,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2020-01-04T14:00:00Z",
             )
 
-        # Atleast one person that fails, to ensure we get results
+        # At least one person that fails, to ensure we get results
         _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
             team=self.team,
@@ -1909,7 +1909,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2020-01-04T14:00:00Z",
             )
 
-        # Atleast one person that fails, to ensure we get results
+        # At least one person that fails, to ensure we get results
         _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
             team=self.team,

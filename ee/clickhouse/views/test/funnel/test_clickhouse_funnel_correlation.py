@@ -233,7 +233,7 @@ class FunnelCorrelationTest(BaseTest):
                     {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
                     {"event": "", "timestamp": datetime(2020, 1, 3)},
                 ],
-                # We need atleast 1 success and failure to return a result
+                # We need at least 1 success and failure to return a result
                 "Person 2": [
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
                     {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
@@ -630,7 +630,7 @@ class FunnelCorrelationTest(BaseTest):
                 timestamp="2020-01-04T14:00:00Z",
             )
 
-        # Atleast one person that fails, to ensure we get results
+        # At least one person that fails, to ensure we get results
         _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
             team=self.team,

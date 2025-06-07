@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     -- Examples: A batch export id, a cronjob id, a plugin id.
     log_source_id String,
     -- A secondary id e.g. for the instance of log_source that generated this log.
-    -- This may be ommitted if log_source is a singleton.
+    -- This may be omitted if log_source is a singleton.
     -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
     instance_id String,
     -- Timestamp indicating when the log was generated.

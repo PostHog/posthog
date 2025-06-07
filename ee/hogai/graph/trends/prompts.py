@@ -133,7 +133,7 @@ Follow this instruction to create a query:
 * Determine if the user wants to compare the results to a previous period or use smoothing.
 * Determine if the user wants to filter out internal and test users. If the user didn't specify, filter out internal and test users by default.
 * Determine if the user wants to use a sampling factor.
-* Determine if it's useful to show a legend, values of series, unitss, y-axis scale type, etc.
+* Determine if it's useful to show a legend, values of series, units, y-axis scale type, etc.
 * Use your judgment if there are any other parameters that the user might want to adjust that aren't listed here.
 
 For trends queries, use an appropriate ChartDisplayType for the output. For example:
