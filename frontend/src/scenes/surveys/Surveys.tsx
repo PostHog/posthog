@@ -25,6 +25,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -37,11 +38,49 @@ import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
-    component: Surveys,
+    component: SurveysWithMaxTool,
     logic: surveysLogic,
 }
 
-export function Surveys(): JSX.Element {
+function SurveysWithMaxTool(): JSX.Element {
+    const {
+        data: { surveys },
+    } = useValues(surveysLogic)
+
+    const { loadSurveys } = useActions(surveysLogic)
+
+    return (
+        <MaxTool
+            name="create_survey"
+            displayName="AI Survey Creator"
+            context={{
+                existing_surveys: surveys
+                    .filter((survey) => getSurveyStatus(survey) === ProgressStatus.Running)
+                    .map((survey) => ({
+                        id: survey.id,
+                        name: survey.name,
+                        type: survey.type,
+                        questions_count: survey.questions?.length || 0,
+                        status: getSurveyStatus(survey),
+                    })),
+                total_surveys_count: surveys.length,
+            }}
+            callback={(toolOutput: any) => {
+                // Handle survey creation result
+                if (toolOutput?.survey_id) {
+                    // Refresh surveys list to show new survey
+                    loadSurveys()
+                    // Optionally navigate to the new survey
+                    router.actions.push(urls.survey(toolOutput.survey_id))
+                }
+            }}
+        >
+            <Surveys />
+        </MaxTool>
+    )
+}
+
+function Surveys(): JSX.Element {
     const {
         data: { surveys },
         searchedSurveys,
