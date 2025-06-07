@@ -4,7 +4,6 @@ use crate::flags::flag_models::*;
 use crate::properties::property_models::{PropertyFilter, PropertyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -63,27 +62,6 @@ impl FeatureFlag {
                 .as_object()
                 .and_then(|obj| obj.get(match_val).cloned())
         })
-    }
-
-    /// Extracts dependent FeatureFlagIds from the feature flag's filters
-    ///
-    /// # Returns
-    /// * `HashSet<FeatureFlagId>` - A set of dependent feature flag IDs
-    /// * `FlagError` - If there is an error parsing the filters
-    pub fn extract_dependencies(&self) -> Result<HashSet<FeatureFlagId>, FlagError> {
-        let mut dependencies = HashSet::new();
-        for group in &self.filters.groups {
-            if let Some(properties) = &group.properties {
-                for filter in properties {
-                    if filter.is_feature_flag() {
-                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
-                            dependencies.insert(feature_flag_id);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(dependencies)
     }
 }
 
