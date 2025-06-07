@@ -62,7 +62,7 @@ class MessageRecipientPreference(UUIDModel):
     def generate_preferences_token(self) -> str:
         """Generate a secure, time-limited token for accessing preferences"""
         signer = TimestampSigner()
-        return signer.sign_object({"id": self.id, "identifier": self.identifier})
+        return signer.sign_object({"id": str(self.id), "identifier": self.identifier})
 
     @classmethod
     def validate_preferences_token(
@@ -76,7 +76,7 @@ class MessageRecipientPreference(UUIDModel):
         signer = TimestampSigner()
         try:
             data = signer.unsign_object(token, max_age=max_age)
-            return cls.objects.get(id=data["id"], identifier=data["identifier"]), ""
+            return cls.objects.get(id=uuid.UUID(data["id"]), identifier=data["identifier"]), ""
         except SignatureExpired:
             return None, "This link has expired. Please request a new one."
         except BadSignature:

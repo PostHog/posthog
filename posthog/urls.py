@@ -244,7 +244,7 @@ urlpatterns = [
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
-    path("messaging-preferences/update/", update_preferences, name="message_preferences_update"),
+    opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
 if settings.DEBUG:
