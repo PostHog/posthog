@@ -545,6 +545,24 @@ def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> b
     return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
+# KLUDGE: this is duplicated in posthog/models/remote_config.py
+def _should_have_custom_rrweb_script(team_id: int) -> bool:
+    if settings.SESSION_REPLAY_RRWEB_SCRIPT is None:
+        return False
+
+    max_allowed = settings.SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS
+
+    if max_allowed == "*":
+        return True
+
+    try:
+        max_team_id = int(max_allowed)
+        return team_id < max_team_id
+    except (ValueError, TypeError):
+        return False
+
+
+# KLUDGE: this is duplicated in posthog/models/remote_config.py
 def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:
     session_recording_config_response: Union[bool, dict[str, Any]] = False
 
@@ -572,10 +590,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
+            if _should_have_custom_rrweb_script(team.pk):
                 rrweb_script_config = {
                     "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
                 }

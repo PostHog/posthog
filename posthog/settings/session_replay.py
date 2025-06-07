@@ -1,4 +1,4 @@
-from posthog.settings import get_from_env, get_list
+from posthog.settings import get_from_env
 from posthog.utils import str_to_bool
 from django.conf import settings
 
@@ -37,9 +37,8 @@ SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMP
 # intended to allow testing of new releases of rrweb or our lazy loaded recording script
 SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
 
-# a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
-# can be a comma separated list of team ids or '*' to allow all teams
-SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
+# can be * for all teams or a number to limit to any team with an id less than the number
+SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS", "3")
 
 # a AI model to use for session recording filters
 SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
