@@ -36,6 +36,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    ReplayURLFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
     RevenueAnalyticsPropertyFilter,
@@ -413,6 +414,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
+    visited_page?: ReplayURLFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean
     /**
