@@ -30,3 +30,4 @@ livestream
 # configs
 configs/configs.yml
 mmdb.db
+.tool-versions
