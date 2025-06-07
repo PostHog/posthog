@@ -246,26 +246,18 @@ pub fn match_flag_filter_value(
     filter: &PropertyFilter,
     flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
 ) -> bool {
-    let flag_id = filter.get_feature_flag_id();
-    if flag_id.is_none() {
+    let Some(flag_id) = filter.get_feature_flag_id() else {
         return false;
-    }
-    // Grab the existing flag value for this flag id if any
-    let flag_value = flag_evaluation_results.get(&flag_id.unwrap());
-    if flag_value.is_none() {
-        // This means this condition depends on a flag that doesn't exist yet, so it's not a match
+    };
+    
+    let Some(flag_value) = flag_evaluation_results.get(&flag_id) else {
         return false;
-    }
-    // If the filter flag value is boolean and is `true`, then we need to see if the `flag_value` is not `false`.
-    // If the filter flag value is boolean and is `false`, then we need to see if the `flag_value` is `false`.
-    // If the filter flag value is a string, we need to see if the `flag_value` is the same as the filter flag value.
-    let flag_value = flag_value.unwrap();
+    };
+
     match filter.value {
         Some(Value::Bool(true)) => flag_value != &FlagValue::Boolean(false),
         Some(Value::Bool(false)) => flag_value == &FlagValue::Boolean(false),
-        Some(Value::String(ref s)) => {
-            matches!(flag_value, FlagValue::String(flag_str) if flag_str == s)
-        }
+        Some(Value::String(ref s)) => matches!(flag_value, FlagValue::String(flag_str) if flag_str == s),
         _ => false,
     }
 }
