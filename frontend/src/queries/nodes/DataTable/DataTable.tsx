@@ -502,7 +502,14 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
-        showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showExport ? (
+            <DataTableExport
+                key="data-table-export"
+                query={query}
+                setQuery={setQuery}
+                fileNameForExport={context?.fileNameForExport}
+            />
+        ) : null,
         showExport && showOpenEditorButton ? (
             <DataTableOpenEditor key="data-table-open-editor" query={query} setQuery={setQuery} />
         ) : null,
