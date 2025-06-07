@@ -1,41 +1,9 @@
-import { merge } from 'lodash'
 import { DateTime, Settings } from 'luxon'
 
-import { DeepPartialHogFunctionInvocationGlobals, TemplateTester } from '../../test/test-helpers'
+import { createPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
 
 jest.setTimeout(60 * 1000)
-
-/**
- * Creates a standard payload for invokeMapping.
- * Allows overriding specific event and person properties.
- */
-
-const createPayload = (globals?: DeepPartialHogFunctionInvocationGlobals): DeepPartialHogFunctionInvocationGlobals => {
-    let defaultPayload = {
-        event: {
-            properties: {},
-            event: 'Signed Up',
-            uuid: 'event-id',
-            timestamp: '2025-01-01T00:00:00Z',
-            distinct_id: 'distinct-id',
-            elements_chain: '',
-            url: 'https://us.posthog.com/projects/1/events/1234',
-        },
-        person: {
-            id: 'person-id',
-            properties: {
-                email: 'example@posthog.com',
-                gclid: 'google-id',
-            },
-            url: 'https://us.posthog.com/projects/1/persons/1234',
-        },
-    }
-
-    defaultPayload = merge(defaultPayload, globals ?? {})
-
-    return defaultPayload
-}
 
 describe('google template', () => {
     const tester = new TemplateTester(template)
