@@ -5,6 +5,7 @@ import { IconTableChart } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useMemo } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode, InsightVizNode } from '~/queries/schema/schema-general'
@@ -17,7 +18,6 @@ import {
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
-import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.TOP_CUSTOMERS
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -27,7 +27,7 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 }
 
 export const TopCustomersTile = (): JSX.Element => {
-    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
 
     const { queries, topCustomersDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
     const { setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
@@ -67,7 +67,7 @@ export const TopCustomersTile = (): JSX.Element => {
             <div className="flex flex-row justify-between">
                 <h3 className="text-lg font-semibold">
                     Top customers&nbsp;
-                    <Tooltip title="Top customers by all revenue accumulated in the selected period.">
+                    <Tooltip title="Top customers by revenue in the selected period.">
                         <IconInfo />
                     </Tooltip>
                 </h3>

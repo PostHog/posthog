@@ -5,7 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-customerio",
@@ -50,6 +50,14 @@ let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {
     attributes[key] := value
+}
+
+for (let key, value in attributes) {
+    if (value and typeof(value) == 'string') {
+        if (length(value) > 1000) {
+            attributes[key] := substring(value, 1, 1000)
+        }
+    }
 }
 
 let res := fetch(f'https://{inputs.host}/api/v2/entity', {

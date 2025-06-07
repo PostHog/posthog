@@ -11,6 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/src/utils/posthog'
+import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import {
@@ -120,10 +121,13 @@ async function processEvent(
     } as any as PluginEvent
 
     const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
-    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
-    await runner.runEventPipeline(pluginEvent)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId, groupStoreForBatch)
+    await runner.runEventPipeline(pluginEvent, team)
 
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
+    await delayUntilEventIngested(async () => {
+        return await hub.db.fetchEvents()
+    }, ++processEventCounter)
 }
 
 // Simple client used to simulate sending events
@@ -185,8 +189,9 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         String(team.id),
         event.distinct_id
     )
-    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId)
-    await runner.runEventPipeline(event)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId, groupStoreForBatch)
+    await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
@@ -535,6 +540,7 @@ test('capture new person', async () => {
 })
 
 test('capture bad team', async () => {
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
@@ -545,7 +551,8 @@ test('capture bad team', async () => {
             1337,
             now,
             new UUIDT().toString(),
-            false
+            false,
+            groupStoreForBatch
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })
@@ -1650,57 +1657,6 @@ test('long event name substr', async () => {
 
     const [event] = await hub.db.fetchEvents()
     expect(event.event?.length).toBe(200)
-})
-
-describe('validates eventUuid', () => {
-    test('invalid uuid string returns an error', async () => {
-        const pluginEvent: PluginEvent = {
-            distinct_id: 'i_am_a_distinct_id',
-            site_url: '',
-            team_id: team.id,
-            timestamp: DateTime.utc().toISO(),
-            now: now.toUTC().toISO(),
-            ip: '',
-            uuid: 'i_am_not_a_uuid',
-            event: 'eVeNt',
-            properties: { price: 299.99, name: 'AirPods Pro' },
-        }
-
-        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
-            hub.db,
-            String(team.id),
-            pluginEvent.distinct_id
-        )
-        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
-        const result = await runner.runEventPipeline(pluginEvent)
-
-        expect(result.error).toBeTruthy()
-        expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
-    })
-    test('null value in eventUUID returns an error', async () => {
-        const pluginEvent: PluginEvent = {
-            distinct_id: 'i_am_a_distinct_id',
-            site_url: '',
-            team_id: team.id,
-            timestamp: DateTime.utc().toISO(),
-            now: now.toUTC().toISO(),
-            ip: '',
-            uuid: null as any,
-            event: 'eVeNt',
-            properties: { price: 299.99, name: 'AirPods Pro' },
-        }
-
-        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
-            hub.db,
-            String(team.id),
-            pluginEvent.distinct_id
-        )
-        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
-        const result = await runner.runEventPipeline(pluginEvent)
-
-        expect(result.error).toBeTruthy()
-        expect(result.error).toEqual('Not a valid UUID: "null"')
-    })
 })
 
 test('any event can do $set on props (user exists)', async () => {

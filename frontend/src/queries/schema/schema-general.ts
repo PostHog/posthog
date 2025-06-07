@@ -38,6 +38,7 @@ import {
     PropertyOperator,
     RetentionDashboardDisplayType,
     RetentionFilterType,
+    RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SessionRecordingType,
     StickinessFilterType,
@@ -111,8 +112,9 @@ export enum NodeKind {
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
 
     // Revenue analytics queries
-    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsInsightsQuery = 'RevenueAnalyticsInsightsQuery',
+    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
@@ -150,8 +152,9 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -211,8 +214,9 @@ export type QuerySchema =
     | WebPageURLSearchQuery
 
     // Revenue analytics
-    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
@@ -719,8 +723,9 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
-                    | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsInsightsQuery
+                    | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -748,8 +753,9 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
-        | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsInsightsQuery
+        | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -1870,10 +1876,12 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 /*
- * Revenue Analytics Queries
+ * Revenue Analytics
  */
+export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
+    properties: RevenueAnalyticsPropertyFilters
     revenueSources: RevenueSources
 }
 
@@ -1884,6 +1892,20 @@ export interface RevenueSources {
     // This is a list of strings that represent the event names we're interested in
     events: string[]
 }
+
+export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
+
+export interface RevenueAnalyticsInsightsQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsInsightsQuery
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsInsightsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsInsightsQueryResponse = CachedQueryResponse<RevenueAnalyticsInsightsQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -1935,6 +1957,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterTestAccounts?: boolean
     searchQuery?: string
     volumeResolution: integer
+    withAggregations?: boolean
+    withFirstEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -1948,7 +1972,6 @@ export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
-    volumeDay: number[]
     volumeRange: number[]
 }
 
@@ -1965,8 +1988,12 @@ export interface ErrorTrackingRelationalIssue {
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
-    earliest?: string
-    aggregations: ErrorTrackingIssueAggregations
+    first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
 
@@ -1978,17 +2005,18 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
-export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy: 'latest' | 'earliest'
+    orderBy?: 'latest' | 'earliest'
     searchTerm?: string
     resource?: string
     severityLevels: LogSeverityLevel[]
+    filterGroup: PropertyGroupFilter
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -2040,12 +2068,50 @@ export interface FileSystemEntry {
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
+    /** Order of object in tree */
+    visualOrder?: number
 }
+
+export type FileSystemIconType =
+    | 'plug'
+    | 'cohort'
+    | 'insight'
+    | 'definitions'
+    | 'warning'
+    | 'errorTracking'
+    | 'ai'
+    | 'cursor'
+    | 'heatmap'
+    | 'database'
+    | 'folder'
+    | 'handMoney'
+    | 'live'
+    | 'notification'
+    | 'pieChart'
+    | 'piggyBank'
+    | 'sql'
+    | 'insightFunnel'
+    | 'insightTrends'
+    | 'insightRetention'
+    | 'insightUserPaths'
+    | 'insightLifecycle'
+    | 'insightStickiness'
+    | 'insightHogQL'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
-    iconType?: string
+    iconType?: FileSystemIconType
     flag?: string
+    /** Order of object in tree */
+    visualOrder?: number
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
+    /** Protocol of the item, defaults to "project://" */
+    protocol?: string
+    /** Category label to place this under */
+    category?: string
 }
 
 export interface PersistedFolder {
@@ -2218,6 +2284,25 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
+    // Legacy fields
+    kind?: NodeKind.ExperimentQuery
+    insight?: Record<string, any>[]
+    metric?: ExperimentMetric
+    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
+    probability?: Record<string, number>
+    significant?: boolean
+    significance_code?: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value?: number
+    credible_intervals?: Record<string, [number, number]>
+
+    // New fields
+    baseline?: ExperimentStatsBase
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+// Strongly typed variants of ExperimentQueryResponse for better type safety
+export interface LegacyExperimentQueryResponse {
     kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
     metric: ExperimentMetric
@@ -2228,6 +2313,37 @@ export interface ExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+}
+
+export interface NewExperimentQueryResponse {
+    baseline: ExperimentStatsBase
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+export interface ExperimentStatsBase {
+    key: string
+    number_of_samples: integer
+    sum: number
+    sum_squares: number
+}
+
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
+    method: 'frequentist'
+    significant: boolean
+    p_value: number
+    confidence_interval: [number, number]
+}
+
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
+    method: 'bayesian'
+    significant: boolean
+    chance_to_win: number
+    credible_interval: [number, number]
+}
+
+export interface ExperimentMetricResult {
+    baseline: ExperimentStatsBase
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -2244,6 +2360,8 @@ export interface ExperimentExposureQueryResponse {
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
+export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
@@ -2465,6 +2583,8 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
 export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
+    REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
+    REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
 }
 
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
@@ -2707,6 +2827,7 @@ export type VectorSearchResponse = VectorSearchResponseItem[]
 export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
     kind: NodeKind.VectorSearchQuery
     embedding: number[]
+    embeddingVersion?: number
 }
 
 export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
@@ -3011,11 +3132,6 @@ export interface RevenueAnalyticsGoal {
 }
 
 export interface RevenueAnalyticsConfig {
-    /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
-
     /**
      * @default []
      */

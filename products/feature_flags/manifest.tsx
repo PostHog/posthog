@@ -12,8 +12,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         feature_flag: {
+            name: 'Feature flag',
             icon: <IconToggle />,
             href: (ref: string) => urls.featureFlag(ref),
+            iconColor: ['var(--product-feature-flags-light)'],
+            filterKey: 'feature_flag',
         },
     },
     treeItemsNew: [
@@ -26,11 +29,9 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Feature flags`,
+            category: 'Features',
             type: 'feature_flag',
             href: urls.featureFlags(),
         },
     ],
-    fileSystemFilterTypes: {
-        feature_flag: { name: 'Feature flags' },
-    },
 }

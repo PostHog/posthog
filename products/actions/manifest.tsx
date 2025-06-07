@@ -1,4 +1,4 @@
-import { IconRocket } from '@posthog/icons'
+import { IconCursor } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ActionType, ProductManifest } from '../../frontend/src/types'
@@ -16,12 +16,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         action: {
-            icon: <IconRocket />,
+            name: 'Action',
+            icon: <IconCursor />,
             href: (ref: string) => urls.action(ref),
+            filterKey: 'action',
         },
-    },
-    fileSystemFilterTypes: {
-        action: { name: 'Actions' },
     },
     treeItemsNew: [
         {
@@ -30,10 +29,11 @@ export const manifest: ProductManifest = {
             href: urls.createAction(),
         },
     ],
-    treeItemsDataManagement: [
+    treeItemsMetadata: [
         {
             path: 'Actions',
-            iconType: 'rocket',
+            category: 'Definitions',
+            iconType: 'cursor',
             href: urls.actions(),
         },
     ],

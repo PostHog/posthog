@@ -48,7 +48,8 @@ from posthog.utils import (
     get_instance_region,
     get_previous_day,
 )
-from posthog.warehouse.models import ExternalDataJob
+from posthog.models import BatchExport
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 
@@ -135,6 +136,16 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+
+    # Data Warehouse metadata
+    active_external_data_schemas_in_period: int
+
+    # Batch Exports metadata
+    active_batch_exports_in_period: int
+
+    dwh_total_storage_in_s3_in_mib: float
+    dwh_tables_storage_in_s3_in_mib: float
+    dwh_mat_views_storage_in_s3_in_mib: float
     # Error Tracking
     issues_created_total: int
     symbol_sets_count: int
@@ -461,11 +472,11 @@ def get_teams_with_billable_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -487,11 +498,11 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -544,7 +555,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp BETWEEN %(begin)s AND %(end)s
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
     """
@@ -588,13 +599,13 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 4 splits
+    # Execute the split query with 3 splits
     return _execute_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
         params={},
-        num_splits=2,
+        num_splits=3,
         combine_results_func=combine_event_metrics_results,
     )
 
@@ -859,6 +870,63 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_external_data_schemas_in_period() -> list:
+    # get all external data schemas that are running or completed at run time
+    return list(
+        ExternalDataSchema.objects.filter(
+            status__in=[ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.COMPLETED]
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_batch_exports_in_period() -> list:
+    # get all batch exports that are active or completed at run time
+    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_dwh_tables_storage_in_s3() -> list:
+    return list(
+        DataWarehouseTable.objects.filter(
+            ~Q(deleted=True), size_in_s3_mib__isnull=False, external_data_source_id__isnull=False
+        )
+        .values("team_id")
+        .annotate(total=Sum("size_in_s3_mib"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
+    return list(
+        DataWarehouseSavedQuery.objects.filter(
+            ~Q(table__deleted=True),
+            Q(status=DataWarehouseSavedQuery.Status.COMPLETED) | Q(last_run_at__isnull=False),
+            table__isnull=False,
+            table__size_in_s3_mib__isnull=False,
+        )
+        .values("team_id")
+        .annotate(total=Sum("table__size_in_s3_mib"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_dwh_total_storage_in_s3() -> list:
+    return list(
+        DataWarehouseTable.objects.filter(~Q(deleted=True), size_in_s3_mib__isnull=False)
+        .values("team_id")
+        .annotate(total=Sum("size_in_s3_mib"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
@@ -994,13 +1062,12 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         report.event_count_in_period > 0
         or report.enhanced_persons_event_count_in_period > 0
         or report.recording_count_in_period > 0
-        # explicitly not including mobile_recording_count_in_period for now
+        or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
-        # explicitly not including issues_created or exceptions_captured
-        # for now given we do not charge for error tracking yet
+        or report.exceptions_captured_in_period > 0
     )
 
 
@@ -1200,6 +1267,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
+        "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
+        "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
+        "teams_with_dwh_mat_views_storage_in_s3_in_mib": get_teams_with_dwh_mat_views_storage_in_s3(),
+        "teams_with_dwh_total_storage_in_s3_in_mib": get_teams_with_dwh_total_storage_in_s3(),
         "teams_with_exceptions_captured_in_period": get_teams_with_exceptions_captured_in_period(
             period_start, period_end
         ),
@@ -1286,6 +1358,13 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
+            team.id, 0
+        ),
+        active_batch_exports_in_period=all_data["teams_with_active_batch_exports_in_period"].get(team.id, 0),
+        dwh_total_storage_in_s3_in_mib=all_data["teams_with_dwh_total_storage_in_s3_in_mib"].get(team.id, 0),
+        dwh_tables_storage_in_s3_in_mib=all_data["teams_with_dwh_tables_storage_in_s3_in_mib"].get(team.id, 0),
+        dwh_mat_views_storage_in_s3_in_mib=all_data["teams_with_dwh_mat_views_storage_in_s3_in_mib"].get(team.id, 0),
         issues_created_total=all_data["teams_with_issues_created_total"].get(team.id, 0),
         symbol_sets_count=all_data["teams_with_symbol_sets_count"].get(team.id, 0),
         resolved_symbol_sets_count=all_data["teams_with_resolved_symbol_sets_count"].get(team.id, 0),

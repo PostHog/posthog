@@ -1,1 +1,1 @@
-0739_teamrevenueanalyticsconfig__goals
+0763_migrate_team_base_currency

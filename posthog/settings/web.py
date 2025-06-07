@@ -5,6 +5,7 @@ from datetime import timedelta
 import structlog
 from corsheaders.defaults import default_headers
 
+from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -61,6 +62,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "oauth2_provider",
 ]
 
 MIDDLEWARE = [
@@ -80,12 +82,12 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -202,8 +204,8 @@ SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
-# For sensitive actions we have an additional permission (default 1 hour)
-SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 6, type_cast=int)
+# For sensitive actions we have an additional permission (default 2 hour)
+SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
@@ -319,7 +321,7 @@ GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_POST_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
             ]
         ),
     )
@@ -331,31 +333,31 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/plugin_config/\\d+/frontend/?$",
-                "^/?api/projects/@current/property_definitions/?$",
-                "^/?api/projects/\\d+/event_definitions/?$",
-                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
-                "^/?api/projects/\\d+/insights/?$",
-                "^/?api/projects/\\d+/insights/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/?$",
-                "^/?api/projects/\\d+/actions/?$",
-                "^/?api/projects/\\d+/session_recordings/?$",
-                "^/?api/projects/\\d+/session_recordings/.*$",
-                "^/?api/projects/\\d+/session_recording_playlists/?$",
-                "^/?api/projects/\\d+/session_recording_playlists/.*$",
-                "^/?api/projects/\\d+/performance_events/?$",
-                "^/?api/projects/\\d+/performance_events/.*$",
-                "^/?api/projects/\\d+/exports/\\d+/content/?$",
-                "^/?api/projects/\\d+/activity_log/important_changes/?$",
-                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/?api/(environments|projects)/@current/property_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/event_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/(environments|projects)/\\d+/insights/?$",
+                "^/?api/(environments|projects)/\\d+/insights/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/?$",
+                "^/?api/(environments|projects)/\\d+/actions/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/.*$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/?$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/.*$",
+                "^/?api/(environments|projects)/\\d+/performance_events/?$",
+                "^/?api/(environments|projects)/\\d+/performance_events/.*$",
+                "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
+                "^/?api/(environments|projects)/\\d+/activity_log/important_changes/?$",
+                "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/projects/\\d+/groups/property_definitions/?$",
-                "^/api/projects/\\d+/cohorts/?$",
-                "^/api/projects/\\d+/persons/?$",
+                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
+                "^/api/(environments|projects)/\\d+/cohorts/?$",
+                "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
-                "^api/projects/@current/feature_flags/my_flags/?$",
-                "^/?api/projects/\\d+/query/?$",
+                "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -452,7 +454,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED = get_from_env("HOG_TRANSFORMATIONS_CUSTOM_ENABLED", False, type_cast=bool)
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
@@ -474,3 +476,37 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
+
+####
+# OAuth
+
+OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
+
+OAUTH2_PROVIDER = {
+    "OIDC_ENABLED": True,
+    "PKCE_REQUIRED": True,
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "SCOPES": {
+        "openid": "OpenID Connect scope",
+        "profile": "Access to user's profile",
+        "email": "Access to user's email address",
+        "*": "Full access to all scopes",
+        **get_scope_descriptions(),
+    },
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    "DEFAULT_SCOPES": ["openid"],
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
+}
+
+
+OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
+OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
+OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
+OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
+OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+if DEBUG:
+    OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

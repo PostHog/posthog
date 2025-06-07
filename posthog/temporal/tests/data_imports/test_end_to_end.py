@@ -28,6 +28,7 @@ from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import (
     FunnelQueryContext,
 )
+from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownFilter,
@@ -188,6 +189,10 @@ async def _run(
 
         await sync_to_async(schema.refresh_from_db)()
         assert schema.sync_type_config.get("reset_pipeline", None) is None
+
+        table: DataWarehouseTable | None = await sync_to_async(lambda: schema.table)()
+        assert table is not None
+        assert table.size_in_s3_mib is not None
 
     return workflow_id, inputs
 
@@ -827,7 +832,7 @@ async def test_billing_limits(team, stripe_customer):
 
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
 
-    assert job.status == ExternalDataJob.Status.CANCELLED
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
@@ -1961,3 +1966,67 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     assert columns is not None
     assert len(columns) == 1
     assert any(x == "id" for x in columns)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.duplicate_primary_key (id integer)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.duplicate_primary_key (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.duplicate_primary_key (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.duplicate_primary_key (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        pytest.raises(Exception),
+        mock.patch("posthog.temporal.data_imports.external_data_job.update_should_sync") as mock_update_should_sync,
+    ):
+        await _run(
+            team=team,
+            schema_name="duplicate_primary_key",
+            table_name="postgres_duplicate_primary_key",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="duplicate_primary_key"
+    )
+
+    assert job.status == ExternalDataJob.Status.FAILED
+    assert job.latest_error is not None
+    assert (
+        "The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key"
+        in job.latest_error
+    )
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_duplicate_primary_key", team)
+
+    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=job.schema_id)
+    mock_update_should_sync.assert_called_once_with(
+        schema_id=str(schema.id),
+        team_id=team.id,
+        should_sync=False,
+    )

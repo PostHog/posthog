@@ -1,6 +1,7 @@
 import json
 from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from typing import Optional, Any
 from unittest import mock
 from unittest.mock import patch
@@ -2188,6 +2189,120 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
+
+    def test_get_cohort_calculation_candidates_includes_stuck_calculations(self):
+        from freezegun import freeze_time
+
+        # Test that cohorts stuck in calculating state for >24 hours are included
+        with freeze_time("2023-01-01 12:00:00"):
+            # Create a cohort that's been calculating for 25 hours (stuck)
+            stuck_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="stuck_cohort",
+                is_calculating=True,
+                last_calculation=timezone.now() - relativedelta(hours=25),
+                deleted=False,
+                is_static=False,
+                errors_calculating=0,
+            )
+
+            # Create a cohort that's been calculating for 10 hours (not stuck yet)
+            recent_calculating_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="recent_calculating_cohort",
+                is_calculating=True,
+                last_calculation=timezone.now() - relativedelta(hours=10),
+                deleted=False,
+                is_static=False,
+                errors_calculating=0,
+            )
+
+            # Create a normal cohort that's not calculating
+            normal_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="normal_cohort",
+                is_calculating=False,
+                last_calculation=timezone.now() - relativedelta(hours=25),
+                deleted=False,
+                is_static=False,
+                errors_calculating=0,
+            )
+
+            # Create a static cohort (should be excluded)
+            static_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="static_cohort",
+                is_calculating=True,
+                last_calculation=timezone.now() - relativedelta(hours=25),
+                deleted=False,
+                is_static=True,
+                errors_calculating=0,
+            )
+
+            candidates = get_cohort_calculation_candidates_queryset()
+
+            # Stuck cohort (calculating for >24h) should be included for recalculation
+            assert stuck_cohort in candidates, "Stuck cohort should be included"
+
+            # Recent calculating cohort should NOT be included (still actively calculating)
+            assert recent_calculating_cohort not in candidates, "Recent calculating cohort should not be included"
+
+            # Normal cohort should be included (not calculating and old enough)
+            assert normal_cohort in candidates, "Normal cohort should be included"
+
+            # Static cohort should NOT be included (excluded by is_static filter)
+            assert static_cohort not in candidates, "Static cohort should not be included"
+
+
+class TestCalculateCohortCommand(APIBaseTest):
+    def test_calculate_cohort_command_success(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 1",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch("posthog.management.commands.calculate_cohort.calculate_cohort_ch") as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the cohort is calculated
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            self.assertIn(f"Successfully calculated cohort {cohort.id}", out.getvalue())
+
+    def test_calculate_cohort_command_error(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 2",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch(
+            "posthog.management.commands.calculate_cohort.calculate_cohort_ch", side_effect=Exception("Test error 2")
+        ) as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the error was handled
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            output = out.getvalue()
+            self.assertIn("Error calculating cohort: Test error 2", output)
+            self.assertIn("Full traceback:", output)
+            self.assertIn("Exception: Test error 2", output)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

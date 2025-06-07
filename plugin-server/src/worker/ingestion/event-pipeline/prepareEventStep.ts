@@ -40,7 +40,8 @@ export async function prepareEventStep(
         team_id,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
-        processPerson
+        processPerson,
+        runner.groupStoreForBatch
     )
     await Promise.all(tsParsingIngestionWarnings)
 

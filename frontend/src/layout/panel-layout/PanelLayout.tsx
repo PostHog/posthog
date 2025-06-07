@@ -149,10 +149,12 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             >
                 <PanelLayoutNavBar>
                     {activePanelIdentifier === 'Project' && (
-                        <ProjectTree root="project://" sortMethod="folder" logicKey={PROJECT_TREE_KEY} />
-                    )}
-                    {activePanelIdentifier === 'Recent' && (
-                        <ProjectTree root="project://" sortMethod="recent" logicKey={PROJECT_TREE_KEY} />
+                        <ProjectTree
+                            root="project://"
+                            logicKey={PROJECT_TREE_KEY}
+                            searchPlaceholder="Search by user, type, or name"
+                            showRecents
+                        />
                     )}
                     {activePanelIdentifier === 'Products' && (
                         <ProjectTree root="products://" searchPlaceholder="Search products" />
@@ -160,14 +162,11 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Shortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'New' && (
-                        <ProjectTree root="new://" searchPlaceholder="Search new items" />
+                    {activePanelIdentifier === 'Data' && (
+                        <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}
-                    {activePanelIdentifier === 'Games' && (
-                        <ProjectTree root="games://" searchPlaceholder="Search games" />
-                    )}
-                    {activePanelIdentifier === 'Data management' && (
-                        <ProjectTree root="data-management://" searchPlaceholder="Search data management" />
+                    {activePanelIdentifier === 'People' && (
+                        <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
                     )}
                 </PanelLayoutNavBar>
             </div>
@@ -178,7 +177,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
                 />
             )}
 
@@ -188,7 +187,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         // Return to tree mode when clicking outside the table view
                         setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
                 />
             )}
         </>
