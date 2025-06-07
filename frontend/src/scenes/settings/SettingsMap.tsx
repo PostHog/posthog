@@ -1,4 +1,5 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
@@ -43,7 +44,6 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -167,6 +167,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamTimezone />,
             },
             {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
@@ -241,8 +246,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'revenue-base-currency',
-                title: 'Revenue base currency',
-                component: <RevenueBaseCurrencySettings />,
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
             },
             {
                 id: 'revenue-analytics-goals',
