@@ -448,7 +448,7 @@ class HogQLCohortQuery:
                             subsequent_select_queries=[
                                 SelectSetNode(
                                     select_query=query,
-                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT",
+                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT DISTINCT",
                                 )
                                 for (query, negation) in children[1:]
                             ],
@@ -470,7 +470,9 @@ class HogQLCohortQuery:
                         SelectSetNode(
                             select_query=query,
                             set_operator=(
-                                "UNION DISTINCT" if all_children_negated else ("EXCEPT" if negation else "INTERSECT")
+                                "UNION DISTINCT"
+                                if all_children_negated
+                                else ("EXCEPT" if negation else "INTERSECT DISTINCT")
                             ),
                         )
                         for (query, negation) in children[1:]
