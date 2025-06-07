@@ -647,13 +647,13 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
         _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
-        if details is None:
+        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
             details = BigQueryHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
         model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -879,6 +879,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
+            batch_export_id=inputs.batch_export_id,
         )
 
         await execute_batch_export_insert_activity(

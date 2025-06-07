@@ -3,7 +3,16 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
+import {
+    ActivityTab,
+    AnnotationType,
+    ExternalDataSourceType,
+    PipelineNodeTab,
+    PipelineStage,
+    PipelineTab,
+    ProductKey,
+    SDKKey,
+} from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -42,14 +51,16 @@ export const urls = {
 
     pipelineNodeNew: (
         stage: PipelineStage | ':stage',
-        { id, kind }: { id?: string | number; kind?: string } = {}
+        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
     ): string => {
         let base = `/pipeline/new/${stage}`
         if (id) {
             base += `/${id}`
         }
 
-        if (kind) {
+        if (source) {
+            // we need to lowercase the source to match the kind in the sourceWizardLogic
+            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
             return `${base}?kind=${kind}`
         }
 
@@ -135,10 +146,13 @@ export const urls = {
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
+                // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
                     (acc, [key, val]) => ({
                         ...acc,
+                        // just sends the key and not a value
+                        // e.g., &showInspector not &showInspector=true
                         [key]: val === true ? null : val,
                     }),
                     {}
@@ -159,6 +173,17 @@ export const urls = {
     link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
+    messagingLibrary: (): string => '/messaging/library',
+    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
+    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
+    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
+    messagingSenders: (): string => '/messaging/senders',
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,

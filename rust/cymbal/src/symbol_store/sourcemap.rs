@@ -56,7 +56,10 @@ impl OwnedSourceMapCache {
 impl SourcemapProvider {
     pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
-        let mut client = reqwest::Client::builder().timeout(timeout);
+        let connect_timeout = Duration::from_secs(config.sourcemap_connect_timeout_seconds);
+        let mut client = reqwest::Client::builder()
+            .timeout(timeout)
+            .connect_timeout(connect_timeout);
 
         if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));

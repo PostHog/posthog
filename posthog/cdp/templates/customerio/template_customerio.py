@@ -52,6 +52,14 @@ for (let key, value in inputs.attributes) {
     attributes[key] := value
 }
 
+for (let key, value in attributes) {
+    if (value and typeof(value) == 'string') {
+        if (length(value) > 1000) {
+            attributes[key] := substring(value, 1, 1000)
+        }
+    }
+}
+
 let res := fetch(f'https://{inputs.host}/api/v2/entity', {
     'method': 'POST',
     'headers': {

@@ -31,6 +31,7 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     ExportContext,
+    LineageGraph,
     QueryBasedInsightModel,
     QueryTabState,
 } from '~/types'
@@ -160,6 +161,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             view,
             insight,
         }),
+        loadUpstream: (modelId: string) => ({ modelId }),
         deleteTab: (tab: QueryTab) => ({ tab }),
         _deleteTab: (tab: QueryTab) => ({ tab }),
         removeTab: (tab: QueryTab) => ({ tab }),
@@ -240,6 +242,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     return queryTabStateModel
+                },
+            },
+        ],
+        upstream: [
+            null as LineageGraph | null,
+            {
+                loadUpstream: async (payload: { modelId: string }) => {
+                    const upstream = await api.upstream.get(payload.modelId)
+                    return upstream
                 },
             },
         ],
@@ -462,10 +473,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     props.editor?.setModel(existingModel)
                 }
             }
-
+            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
             actions._setSuggestionPayload(null)
             actions.updateState(true)
-            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
         },
         onRejectSuggestedQueryInput: () => {
             values.suggestionPayload?.onReject(actions, values, props)
@@ -494,10 +504,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     props.editor?.setModel(existingModel)
                 }
             }
-
+            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
             actions._setSuggestionPayload(null)
             actions.updateState(true)
-            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
@@ -866,6 +875,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ) : (
                         <LemonField name="viewName">
                             <LemonInput
+                                data-attr="sql-editor-input-save-view-name"
                                 disabled={isLoading}
                                 placeholder="Please enter the name of the view"
                                 autoFocus
@@ -1143,6 +1153,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (editingView) {
                 actions.resetDataModelingJobs()
                 actions.loadDataModelingJobs(editingView.id)
+                actions.loadUpstream(editingView.id)
             }
         },
     })),
