@@ -34,7 +34,7 @@ import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/ev
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
-import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
+import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -278,13 +278,8 @@ export class IngestionConsumer {
                 Object.values(groupedMessages).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
-                    const personsStoreForDistinctId = personsStoreForBatch.forDistinctID(
-                        events.token,
-                        events.distinctId
-                    )
-
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForDistinctId, groupStoreForBatch)
+                        this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
                     )
                 })
             )
@@ -413,20 +408,20 @@ export class IngestionConsumer {
 
     private async processEventsForDistinctId(
         eventsForDistinctId: EventsForDistinctId,
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-            await this.runEventRunnerV1(incomingEvent, personsStoreForDistinctId, groupStoreForBatch)
+            await this.runEventRunnerV1(incomingEvent, personsStoreForBatch, groupStoreForBatch)
         }
     }
 
     private async runEventRunnerV1(
         incomingEvent: IncomingEventWithTeam,
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<EventPipelineResult | undefined> {
         const { event, message, team } = incomingEvent
@@ -441,7 +436,7 @@ export class IngestionConsumer {
                     const runner = this.getEventPipelineRunnerV1(
                         event,
                         allBreadcrumbs,
-                        personsStoreForDistinctId,
+                        personsStoreForBatch,
                         groupStoreForBatch
                     )
                     return await runner.runEventPipeline(event, team)
@@ -513,7 +508,7 @@ export class IngestionConsumer {
     private getEventPipelineRunnerV1(
         event: PipelineEvent,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): EventPipelineRunner {
         return new EventPipelineRunner(
@@ -521,7 +516,7 @@ export class IngestionConsumer {
             event,
             this.hogTransformer,
             breadcrumbs,
-            personsStoreForDistinctId,
+            personsStoreForBatch,
             groupStoreForBatch
         )
     }

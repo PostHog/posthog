@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
 import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
@@ -164,13 +164,16 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-            hub.db,
-            team.api_token,
-            pluginEvent.distinct_id
-        )
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-        runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore, groupStoreForBatch)
+        runner = new TestEventPipelineRunner(
+            hub,
+            pluginEvent,
+            undefined,
+            undefined,
+            personsStoreForBatch,
+            groupStoreForBatch
+        )
 
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
@@ -376,11 +379,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-                    hub.db,
-                    team.api_token,
-                    heatmapEvent.distinct_id
-                )
+                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
                 runner = new TestEventPipelineRunner(
                     hub,
@@ -426,11 +425,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-                    hub.db,
-                    team.api_token,
-                    exceptionEvent.distinct_id
-                )
+                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
 
                 runner = new TestEventPipelineRunner(
