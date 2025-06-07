@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
@@ -101,6 +102,32 @@ describe('prepareEventStep()', () => {
 
         // @ts-expect-error TODO: Check existence of queueMessage
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+    })
+
+    it('historical events with too-recent timestamp should generate an ingest warning', async () => {
+        const kSpy = jest.spyOn(hub.db.kafkaProducer, 'produce')
+        try {
+            const tooRecentTimestamp = DateTime.now().toUTC().minus({ hours: 1 }) // one hour behind "now UTC"
+
+            const historicalEvent: PluginEvent = {
+                ...pluginEvent,
+                timestamp: tooRecentTimestamp.toISO(),
+            }
+
+            const historicalRunner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'> = {
+                hub: {
+                    ...runner.hub,
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_historical',
+                },
+                eventsProcessor: runner.eventsProcessor,
+            }
+
+            await prepareEventStep(historicalRunner as EventPipelineRunner, historicalEvent, false)
+
+            expect(kSpy).toHaveBeenCalledWith(expect.objectContaining({ topic: KAFKA_INGESTION_WARNINGS }))
+        } finally {
+            kSpy.mockRestore()
+        }
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
