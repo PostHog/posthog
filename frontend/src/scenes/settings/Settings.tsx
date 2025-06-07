@@ -9,13 +9,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { settingsLogic } from './settingsLogic'
-import { SettingsLogicProps } from './types'
+import { SettingLevelId, SettingsLogicProps } from './types'
 
 export interface SettingOption {
     key: string
@@ -87,7 +87,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
+                      <span className="text-secondary">{SettingLevelNames[level]}</span>
                   </OptionButton>
               ),
               items: sections
@@ -118,7 +118,7 @@ export function Settings({
         <>{selectedSetting.title}</>
     ) : (
         <>
-            {capitalizeFirstLetter(selectedLevel)}
+            {SettingLevelNames[selectedLevel]}
             {selectedSection ? <>` / `{selectedSection.title}</> : null}
         </>
     )
@@ -253,3 +253,10 @@ const OptionButton = ({
         </LemonButton>
     )
 }
+
+export const SettingLevelNames: Record<SettingLevelId, string> = {
+    environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'Account',
+} as const

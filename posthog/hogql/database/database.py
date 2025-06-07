@@ -93,6 +93,14 @@ from posthog.hogql.database.schema.sessions_v2 import (
     join_events_table_to_sessions_table_v2,
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebStatsDailyTable,
+    WebBouncesDailyTable,
+    WebStatsHourlyTable,
+    WebBouncesHourlyTable,
+    WebStatsCombinedTable,
+    WebBouncesCombinedTable,
+)
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -148,6 +156,14 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+
+    # Web analytics pre-aggregated tables (internal use only)
+    web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
+    web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
+    web_stats_hourly: WebStatsHourlyTable = WebStatsHourlyTable()
+    web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
+    web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
+    web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -320,7 +336,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
     database.events.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
-        join_table=PersonDistinctIdOverridesTable(),
+        join_table=database.person_distinct_id_overrides,
         join_function=join_with_person_distinct_id_overrides_table,
     )
     database.events.fields["person_id"] = ExpressionField(
@@ -408,7 +424,7 @@ def create_hogql_database(
             _use_person_id_from_person_overrides(database)
             database.events.fields["person"] = LazyJoin(
                 from_field=["person_id"],
-                join_table=PersonsTable(),
+                join_table=database.persons,
                 join_function=join_with_persons_table,
             )
 
@@ -493,11 +509,13 @@ def create_hogql_database(
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
 
-        # No need to call `create_nested_table_group` because these arent using dot notation
+        # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
+        # so let's make sure we have the proper nested queries
         with timings.measure("for_events"):
             revenue_views = RevenueAnalyticsBaseView.for_events(team)
             for view in revenue_views:
                 views[view.name] = view
+                create_nested_table_group(view.name.split("."), views, view)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -976,6 +994,8 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
+                kind=view.get_database_schema_table_kind(),
+                source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )
 

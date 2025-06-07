@@ -113,6 +113,7 @@ impl Team {
             session_recording_url_trigger_config,
             session_recording_url_blocklist_config,
             session_recording_event_trigger_config,
+            session_recording_trigger_match_type_config,
             recording_domains
         FROM posthog_team 
         WHERE api_token = $1";

@@ -47,8 +47,10 @@ from posthog.warehouse.data_load.saved_query_service import (
     sync_saved_query_workflow,
     delete_saved_query_schedule,
     trigger_saved_query_schedule,
+    recreate_model_paths,
 )
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 import uuid
 
 logger = structlog.get_logger(__name__)
@@ -61,6 +63,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
+    soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -78,6 +81,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "edited_history_id",
             "latest_history_id",
+            "soft_update",
         ]
         read_only_fields = [
             "id",
@@ -89,6 +93,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
         ]
+        extra_kwargs = {
+            "soft_update": {"write_only": True},
+        }
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
@@ -143,28 +150,29 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
-
+        soft_update = validated_data.pop("soft_update", False)
         view = DataWarehouseSavedQuery(**validated_data)
 
-        try:
-            # The columns will be inferred from the query
-            client_types = self.context["request"].data.get("types", [])
-            if len(client_types) == 0:
-                view.columns = view.get_columns()
-            else:
-                columns = {
-                    str(item[0]): {
-                        "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                        "clickhouse": item[1],
-                        "valid": True,
+        if not soft_update:
+            try:
+                # The columns will be inferred from the query
+                client_types = self.context["request"].data.get("types", [])
+                if len(client_types) == 0:
+                    view.columns = view.get_columns()
+                else:
+                    columns = {
+                        str(item[0]): {
+                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                            "clickhouse": item[1],
+                            "valid": True,
+                        }
+                        for item in client_types
                     }
-                    for item in client_types
-                }
-                view.columns = columns
+                    view.columns = columns
 
-            view.external_tables = view.s3_tables
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
+                view.external_tables = view.s3_tables
+            except Exception:
+                raise serializers.ValidationError("Failed to retrieve types for view")
 
         with transaction.atomic():
             view.save()
@@ -215,12 +223,14 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
 
+        soft_update = validated_data.pop("soft_update", False)
+
         with transaction.atomic():
             locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
 
             # Get latest activity log for this model
 
-            if validated_data.get("query", None):
+            if validated_data.get("query", None) and not soft_update:
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
                     ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
@@ -246,29 +256,30 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                try:
-                    # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.columns = view.get_columns()
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                "clickhouse": item[1],
-                                "valid": True,
+                if not soft_update:
+                    try:
+                        # The columns will be inferred from the query
+                        client_types = self.context["request"].data.get("types", [])
+                        if len(client_types) == 0:
+                            view.columns = view.get_columns()
+                        else:
+                            columns = {
+                                str(item[0]): {
+                                    "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                    "clickhouse": item[1],
+                                    "valid": True,
+                                }
+                                for item in client_types
                             }
-                            for item in client_types
-                        }
-                        view.columns = columns
+                            view.columns = columns
 
-                    view.external_tables = view.s3_tables
-                    view.status = DataWarehouseSavedQuery.Status.MODIFIED
-                except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
-                except Exception as err:
-                    raise serializers.ValidationError(str(err))
+                        view.external_tables = view.s3_tables
+                    except RecursionError:
+                        raise serializers.ValidationError("Model contains a cycle")
+                    except Exception:
+                        raise serializers.ValidationError("Failed to retrieve types for view")
 
+                view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
 
             try:
@@ -293,6 +304,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             # Store the activity log in the serializer context
             if activity_log:
                 self.context["activity_log"] = activity_log
+
+            if sync_frequency and sync_frequency != "never":
+                recreate_model_paths(view)
 
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
@@ -330,15 +344,32 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         return query
 
+    def validate_name(self, name):
+        # if it's an upsert, we don't want to validate the name
+        if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
+            if self.instance.name == name:
+                return name
+
+        name_exists_in_hogql_database = self.context["database"].has_table(name)
+        if name_exists_in_hogql_database:
+            raise serializers.ValidationError("A table with this name already exists.")
+
+        return name
+
+
+class DataWarehouseSavedQueryPagination(PageNumberPagination):
+    page_size = 1000
+
 
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
+    pagination_class = DataWarehouseSavedQueryPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
@@ -379,6 +410,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return base_queryset
 
+    def create(self, request, *args, **kwargs):
+        # Check for UPSERT logic
+        saved_query = DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id, name=request.data.get("name")
+        ).first()
+        if saved_query:
+            # Update logic
+            serializer = self.get_serializer(saved_query, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            # Create logic
+            self.perform_create(serializer)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
 
@@ -402,6 +451,38 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query = self.get_object()
 
         trigger_saved_query_schedule(saved_query)
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Undo materialization, revert back to the original view.
+        (i.e. delete the materialized table and the schedule)
+        """
+        saved_query = self.get_object()
+
+        with transaction.atomic():
+            saved_query.sync_frequency_interval = None
+            saved_query.last_run_at = None
+            saved_query.latest_error = None
+            saved_query.status = None
+
+            # delete the materialized table reference
+            if saved_query.table is not None:
+                saved_query.table.soft_delete()
+                saved_query.table_id = None
+
+            try:
+                delete_saved_query_schedule(str(saved_query.id))
+            except Exception as e:
+                logger.exception(f"Failed to delete temporal schedule for saved query {saved_query.id}: {str(e)}")
+
+            saved_query.save()
+
+            DataWarehouseModelPath.objects.filter(
+                team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}"
+            ).delete()
 
         return response.Response(status=status.HTTP_200_OK)
 

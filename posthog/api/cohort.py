@@ -87,7 +87,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
-    type: Literal["event"]
+    type: Literal["event", "element"]
     key: str
     value: Any
     operator: str | None = None
@@ -157,10 +157,12 @@ PropertyFilter = Annotated[
     Field(discriminator="type"),
 ]
 
+FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+
 
 class Group(BaseModel, extra="forbid"):
     type: Literal["AND", "OR"]
-    values: list[Union[PropertyFilter, "Group"]]
+    values: list[FilterOrGroup]
 
 
 Group.model_rebuild()

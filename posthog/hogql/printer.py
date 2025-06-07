@@ -171,7 +171,7 @@ def prepare_ast_for_printing(
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
@@ -572,7 +572,8 @@ class _Printer(Visitor):
 
         elif self.dialect == "hogql":
             join_strings.append(self.visit(node.table))
-
+            if node.alias is not None:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
@@ -1768,6 +1769,8 @@ class _Printer(Visitor):
         )
 
     def _get_timezone(self) -> str:
+        if self.context.modifiers.convertToProjectTimezone is False:
+            return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:

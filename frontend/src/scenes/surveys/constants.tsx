@@ -25,6 +25,16 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+// Rating scale constants
+export const SURVEY_RATING_SCALE = {
+    EMOJI_3_POINT: 3,
+    LIKERT_5_POINT: 5,
+    LIKERT_7_POINT: 7,
+    NPS_10_POINT: 10,
+} as const
+
+export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
+
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
     [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],
@@ -36,7 +46,7 @@ export const SurveyMatchTypeLabels = {
 }
 
 export const defaultSurveyAppearance = {
-    fontFamily: 'system-ui' as SurveyAppearance['fontFamily'],
+    fontFamily: 'inherit',
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
     submitButtonTextColor: 'white',
@@ -51,7 +61,17 @@ export const defaultSurveyAppearance = {
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
-}
+    zIndex: '2147482647',
+    disabledButtonOpacity: '0.6',
+    maxWidth: '300px',
+    textSubtleColor: '#939393',
+    inputBackground: 'white',
+    boxPadding: '20px 24px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    borderRadius: '10px',
+    shuffleQuestions: false,
+    surveyPopupDelaySeconds: undefined,
+} as const satisfies SurveyAppearance
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
@@ -90,7 +110,7 @@ export const defaultSurveyFieldValues = {
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 10,
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
                 buttonText: 'Submit',
@@ -191,8 +211,7 @@ export const NEW_SURVEY: NewSurvey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
-    // Partial responses off by default while we're in the beta
-    enable_partial_responses: false,
+    enable_partial_responses: true,
 }
 
 export enum SurveyTemplateType {
@@ -252,7 +271,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 10,
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
             },
@@ -281,13 +300,12 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'emoji',
-                scale: 5,
+                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
                 lowerBoundLabel: 'Very dissatisfied',
                 upperBoundLabel: 'Very satisfied',
             },
         ],
         description: 'Works best after a checkout or support flow.',
-        appearance: { ratingButtonColor: '#939393' },
     },
     {
         type: SurveyType.Popover,
@@ -299,7 +317,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 7,
+                scale: SURVEY_RATING_SCALE.LIKERT_7_POINT,
                 lowerBoundLabel: 'Strongly disagree',
                 upperBoundLabel: 'Strongly agree',
             },
@@ -349,8 +367,8 @@ export const errorTrackingSurvey: SurveyTemplate = {
 }
 
 export const WEB_SAFE_FONTS = [
-    { value: 'system-ui', label: 'system-ui (default)' },
-    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
     { value: 'Tahoma', label: 'Tahoma' },
@@ -383,4 +401,31 @@ export const SURVEY_TYPE_LABEL_MAP = {
     [SurveyType.Popover]: 'Popover',
     [SurveyType.FullScreen]: 'Full Screen',
     [SurveyType.Email]: 'Email',
+}
+
+export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
+
+export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
+    [SURVEY_RATING_SCALE.EMOJI_3_POINT]: '1 - 3',
+    [SURVEY_RATING_SCALE.LIKERT_5_POINT]: '1 - 5',
+    [SURVEY_RATING_SCALE.LIKERT_7_POINT]: '1 - 7',
+    [SURVEY_RATING_SCALE.NPS_10_POINT]: '0 - 10',
+}
+
+export const SCALE_OPTIONS = {
+    EMOJI: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.EMOJI_3_POINT], value: SURVEY_RATING_SCALE.EMOJI_3_POINT },
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
+    ],
+    NUMBER: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
+        {
+            label: `${SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_7_POINT]} (7 Point Likert Scale)`,
+            value: SURVEY_RATING_SCALE.LIKERT_7_POINT,
+        },
+        {
+            label: `${SCALE_LABELS[SURVEY_RATING_SCALE.NPS_10_POINT]} (Net Promoter Score)`,
+            value: SURVEY_RATING_SCALE.NPS_10_POINT,
+        },
+    ],
 }

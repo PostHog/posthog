@@ -11,6 +11,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { TeamMembershipLevel } from 'lib/constants'
 import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -29,7 +30,7 @@ import {
     taxonomicGroupFilterToHogQL,
     trimQuotes,
 } from '~/queries/utils'
-import { GroupTypeIndex, PropertyFilterType } from '~/types'
+import { AvailableFeature, GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
@@ -113,6 +114,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
     const { context } = useValues(columnConfiguratorLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const newColumn = window.prompt('Edit column', column)
@@ -227,7 +229,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                             data-attr="events-table-save-columns-as-default-toggle"
                             bordered
                             checked={saveAsDefault}
-                            onChange={toggleSaveAsDefault}
+                            onChange={() => {
+                                guardAvailableFeature(AvailableFeature.INGESTION_TAXONOMY, () => toggleSaveAsDefault())
+                            }}
                             disabledReason={restrictionReason}
                         />
                     )}

@@ -1,22 +1,28 @@
 import './BillingUsage.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
+import { BillingNoAccess } from './BillingNoAccess'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 
 export function BillingUsage(): JSX.Element {
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
     const logic = billingUsageLogic({ dashboardItemId: 'usage' })
     const {
         series,
@@ -32,10 +38,21 @@ export function BillingUsage(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        teamOptions,
     } = useValues(logic)
-    const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleTeamBreakdown } =
-        useActions(logic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const {
+        setFilters,
+        setDateRange,
+        toggleSeries,
+        toggleAllSeries,
+        setExcludeEmptySeries,
+        toggleTeamBreakdown,
+        resetFilters,
+    } = useActions(logic)
+
+    if (restrictionReason) {
+        return <BillingNoAccess title="Usage" reason={restrictionReason} />
+    }
 
     return (
         <div className="space-y-4">
@@ -69,13 +86,8 @@ export function BillingUsage(): JSX.Element {
                             value={(filters.team_ids || []).map(String)}
                             onChange={(value) => setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })}
                             placeholder="All projects"
-                            options={
-                                currentOrganization?.teams?.map((team) => ({
-                                    key: String(team.id),
-                                    label: team.name,
-                                })) || []
-                            }
-                            loading={currentOrganizationLoading}
+                            options={teamOptions}
+                            loading={billingUsageResponseLoading}
                             allowCustomValues={false}
                         />
                     </div>
@@ -138,8 +150,18 @@ export function BillingUsage(): JSX.Element {
                             <LemonCheckbox
                                 label="Hide results with no usage"
                                 checked={excludeEmptySeries}
-                                onChange={setExcludeEmptySeries}
+                                onChange={(value) => setExcludeEmptySeries(value)}
                             />
+                        </div>
+                    </div>
+
+                    {/* Clear Filters */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>&nbsp;</LemonLabel>
+                        <div className="flex items-center">
+                            <LemonButton type="secondary" size="medium" onClick={resetFilters}>
+                                Clear filters
+                            </LemonButton>
                         </div>
                     </div>
                 </div>

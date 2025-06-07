@@ -73,8 +73,6 @@ export const activationLogic = kea<activationLogicType>([
             ['memberCount'],
             sidePanelStateLogic,
             ['modalMode'],
-            reverseProxyCheckerLogic,
-            ['hasReverseProxy'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -89,6 +87,8 @@ export const activationLogic = kea<activationLogicType>([
             ['openSidePanel', 'closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            reverseProxyCheckerLogic,
+            ['loadHasReverseProxy'],
         ],
     })),
     actions({
@@ -387,6 +387,14 @@ export const activationLogic = kea<activationLogicType>([
 
                 actions.setOpenSections(values.currentTeam.id, sectionsToOpen)
             }
+
+            if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.SetUpReverseProxy]) {
+                actions.loadHasReverseProxy()
+            }
+
+            if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.TrackCustomEvents]) {
+                actions.loadCustomEvents({})
+            }
         },
         loadCustomEventsSuccess: () => {
             if (values.customEventsCount > 0) {
@@ -421,7 +429,6 @@ export const activationLogic = kea<activationLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        actions.loadCustomEvents({})
         actions.loadCurrentTeam() // TRICKY: Product intents are not available without loading the current team
 
         if (values.currentTeam) {

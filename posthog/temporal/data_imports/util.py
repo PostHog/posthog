@@ -13,8 +13,10 @@ def prepare_s3_files_for_querying(
     table_name: str,
     file_uris: list[str],
     preserve_table_name_casing: Optional[bool] = False,
+    delete_existing: bool = True,
 ):
     s3 = get_s3_client()
+    s3.invalidate_cache()
 
     normalized_table_name = NamingConvention().normalize_identifier(table_name)
 
@@ -29,8 +31,11 @@ def prepare_s3_files_for_querying(
 
     s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
 
-    if s3.exists(s3_folder_for_querying):
-        s3.delete(s3_folder_for_querying, recursive=True)
+    # TODO - maybe we should move these to a separate place and then delete them after the copy is done, to avoid any
+    # downtime?
+    if delete_existing:
+        if s3.exists(s3_folder_for_querying):
+            s3.delete(s3_folder_for_querying, recursive=True)
 
     for file in file_uris:
         file_name = file.replace(f"{s3_folder_for_schema}/", "")

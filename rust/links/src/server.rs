@@ -57,6 +57,7 @@ where
         internal_redis_client,
         config.default_domain_for_public_store,
         health,
+        config.enable_metrics,
     );
     axum::serve(
         listener,

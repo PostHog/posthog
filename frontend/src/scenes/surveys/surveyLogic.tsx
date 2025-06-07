@@ -8,7 +8,7 @@ import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
+import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -34,6 +35,7 @@ import {
     SurveyEventProperties,
     SurveyEventStats,
     SurveyMatchType,
+    SurveyQuestion,
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
@@ -42,25 +44,31 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_RATING_SCALE,
+} from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
     buildPartialResponsesFilter,
     calculateNpsBreakdown,
-    calculateNpsScore,
     createAnswerFilterHogQLExpression,
+    DATE_FORMAT,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
+    getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
-    sanitizeHTML,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
-    sanitizeSurveyDisplayConditions,
-    validateColor,
+    validateSurveyAppearance,
 } from './utils'
 
-export type SurveyBaseStatTuple = [string, number, number, string | null, string | null]
+export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 
@@ -176,6 +184,286 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
+export interface ChoiceQuestionResponseData {
+    label: string
+    value: number
+    isPredefined: boolean
+}
+
+export interface OpenQuestionResponseData {
+    distinctId: string
+    response: string
+    personProperties?: Record<string, any>
+}
+
+export interface ChoiceQuestionProcessedResponses {
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
+    data: ChoiceQuestionResponseData[]
+    totalResponses: number
+}
+
+export interface OpenQuestionProcessedResponses {
+    type: SurveyQuestionType.Open
+    data: OpenQuestionResponseData[]
+    totalResponses: number
+}
+
+export type QuestionProcessedResponses = ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
+
+interface ResponsesByQuestion {
+    [questionId: string]: QuestionProcessedResponses
+}
+
+export interface ConsolidatedSurveyResults {
+    responsesByQuestion: {
+        [questionId: string]: QuestionProcessedResponses
+    }
+}
+
+/**
+ * Raw survey response data from the SQL query.
+ * Each SurveyResponseRow represents one user's complete response to all questions.
+ *
+ * Structure:
+ * - response[questionIndex] contains the answer to that specific question
+ * - For rating/single choice/open questions: response[questionIndex] is a string
+ * - For multiple choice questions: response[questionIndex] is a string[]
+ * - The last elements may contain metadata like person properties and distinct_id
+ *
+ * Example:
+ * [
+ *   ["9", ["Customer case studies"], "Great product!", "user123"],
+ *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
+ * ]
+ */
+export type SurveyResponseRow = Array<string | string[]>
+export type SurveyRawResults = SurveyResponseRow[]
+
+function isEmptyOrUndefined(value: any): boolean {
+    return value === null || value === undefined || value === ''
+}
+
+function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): boolean {
+    if (question.type !== SurveyQuestionType.SingleChoice && question.type !== SurveyQuestionType.MultipleChoice) {
+        return false
+    }
+    return !!(choiceIndex === question.choices.length - 1 && question?.hasOpenChoice)
+}
+
+// Extract question processors into separate functions for better maintainability
+function processSingleChoiceQuestion(
+    question: MultipleSurveyQuestion,
+    questionIndex: number,
+    results: SurveyRawResults
+): ChoiceQuestionProcessedResponses {
+    const counts: { [key: string]: number } = {}
+    let total = 0
+
+    // Zero-fill predefined choices (excluding open choice)
+    question.choices?.forEach((choice: string, choiceIndex: number) => {
+        if (!isQuestionOpenChoice(question, choiceIndex)) {
+            counts[choice] = 0
+        }
+    })
+
+    // Count responses
+    results?.forEach((row: SurveyResponseRow) => {
+        const value = row[questionIndex] as string
+        if (!isEmptyOrUndefined(value)) {
+            counts[value] = (counts[value] || 0) + 1
+            total += 1
+        }
+    })
+
+    const data = Object.entries(counts)
+        .map(([label, value]) => ({
+            label,
+            value,
+            isPredefined: question.choices?.includes(label) ?? false,
+        }))
+        .sort((a, b) => b.value - a.value)
+
+    return {
+        type: SurveyQuestionType.SingleChoice,
+        data,
+        totalResponses: total,
+    }
+}
+
+function processRatingQuestion(
+    question: RatingSurveyQuestion,
+    questionIndex: number,
+    results: SurveyRawResults
+): ChoiceQuestionProcessedResponses {
+    const scaleSize = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? 11 : question.scale
+    const counts = new Array(scaleSize).fill(0)
+    let total = 0
+
+    results?.forEach((row: SurveyResponseRow) => {
+        const value = row[questionIndex] as string
+        if (!isEmptyOrUndefined(value)) {
+            const parsedValue = parseInt(value, 10)
+            if (!isNaN(parsedValue)) {
+                let arrayIndex: number
+                let isValid = false
+
+                if (question.scale === SURVEY_RATING_SCALE.NPS_10_POINT) {
+                    // NPS scale: 0-10 (11 values)
+                    isValid = parsedValue >= 0 && parsedValue <= 10
+                    arrayIndex = parsedValue
+                } else {
+                    // Regular rating scales: 1-N (N values, but we use 0-based indexing)
+                    // For a 5-point scale, accept ratings 1-5 and map them to indices 0-4
+                    isValid = parsedValue >= 1 && parsedValue <= question.scale
+                    arrayIndex = parsedValue - 1 // Convert 1-based to 0-based
+                }
+
+                if (isValid) {
+                    counts[arrayIndex] += 1
+                    total += 1
+                }
+            }
+        }
+    })
+
+    const data = counts.map((count, index) => {
+        // For display labels:
+        // - NPS (scale 10): show 0-10
+        // - Regular scales: show 1-N (convert from 0-based index)
+        const label = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? index.toString() : (index + 1).toString()
+
+        return {
+            label,
+            value: count,
+            isPredefined: true,
+        }
+    })
+
+    return {
+        type: SurveyQuestionType.Rating,
+        data,
+        totalResponses: total,
+    }
+}
+
+function processMultipleChoiceQuestion(
+    question: MultipleSurveyQuestion,
+    questionIndex: number,
+    results: SurveyRawResults
+): ChoiceQuestionProcessedResponses {
+    const counts: { [key: string]: number } = {}
+    let total = 0
+
+    // Zero-fill predefined choices (excluding open choice)
+    question.choices?.forEach((choice: string, choiceIndex: number) => {
+        if (!isQuestionOpenChoice(question, choiceIndex)) {
+            counts[choice] = 0
+        }
+    })
+
+    results?.forEach((row: SurveyResponseRow) => {
+        const value = row[questionIndex] as string[]
+        if (value !== null && value !== undefined) {
+            total += 1
+            value.forEach((choice) => {
+                const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
+                if (!isEmptyOrUndefined(cleaned)) {
+                    counts[cleaned] = (counts[cleaned] || 0) + 1
+                }
+            })
+        }
+    })
+
+    const data = Object.entries(counts)
+        .map(([label, value]) => ({
+            label,
+            value,
+            isPredefined: question.choices?.includes(label) ?? false,
+        }))
+        .sort((a, b) => b.value - a.value)
+
+    return {
+        type: SurveyQuestionType.MultipleChoice,
+        data,
+        totalResponses: total,
+    }
+}
+
+function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
+    const data: { distinctId: string; response: string; personProperties?: Record<string, any> }[] = []
+    let totalResponses = 0
+
+    results?.forEach((row: SurveyResponseRow) => {
+        const value = row[questionIndex] as string
+        if (isEmptyOrUndefined(value)) {
+            return
+        }
+
+        const response = {
+            distinctId: row.at(-1) as string,
+            response: value,
+            personProperties: undefined as Record<string, any> | undefined,
+        }
+
+        const unparsedPersonProperties = row.at(-2)
+        if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+            try {
+                response.personProperties = JSON.parse(unparsedPersonProperties as string)
+            } catch (e) {
+                // Ignore parsing errors for person properties as there's no real action here
+                // It just means we won't show the person properties in the question visualization
+            }
+        }
+
+        totalResponses += 1
+        data.push(response)
+    })
+
+    return {
+        type: SurveyQuestionType.Open,
+        data,
+        totalResponses,
+    }
+}
+
+export function processResultsForSurveyQuestions(
+    questions: SurveyQuestion[],
+    results: SurveyRawResults
+): ResponsesByQuestion {
+    const responsesByQuestion: ResponsesByQuestion = {}
+
+    questions.forEach((question, index) => {
+        // Skip questions without IDs or Link questions
+        if (!question.id || question.type === SurveyQuestionType.Link) {
+            return
+        }
+
+        let processedData: QuestionProcessedResponses
+
+        switch (question.type) {
+            case SurveyQuestionType.SingleChoice:
+                processedData = processSingleChoiceQuestion(question, index, results)
+                break
+            case SurveyQuestionType.Rating:
+                processedData = processRatingQuestion(question, index, results)
+                break
+            case SurveyQuestionType.MultipleChoice:
+                processedData = processMultipleChoiceQuestion(question, index, results)
+                break
+            case SurveyQuestionType.Open:
+                processedData = processOpenQuestion(index, results)
+                break
+            default:
+                // Skip unknown question types
+                return
+        }
+
+        responsesByQuestion[question.id] = processedData
+    })
+
+    return responsesByQuestion
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -241,7 +529,7 @@ export const surveyLogic = kea<surveyLogicType>([
             filters,
             reloadResults,
         }),
-        setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
+        setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
@@ -278,6 +566,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             }),
                             false
                         )
+                        actions.setDateRange(
+                            {
+                                date_from: getSurveyStartDateForQuery(survey),
+                                date_to: getSurveyEndDateForQuery(survey),
+                            },
+                            false
+                        )
                         return survey
                     } catch (error: any) {
                         if (error.status === 404) {
@@ -307,10 +602,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(sanitizeQuestions(surveyPayload))
+                return await api.surveys.create(surveyPayload)
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, surveyPayload)
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -329,7 +624,7 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
                 lemonToast.success('Survey duplicated.', {
                     toastId: `survey-duplicated-${createdSurvey.id}`,
@@ -350,10 +645,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
                 const answerFilterCondition = values.answerFilterHogQLExpression
                     ? values.answerFilterHogQLExpression.slice(4)
@@ -373,8 +664,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         WHERE team_id = ${teamLogic.values.currentTeamId}
                             AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             AND {filters} -- Apply property filters here to the main query
                             -- Main condition for handling partial responses and answer filters:
                             AND (
@@ -402,6 +692,10 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const response = await api.query(query)
                 actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                const numberOfSurveySentEvents = response.results?.find(
+                    (result) => result[0] === SurveyEventName.SENT
+                )?.[1]
+                actions.loadConsolidatedSurveyResults(numberOfSurveySentEvents)
                 return response.results as SurveyBaseStatsResult
             },
         },
@@ -410,10 +704,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
                 const answerFilterCondition =
                     values.answerFilterHogQLExpression === ''
@@ -423,6 +713,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING DISMISSED AND SENT COUNT
                         SELECT count()
                         FROM (
                             SELECT person_id
@@ -430,8 +721,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             WHERE team_id = ${teamLogic.values.currentTeamId}
                               AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                               AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                              AND timestamp >= '${startDate}'
-                              AND timestamp <= '${endDate}'
+                              ${values.timestampFilter}
                               AND (
                                 event != '${SurveyEventName.DISMISSED}'
                                 OR
@@ -464,10 +754,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -478,8 +764,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             AND {filters}
                             ${values.partialResponsesFilter}
@@ -520,8 +805,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -534,8 +817,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             ${values.partialResponsesFilter}
                             AND {filters}
@@ -605,10 +887,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
                 const question = values.survey.questions[questionIndex]
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -619,8 +897,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             ${values.partialResponsesFilter}
                             AND survey_response != null
@@ -654,8 +931,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
 
                 // Use a WITH clause to ensure we're only counting each response once
                 const query: HogQLQuery = {
@@ -670,8 +945,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event == '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             AND {filters}
                             ${values.partialResponsesFilter}
@@ -717,8 +991,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
 
                 // For open text responses, we need to check both formats in the WHERE clause
                 const ids = getResponseFieldWithId(questionIndex, question?.id)
@@ -740,8 +1012,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         WHERE event == '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
                             AND ${responseCondition}
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             AND {filters}
                             ${values.partialResponsesFilter}
@@ -776,12 +1047,64 @@ export const surveyLogic = kea<surveyLogicType>([
                 return { ...values.surveyOpenTextResults, [questionIndex]: { events } }
             },
         },
+        consolidatedSurveyResults: {
+            loadConsolidatedSurveyResults: async (
+                limit = MAX_SELECT_RETURNED_ROWS
+            ): Promise<ConsolidatedSurveyResults> => {
+                if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
+                    return { responsesByQuestion: {} }
+                }
+
+                // Build an array of all questions with their types
+                const questionFields = values.survey.questions.map((question, index) => {
+                    return `${getSurveyResponse(question, index)} AS q${index}_response`
+                })
+
+                // Also get distinct_id and person properties for open text questions
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `-- QUERYING ALL SURVEY RESPONSES IN ONE GO
+                        SELECT
+                            ${questionFields.join(',\n')},
+                            person.properties,
+                            events.distinct_id
+                        FROM events
+                        WHERE event = '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            ${values.timestampFilter}
+                            ${values.answerFilterHogQLExpression}
+                            ${values.partialResponsesFilter}
+                            AND {filters}
+                        ORDER BY events.timestamp DESC
+                        LIMIT ${limit}
+                    `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
+                }
+
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+
+                // Process the results into a format that can be used by each question type
+                const responsesByQuestion = processResultsForSurveyQuestions(values.survey.questions, results)
+
+                return { responsesByQuestion }
+            },
+        },
     })),
     listeners(({ actions, values }) => {
         const reloadAllSurveyResults = debounce((): void => {
             // Load survey stats data
             actions.loadSurveyBaseStats()
             actions.loadSurveyDismissedAndSentCount()
+
+            // No need to reload the other results if the new question viz is enabled, as they are not used
+            // So we early return here, as the consolidated survey results are queried in the surveyBaseStats loader
+            if (values.isNewQuestionVizEnabled) {
+                return
+            }
+
             // Load results for each question
             values.survey.questions.forEach((question, index) => {
                 switch (question.type) {
@@ -845,12 +1168,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.start_date) {
                     activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
                 }
-
-                const dateRange = {
-                    date_from: getSurveyStartDateForQuery(values.survey as Survey),
-                    date_to: getSurveyEndDateForQuery(values.survey as Survey),
-                }
-                actions.setDateRange(dateRange)
             },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
@@ -899,6 +1216,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 reloadAllSurveyResults()
             },
             setAnswerFilters: ({ reloadResults }) => {
+                if (reloadResults) {
+                    reloadAllSurveyResults()
+                }
+            },
+            setDateRange: ({ reloadResults }) => {
                 if (reloadResults) {
                     reloadAllSurveyResults()
                 }
@@ -1202,6 +1524,49 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!enabledFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES]
             },
         ],
+        isNewQuestionVizEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEYS_NEW_QUESTION_VIZ]
+            },
+        ],
+        timestampFilter: [
+            (s) => [s.survey, s.dateRange],
+            (survey: Survey, dateRange: SurveyDateRange): string => {
+                // If no date range provided, use the survey's default date range
+                if (!dateRange) {
+                    return `AND timestamp >= '${getSurveyStartDateForQuery(survey)}'
+                AND timestamp <= '${getSurveyEndDateForQuery(survey)}'`
+                }
+
+                // ----- Handle FROM date -----
+                // Parse the date string to a dayjs object
+                let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
+
+                // Use survey creation date as lower bound if needed
+                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
+                if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
+                    fromDateDayjs = surveyStartDayjs
+                }
+
+                // Fall back to survey start date if no valid from date
+                const fromDate = fromDateDayjs
+                    ? fromDateDayjs.utc().format(DATE_FORMAT)
+                    : getSurveyStartDateForQuery(survey)
+
+                // ----- Handle TO date -----
+                // Parse the date string or use current time
+                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
+
+                // Use survey end date as upper bound if it exists
+                const toDate = survey.end_date
+                    ? getSurveyEndDateForQuery(survey)
+                    : toDateDayjs.utc().format(DATE_FORMAT)
+
+                return `AND timestamp >= '${fromDate}'
+                AND timestamp <= '${toDate}'`
+            },
+        ],
         partialResponsesFilter: [
             (s) => [s.isPartialResponsesEnabled, s.survey],
             (isPartialResponsesEnabled: boolean, survey: Survey): string => {
@@ -1234,6 +1599,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.surveyMultipleChoiceResultsReady,
                 s.surveyOpenTextResultsReady,
                 s.surveyRecurringNPSResultsReady,
+                s.consolidatedSurveyResultsLoading,
+                s.isNewQuestionVizEnabled,
             ],
             (
                 surveyBaseStatsLoading: boolean,
@@ -1242,8 +1609,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 surveySingleChoiceResultsReady: boolean,
                 surveyMultipleChoiceResultsReady: boolean,
                 surveyOpenTextResultsReady: boolean,
-                surveyRecurringNPSResultsReady: boolean
+                surveyRecurringNPSResultsReady: boolean,
+                consolidatedSurveyResultsLoading: boolean,
+                isNewQuestionVizEnabled: boolean
             ) => {
+                if (isNewQuestionVizEnabled) {
+                    return (
+                        consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                    )
+                }
+
                 return (
                     surveyBaseStatsLoading ||
                     surveyDismissedAndSentCountLoading ||
@@ -1347,12 +1722,13 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression, s.partialResponsesFilter],
+            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression, s.partialResponsesFilter, s.dateRange],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
                 answerFilterHogQLExpression: string,
-                partialResponsesFilter: string
+                partialResponsesFilter: string,
+                dateRange: SurveyDateRange
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -1388,8 +1764,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where,
-                        after: startDate,
-                        before: endDate,
+                        after: dateRange?.date_from || startDate,
+                        before: dateRange?.date_to || endDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
@@ -1477,7 +1853,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         return null
                     }
 
-                    return calculateNpsScore(npsBreakdown).toFixed(1)
+                    return npsBreakdown.score
                 }
             },
         ],
@@ -1499,7 +1875,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         getBranchingDropdownValue: [
             (s) => [s.survey],
-            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+            (survey) => (questionIndex: number, question: SurveyQuestion) => {
                 if (question.branching?.type) {
                     const { type } = question.branching
 
@@ -1840,32 +2216,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     targeting_flag_filters: values.flagPropertyErrors,
                     // controlled using a PureField in the form
                     urlMatchType: values.urlMatchTypeValidationError,
-                    appearance: sanitizedAppearance && {
-                        backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
-                        borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        // Only validate rating button colors if there's a rating question
-                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
-                            ratingButtonActiveColor: validateColor(
-                                sanitizedAppearance.ratingButtonActiveColor,
-                                'rating button active color'
-                            ),
-                            ratingButtonColor: validateColor(
-                                sanitizedAppearance.ratingButtonColor,
-                                'rating button color'
-                            ),
-                        }),
-                        submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
-                        submitButtonTextColor: validateColor(
-                            sanitizedAppearance.submitButtonTextColor,
-                            'button text color'
+                    appearance:
+                        sanitizedAppearance &&
+                        validateSurveyAppearance(
+                            sanitizedAppearance,
+                            questions.some((q) => q.type === SurveyQuestionType.Rating),
+                            type
                         ),
-                        widgetSelector:
-                            type === 'widget' &&
-                            appearance?.widgetType === 'selector' &&
-                            !sanitizedAppearance.widgetSelector
-                                ? 'Please enter a CSS selector.'
-                                : undefined,
-                    },
                 }
             },
             submit: (surveyPayload) => {
@@ -1877,14 +2234,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 }
 
-                const payload = {
-                    ...surveyPayload,
-                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
-                    appearance: sanitizeSurveyAppearance(
-                        surveyPayload.appearance,
-                        !!surveyPayload.enable_partial_responses
-                    ),
-                }
+                const payload = sanitizeSurvey(surveyPayload)
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
@@ -1955,37 +2305,3 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
 ])
-
-function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
-    if (!surveyPayload.questions) {
-        return surveyPayload
-    }
-
-    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
-
-    const appearance = {
-        ...surveyPayload.appearance,
-        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-    }
-
-    // Remove widget-specific fields if survey type is not Widget
-    if (surveyPayload.type !== 'widget') {
-        delete appearance.widgetType
-        delete appearance.widgetLabel
-        delete appearance.widgetColor
-    }
-
-    return {
-        ...surveyPayload,
-        questions: surveyPayload.questions?.map((rawQuestion) => {
-            return {
-                ...rawQuestion,
-                description: sanitizeHTML(rawQuestion.description || ''),
-                question: sanitizeHTML(rawQuestion.question || ''),
-            }
-        }),
-        appearance,
-    }
-}

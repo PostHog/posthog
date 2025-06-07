@@ -1,6 +1,7 @@
 import json
 from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from typing import Optional, Any
 from unittest import mock
 from unittest.mock import patch
@@ -186,18 +187,18 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
     def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
-        materialize("events", "team_id", table_column="person_properties")
+        materialize("person", "favorite_number", table_column="properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         _create_person(
             team=self.team,
             distinct_ids=[f"person_1"],
-            properties={"team_id": 5},
+            properties={"favorite_number": 5},
         )
         _create_person(
             team=self.team,
             distinct_ids=[f"person_2"],
-            properties={"team_id": 6},
+            properties={"favorite_number": 6},
         )
         _create_event(
             team=self.team,
@@ -210,7 +211,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             steps_json=[
                 {
                     "event": "$pageview",
-                    "properties": [{"key": "team_id", "type": "person", "value": "5"}],
+                    "properties": [{"key": "favorite_number", "type": "person", "value": "5"}],
                 }
             ],
         )
@@ -255,7 +256,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 data={
                     "name": "whatever2",
                     "description": "A great cohort!",
-                    "groups": [{"properties": {"team_id": 6}}],
+                    "groups": [{"properties": {"favorite_number": 6}}],
                     "created_by": "something something",
                     "last_calculation": "some random date",
                     "errors_calculating": 100,
@@ -263,7 +264,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
 
-            self.assertIn(f"mat_pp_team_id", insert_statements[0])
+            # Assert that the cohort calculation uses the materialized column
+            # on the person table.
+            self.assertIn(f"person.pmat_favorite_number", insert_statements[0])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -1529,8 +1532,7 @@ email@example.org,
             response.json(),
         )
 
-    @patch("posthog.api.cohort.report_user_action")
-    def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
+    def test_duplicating_dynamic_cohort_as_static(self):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1619,6 +1621,135 @@ email@example.org,
         self.assertEqual(new_cohort.is_calculating, False)
         self.assertEqual(new_cohort.errors_calculating, 0)
         self.assertEqual(new_cohort.count, 2)
+
+    def test_duplicating_dynamic_cohort_as_dynamic(self):
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=12),
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "$initial_geoip_subdivision_1_name",
+                                        "type": "person",
+                                        "value": "New South Wales",
+                                        "negation": False,
+                                        "operator": "exact",
+                                    },
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@byda.com.au",
+                                        "negation": False,
+                                        "operator": "exact",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        payload = {
+            "id": cohort_id,
+            "name": "cohort A (dynamic copy)",
+            "description": "",
+            "groups": [],
+            "query": None,
+            "is_calculating": False,
+            "is_static": False,
+            "errors_calculating": 0,
+            "experiment_set": [],
+            "count": 2,
+            "deleted": False,
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$initial_geoip_subdivision_1_name",
+                                    "type": "person",
+                                    "value": "New South Wales",
+                                    "negation": False,
+                                    "operator": "exact",
+                                },
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@byda.com.au",
+                                    "negation": False,
+                                    "operator": "exact",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data=payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        cohort_data = response.json()
+        self.assertIsNotNone(cohort_data.get("id"))
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+        self.assertEqual(new_cohort.is_static, False)
+        self.assertEqual(new_cohort.name, "cohort A (dynamic copy)")
 
     def test_deletion_of_cohort_cancels_async_deletion(self):
         cohort = Cohort.objects.create(
@@ -2058,6 +2189,120 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
+
+    def test_get_cohort_calculation_candidates_includes_stuck_calculations(self):
+        from freezegun import freeze_time
+
+        # Test that cohorts stuck in calculating state for >24 hours are included
+        with freeze_time("2023-01-01 12:00:00"):
+            # Create a cohort that's been calculating for 25 hours (stuck)
+            stuck_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="stuck_cohort",
+                is_calculating=True,
+                last_calculation=timezone.now() - relativedelta(hours=25),
+                deleted=False,
+                is_static=False,
+                errors_calculating=0,
+            )
+
+            # Create a cohort that's been calculating for 10 hours (not stuck yet)
+            recent_calculating_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="recent_calculating_cohort",
+                is_calculating=True,
+                last_calculation=timezone.now() - relativedelta(hours=10),
+                deleted=False,
+                is_static=False,
+                errors_calculating=0,
+            )
+
+            # Create a normal cohort that's not calculating
+            normal_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="normal_cohort",
+                is_calculating=False,
+                last_calculation=timezone.now() - relativedelta(hours=25),
+                deleted=False,
+                is_static=False,
+                errors_calculating=0,
+            )
+
+            # Create a static cohort (should be excluded)
+            static_cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="static_cohort",
+                is_calculating=True,
+                last_calculation=timezone.now() - relativedelta(hours=25),
+                deleted=False,
+                is_static=True,
+                errors_calculating=0,
+            )
+
+            candidates = get_cohort_calculation_candidates_queryset()
+
+            # Stuck cohort (calculating for >24h) should be included for recalculation
+            assert stuck_cohort in candidates, "Stuck cohort should be included"
+
+            # Recent calculating cohort should NOT be included (still actively calculating)
+            assert recent_calculating_cohort not in candidates, "Recent calculating cohort should not be included"
+
+            # Normal cohort should be included (not calculating and old enough)
+            assert normal_cohort in candidates, "Normal cohort should be included"
+
+            # Static cohort should NOT be included (excluded by is_static filter)
+            assert static_cohort not in candidates, "Static cohort should not be included"
+
+
+class TestCalculateCohortCommand(APIBaseTest):
+    def test_calculate_cohort_command_success(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 1",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch("posthog.management.commands.calculate_cohort.calculate_cohort_ch") as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the cohort is calculated
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            self.assertIn(f"Successfully calculated cohort {cohort.id}", out.getvalue())
+
+    def test_calculate_cohort_command_error(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 2",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch(
+            "posthog.management.commands.calculate_cohort.calculate_cohort_ch", side_effect=Exception("Test error 2")
+        ) as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the error was handled
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            output = out.getvalue()
+            self.assertIn("Error calculating cohort: Test error 2", output)
+            self.assertIn("Full traceback:", output)
+            self.assertIn("Exception: Test error 2", output)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

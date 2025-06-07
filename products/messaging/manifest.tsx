@@ -1,4 +1,4 @@
-import { IconMegaphone } from '@posthog/icons'
+import { IconCursor } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -18,12 +18,17 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/TemplateLibrary/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -43,6 +48,7 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
@@ -63,12 +69,20 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         'hog_function/broadcast': {
-            icon: <IconMegaphone />,
+            name: 'Broadcast',
+            icon: <IconCursor />,
             href: (ref: string) => urls.messagingBroadcast(ref),
+            iconColor: ['var(--product-messaging-light)'],
+            filterKey: 'broadcast',
+            flag: FEATURE_FLAGS.MESSAGING,
         },
         'hog_function/campaign': {
-            icon: <IconMegaphone />,
+            name: 'Campaign',
+            icon: <IconCursor />,
             href: (ref: string) => urls.messagingCampaign(ref),
+            iconColor: ['var(--product-messaging-light)'],
+            filterKey: 'campaign',
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     },
     treeItemsNew: [
@@ -82,23 +96,25 @@ export const manifest: ProductManifest = {
             path: `Campaign`,
             type: 'hog_function/campaign',
             href: urls.messagingCampaignNew(),
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
     treeItemsProducts: [
         {
             path: 'Broadcasts',
+            category: 'Behavior',
             href: urls.messagingBroadcasts(),
             type: 'hog_function/broadcast',
+            tags: ['alpha'],
+            flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: 'Campaigns',
+            category: 'Behavior',
             href: urls.messagingCampaigns(),
             type: 'hog_function/campaign',
+            tags: ['alpha'],
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
-    fileSystemFilterTypes: {
-        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
-        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
-    },
 }

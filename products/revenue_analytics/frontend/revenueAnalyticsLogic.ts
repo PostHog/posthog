@@ -1,27 +1,26 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { getDefaultInterval } from 'lib/utils'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedViewTableKind,
     DataTableNode,
-    DataWarehouseNode,
-    EventsNode,
     NodeKind,
     QuerySchema,
     RevenueAnalyticsEventItem,
+    RevenueAnalyticsInsightsQueryGroupBy,
+    RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
+import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { Breadcrumb, ExternalDataSource, InsightLogicProps } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
-import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
-
-// Keep in sync with `revenue_analytics/backend/models.py`
-const CHARGE_REVENUE_VIEW_SUFFIX = 'charge_revenue_view'
+import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
@@ -37,6 +36,7 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
     return `new-AdHoc.revenue-analytics.${queryType}`
 }
 
+const INITIAL_REVENUE_ANALYTICS_FILTER = [] as RevenueAnalyticsPropertyFilters
 const INITIAL_DATE_FROM = 'yStart' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
@@ -68,6 +68,16 @@ const wrapWithDataTableNodeIfNeeded = (
     }
 }
 
+const setQueryParams = (params: Record<string, string>): string => {
+    const searchParams = { ...router.values.searchParams }
+    const urlParams = new URLSearchParams(searchParams)
+    Object.entries(params).forEach(([key, value]) => {
+        urlParams.set(key, value)
+    })
+
+    return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+}
+
 export type LineOrTableChart = 'line' | 'table'
 export type RawRevenueSources = {
     events: RevenueAnalyticsEventItem[]
@@ -78,20 +88,22 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
     connect(() => ({
         values: [
-            dataWarehouseSceneLogic,
-            ['dataWarehouseTablesBySourceType'],
             databaseTableListLogic,
-            ['database'],
-            revenueEventsSettingsLogic,
-            ['baseCurrency', 'events as allEvents', 'dataWarehouseSources as allDataWarehouseSources'],
+            ['managedViews'],
+            revenueAnalyticsSettingsLogic,
+            ['baseCurrency', 'events', 'dataWarehouseSources', 'goals as revenueGoals'],
         ],
         actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
+            revenueAnalyticsFilters,
+        }),
         setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setRevenueSources: (revenueSources: RawRevenueSources) => ({ revenueSources }),
+        setGrossRevenueGroupBy: (groupBy: RevenueAnalyticsInsightsQueryGroupBy) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -105,7 +117,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }),
             },
         ],
-
+        revenueAnalyticsFilter: [
+            INITIAL_REVENUE_ANALYTICS_FILTER,
+            persistConfig,
+            { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
+        ],
+        grossRevenueGroupBy: [
+            'all' as RevenueAnalyticsInsightsQueryGroupBy,
+            persistConfig,
+            {
+                setGrossRevenueGroupBy: (_, { groupBy }) => groupBy,
+            },
+        ],
         growthRateDisplayMode: [
             'line' as LineOrTableChart,
             persistConfig,
@@ -159,6 +182,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ],
         ],
 
+        revenueEnabledEvents: [(s) => [s.events], (events) => events],
+        revenueEnabledDataWarehouseSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources) =>
+                dataWarehouseSources === null
+                    ? null
+                    : dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
+        ],
+
         disabledGrowthModeSelection: [(s) => [s.dateFilter], (dateFilter): boolean => dateFilter.interval !== 'month'],
 
         disabledTopCustomersModeSelection: [
@@ -166,50 +198,66 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (dateFilter): boolean => dateFilter.interval !== 'month',
         ],
 
-        hasRevenueEvents: [(s) => [s.allEvents], (allEvents): boolean => allEvents.length > 0],
+        hasRevenueEvents: [(s) => [s.revenueEnabledEvents], (events): boolean => events.length > 0],
 
         hasRevenueTables: [
-            (s) => [s.database, s.dataWarehouseTablesBySourceType],
-            (database, dataWarehouseTablesBySourceType): boolean | null => {
-                // Indicate loading state with `null` if we don't have a database yet
-                if (database === null) {
+            (s) => [s.revenueEnabledDataWarehouseSources],
+            (dataWarehouseSources): boolean | null => {
+                // Indicate loading state with `null` if we haven't loaded this yet
+                if (dataWarehouseSources === null) {
                     return null
                 }
 
-                // Eventually we'll want to look at our revenue views,
-                // but for now checking whether we have Stripe tables is enough
-                return Boolean(dataWarehouseTablesBySourceType['Stripe']?.length)
+                return Boolean(dataWarehouseSources.length)
+            },
+        ],
+
+        chargeRevenueViews: [
+            (s) => [s.managedViews, s.rawRevenueSources],
+            (managedViews, rawRevenueSources): DatabaseSchemaManagedViewTable[] => {
+                if (!managedViews) {
+                    return []
+                }
+
+                const dataWarehouseSourceIds = rawRevenueSources.dataWarehouseSources.map((source) => source.id)
+                const eventNames = rawRevenueSources.events.map((e) => e.eventName.replace(/[^a-zA-Z0-9]/g, '_')) // Sanitizing event names to ensure they're valid as database identifiers - matches transformation in backend/views.py
+
+                return managedViews
+                    .filter((view) => view.kind === DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE)
+                    .filter((view) => {
+                        // Comes from a Data Warehouse source
+                        if (view.source_id) {
+                            return dataWarehouseSourceIds.includes(view.source_id)
+                        }
+
+                        // Comes from events
+                        return eventNames.some((eventName) => view.name.includes(eventName))
+                    })
             },
         ],
 
         queries: [
             (s) => [
                 s.dateFilter,
+                s.revenueAnalyticsFilter,
                 s.rawRevenueSources,
                 s.topCustomersDisplayMode,
                 s.growthRateDisplayMode,
-                s.baseCurrency,
+                s.grossRevenueGroupBy,
             ],
             (
                 dateFilter,
+                revenueAnalyticsFilter,
                 rawRevenueSources,
                 topCustomersDisplayMode,
                 growthRateDisplayMode,
-                baseCurrency
+                grossRevenueGroupBy
             ): Record<RevenueAnalyticsQuery, QuerySchema> => {
                 const { dateFrom, dateTo, interval } = dateFilter
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
                 const topCustomersGroupBy: RevenueAnalyticsTopCustomersGroupBy =
                     topCustomersDisplayMode === 'table' ? 'all' : 'month'
-
-                const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
-
-                const chargeViews = rawRevenueSources.dataWarehouseSources.map((source) => {
-                    return source.prefix
-                        ? `${source.source_type.toLocaleLowerCase()}.${source.prefix}.${CHARGE_REVENUE_VIEW_SUFFIX}`
-                        : `${source.source_type.toLocaleLowerCase()}.${CHARGE_REVENUE_VIEW_SUFFIX}`
-                })
 
                 // Convert from the raw revenue sources (events and data warehouse sources) to the revenue sources
                 // that the RevenueAnalyticsOverviewQuery expects which is just a list of event names and data warehouse source IDs
@@ -221,60 +269,32 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 return {
                     [RevenueAnalyticsQuery.OVERVIEW]: {
                         kind: NodeKind.RevenueAnalyticsOverviewQuery,
+                        properties: revenueAnalyticsFilter,
                         revenueSources,
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.InsightVizNode,
-                        embedded: false,
-                        hidePersonsModal: true,
-                        hideTooltipOnScroll: true,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [
-                                ...chargeViews.map((view) => ({
-                                    kind: NodeKind.DataWarehouseNode,
-                                    id: view,
-                                    name: view,
-                                    custom_name: chargeViews.length > 1 ? `Gross revenue for ${view}` : 'Gross revenue',
-                                    id_field: 'id',
-                                    timestamp_field: 'timestamp',
-                                    distinct_id_field: 'id',
-                                    table_name: view,
-                                    math: PropertyMathType.Sum,
-                                    math_property: 'amount',
-                                })),
-                                ...rawRevenueSources.events.map((e) => ({
-                                    name: e.eventName,
-                                    event: e.eventName,
-                                    custom_name: e.eventName,
-                                    math: PropertyMathType.Sum,
-                                    kind: NodeKind.EventsNode,
-                                    math_property: e.revenueProperty,
-                                    math_property_revenue_currency: e.revenueCurrencyProperty,
-                                })),
-                            ] as (EventsNode | DataWarehouseNode)[],
-                            interval,
-                            dateRange,
-                            trendsFilter: {
-                                display:
-                                    chargeViews.length > 1
-                                        ? ChartDisplayType.ActionsAreaGraph
-                                        : ChartDisplayType.ActionsLineGraph,
-                                aggregationAxisFormat: 'numeric',
-                                aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                                aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                            },
-                        },
+                        kind: NodeKind.RevenueAnalyticsInsightsQuery,
+                        properties: revenueAnalyticsFilter,
+                        revenueSources,
+                        groupBy: grossRevenueGroupBy,
+                        interval,
+                        dateRange,
                     },
                     [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
-                        { kind: NodeKind.RevenueAnalyticsGrowthRateQuery, dateRange, revenueSources },
+                        {
+                            kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
+                            properties: revenueAnalyticsFilter,
+                            dateRange,
+                            revenueSources,
+                        },
                         ['month', 'mrr', 'previous_mrr', 'mrr_growth_rate'],
                         growthRateDisplayMode === 'table'
                     ),
                     [RevenueAnalyticsQuery.TOP_CUSTOMERS]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsTopCustomersQuery,
+                            properties: revenueAnalyticsFilter,
                             dateRange,
                             revenueSources,
                             groupBy: topCustomersGroupBy,
@@ -286,12 +306,48 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
+    actionToUrl(() => ({
+        setDates: ({ dateFrom, dateTo }): string =>
+            setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
+        setGrossRevenueGroupBy: ({ groupBy }): string => setQueryParams({ revenue_group_by: groupBy ?? '' }),
+        setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
+            setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.revenueAnalytics()]: (_, { filters, date_from, date_to, revenue_group_by }) => {
+            if (
+                (date_from && date_from !== values.dateFilter.dateFrom) ||
+                (date_to && date_to !== values.dateFilter.dateTo)
+            ) {
+                actions.setDates(date_from, date_to)
+            }
+
+            if (revenue_group_by && revenue_group_by !== values.grossRevenueGroupBy) {
+                actions.setGrossRevenueGroupBy(revenue_group_by)
+            }
+
+            const parsedFilters = isRevenueAnalyticsPropertyFilters(filters) ? filters : undefined
+            if (parsedFilters && !objectsEqual(parsedFilters, values.revenueAnalyticsFilter)) {
+                actions.setRevenueAnalyticsFilters(parsedFilters)
+            }
+        },
+    })),
     listeners(({ actions, values }) => ({
         loadSourcesSuccess: ({ dataWarehouseSources }) => {
             actions.setRevenueSources({
-                events: values.allEvents,
-                dataWarehouseSources: dataWarehouseSources.results,
+                events: values.events,
+                dataWarehouseSources: dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
             })
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.events !== null && values.dataWarehouseSources !== null) {
+            actions.setRevenueSources({
+                events: values.events,
+                dataWarehouseSources: values.dataWarehouseSources.results.filter(
+                    (source) => source.revenue_analytics_enabled
+                ),
+            })
+        }
+    }),
 ])
