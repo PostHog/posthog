@@ -24,7 +24,7 @@ export const campaignLogic = kea<campaignLogicType>([
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
     actions({
-        updateCampaign: (name: string) => ({ name }),
+        updateCampaign: (workflow: Partial<Workflow>) => ({ workflow }),
         updateWorkflow: (workflow: Workflow['workflow']) => ({ workflow }),
     }),
     loaders(({ props }) => ({
