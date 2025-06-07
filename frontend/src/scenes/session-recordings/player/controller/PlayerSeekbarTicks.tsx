@@ -4,19 +4,20 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { memo, MutableRefObject } from 'react'
 import {
-    InspectorListItemAnnotation,
+    InspectorListItem,
     InspectorListItemComment,
     InspectorListItemEvent,
+    InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { UserActivity } from './UserActivity'
 
-export interface SeekBarItem {
-    timeInRecording: number
-    highlightColor?: string
-    label: string | JSX.Element
-    title?: string
-    key: string
+function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
+    return 'data' in x && !!x.data && 'event' in x.data
+}
+
+function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
+    return x.type === 'comment' && x.source === 'notebook'
 }
 
 function PlayerSeekbarTick({
@@ -25,20 +26,11 @@ function PlayerSeekbarTick({
     zIndex,
     onClick,
 }: {
-    item: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
+    item: InspectorListItemComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
 }): JSX.Element | null {
-    const isEventItem = (
-        x: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
-    ): x is InspectorListItemEvent => 'event' in x.data
-    const isCommentItem = (
-        x: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
-    ): x is InspectorListItemComment => 'comment' in x.data
-    const isAnnotationItem = (
-        x: InspectorListItemComment | InspectorListItemEvent | InspectorListItemAnnotation
-    ): x is InspectorListItemAnnotation => 'content' in x.data
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
@@ -51,11 +43,9 @@ function PlayerSeekbarTick({
             title={
                 isEventItem(item)
                     ? item.data.event
-                    : isCommentItem(item)
+                    : isNotebookComment(item)
                     ? item.data.comment
-                    : isAnnotationItem(item)
-                    ? item.data.content ?? undefined
-                    : undefined
+                    : item.data.content ?? undefined
             }
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -86,11 +76,11 @@ function PlayerSeekbarTick({
                             </span>
                         ) : null}
                     </>
-                ) : isCommentItem(item) ? (
-                    <span className="font-medium">{item.data.comment}</span>
-                ) : isAnnotationItem(item) ? (
-                    <span className="font-medium">{item.data.content}</span>
-                ) : null}
+                ) : isNotebookComment(item) ? (
+                    item.data.comment
+                ) : (
+                    item.data.content
+                )}
             </div>
             <div className="PlayerSeekbarTick__line" />
         </div>
@@ -104,7 +94,7 @@ export const PlayerSeekbarTicks = memo(
         seekToTime,
         hoverRef,
     }: {
-        seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemAnnotation)[]
+        seekbarItems: (InspectorListItemEvent | InspectorListItemComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>

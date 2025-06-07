@@ -28,8 +28,8 @@ class Annotation(models.Model):
     creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    # this is a UUID so 255 is more than enough/?
-    recording = models.CharField(default=None, max_length=255, null=True, blank=True)
+    # we don't want a foreign key, since not all recordings will be in postgres
+    recording_id = models.UUIDField(null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)

@@ -6,6 +6,7 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.bigquery import BigQuerySourceConfig, get_schemas as get_bigquery_schemas
+from posthog.temporal.data_imports.pipelines.doit.source import DoItSourceConfig, doit_list_reports
 from posthog.temporal.data_imports.pipelines.mssql import MSSQLSourceConfig, get_schemas as get_mssql_schemas
 from posthog.temporal.data_imports.pipelines.mysql import MySQLSourceConfig, get_schemas as get_mysql_schemas
 from posthog.temporal.data_imports.pipelines.postgres import PostgreSQLSourceConfig, get_schemas as get_postgres_schemas
@@ -80,6 +81,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
         schemas = get_bigquery_schemas(BigQuerySourceConfig.from_dict(source.job_inputs))
         schemas_to_sync = list(schemas.keys())
+    elif source.source_type == ExternalDataSource.Type.DOIT:
+        if not source.job_inputs:
+            return
+
+        doit_schemas = doit_list_reports(DoItSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = [name for name, _ in doit_schemas]
     else:
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
 
