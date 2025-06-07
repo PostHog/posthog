@@ -136,9 +136,7 @@ class TestMessagePreferences(BaseTest):
 
     def test_update_preferences_valid(self):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
-        response = self.client.post(
-            reverse("update_preferences"), data, HTTP_X_CSRFTOKEN=self.client.cookies.get("csrftoken", "").value
-        )
+        response = self.client.post(reverse("update_preferences"), data, HTTP_X_CSRFTOKEN=self.client.get_token())
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content), {"success": True})
 
@@ -152,23 +150,19 @@ class TestMessagePreferences(BaseTest):
         response = self.client.post(
             reverse("update_preferences"),
             {"preferences[]": [f"{self.category.id}:true"]},
-            HTTP_X_CSRFTOKEN=self.client.cookies.get("csrftoken", "").value,
+            HTTP_X_CSRFTOKEN=self.client.get_token(),
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Missing token"})
 
     def test_update_preferences_invalid_token(self):
         data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
-        response = self.client.post(
-            reverse("update_preferences"), data, HTTP_X_CSRFTOKEN=self.client.cookies.get("csrftoken", "").value
-        )
+        response = self.client.post(reverse("update_preferences"), data, HTTP_X_CSRFTOKEN=self.client.get_token())
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", json.loads(response.content))
 
     def test_update_preferences_invalid_preference_format(self):
         data = {"token": self.token, "preferences[]": ["invalid:format"]}
-        response = self.client.post(
-            reverse("update_preferences"), data, HTTP_X_CSRFTOKEN=self.client.cookies.get("csrftoken", "").value
-        )
+        response = self.client.post(reverse("update_preferences"), data, HTTP_X_CSRFTOKEN=self.client.get_token())
         self.assertEqual(response.status_code, 500)
         self.assertEqual(json.loads(response.content), {"error": "Failed to update preferences"})
