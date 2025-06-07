@@ -24,6 +24,7 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+pub mod update_cache;
 pub mod v2_batch_ingestion;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
