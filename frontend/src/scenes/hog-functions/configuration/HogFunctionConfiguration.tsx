@@ -41,6 +41,7 @@ import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebh
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
+import MaxTool from 'scenes/max/MaxTool'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -101,7 +102,7 @@ export function HogFunctionConfiguration({
         resetToTemplate,
         duplicateFromTemplate,
         setConfigurationValue,
-        deleteHogFunction,
+        deleteHogFunction
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -517,6 +518,21 @@ export function HogFunctionConfiguration({
                                                             instead.
                                                         </LemonBanner>
                                                     )}
+                                                     <MaxTool
+                                                        name="create_hog_transformation_function"
+                                                        displayName="Write and tweak Hog code"
+                                                        context={{
+                                                            current_hog_code: value ?? '',
+                                                        }}
+                                                        callback={(toolOutput: string) => {
+                                                            onChange(toolOutput)
+                                                        }}
+                                                        suggestions={[]}
+                                                        introOverride={{
+                                                            headline: 'What transformation do you want to create?',
+                                                            description: 'Let me help you quickly write the code for your transformation, and tweak it.',
+                                                        }}
+                                                    >
                                                     <CodeEditorResizeable
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
@@ -536,6 +552,7 @@ export function HogFunctionConfiguration({
                                                             quickSuggestionsDelay: 300,
                                                         }}
                                                     />
+                                                    </MaxTool>
                                                 </>
                                             )}
                                         </LemonField>

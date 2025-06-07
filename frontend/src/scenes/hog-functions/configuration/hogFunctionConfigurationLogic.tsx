@@ -273,6 +273,25 @@ export function mightDropEvents(code: string): boolean {
     return false
 }
 
+// Add SuggestionPayload type
+export interface SuggestionPayload {
+    suggestedValue?: string
+    originalValue?: string
+    acceptText?: string
+    rejectText?: string
+    diffShowRunButton?: boolean
+    source?: string
+    onAccept: (
+        shouldApply: boolean,
+        actions: any,
+        values: any
+    ) => void
+    onReject: (
+        actions: any,
+        values: any
+    ) => void
+}
+
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
@@ -311,6 +330,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
         sendBroadcast: true,
+        setSuggestedQueryInput: (suggestedQueryInput: string, source?: string) => ({
+            suggestedQueryInput,
+            source,
+        }),
+        _setSuggestionPayload: (payload: SuggestionPayload | null) => ({ payload }),
+        onAcceptSuggestedQueryInput: (shouldApply?: boolean) => ({ shouldApply }),
+        onRejectSuggestedQueryInput: true,
+        reportAIQueryPromptOpen: () => ({
+            type: 'report ai query prompt open (scenes.pipeline.hogFunctionConfigurationLogic.*)',
+            payload: {}
+        }),
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -354,6 +384,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 setShowEventsList: (_, { showEventsList }) => showEventsList,
+            },
+        ],
+        suggestionPayload: [
+            null as SuggestionPayload | null,
+            {
+                _setSuggestionPayload: (_state, { payload }) => payload,
             },
         ],
     })),
@@ -633,7 +669,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         },
     })),
-    selectors(() => ({
+    selectors((selectors) => ({
         logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
         type: [
             (s) => [s.configuration, s.hogFunction],
@@ -1133,6 +1169,39 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return !!lastEventQuery
             },
         ],
+        acceptText: [
+            (state, props) => [state.suggestionPayload],
+            (suggestionPayload: SuggestionPayload | null) => suggestionPayload?.acceptText ?? 'Accept',
+        ],
+        rejectText: [
+            (state, props) => [state.suggestionPayload],
+            (suggestionPayload: SuggestionPayload | null) => suggestionPayload?.rejectText ?? 'Reject',
+        ],
+        diffShowRunButton: [
+            (state, props) => [state.suggestionPayload],
+            (suggestionPayload: SuggestionPayload | null) => suggestionPayload?.diffShowRunButton,
+        ],
+        suggestedQueryInput: [
+            (state, props) => [state.suggestionPayload, state.configuration],
+            (suggestionPayload: SuggestionPayload | null, configuration: any) => {
+                if (suggestionPayload?.suggestedValue && suggestionPayload?.suggestedValue !== configuration.hog) {
+                    return suggestionPayload?.suggestedValue ?? ''
+                }
+                return configuration.hog ?? ''
+            },
+        ],
+        originalQueryInput: [
+            (state, props) => [state.suggestionPayload, state.configuration],
+            (suggestionPayload: SuggestionPayload | null, configuration: any) => {
+                if (suggestionPayload?.suggestedValue && suggestionPayload?.suggestedValue !== configuration.hog) {
+                    return configuration.hog
+                }
+                if (suggestionPayload?.originalValue && suggestionPayload?.originalValue !== configuration.hog) {
+                    return suggestionPayload?.originalValue
+                }
+                return undefined
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -1300,6 +1369,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         persistForUnload: () => {
             actions.setUnsavedConfiguration(values.configuration)
+        },
+        setSuggestedQueryInput: (payload: any) => {
+            // Handle both {payload: { suggestedQueryInput, source }} and { suggestedQueryInput, source }
+            const { suggestedQueryInput, source } = 'payload' in payload ? payload.payload : payload
+            if (values.configuration.hog) {
+                actions._setSuggestionPayload({
+                    suggestedValue: suggestedQueryInput,
+                    acceptText: 'Accept',
+                    rejectText: 'Reject',
+                    onAccept: (shouldApply: boolean, actions: any, values: any) => {
+                        actions.setConfigurationValue('hog', suggestedQueryInput)
+                        actions._setSuggestionPayload(null)
+                    },
+                    onReject: (actions: any, values: any) => {
+                        actions._setSuggestionPayload(null)
+                    },
+                    source,
+                    diffShowRunButton: false,
+                })
+            } else {
+                actions.setConfigurationValue('hog', suggestedQueryInput)
+            }
+        },
+        onAcceptSuggestedQueryInput: ({ shouldApply }) => {
+            values.suggestionPayload?.onAccept(!!shouldApply, actions, values)
+        },
+        onRejectSuggestedQueryInput: () => {
+            values.suggestionPayload?.onReject(actions, values)
         },
     })),
     afterMount(({ props, actions, cache }) => {
