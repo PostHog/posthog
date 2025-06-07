@@ -7,7 +7,7 @@ use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
-use crate::flags::flag_matching_utils::all_flag_values_match;
+use crate::flags::flag_matching_utils::all_flag_condition_properties_match;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
@@ -929,7 +929,7 @@ impl FeatureFlagMatcher {
                     .partition(|prop| prop.is_feature_flag());
 
             if !flag_value_filters.is_empty()
-                && !all_flag_values_match(
+                && !all_flag_condition_properties_match(
                     &flag_value_filters,
                     &self.flag_evaluation_state.flag_evaluation_results,
                 )

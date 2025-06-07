@@ -233,7 +233,7 @@ pub fn all_properties_match(
         .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
 }
 
-pub fn all_flag_values_match(
+pub fn all_flag_condition_properties_match(
     flag_condition_properties: &[PropertyFilter],
     flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
 ) -> bool {
