@@ -263,7 +263,9 @@ pub fn match_flag_filter_value(
     match filter.value {
         Some(Value::Bool(true)) => flag_value != &FlagValue::Boolean(false),
         Some(Value::Bool(false)) => flag_value == &FlagValue::Boolean(false),
-        Some(Value::String(ref s)) => flag_value == &FlagValue::String(s.clone()),
+        Some(Value::String(ref s)) => {
+            matches!(flag_value, FlagValue::String(flag_str) if flag_str == s)
+        }
         _ => false,
     }
 }
