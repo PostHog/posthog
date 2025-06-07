@@ -371,7 +371,7 @@ def test_should_partition_table_with_table_and_key():
     to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
 
     schema_mock = MagicMock()
-    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+    schema_mock.to_arrow = MagicMock(return_value=to_pyarrow_mock)
 
     delta_table.schema = MagicMock(return_value=schema_mock)
 

@@ -10,9 +10,7 @@ import re
 import typing
 import uuid
 
-import dlt
-import dlt.common.data_types as dlt_data_types
-import dlt.common.schema.typing as dlt_typing
+import deltalake
 import structlog
 import temporalio.activity
 import temporalio.common
@@ -20,7 +18,6 @@ import temporalio.exceptions
 import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
-from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions_capture import capture_exception
@@ -31,6 +28,7 @@ from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
@@ -46,34 +44,6 @@ logger = structlog.get_logger()
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
-
-CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
-    "UUID": "text",
-    "String": "text",
-    "DateTime64": "timestamp",
-    "DateTime32": "timestamp",
-    "DateTime": "timestamp",
-    "Date": "date",
-    "Date32": "date",
-    "UInt8": "bigint",
-    "UInt16": "bigint",
-    "UInt32": "bigint",
-    "UInt64": "bigint",
-    "Float8": "double",
-    "Float16": "double",
-    "Float32": "double",
-    "Float64": "double",
-    "Int8": "bigint",
-    "Int16": "bigint",
-    "Int32": "bigint",
-    "Int64": "bigint",
-    "Tuple": "bigint",
-    "Array": "complex",
-    "Map": "complex",
-    "Tuple": "complex",
-    "Bool": "bool",
-    "Decimal": "decimal",
-}
 
 
 class EmptyHogQLResponseColumnsError(Exception):
@@ -301,7 +271,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            key, delta_table, _ = await materialize_model(model.label, team, saved_query, job)
+            await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
@@ -380,7 +350,7 @@ async def get_saved_query(team: Team, model_label: str) -> DataWarehouseSavedQue
 async def materialize_model(
     model_label: str, team: Team, saved_query: DataWarehouseSavedQuery, job: DataModelingJob
 ) -> tuple[str, DeltaTable, uuid.UUID]:
-    """Materialize a given model by running its query in a dlt pipeline.
+    """Materialize a given model by running its query and piping the results into a delta table.
 
     Arguments:
         model_label: A label representing the ID or the name of the model to materialize.
@@ -395,35 +365,15 @@ async def materialize_model(
     if not query_columns:
         query_columns = await database_sync_to_async(saved_query.get_columns)()
 
-    table_columns: dlt_typing.TTableSchemaColumns = {}
-    for column_name, column_info in query_columns.items():
-        clickhouse_type = column_info["clickhouse"]
-        nullable = False
-
-        if nullable_match := re.match(NullablePattern, clickhouse_type):
-            clickhouse_type = nullable_match.group(1)
-            nullable = True
-
-        clickhouse_type = re.sub(r"\(.+\)+", "", clickhouse_type)
-
-        data_type: dlt_data_types.TDataType = CLICKHOUSE_DLT_MAPPING[clickhouse_type]
-        column_schema: dlt_typing.TColumnSchema = {
-            "data_type": data_type,
-            "nullable": nullable,
-        }
-        table_columns[column_name] = column_schema
-
     hogql_query = saved_query.query["query"]
-    destination = get_dlt_destination()
-    pipeline = dlt.pipeline(
-        pipeline_name=f"materialize_model_{model_label}",
-        destination=destination,
-        dataset_name=f"team_{team.pk}_model_{model_label}",
-        refresh="drop_sources",
-    )
 
     try:
-        _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
+        table_uri = f"{settings.BUCKET_URL}/team_{team.pk}_model_{model_label}/modeling/{saved_query.normalized_name}"
+        pa_table = await hogql_table(hogql_query, team)
+        deltalake.write_deltalake(
+            table_or_uri=table_uri, storage_options=_get_credentials(), data=pa_table, mode="overwrite"
+        )
+        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=_get_credentials())
     except Exception as e:
         error_message = str(e)
         if "Query exceeds memory limits" in error_message:
@@ -452,24 +402,15 @@ async def materialize_model(
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
         raise DataModelingCancelledException("Data modeling run was cancelled")
 
-    tables = get_delta_tables(pipeline)
-    for table in tables.values():
-        table.optimize.compact()
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+    delta_table.optimize.compact()
+    delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
-        file_uris = table.file_uris()
+    file_uris = delta_table.file_uris()
 
-        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris, True)
-
-    if not tables:
-        saved_query.latest_error = f"No tables were created by pipeline for model {model_label}"
-        await database_sync_to_async(saved_query.save)()
-        raise Exception(f"No tables were created by pipeline for model {model_label}")
-
-    key, delta_table = tables.popitem()
+    prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
 
     # Count rows and update both DataWarehouseTable and DataModelingJob
-    row_count = count_pipeline_rows(pipeline)
+    row_count = pa_table.num_rows
     await update_table_row_count(saved_query, row_count)
 
     # Update the job record with the row count and completed status
@@ -478,7 +419,7 @@ async def materialize_model(
     job.last_run_at = dt.datetime.now(dt.UTC)
     await database_sync_to_async(job.save)()
 
-    return (key, delta_table, job.id)
+    return (saved_query.normalized_name, delta_table, job.id)
 
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
@@ -489,15 +430,6 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
-
-
-def count_pipeline_rows(pipeline: dlt.Pipeline) -> int:
-    """
-    Count the number of rows written in a dlt pipeline
-    """
-    row_counts = pipeline.last_trace.last_normalize_info.row_counts
-    filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
-    return sum(filtered_rows.values())
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
@@ -520,47 +452,35 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
-@dlt.source(max_table_nesting=0)
-def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typing.TTableSchemaColumns):
-    """A dlt source representing a HogQL table given by a HogQL query."""
+async def hogql_table(query: str, team: Team):
+    """A HogQL table given by a HogQL query."""
 
-    async def get_hogql_rows():
-        settings = HogQLGlobalSettings(
-            max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
-        )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
+    settings = HogQLGlobalSettings(
+        max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
+    )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
 
-        # Pass the query_type parameter to influence tags in a thread safe way
-        response = await asyncio.to_thread(
-            execute_hogql_query,
-            query,
-            team,
-            settings=settings,
-            limit_context=LimitContext.SAVED_QUERY,
-            workload=Workload.OFFLINE,
-            query_type="materialization",
-        )
-
-        if not response.columns:
-            raise EmptyHogQLResponseColumnsError()
-
-        columns: list[str] = response.columns
-
-        for row in response.results:
-            yield dict(zip(columns, row))
-
-    yield dlt.resource(
-        get_hogql_rows,
-        name="hogql_table",
-        table_name=table_name,
-        table_format="delta",
-        write_disposition="replace",
-        columns=table_columns,
+    # Pass the query_type parameter to influence tags in a thread safe way
+    response = await asyncio.to_thread(
+        execute_hogql_query,
+        query,
+        team,
+        settings=settings,
+        limit_context=LimitContext.SAVED_QUERY,
+        workload=Workload.OFFLINE,
+        query_type="materialization",
     )
 
+    if not response.columns:
+        raise EmptyHogQLResponseColumnsError()
 
-def get_dlt_destination():
+    columns: list[str] = response.columns
+
+    return table_from_iterator(dict(zip(columns, row)) for row in response.results)
+
+
+def _get_credentials():
     if TEST:
-        credentials = {
+        return {
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
@@ -568,19 +488,13 @@ def get_dlt_destination():
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
-    else:
-        credentials = {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
 
-    return dlt.destinations.filesystem(
-        credentials=credentials,
-        bucket_url=settings.BUCKET_URL,  # type: ignore
-        layout="modeling/{table_name}/{load_id}.{file_id}.{ext}",
-    )
+    return {
+        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+        "region_name": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
 
 
 @dataclasses.dataclass(frozen=True)
