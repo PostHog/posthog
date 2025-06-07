@@ -133,10 +133,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     }),
     selectors({
-        isMultipleBreakdownsEnabled: [
-            (s, p) => [s.featureFlags, p.isTrends],
-            (flags, isTrends) => isTrends && multipleBreakdownsEnabled(flags),
-        ],
+        isMultipleBreakdownsEnabled: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         isAddBreakdownDisabled: [
@@ -532,10 +529,6 @@ function checkBreakdownExists(
     return !!breakdowns?.find(
         (savedBreakdown) => savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
     )
-}
-
-export const multipleBreakdownsEnabled = (flags: FeatureFlagsSet): boolean => {
-    return !!flags[FEATURE_FLAGS.MULTIPLE_BREAKDOWNS]
 }
 
 export function isSingleBreakdown(breakdownFilter?: BreakdownFilter | null): boolean {

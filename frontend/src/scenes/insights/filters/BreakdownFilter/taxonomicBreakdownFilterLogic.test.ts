@@ -25,10 +25,6 @@ const updateBreakdownFilter = jest.fn()
 const updateDisplay = jest.fn()
 const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
 
-function mockFeatureFlag(logic: any): void {
-    logic.selectors.isMultipleBreakdownsEnabled = jest.fn().mockReturnValue(true)
-}
-
 describe('taxonomicBreakdownFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicBreakdownFilterLogic.build>
 
@@ -204,10 +200,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
     })
 
     describe('isAddBreakdownDisabled', () => {
-        function mockFeatureFlag(): void {
-            jest.spyOn(breakdownLogic, 'multipleBreakdownsEnabled').mockReturnValue(true)
-        }
-
         it('no breakdowns', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
@@ -256,8 +248,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
 
         it('multiple breakdowns can be added', async () => {
-            mockFeatureFlag()
-
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
                 breakdownFilter: {
@@ -302,7 +292,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
 
         it('multiple breakdowns allows max three elements', async () => {
-            mockFeatureFlag()
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
                 breakdownFilter: {
@@ -348,8 +337,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 isAddBreakdownDisabled: true,
             })
 
-            mockFeatureFlag()
-
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
                 breakdownFilter: {
@@ -367,7 +354,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
 
         it('no restrictions on cohorts', async () => {
-            mockFeatureFlag()
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
                 breakdownFilter: {
@@ -409,7 +395,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
 
             const changedBreakdown = 'c'
@@ -447,7 +432,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
 
             const changedBreakdown = 'c'
@@ -468,7 +452,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'height'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
@@ -498,7 +481,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = '$lib_version'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.GroupsPrefix, 0)
@@ -536,7 +518,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
@@ -586,7 +567,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
 
@@ -617,7 +597,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
 
@@ -655,7 +634,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
                 TaxonomicFilterGroupType.DataWarehousePersonProperties,
@@ -698,7 +676,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
                 TaxonomicFilterGroupType.DataWarehousePersonProperties,
@@ -738,7 +715,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
@@ -774,7 +750,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
@@ -820,7 +795,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'prop'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
@@ -843,7 +817,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 2
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
@@ -875,7 +848,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'new_prop'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
@@ -904,7 +876,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'new_prop'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
@@ -934,7 +905,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'new_prop'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
@@ -966,7 +936,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = '$lib_version'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.GroupsPrefix, 0)
@@ -1004,7 +973,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1030,7 +998,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
@@ -1079,7 +1046,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
             const changedBreakdown = 'prop'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
@@ -1112,7 +1078,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1134,7 +1099,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1157,7 +1121,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 updateBreakdownFilter,
                 updateDisplay,
             })
-            mockFeatureFlag(logic)
             logic.mount()
 
             await expectLogic(logic, () => {
