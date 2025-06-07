@@ -390,8 +390,7 @@ def _recalculate_cohortpeople_for_team_hogql(
             "optimize_on_insert": 0,
             "max_ast_elements": hogql_global_settings.max_ast_elements,
             "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-            "max_bytes_ratio_before_external_group_by": 0.5,
-            "max_bytes_ratio_before_external_sort": 0.5,
+            "max_bytes_before_external_group_by": hogql_global_settings.max_bytes_before_external_group_by,
         },
         workload=Workload.OFFLINE,
     )
