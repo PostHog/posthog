@@ -94,8 +94,12 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebBouncesDailyTable,
     WebStatsDailyTable,
+    WebBouncesDailyTable,
+    WebStatsHourlyTable,
+    WebBouncesHourlyTable,
+    WebStatsCombinedTable,
+    WebBouncesCombinedTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -156,6 +160,10 @@ class Database(BaseModel):
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
     web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
+    web_stats_hourly: WebStatsHourlyTable = WebStatsHourlyTable()
+    web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
+    web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
+    web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()

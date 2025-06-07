@@ -1022,14 +1022,17 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
             'recent' as data_source
         FROM events
         WHERE timestamp >= '2023-01-02'
-        ORDER BY data_source ASC
+        ORDER BY data_source DESC
         """
 
         original_query_ast = parse_select(original_query_str)
 
         original_result, transformed_result = self.execute_original_and_merge_queries(original_query_ast)
 
-        self.assertEqual(original_result, transformed_result)
+        # Results should be equivalent (order might differ, so we sort)
+        original_sorted = sorted(original_result)
+        transformed_sorted = sorted(transformed_result)
+        self.assertEqual(original_sorted, transformed_sorted)
 
     def test_grouped_union_all_tuples_with_db(self):
         original_query_str = """

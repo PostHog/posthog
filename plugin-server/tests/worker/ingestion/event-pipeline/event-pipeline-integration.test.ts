@@ -15,6 +15,7 @@ import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
 import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
@@ -51,7 +52,8 @@ describe('Event Pipeline integration test', () => {
 
     const ingestEvent = async (event: PluginEvent) => {
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore, groupStoreForBatch)
         const result = await runner.runEventPipeline(event, team)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])
@@ -274,13 +276,28 @@ describe('Event Pipeline integration test', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event, team)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        await new EventPipelineRunner(
+            hub,
+            event,
+            undefined,
+            undefined,
+            personsStore,
+            groupStoreForBatch
+        ).runEventPipeline(event, team)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event, team)
+        await new EventPipelineRunner(
+            hub,
+            event,
+            undefined,
+            undefined,
+            personsStore,
+            groupStoreForBatch
+        ).runEventPipeline(event, team)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
@@ -359,10 +376,15 @@ describe('Event Pipeline integration test', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        const result = await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const result = await new EventPipelineRunner(
+            hub,
             event,
-            team
-        )
+            undefined,
+            undefined,
+            personsStore,
+            groupStoreForBatch
+        ).runEventPipeline(event, team)
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
 })

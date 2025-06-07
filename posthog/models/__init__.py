@@ -38,6 +38,8 @@ from .error_tracking import (
     ErrorTrackingSymbolSet,
     ErrorTrackingIssueAssignment,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
+    ErrorTrackingSuppressionRule,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -135,6 +137,8 @@ __all__ = [
     "ErrorTrackingSymbolSet",
     "ErrorTrackingIssueAssignment",
     "ErrorTrackingAssignmentRule",
+    "ErrorTrackingGroupingRule",
+    "ErrorTrackingSuppressionRule",
     "Event",
     "EventBuffer",
     "EventDefinition",

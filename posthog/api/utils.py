@@ -6,7 +6,7 @@ import urllib.parse
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
-from typing import Any, Literal, Optional, Union
+from typing import Any, Optional, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -24,13 +24,12 @@ from statshog.defaults.django import statsd
 from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
 from posthog.api.documentation import extend_schema
-from posthog.constants import EventDefinitionType
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
-from posthog.models import Entity, EventDefinition
+from posthog.models import Entity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -282,55 +281,6 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
     return s
 
 
-def create_event_definitions_sql(
-    event_type: EventDefinitionType,
-    is_enterprise: bool = False,
-    conditions: str = "",
-    order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
-) -> str:
-    if order_expressions is None:
-        order_expressions = []
-    if is_enterprise:
-        from ee.models import EnterpriseEventDefinition
-
-        ee_model = EnterpriseEventDefinition
-    else:
-        ee_model = EventDefinition
-
-    event_definition_fields = {
-        f'"{f.column}"'
-        for f in ee_model._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
-    }
-
-    enterprise_join = (
-        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
-        if is_enterprise
-        else ""
-    )
-
-    if event_type == EventDefinitionType.EVENT_CUSTOM:
-        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
-    if event_type == EventDefinitionType.EVENT_POSTHOG:
-        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
-
-    additional_ordering = ""
-    for order_expression, order_direction in order_expressions:
-        additional_ordering += (
-            f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
-            if order_expression
-            else ""
-        )
-
-    return f"""
-            SELECT {",".join(event_definition_fields)}
-            FROM posthog_eventdefinition
-            {enterprise_join}
-            WHERE (project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s)) {conditions}
-            ORDER BY {additional_ordering}name ASC
-        """
-
-
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
@@ -338,6 +288,30 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
+
+
+def is_insight_query(query):
+    insight_kinds = {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+    if getattr(query, "kind", None) in insight_kinds:
+        return True
+    if getattr(query, "kind", None) == "HogQLQuery":
+        return True
+    if getattr(query, "kind", None) == "DataTableNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    if getattr(query, "kind", None) == "DataVisualizationNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    return False
 
 
 def parse_bool(value: Union[str, list[str]]) -> bool:
@@ -561,7 +535,7 @@ class ServerTimingsGathered:
                 """
                 capture_exception(
                     Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"timings": timings},
+                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
                 )
                 break
 

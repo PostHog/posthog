@@ -83,6 +83,8 @@ export type SettingId =
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
@@ -138,6 +140,7 @@ export type SettingId =
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
+    | 'base-currency'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

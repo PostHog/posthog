@@ -21,6 +21,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
+    request?: HogFunctionInvocationGlobals['request']
 }
 
 export class TemplateTester {
@@ -69,6 +70,7 @@ export class TemplateTester {
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
         return {
+            ...globals,
             inputs: {},
             project: { id: 1, name: 'project-name', url: 'https://us.posthog.com/projects/1' },
             event: {
@@ -173,7 +175,8 @@ export class TemplateTester {
     async invokeMapping(
         mapping_name: string,
         _inputs: Record<string, any>,
-        _globals?: DeepPartialHogFunctionInvocationGlobals
+        _globals?: DeepPartialHogFunctionInvocationGlobals,
+        mapping_inputs?: Record<string, any>
     ) {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
@@ -183,7 +186,7 @@ export class TemplateTester {
 
         const compiledMappingInputs = {
             ...this.template.mapping_templates.find((mapping) => mapping.name === mapping_name),
-            inputs: {},
+            inputs: mapping_inputs ?? {},
         }
 
         if (!compiledMappingInputs.inputs_schema) {
@@ -194,10 +197,11 @@ export class TemplateTester {
             compiledMappingInputs.inputs_schema
                 .filter((input) => typeof input.default !== 'undefined')
                 .map(async (input) => {
+                    const value = mapping_inputs?.[input.key] ?? input.default
                     return {
                         key: input.key,
-                        value: input.default,
-                        bytecode: await this.compileObject(input.default),
+                        value,
+                        bytecode: await this.compileObject(value),
                     }
                 })
         )

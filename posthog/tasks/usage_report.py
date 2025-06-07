@@ -472,11 +472,11 @@ def get_teams_with_billable_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -498,11 +498,11 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -555,7 +555,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp BETWEEN %(begin)s AND %(end)s
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
     """
@@ -599,13 +599,13 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 4 splits
+    # Execute the split query with 3 splits
     return _execute_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
         params={},
-        num_splits=2,
+        num_splits=3,
         combine_results_func=combine_event_metrics_results,
     )
 
@@ -1062,13 +1062,12 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         report.event_count_in_period > 0
         or report.enhanced_persons_event_count_in_period > 0
         or report.recording_count_in_period > 0
-        # explicitly not including mobile_recording_count_in_period for now
+        or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
-        # explicitly not including issues_created or exceptions_captured
-        # for now given we do not charge for error tracking yet
+        or report.exceptions_captured_in_period > 0
     )
 
 

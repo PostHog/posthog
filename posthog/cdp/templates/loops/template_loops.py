@@ -3,7 +3,7 @@ from copy import deepcopy
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-loops",
@@ -101,7 +101,7 @@ if (res.status >= 400) {
 )
 
 template_send_event: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-loops-event",

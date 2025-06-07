@@ -11,7 +11,6 @@ import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
 import { HogFlowExecutorService } from '../services/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflow-manager.service'
-import { HogFunctionTypeType } from '../types'
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -30,7 +29,6 @@ export abstract class CdpConsumerBase {
     hogFunctionMonitoringService: HogFunctionMonitoringService
     redis: CdpRedis
 
-    protected hogTypes: HogFunctionTypeType[] = []
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
 

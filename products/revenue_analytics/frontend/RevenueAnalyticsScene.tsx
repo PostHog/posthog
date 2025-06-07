@@ -46,8 +46,11 @@ export function RevenueAnalyticsScene(): JSX.Element {
                 productName={PRODUCT_NAME}
                 productKey={PRODUCT_KEY}
                 thingName={PRODUCT_THING_NAME}
-                description={PRODUCT_DESCRIPTION}
-                titleOverride="Revenue Analytics is in opt-in beta"
+                description={
+                    PRODUCT_DESCRIPTION +
+                    ". Because we're in open beta, each user will need to enable this feature separately."
+                }
+                titleOverride="Revenue Analytics is in opt-in beta."
                 actionElementOverride={
                     <LemonButton
                         type="primary"
@@ -172,7 +175,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                             sideIcon={<IconDatabase />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { kind: 'stripe' }))
+                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
                             }}
                             data-attr="create-revenue-source"
                         >

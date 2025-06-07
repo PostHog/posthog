@@ -2,14 +2,11 @@ import {
     IconCdCase,
     IconChevronRight,
     IconClock,
-    IconDashboard,
     IconDatabase,
     IconFolderOpen,
     IconGear,
     IconHome,
-    IconNotebook,
     IconPeople,
-    IconPin,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -24,13 +21,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -51,7 +41,6 @@ import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/act
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
-import { DashboardsMenu } from './ProjectTree/menus/DashboardsMenu'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
@@ -94,15 +83,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (!isLayoutPanelVisible) {
-            showLayoutPanel(true)
-        } else {
-            showLayoutPanel(false)
-            clearActivePanelIdentifier()
-        }
-
         if (activePanelIdentifier !== item) {
             setActivePanelIdentifier(item)
+            showLayoutPanel(true)
+        } else if (activePanelIdentifier === item) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
         }
     }
 
@@ -157,6 +143,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             tooltip: isLayoutNavCollapsed ? 'Home' : null,
         },
         {
+            identifier: 'Products',
+            id: 'Products',
+            icon: <IconCdCase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Products')
+                }
+            },
+            showChevron: true,
+        },
+        {
             identifier: 'Project',
             id: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
@@ -173,29 +170,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 : null,
         },
         {
-            identifier: 'Dashboards',
-            id: 'Dashboards',
-            icon: <IconDashboard className="stroke-[1.2]" />,
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.dashboards(), true)
-            },
-            dropdownMenu: (
-                <>
-                    <DropdownMenuLabel>Pinned dashboards</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DashboardsMenu />
-                </>
-            ),
-        },
-        {
-            identifier: 'Notebooks',
-            id: 'Notebooks',
-            icon: <IconNotebook className="stroke-[1.2]" />,
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.notebooks(), true)
-            },
-        },
-        {
             identifier: 'Data',
             id: 'Data',
             icon: <IconDatabase />,
@@ -205,7 +179,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Data' ? 'Close data' : 'Open data',
         },
         {
             identifier: 'People',
@@ -217,31 +190,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'People' ? 'Close people' : 'Open people',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
-        },
-        {
-            identifier: 'Products',
-            id: 'Products',
-            icon: <IconCdCase />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
-        },
-        {
-            identifier: 'Activity',
-            id: 'Activity',
-            icon: <IconClock />,
-            to: urls.activity(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.activity(), true)
-            },
-            tooltip: 'Activity',
-            tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
         {
             identifier: 'Shortcuts',
@@ -253,8 +202,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
+        },
+        {
+            identifier: 'Activity',
+            id: 'Activity',
+            icon: <IconClock />,
+            to: urls.activity(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.activity(), true)
+            },
+            tooltip: 'Activity',
+            tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
     ]
 
@@ -365,9 +323,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
-                                                            hasSideActionRight:
-                                                                item.dropdownMenu && !isLayoutNavCollapsed,
-                                                            fullWidth: item.dropdownMenu && !isLayoutNavCollapsed,
                                                         }}
                                                         to={item.to}
                                                         tooltip={item.tooltip}
@@ -386,29 +341,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className="truncate">{item.id}</span>
                                                         )}
                                                     </Link>
-                                                    {item.dropdownMenu && !isLayoutNavCollapsed && (
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <ButtonPrimitive
-                                                                    isSideActionRight
-                                                                    iconOnly
-                                                                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
-                                                                >
-                                                                    <IconPin className="size-3 text-tertiary" />
-                                                                </ButtonPrimitive>
-                                                            </DropdownMenuTrigger>
-
-                                                            {/* The Dropdown content menu */}
-                                                            <DropdownMenuContent
-                                                                loop
-                                                                align="end"
-                                                                side="bottom"
-                                                                className="max-w-[250px]"
-                                                            >
-                                                                {item.dropdownMenu}
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    )}
                                                 </ButtonGroupPrimitive>
                                             )}
                                         </ListBox.Item>
@@ -419,7 +351,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div
                                     className={cn(
-                                        'flex flex-col gap-px h-full',
+                                        'relative flex flex-col gap-px h-full',
                                         !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
                                     )}
                                 >
@@ -435,7 +367,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             not sure how better to do this other than lower the notices z-index.. 
                         */}
                         <div
-                            className={`pt-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
+                            className={`pt-1 px-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
                                 isDev ? 'pb-10' : 'pb-2'
                             }`}
                         >
@@ -557,7 +489,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutNavBar(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-200)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                     />
                 )}
 
@@ -567,7 +499,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutPanel(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-200)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                     />
                 )}
             </div>
