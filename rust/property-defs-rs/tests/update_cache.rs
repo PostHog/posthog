@@ -1,15 +1,11 @@
-use property_defs_rs::{
-    update_cache::Cache,
-    types::{
-        Update,
-        EventDefinition,
-        EventProperty,
-        PropertyDefinition,
-        PropertyParentType,
-        PropertyValueType,
-    },
-};
 use chrono::Utc;
+use property_defs_rs::{
+    types::{
+        EventDefinition, EventProperty, PropertyDefinition, PropertyParentType, PropertyValueType,
+        Update,
+    },
+    update_cache::Cache,
+};
 
 #[test]
 fn test_cache_insertions() {
