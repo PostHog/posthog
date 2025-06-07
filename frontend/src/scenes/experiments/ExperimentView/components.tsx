@@ -42,9 +42,9 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
-    Experiment as ExperimentType,
     ExperimentConclusion,
     ExperimentIdType,
+    Experiment as ExperimentType,
     InsightShortId,
 } from '~/types'
 
@@ -166,22 +166,13 @@ export function ResultsQuery({
 
     return (
         <Query
-            query={{
-                kind: NodeKind.InsightVizNode,
-                source: query,
-                showTable: true,
-                showLastComputation: true,
-                showLastComputationRefresh: false,
-            }}
+            query={query}
             context={{
                 insightProps: {
                     dashboardItemId: fakeInsightId as InsightShortId,
                     cachedInsight: {
                         short_id: fakeInsightId as InsightShortId,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: query,
-                        } as InsightVizNode,
+                        query,
                         result: results,
                         disable_baseline: true,
                     },
