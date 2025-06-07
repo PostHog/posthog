@@ -2,6 +2,7 @@ from datetime import timedelta
 import os
 from functools import partial, wraps
 from typing import Union
+import uuid
 
 from posthog.exceptions_capture import capture_exception
 from django.conf import settings
@@ -37,7 +38,7 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference
+from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference, PreferenceStatus
 
 
 import structlog
@@ -262,15 +263,18 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "message_preferences/error.html", {"error": error}, status=400)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.all().order_by("name")
-    preferences = {
-        pref.category_id: pref.opted_in for pref in MessageRecipientPreference.objects.filter(recipient=recipient)
-    }
+    categories = MessageCategory.objects.filter(deleted=False).order_by("name")
+    preferences = recipient.get_all_preferences() if recipient else {}
 
     context = {
         "recipient": recipient,
         "categories": [
-            {"id": cat.id, "name": cat.name, "description": cat.description, "opted_in": preferences.get(cat.id, None)}
+            {
+                "id": cat.id,
+                "name": cat.name,
+                "description": cat.description,
+                "opted_in": preferences.get(cat.id) == PreferenceStatus.OPTED_IN,
+            }
             for cat in categories
         ],
         "token": token,  # Need to pass this back for the update endpoint
@@ -294,25 +298,12 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     try:
         preferences = request.POST.getlist("preferences[]")
         # Convert to dict of category_id: opted_in
-        updates = {}
         for pref in preferences:
             category_id, opted_in = pref.split(":")
-            updates[int(category_id)] = opted_in == "true"
-
-        # Update all preferences
-        for category_id, opted_in in updates.items():
-            MessageRecipientPreference.objects.update_or_create(
-                recipient=recipient, category_id=category_id, defaults={"opted_in": opted_in}
-            )
-
-        logger.info(
-            "message_preferences.updated", recipient_id=recipient.id, recipient_type=recipient.type, updates=updates
-        )
+            status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
+            recipient.set_preference(uuid.UUID(category_id), status)
 
         return JsonResponse({"success": True})
 
-    except Exception as e:
-        logger.exception(
-            "message_preferences.update_failed", recipient_id=recipient.id, recipient_type=recipient.type, error=str(e)
-        )
+    except Exception:
         return JsonResponse({"error": "Failed to update preferences"}, status=500)
