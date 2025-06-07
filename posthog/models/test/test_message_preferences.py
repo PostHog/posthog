@@ -6,7 +6,10 @@ import uuid
 class TestMessagePreferences(BaseTest):
     def setUp(self):
         super().setUp()
-        self.team = self.organization.teams.first()
+        team = self.organization.teams.first()
+        if not team:
+            raise ValueError("Test requires a team")
+        self.team = team
         self.category = MessageCategory.objects.create(
             team=self.team, key="newsletter", name="Newsletter Updates", description="Weekly product updates"
         )
@@ -84,5 +87,13 @@ class TestMessagePreferences(BaseTest):
 
         # Test token validation
         validated_recipient, error = MessageRecipientPreference.validate_preferences_token(token)
-        self.assertEqual(validated_recipient.id, recipient.id)
+        self.assertIsNotNone(validated_recipient, "Validated recipient should not be None")
         self.assertEqual(error, "")
+        # Only check ID if we have a recipient
+        if validated_recipient:  # This satisfies the type checker
+            self.assertEqual(validated_recipient.id, recipient.id)
+
+        # Test invalid token
+        invalid_recipient, error = MessageRecipientPreference.validate_preferences_token("invalid-token")
+        self.assertIsNone(invalid_recipient)
+        self.assertNotEqual(error, "")
