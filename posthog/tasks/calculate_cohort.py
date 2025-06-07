@@ -17,6 +17,7 @@ from datetime import timedelta
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
+from posthog.models.cohort import CohortOrEmpty
 from posthog.models.cohort.util import get_static_cohort_size, get_dependent_cohorts, sort_cohorts_topologically
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -89,7 +90,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
         all_cohort_ids.add(cohort.id)
 
         # Sort cohorts (dependencies first)
-        seen_cohorts_cache = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
         seen_cohorts_cache[cohort.id] = cohort
         sorted_cohort_ids = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
 
