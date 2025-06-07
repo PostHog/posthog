@@ -84,7 +84,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     },
 })
 
-const NEW_FLAG: FeatureFlagType = {
+export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
     key: '',
@@ -404,7 +404,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                    const variantsSet = new Set(multivariateOptions?.variants.map((variant) => variant.key))
+                    const groups = state.filters.groups.map((group) =>
+                        !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
+                    )
+                    const oldPayloads = state.filters.payloads ?? {}
+                    const payloads = Object.keys(oldPayloads).reduce((newPayloads, variantKey) => {
+                        if (variantsSet.has(variantKey)) {
+                            return { ...newPayloads, [variantKey]: oldPayloads[variantKey] }
+                        }
+                        return newPayloads
+                    }, {})
+                    return {
+                        ...state,
+                        filters: { ...state.filters, groups, payloads, multivariate: multivariateOptions },
+                    }
                 },
                 setRemoteConfigEnabled: (state, { enabled }) => {
                     if (!state) {
@@ -915,6 +929,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (values.featureFlag.experiment_set) {
                     return await api.experiments.get(values.featureFlag.experiment_set[0])
                 }
+                return null
             },
         },
     })),
