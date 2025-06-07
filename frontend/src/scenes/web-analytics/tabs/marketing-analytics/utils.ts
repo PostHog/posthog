@@ -14,5 +14,3 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchema
     date: { type: ['datetime', 'date', 'string'], required: true }, // self managed sources dates are not converted to date type
     source_name: { type: ['string'], required: false },
 }
-
-export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>

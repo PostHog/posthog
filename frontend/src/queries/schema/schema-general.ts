@@ -1,6 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SourceMap } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -3134,11 +3134,6 @@ export interface RevenueAnalyticsGoal {
 
 export interface RevenueAnalyticsConfig {
     /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
-
-    /**
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
@@ -3192,6 +3187,8 @@ export interface EventsHeatMapStructuredResult {
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
 }
+
+export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
 
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>

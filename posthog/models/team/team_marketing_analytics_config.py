@@ -41,7 +41,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
-    _sources_map = models.JSONField(default=dict, db_column="sources_map", null=True, blank=True)
+    _sources_map = models.JSONField(default=dict, db_column="sources_map", null=False, blank=True)
 
     @property
     def sources_map(self) -> dict:

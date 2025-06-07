@@ -18,8 +18,9 @@ import {
 
 const VALID_MANUAL_LINK_SOURCES: ManualLinkSourceType[] = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
-// This is to map tables that are self-managed by the user.
-// It's a workaround to allow users to map columns to the correct fields in the Marketing Analytics product.
+// This allows users to map columns from self-managed data warehouse sources (AWS, GCP, etc.)
+// to the correct fields in the Marketing Analytics product.
+// These sources don't have predefined schemas like native integrations, so users need to manually map their columns.
 export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { toggleManualLinkFormVisible, setManualLinkingProvider } = useActions(sourceWizardLogic)

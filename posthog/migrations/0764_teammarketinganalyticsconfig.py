@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0762_team_base_currency"),
+        ("posthog", "0763_migrate_team_base_currency"),
     ]
 
     operations = [
@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("_sources_map", models.JSONField(blank=True, db_column="sources_map", default=dict, null=True)),
+                ("_sources_map", models.JSONField(blank=True, db_column="sources_map", default=dict, null=False)),
             ],
         ),
     ]

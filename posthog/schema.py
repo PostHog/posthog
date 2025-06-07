@@ -7420,7 +7420,6 @@ class RevenueAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    base_currency: Optional[CurrencyCode] = CurrencyCode.USD
     events: Optional[list[RevenueAnalyticsEventItem]] = []
     goals: Optional[list[RevenueAnalyticsGoal]] = []
 

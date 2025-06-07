@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { MarketingAnalyticsSchema, SourceMap } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
-import { MarketingAnalyticsConfig } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 

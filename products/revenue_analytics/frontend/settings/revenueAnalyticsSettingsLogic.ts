@@ -4,11 +4,9 @@ import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    CurrencyCode,
     DataTableNode,
     NodeKind,
     RevenueAnalyticsConfig,
@@ -16,17 +14,13 @@ import {
     RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
 } from '~/queries/schema/schema-general'
-import { ExternalDataSource, Region } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
 
-const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsConfig => ({
+const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
     goals: [],
-
-    // Region won't be always set because we might mount this before we mount preflightLogic
-    // so we default to USD if we can't determine the region
-    base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
 })
 
 const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
@@ -38,17 +32,13 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeam', 'currentTeamId'],
-            preflightLogic,
-            ['preflight'],
+            ['currentTeam', 'currentTeamId', 'baseCurrency'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseSources'],
         ],
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
-        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
-
         addEvent: (eventName: string) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
         updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
@@ -75,13 +65,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         revenueAnalyticsConfig: [
             null as RevenueAnalyticsConfig | null,
             {
-                updateBaseCurrency: (state: RevenueAnalyticsConfig | null, { baseCurrency }) => {
-                    if (!state) {
-                        return state
-                    }
-
-                    return { ...state, base_currency: baseCurrency }
-                },
                 addEvent: (state: RevenueAnalyticsConfig | null, { eventName }) => {
                     if (
                         !state ||
@@ -107,7 +90,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: { static: state.base_currency },
+                                revenueCurrencyProperty: { static: values.baseCurrency },
                                 currencyAwareDecimal: false,
                             },
                         ],
@@ -200,22 +183,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         ],
         savedRevenueAnalyticsConfig: [
             // TODO: Check how to pass the preflight region here
-            values.currentTeam?.revenue_analytics_config || createEmptyConfig(null),
+            values.currentTeam?.revenue_analytics_config || createEmptyConfig(),
             {
                 updateCurrentTeam: (_, { revenue_analytics_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_analytics_config || createEmptyConfig(null)
+                    return revenue_analytics_config || createEmptyConfig()
                 },
             },
         ],
     })),
     selectors({
-        baseCurrency: [
-            (s) => [s.revenueAnalyticsConfig],
-            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
-                revenueAnalyticsConfig?.base_currency || CurrencyCode.USD,
-        ],
-
         goals: [
             (s) => [s.revenueAnalyticsConfig],
             (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.goals || [],
@@ -298,7 +275,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         }
 
         return {
-            updateBaseCurrency: updateCurrentTeam,
             addGoal: updateCurrentTeam,
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
@@ -309,7 +285,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         revenueAnalyticsConfig: {
             loadRevenueAnalyticsConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.revenue_analytics_config || createEmptyConfig(values.preflight?.region)
+                    return values.currentTeam.revenue_analytics_config || createEmptyConfig()
                 }
                 return null
             },

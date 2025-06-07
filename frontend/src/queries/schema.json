@@ -17648,10 +17648,6 @@
         "RevenueAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
-                "base_currency": {
-                    "$ref": "#/definitions/CurrencyCode",
-                    "default": "USD"
-                },
                 "events": {
                     "default": [],
                     "items": {
@@ -17667,7 +17663,7 @@
                     "type": "array"
                 }
             },
-            "required": ["base_currency", "events", "goals"],
+            "required": ["events", "goals"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {

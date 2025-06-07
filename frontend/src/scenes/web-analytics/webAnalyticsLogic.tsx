@@ -36,6 +36,7 @@ import {
     InsightVizNode,
     NodeKind,
     QuerySchema,
+    SourceMap,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -71,7 +72,7 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { MARKETING_ANALYTICS_SCHEMA, SourceMap } from './tabs/marketing-analytics/utils'
+import { MARKETING_ANALYTICS_SCHEMA } from './tabs/marketing-analytics/utils'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
