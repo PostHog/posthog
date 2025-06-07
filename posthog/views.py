@@ -295,6 +295,9 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     if error:
         return JsonResponse({"error": error}, status=400)
 
+    if not recipient:
+        return JsonResponse({"error": "Invalid recipient"}, status=400)
+
     try:
         preferences = request.POST.getlist("preferences[]")
         # Convert to dict of category_id: opted_in
