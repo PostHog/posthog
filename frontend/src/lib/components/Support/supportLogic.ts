@@ -1,16 +1,26 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, Region, SidePanelTab, TeamPublicType, UserType } from '~/types'
+import {
+    AvailableFeature,
+    OrganizationBasicType,
+    ProductKey,
+    Region,
+    SidePanelTab,
+    TeamPublicType,
+    UserType,
+} from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -357,6 +367,8 @@ export const supportLogic = kea<supportLogicType>([
             ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
+            billingLogic,
+            ['billing'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -491,10 +503,88 @@ export const supportLogic = kea<supportLogicType>([
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
 
+            // Get billing information
+            const billing = billingLogic.values.billing
+            const currentOrganization = organizationLogic.values.currentOrganization
+
+            // Determine plan level tag
+            let planLevelTag = 'plan_free' // default
+
+            if (billing) {
+                const platformAndSupportProduct = billing.products?.find(
+                    (p) => p.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+
+                // Check for enterprise plan (custom subscription level or legacy enterprise)
+                const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
+                    (a) => a.current_plan && a.plan_key?.includes('enterprise')
+                )
+
+                // Find the current plan
+                const currentPlan = platformAndSupportProduct?.plans?.find((plan) => plan.current_plan)
+
+                // Check for active addons
+                const activeAddons = platformAndSupportProduct?.addons?.filter((a) => a.subscribed) || []
+                const hasScaleAddon = activeAddons.some((a) => a.type === 'scale')
+                const hasTeamsAddon = activeAddons.some((a) => a.type === 'teams')
+                const hasBoostAddon = activeAddons.some((a) => a.type === 'boost')
+
+                // Check if current plan is enterprise OR if enterprise addon is subscribed
+                const hasEnterpriseAddon = activeAddons.some((a) => a.type === 'enterprise')
+                const hasEnterprisePlan =
+                    hasLegacyEnterprisePlan ||
+                    (currentPlan?.plan_key?.includes('enterprise') ?? false) ||
+                    hasEnterpriseAddon
+
+                // Check if organization was created within the last 3 months
+                const orgCreatedAt = currentOrganization?.created_at
+                const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
+
+                // Check for addon trials (when addon has trial object but isn't subscribed)
+                // Note: Using 'as any' because the trial target types are outdated - they can also be 'boost', 'scale' etc.
+                const hasBoostTrial =
+                    (billing.trial?.status === 'active' && (billing.trial?.target as any) === 'boost') ||
+                    platformAndSupportProduct?.addons?.some((a) => a.type === 'boost' && a.trial && !a.subscribed) ||
+                    false
+                const hasScaleTrial =
+                    (billing.trial?.status === 'active' && (billing.trial?.target as any) === 'scale') ||
+                    platformAndSupportProduct?.addons?.some((a) => a.type === 'scale' && a.trial && !a.subscribed) ||
+                    false
+                const hasEnterpriseTrial =
+                    (billing.trial?.status === 'active' && billing.trial?.target === 'enterprise') ||
+                    platformAndSupportProduct?.addons?.some(
+                        (a) => a.type === 'enterprise' && a.trial && !a.subscribed
+                    ) ||
+                    false
+
+                // Update the checks to include trials
+                const hasBoostAddonOrTrial = hasBoostAddon || hasBoostTrial
+                const hasScaleAddonOrTrial = hasScaleAddon || hasScaleTrial
+                const hasEnterpriseAddonOrTrial = hasEnterprisePlan || hasEnterpriseTrial
+
+                // Determine plan level based on priority
+                if (hasEnterpriseAddonOrTrial) {
+                    planLevelTag = 'plan_enterprise'
+                } else if (isNewOrganization) {
+                    planLevelTag = 'plan_onboarding'
+                } else if (hasScaleAddonOrTrial) {
+                    planLevelTag = 'plan_scale'
+                } else if (hasTeamsAddon) {
+                    planLevelTag = 'plan_teams_legacy'
+                } else if (hasBoostAddonOrTrial) {
+                    planLevelTag = 'plan_boost'
+                } else if (currentPlan?.plan_key?.includes('paid')) {
+                    planLevelTag = 'plan_pay-as-you-go'
+                } else if (currentPlan?.plan_key?.includes('free') || billing.subscription_level === 'free') {
+                    planLevelTag = 'plan_free'
+                }
+            }
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
+                    tags: [planLevelTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
