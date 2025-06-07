@@ -505,7 +505,11 @@ export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
-    '/home': urls.projectHomepage(),
+    '/home': (_params, searchParams) => {
+        const baseUrl = urls.projectHomepage()
+        const combinedUrl = combineUrl(baseUrl, searchParams)
+        return combinedUrl.url
+    },
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/actions': urls.actions(),
