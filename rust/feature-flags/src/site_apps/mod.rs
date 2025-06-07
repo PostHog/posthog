@@ -102,7 +102,7 @@ mod tests {
         let unique_url = format!(
             "test://plugin/{}/{}",
             name.replace(" ", "_"),
-            chrono::Utc::now()
+            uuid::Uuid::new_v4()
         );
         let plugin_id: i32 = sqlx::query_scalar(
             r#"INSERT INTO posthog_plugin 

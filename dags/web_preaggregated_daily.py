@@ -4,6 +4,7 @@ import os
 
 import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
+import structlog
 from dags.common import JobOwners
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
@@ -15,14 +16,25 @@ from dags.web_preaggregated_utils import (
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
+    WEB_BOUNCES_EXPORT_SQL,
     WEB_BOUNCES_INSERT_SQL,
+    WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
 )
+from posthog.settings.base_variables import DEBUG
+from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
+from posthog.settings.object_storage import (
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+)
+
+
+logger = structlog.get_logger(__name__)
 
 # From my tests, 14 (two weeks) is a sane value for production.
 # But locally we can run more partitions per run to speed up testing (e.g: 3000 to materialize everything on a single run)
-# TODO: I am currently setting it to 2 so the backfill can be kept running without clickinghouse getting overwhelmed
-max_partitions_per_run = int(os.getenv("DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN", 2))
+max_partitions_per_run = int(os.getenv("DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN", 14))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
 
 partition_def = DailyPartitionsDefinition(start_date="2020-01-01")
@@ -125,12 +137,90 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+def export_web_analytics_data(
+    context: dagster.AssetExecutionContext,
+    table_name: str,
+    sql_generator: Callable,
+    export_prefix: str,
+) -> dagster.Output[str]:
+    config = context.op_config
+    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
+
+    if DEBUG:
+        s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
+    else:
+        s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
+
+    export_query = sql_generator(
+        date_start="2020-01-01",
+        date_end=datetime.now(UTC).strftime("%Y-%m-%d"),
+        team_ids=team_ids,
+        settings=ch_settings,
+        table_name=table_name,
+        s3_path=s3_path,
+    )
+
+    sync_execute(export_query)
+
+    context.log.info(f"Successfully exported {table_name} to S3: {s3_path}")
+
+    return dagster.Output(
+        value=s3_path,
+        metadata={
+            "s3_path": s3_path,
+            "table_name": table_name,
+        },
+    )
+
+
+@dagster.asset(
+    name="web_analytics_stats_export",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_stats_table_daily"],
+    metadata={"export_file": "web_stats_daily_export.native"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_stats_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[str]:
+    """
+    Exports web_stats_daily data directly to S3 using ClickHouse's native S3 export.
+    """
+    return export_web_analytics_data(
+        context=context,
+        table_name="web_stats_daily",
+        sql_generator=WEB_STATS_EXPORT_SQL,
+        export_prefix="web_stats_daily_export",
+    )
+
+
+@dagster.asset(
+    name="web_analytics_bounces_export",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_bounces_daily"],
+    metadata={"export_file": "web_bounces_daily_export.native"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[str]:
+    """
+    Exports web_bounces_daily data directly to S3 using ClickHouse's native S3 export.
+    """
+    return export_web_analytics_data(
+        context=context,
+        table_name="web_bounces_daily",
+        sql_generator=WEB_BOUNCES_EXPORT_SQL,
+        export_prefix="web_bounces_daily_export",
+    )
+
+
+# Daily incremental job with asset-level concurrency control
 web_pre_aggregate_daily_job = dagster.define_asset_job(
     name="web_analytics_daily_job",
     selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # The intance level config limits the job concurrency on the run queue
+        # The instance level config limits the job concurrency on the run queue
         # https://github.com/PostHog/charts/blob/chore/dagster-config/config/dagster/prod-us.yaml#L179-L181
     },
     # This limit the concurrency of the assets inside the job, so they run sequentially
