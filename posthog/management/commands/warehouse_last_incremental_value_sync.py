@@ -4,7 +4,6 @@ from django.conf import settings
 
 import dlt
 import dlt.common
-import dlt.common.pipeline
 import dlt.common.configuration.resolve
 
 from dlt.common.configuration.specs.base_configuration import (
@@ -132,10 +131,10 @@ class Command(BaseCommand):
                 continue
 
             try:
-                schema.update_incremental_field_last_value(last_incremental_value)
+                schema.update_incremental_field_value(last_incremental_value)
             except Exception as e:
                 print(  # noqa: T201
-                    f"Cant update_incremental_field_last_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
+                    f"Cant update_incremental_field_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
                 )
                 pipeline.drop()
                 continue
