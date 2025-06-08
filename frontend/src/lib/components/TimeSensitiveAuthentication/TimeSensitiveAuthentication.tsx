@@ -27,7 +27,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
     return (
         <LemonModal
-            zIndex="1169"
+            zIndex="1169" // The re-authentication modal should be above the all popovers, including the AI consent popover
             title="Re-authenticate for security"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
