@@ -82,7 +82,7 @@ export async function updatePlaylist(
     const newPlaylist = await api.recordings.updatePlaylist(shortId, playlist)
     refreshTreeItem('session_recording_playlist', shortId)
     if (!silent) {
-        lemonToast.success('Playlist updated successfully')
+        lemonToast.success('Saved filter updated successfully')
     }
     return newPlaylist
 }
@@ -106,13 +106,17 @@ export async function duplicatePlaylist(
 
 export async function createPlaylist(
     playlist: Partial<SessionRecordingPlaylistType>,
-    redirect = false
+    redirect = false,
+    silent: boolean = false
 ): Promise<SessionRecordingPlaylistType | null> {
     try {
         playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
         const res = await api.recordings.createPlaylist(playlist)
         if (redirect) {
             router.actions.push(urls.replayPlaylist(res.short_id))
+        }
+        if (!silent) {
+            lemonToast.success('Saved filter created successfully')
         }
         return res
     } catch (e: any) {

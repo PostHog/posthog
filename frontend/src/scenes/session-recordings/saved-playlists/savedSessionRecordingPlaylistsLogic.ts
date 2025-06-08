@@ -68,6 +68,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         checkForSavedFilterRedirect: true,
         setSavedFiltersSearch: (search: string) => ({ search }),
+        setAppliedSavedfilter: (savedFilter: SessionRecordingPlaylistType | null) => ({ savedFilter }),
+        setSavedFilterName: (savedFilterName: string) => ({ savedFilterName }),
+        setShowSavedFiltersBlock: (showSavedFiltersBlock: boolean) => ({ showSavedFiltersBlock }),
     })),
     reducers(() => ({
         savedFiltersSearch: [
@@ -93,6 +96,24 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 loadPlaylists: () => false,
                 loadPlaylistsSuccess: () => false,
                 loadPlaylistsFailure: () => true,
+            },
+        ],
+        appliedSavedFilter: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                setAppliedSavedfilter: (_, { savedFilter }) => savedFilter,
+            },
+        ],
+        savedFilterName: [
+            '',
+            {
+                setSavedFilterName: (_, { savedFilterName }) => savedFilterName,
+            },
+        ],
+        showSavedFiltersBlock: [
+            false,
+            {
+                setShowSavedFiltersBlock: (_, { showSavedFiltersBlock }) => showSavedFiltersBlock,
             },
         ],
     })),
@@ -300,6 +321,12 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 })
             } catch (e) {
                 posthog.captureException(e, { posthog_feature: 'playlist_counting' })
+            }
+        },
+        setAppliedSavedfilter: ({ savedFilter }) => {
+            if (savedFilter) {
+                //Add savedFilterId to the url as a search param and preserve the other search params
+                router.actions.push(urls.replay(ReplayTabs.Home, { savedFilterId: savedFilter.short_id }))
             }
         },
     })),

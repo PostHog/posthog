@@ -2,15 +2,18 @@ import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
+import { RecordingsUniversalFilters, RecordingsUniversalFiltersContent } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
+import { playlistLogic as plLogic } from './playlistLogic'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
@@ -50,6 +53,9 @@ export function SessionRecordingsPlaylist({
         totalFiltersCount,
     } = useValues(playlistLogic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { isFiltersExpanded } = useValues(plLogic)
 
     const notebookNode = useNotebookNode()
 
@@ -136,27 +142,43 @@ export function SessionRecordingsPlaylist({
                     listEmptyState={<ListEmptyState />}
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
-                    content={({ activeItem }) =>
-                        showContent && activeItem ? (
-                            <SessionRecordingPlayer
-                                playerKey={props.logicKey ?? 'playlist'}
-                                sessionRecordingId={activeItem.id}
-                                matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={playlistLogic}
-                                noBorder
-                                pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
-                                setPinned={
-                                    props.onPinnedChange
-                                        ? (pinned) => {
-                                              if (!activeItem.id) {
-                                                  return
+                    content={({ activeItem }) => {
+                        if (featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && isFiltersExpanded) {
+                            return (
+                                <RecordingsUniversalFiltersContent
+                                    resetFilters={resetFilters}
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    totalFiltersCount={totalFiltersCount}
+                                    allowReplayHogQLFilters={allowHogQLFilters}
+                                    allowReplayGroupsFilters={allowReplayGroupsFilters}
+                                />
+                            )
+                        }
+                        if (showContent && activeItem) {
+                            return (
+                                <SessionRecordingPlayer
+                                    playerKey={props.logicKey ?? 'playlist'}
+                                    sessionRecordingId={activeItem.id}
+                                    matchingEventsMatchType={matchingEventsMatchType}
+                                    playlistLogic={playlistLogic}
+                                    noBorder
+                                    pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
+                                    setPinned={
+                                        props.onPinnedChange
+                                            ? (pinned) => {
+                                                  if (!activeItem.id) {
+                                                      return
+                                                  }
+                                                  props.onPinnedChange?.(activeItem, pinned)
                                               }
-                                              props.onPinnedChange?.(activeItem, pinned)
-                                          }
-                                        : undefined
-                                }
-                            />
-                        ) : (
+                                            : undefined
+                                    }
+                                />
+                            )
+                        }
+
+                        return (
                             <div className="mt-20">
                                 <EmptyMessage
                                     title="No recording selected"
@@ -166,7 +188,7 @@ export function SessionRecordingsPlaylist({
                                 />
                             </div>
                         )
-                    }
+                    }}
                 />
             </div>
         </BindLogic>

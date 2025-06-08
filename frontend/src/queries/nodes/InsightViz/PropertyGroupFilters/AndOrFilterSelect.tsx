@@ -36,7 +36,7 @@ export function AndOrFilterSelect({
                         value: FilterLogicalOperator.And,
                         labelInMenu: (
                             <SelectOption<FilterLogicalOperator>
-                                title="All"
+                                title="all"
                                 description="Every single filter must match"
                                 value={FilterLogicalOperator.And}
                                 selectedValue={value}
@@ -48,7 +48,7 @@ export function AndOrFilterSelect({
                         value: FilterLogicalOperator.Or,
                         labelInMenu: (
                             <SelectOption<FilterLogicalOperator>
-                                title="Any"
+                                title="any"
                                 description="One or more filters must match"
                                 value={FilterLogicalOperator.Or}
                                 selectedValue={value}

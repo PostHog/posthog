@@ -2,13 +2,18 @@ import './Playlist.scss'
 
 import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { range } from 'lib/utils'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { SessionRecordingType } from '~/types'
+
+import { playlistLogic } from '../playlist/playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -76,6 +81,9 @@ export function Playlist({
     const [controlledActiveItemId, setControlledActiveItemId] = useState<SessionRecordingType['id'] | null>(
         selectInitialItem && firstItem ? firstItem.id : null
     )
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { isFiltersExpanded } = useValues(playlistLogic)
 
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -214,7 +222,11 @@ export function Playlist({
                 </div>
                 <div
                     className={clsx(
-                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
+                        `Playlist min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none  ${
+                            featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && isFiltersExpanded
+                                ? 'overflow-y-auto  bg-white'
+                                : 'h-full'
+                        }`,
                         {
                             'Playlist--wide': size !== 'small',
                             'Playlist--embedded': embedded,
@@ -222,7 +234,13 @@ export function Playlist({
                     )}
                 >
                     {content && (
-                        <div className="Playlist__main h-full">
+                        <div
+                            className={`Playlist__main ${
+                                featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && isFiltersExpanded
+                                    ? 'bg-white overflow-y-auto'
+                                    : ''
+                            }`}
+                        >
                             {' '}
                             {typeof content === 'function' ? content({ activeItem }) : content}
                         </div>

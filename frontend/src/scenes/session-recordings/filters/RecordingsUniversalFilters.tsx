@@ -1,13 +1,25 @@
-import { IconClock, IconEye, IconFilter, IconHide, IconRevert } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonButtonProps, LemonInput, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonButtonProps,
+    LemonInput,
+    LemonModal,
+    LemonTabs,
+    Popover,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -21,9 +33,12 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/types'
 
+import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
+import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable'
+import { ReplayActiveUsersTable } from '../components/ReplayActiveUsersTable'
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
-import { createPlaylist } from '../playlist/playlistUtils'
+import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
@@ -63,14 +78,14 @@ function HideRecordingsMenu(): JSX.Element {
     )
 }
 
-export const RecordingsUniversalFilters = ({
+export const RecordingsUniversalFiltersTabs = ({
     filters,
     setFilters,
-    resetFilters,
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
     allowReplayGroupsFilters = false,
+    resetFilters,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -80,18 +95,14 @@ export const RecordingsUniversalFilters = ({
     allowReplayHogQLFilters?: boolean
     allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
-    const [savedFilterName, setSavedFilterName] = useState('')
-
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
     const durationFilter = filters.duration[0]
 
-    const { isFiltersExpanded, activeFilterTab } = useValues(playlistLogic)
-    const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
-    const { playlistTimestampFormat } = useValues(playerSettingsLogic)
-    const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { activeFilterTab } = useValues(playlistLogic)
+    const { setActiveFilterTab } = useActions(playlistLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
@@ -113,41 +124,24 @@ export const RecordingsUniversalFilters = ({
     }
 
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    const { savedFilters } = useValues(savedFiltersLogic)
-    const { loadSavedFilters } = useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter, showSavedFiltersBlock } = useValues(savedFiltersLogic)
+    const { loadSavedFilters, setShowSavedFiltersBlock, setAppliedSavedfilter } = useActions(savedFiltersLogic)
+
+    const [savedFilterName, setSavedFilterName] = useState(appliedSavedFilter ? appliedSavedFilter.name : '')
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
-    const newPlaylistHandler = async (): Promise<void> => {
-        await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const createSavedFilter = async (): Promise<void> => {
+        const res = await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false, false)
+        if (res) {
+            setAppliedSavedfilter(res)
+        }
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setSavedFilterName('')
-    }
-
-    /** Modal footer with buttons for reset and close */
-    const ModalFooter = (): JSX.Element => {
-        return (
-            <div className="flex justify-between p-2 gap-2">
-                {activeFilterTab === 'filters' && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={resetFilters}
-                        icon={<IconRevert />}
-                        tooltip="Reset any changes you've made to the filters"
-                        disabledReason={
-                            !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
-                        }
-                    >
-                        Reset filters
-                    </LemonButton>
-                )}
-                <LemonButton type="primary" size="small" onClick={() => setIsFiltersExpanded(false)}>
-                    Close
-                </LemonButton>
-            </div>
-        )
+        setShowSavedFiltersBlock(false)
     }
 
     const tabs = [
@@ -156,7 +150,7 @@ export const RecordingsUniversalFilters = ({
             label: <div className="px-2">Filters</div>,
             content: (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
-                    <div className="flex items-center py-2">
+                    <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}
                             onChange={(type) => {
@@ -180,50 +174,6 @@ export const RecordingsUniversalFilters = ({
                             suffix={['filter', 'filters']}
                             size="small"
                         />
-                    </div>
-                    <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
-                        <div className="flex flex-wrap gap-2 items-center">
-                            <DateFilter
-                                dateFrom={filters.date_from ?? '-3d'}
-                                dateTo={filters.date_to}
-                                onChange={(changedDateFrom, changedDateTo) => {
-                                    setFilters({
-                                        date_from: changedDateFrom,
-                                        date_to: changedDateTo,
-                                    })
-                                }}
-                                dateOptions={[
-                                    { key: 'Custom', values: [] },
-                                    { key: 'Last 24 hours', values: ['-24h'] },
-                                    { key: 'Last 3 days', values: ['-3d'] },
-                                    { key: 'Last 7 days', values: ['-7d'] },
-                                    { key: 'Last 30 days', values: ['-30d'] },
-                                    { key: 'All time', values: ['-90d'] },
-                                ]}
-                                dropdownPlacement="bottom-start"
-                                size="small"
-                                // we always want to include the time in the date when setting it
-                                allowTimePrecision={true}
-                                // we always want to present the time control
-                                forceGranularity="minute"
-                            />
-                            <DurationFilter
-                                onChange={(newRecordingDurationFilter, newDurationType) => {
-                                    setFilters({
-                                        duration: [
-                                            {
-                                                ...newRecordingDurationFilter,
-                                                key: newDurationType,
-                                            },
-                                        ],
-                                    })
-                                }}
-                                recordingDurationFilter={durationFilter}
-                                durationTypeFilter={durationFilter.key}
-                                pageKey="session-recordings"
-                                size="small"
-                            />
-                        </div>
                         <div>
                             <TestAccountFilter
                                 size="small"
@@ -236,6 +186,52 @@ export const RecordingsUniversalFilters = ({
                             />
                         </div>
                     </div>
+                    {!featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && (
+                        <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <DateFilter
+                                    dateFrom={filters.date_from ?? '-3d'}
+                                    dateTo={filters.date_to}
+                                    onChange={(changedDateFrom, changedDateTo) => {
+                                        setFilters({
+                                            date_from: changedDateFrom,
+                                            date_to: changedDateTo,
+                                        })
+                                    }}
+                                    dateOptions={[
+                                        { key: 'Custom', values: [] },
+                                        { key: 'Last 24 hours', values: ['-24h'] },
+                                        { key: 'Last 3 days', values: ['-3d'] },
+                                        { key: 'Last 7 days', values: ['-7d'] },
+                                        { key: 'Last 30 days', values: ['-30d'] },
+                                        { key: 'All time', values: ['-90d'] },
+                                    ]}
+                                    dropdownPlacement="bottom-start"
+                                    size="small"
+                                    // we always want to include the time in the date when setting it
+                                    allowTimePrecision={true}
+                                    // we always want to present the time control
+                                    forceGranularity="minute"
+                                />
+                                <DurationFilter
+                                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                                        setFilters({
+                                            duration: [
+                                                {
+                                                    ...newRecordingDurationFilter,
+                                                    key: newDurationType,
+                                                },
+                                            ],
+                                        })
+                                    }}
+                                    recordingDurationFilter={durationFilter}
+                                    durationTypeFilter={durationFilter.key}
+                                    pageKey="session-recordings"
+                                    size="small"
+                                />
+                            </div>
+                        </div>
+                    )}
                     <div className="flex flex-wrap gap-2 p-2">
                         <UniversalFilters
                             rootKey="session-recordings"
@@ -243,36 +239,31 @@ export const RecordingsUniversalFilters = ({
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                         >
-                            <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
+                            <RecordingsUniversalFilterGroup
+                                size="small"
+                                totalFiltersCount={totalFiltersCount}
+                                resetFilters={resetFilters}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
                         </UniversalFilters>
                     </div>
-                    {(totalFiltersCount ?? 0) > 0 && (
-                        <div className="flex gap-2 p-2 justify-start">
-                            {savedFilters.results?.find((filter) => equal(filter.filters, filters)) ? (
-                                <div className="text-sm italic text-text-secondary inline-flex items-center font-medium gap-1">
-                                    "
-                                    {savedFilters.results?.find((filter) => equal(filter.filters, filters))?.name ||
-                                        'Unnamed'}
-                                    " saved filter applied
-                                </div>
-                            ) : (
-                                <>
-                                    <LemonInput
-                                        value={savedFilterName}
-                                        placeholder="Saved filter name"
-                                        onChange={setSavedFilterName}
-                                        size="small"
-                                        autoFocus
-                                        fullWidth
-                                        onClick={(e) => {
-                                            e.stopPropagation() // Prevent dropdown from closing
-                                        }}
-                                    />
-                                    <LemonButton type="primary" size="xsmall" onClick={() => void newPlaylistHandler()}>
-                                        Save filters
-                                    </LemonButton>
-                                </>
-                            )}
+                    {(totalFiltersCount ?? 0) > 0 && showSavedFiltersBlock && (
+                        <div className="flex gap-2 p-2 justify-start max-w-96">
+                            <LemonInput
+                                value={savedFilterName}
+                                placeholder="Saved filter name"
+                                onChange={setSavedFilterName}
+                                size="xsmall"
+                                autoFocus
+                                fullWidth
+                                onClick={(e) => {
+                                    e.stopPropagation() // Prevent dropdown from closing
+                                }}
+                            />
+                            <LemonButton type="primary" size="xsmall" onClick={() => void createSavedFilter()}>
+                                Save
+                            </LemonButton>
                         </div>
                     )}
                 </div>
@@ -294,8 +285,152 @@ export const RecordingsUniversalFilters = ({
         },
     ]
 
+    if (featureFlags[FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP] === 'templates') {
+        tabs.push({
+            key: 'explore',
+            label: <div className="px-2">Explore</div>,
+            content: (
+                <div className="flex flex-col gap-2 w-full pb-2">
+                    <div className="flex flex-row gap-2 w-full">
+                        <ReplayActiveUsersTable />
+                        <ReplayActiveScreensTable />
+                    </div>
+                    <ReplayActiveHoursHeatMap />
+                </div>
+            ),
+        })
+    }
+
     return (
-        <>
+        <LemonTabs
+            activeKey={activeFilterTab}
+            onChange={(activeKey) => setActiveFilterTab(activeKey)}
+            size="small"
+            tabs={tabs}
+        />
+    )
+}
+
+export const RecordingsUniversalFiltersContent = ({
+    filters,
+    setFilters,
+    resetFilters,
+    totalFiltersCount,
+    allowReplayHogQLFilters = false,
+    allowReplayGroupsFilters = false,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    resetFilters?: () => void
+    totalFiltersCount?: number
+    allowReplayHogQLFilters?: boolean
+    allowReplayGroupsFilters?: boolean
+}): JSX.Element => {
+    const { setIsFiltersExpanded } = useActions(playlistLogic)
+
+    return (
+        <div className="bg-white p-2 h-full">
+            <div className="flex justify-end items-center">
+                <LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />
+            </div>
+            <RecordingsUniversalFiltersTabs
+                filters={filters}
+                setFilters={setFilters}
+                totalFiltersCount={totalFiltersCount}
+                allowReplayHogQLFilters={allowReplayHogQLFilters}
+                allowReplayGroupsFilters={allowReplayGroupsFilters}
+                resetFilters={resetFilters}
+            />
+        </div>
+    )
+}
+
+export const RecordingsUniversalFilters = ({
+    filters,
+    setFilters,
+    resetFilters,
+    totalFiltersCount,
+    allowReplayHogQLFilters = false,
+    allowReplayGroupsFilters = false,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    resetFilters?: () => void
+    totalFiltersCount?: number
+    allowReplayHogQLFilters?: boolean
+    allowReplayGroupsFilters?: boolean
+}): JSX.Element => {
+    useMountedLogic(cohortsModel)
+    useMountedLogic(actionsModel)
+    useMountedLogic(groupsModel)
+
+    const { isFiltersExpanded } = useValues(playlistLogic)
+    const { setIsFiltersExpanded } = useActions(playlistLogic)
+    const { playlistTimestampFormat } = useValues(playerSettingsLogic)
+    const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.Replay,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.SessionProperties,
+    ]
+
+    if (allowReplayHogQLFilters) {
+        taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (allowReplayGroupsFilters) {
+        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
+    }
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const MaxToolContent = (): JSX.Element => {
+        // if the feature flag is enabled, we want to show only the button
+        if (featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST]) {
+            return (
+                <MaxTool
+                    name="search_session_recordings"
+                    displayName="Search recordings"
+                    context={{
+                        current_filters: filters,
+                    }}
+                    callback={(toolOutput: Record<string, any>) => {
+                        // Improve type
+                        setFilters(toolOutput)
+                        setIsFiltersExpanded(true)
+                    }}
+                    initialMaxPrompt="Show me recordings where "
+                    suggestions={[
+                        'Show recordings of people who visited signup in the last 24 hours',
+                        'Show recordings showing user frustration',
+                        'Show recordings of people who faced bugs',
+                    ]}
+                    onMaxOpen={() => setIsFiltersExpanded(false)}
+                >
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconFilter />}
+                            onClick={() => {
+                                setIsFiltersExpanded(!isFiltersExpanded)
+                            }}
+                            fullWidth
+                        >
+                            Filters
+                        </LemonButton>
+                    </>
+                </MaxTool>
+            )
+        }
+
+        return (
             <MaxTool
                 name="search_session_recordings"
                 displayName="Search recordings"
@@ -333,19 +468,31 @@ export const RecordingsUniversalFilters = ({
                             setIsFiltersExpanded(false)
                         }}
                         width={750}
-                        footer={<ModalFooter />}
+                        footer={
+                            <div className="flex justify-end p-2 gap-2">
+                                <LemonButton type="primary" size="small" onClick={() => setIsFiltersExpanded(false)}>
+                                    Close
+                                </LemonButton>
+                            </div>
+                        }
                     >
-                        <>
-                            <LemonTabs
-                                activeKey={activeFilterTab}
-                                onChange={(activeKey) => setActiveFilterTab(activeKey)}
-                                size="small"
-                                tabs={tabs}
-                            />
-                        </>
+                        <RecordingsUniversalFiltersTabs
+                            filters={filters}
+                            setFilters={setFilters}
+                            resetFilters={resetFilters}
+                            totalFiltersCount={totalFiltersCount}
+                            allowReplayHogQLFilters={allowReplayHogQLFilters}
+                            allowReplayGroupsFilters={allowReplayGroupsFilters}
+                        />
                     </LemonModal>
                 </>
             </MaxTool>
+        )
+    }
+
+    return (
+        <>
+            <MaxToolContent />
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
@@ -379,15 +526,40 @@ export const RecordingsUniversalFilters = ({
 const RecordingsUniversalFilterGroup = ({
     size = 'small',
     totalFiltersCount,
-    showAddFilter = true,
+    resetFilters,
+    filters,
+    setFilters,
 }: {
     size?: LemonButtonProps['size']
     totalFiltersCount?: number
-    showAddFilter?: boolean
+    resetFilters?: () => void
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
+    const durationFilter = filters.duration[0]
+
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+
+    const { setAppliedSavedfilter, loadSavedFilters, setSavedFilterName, setShowSavedFiltersBlock } =
+        useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter, savedFilterName, showSavedFiltersBlock } = useValues(savedFiltersLogic)
+    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
+
+    const updateSavedFilter = async (): Promise<void> => {
+        if (appliedSavedFilter === null) {
+            return
+        }
+
+        await updatePlaylist(appliedSavedFilter.short_id, { name: savedFilterName, filters, type: 'filters' }, false)
+        reportRecordingPlaylistCreated('new')
+        loadSavedFilters()
+        setSavedFilterName('')
+    }
 
     useEffect(() => {
         setAllowInitiallyOpen(true)
@@ -399,23 +571,156 @@ const RecordingsUniversalFilterGroup = ({
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <div className="w-full">
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <div
-                                className={
-                                    showAddFilter
-                                        ? 'flex flex-wrap items-center gap-2 border-t py-4'
-                                        : 'flex flex-wrap gap-2 pt-2'
-                                }
-                            >
-                                {(totalFiltersCount ?? 0) > 0 && showAddFilter && (
+                            {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && (
+                                <div className="flex flex-wrap items-center gap-2 mb-4">
+                                    <DateFilter
+                                        dateFrom={filters.date_from ?? '-3d'}
+                                        dateTo={filters.date_to}
+                                        onChange={(changedDateFrom, changedDateTo) => {
+                                            setFilters({
+                                                date_from: changedDateFrom,
+                                                date_to: changedDateTo,
+                                            })
+                                        }}
+                                        dateOptions={[
+                                            { key: 'Custom', values: [] },
+                                            { key: 'Last 24 hours', values: ['-24h'] },
+                                            { key: 'Last 3 days', values: ['-3d'] },
+                                            { key: 'Last 7 days', values: ['-7d'] },
+                                            { key: 'Last 30 days', values: ['-30d'] },
+                                            { key: 'All time', values: ['-90d'] },
+                                        ]}
+                                        dropdownPlacement="bottom-start"
+                                        size="small"
+                                        // we always want to include the time in the date when setting it
+                                        allowTimePrecision={true}
+                                        // we always want to present the time control
+                                        forceGranularity="minute"
+                                    />
+                                    <DurationFilter
+                                        onChange={(newRecordingDurationFilter, newDurationType) => {
+                                            setFilters({
+                                                duration: [
+                                                    {
+                                                        ...newRecordingDurationFilter,
+                                                        key: newDurationType,
+                                                    },
+                                                ],
+                                            })
+                                        }}
+                                        recordingDurationFilter={durationFilter}
+                                        durationTypeFilter={durationFilter.key}
+                                        pageKey="session-recordings"
+                                        size="small"
+                                    />
+                                    <Popover
+                                        overlay={<UniversalFilters.PureTaxonomicFilter />}
+                                        placement="bottom"
+                                        visible={isPopoverVisible}
+                                        onClickOutside={() => setIsPopoverVisible(false)}
+                                    >
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconPlus />}
+                                            onClick={() => setIsPopoverVisible(!isPopoverVisible)}
+                                        >
+                                            Add filter
+                                        </LemonButton>
+                                    </Popover>
+                                </div>
+                            )}
+                            <div className="flex flex-wrap items-center gap-2 py-4">
+                                {(totalFiltersCount ?? 0) > 0 ? (
                                     <span className="font-semibold">Applied filters:</span>
+                                ) : (
+                                    featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && (
+                                        <div className="text-sm text-text-secondary p-4 border rounded w-full flex justify-center items-center gap-2">
+                                            <FilmCameraHog className="w-24 h-24" />
+                                            <div className="flex flex-col gap-2">
+                                                <h2 className="font-semibold">No filters applied</h2>
+                                                <p>Apply filters to find interesting recordings. You can filter by:</p>
+                                                <ul className="list-disc list-inside text-sm ml-4">
+                                                    <li>Date</li>
+                                                    <li>Duration</li>
+                                                    <li>Events & Event properties</li>
+                                                    <li>Actions</li>
+                                                    <li>Cohorts</li>
+                                                    <li>Person properties</li>
+                                                    <li>Session properties</li>
+                                                    <li>HogQL expressions</li>
+                                                    <li>Test accounts</li>
+                                                    <li>Groups</li>
+                                                    <li>and more...</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    )
                                 )}
                                 <RecordingsUniversalFilterGroup
                                     size={size}
                                     totalFiltersCount={totalFiltersCount}
-                                    showAddFilter={showAddFilter}
+                                    resetFilters={resetFilters}
+                                    filters={filters}
+                                    setFilters={setFilters}
                                 />
+                                {(totalFiltersCount ?? 0) > 0 && resetFilters && (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            onClick={() => {
+                                                if (resetFilters) {
+                                                    void resetFilters()
+                                                    setAppliedSavedfilter(null)
+                                                }
+                                            }}
+                                            icon={<IconRevert />}
+                                            tooltip="Reset any changes you've made to the filters"
+                                        >
+                                            Reset filters
+                                        </LemonButton>
+                                        {appliedSavedFilter !== null &&
+                                        savedFilters.results?.find((filter) => equal(filter.filters, filters)) ===
+                                            undefined ? (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                onClick={() => void updateSavedFilter()}
+                                                sideAction={{
+                                                    dropdown: {
+                                                        placement: 'bottom-end',
+                                                        overlay: (
+                                                            <LemonMenuOverlay
+                                                                items={[
+                                                                    {
+                                                                        label: 'Save as...',
+                                                                        onClick: () =>
+                                                                            setShowSavedFiltersBlock(
+                                                                                !showSavedFiltersBlock
+                                                                            ),
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        ),
+                                                    },
+                                                }}
+                                            >
+                                                Update "{appliedSavedFilter.name}" filter
+                                            </LemonButton>
+                                        ) : (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                onClick={() => setShowSavedFiltersBlock(!showSavedFiltersBlock)}
+                                            >
+                                                {appliedSavedFilter === null ? 'Save filters' : 'Save as new filter'}
+                                            </LemonButton>
+                                        )}
+                                    </>
+                                )}
                             </div>
-                            {showAddFilter && (
+                            {!featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && (
                                 <>
                                     <div className="font-semibold mb-1">Add filter:</div>
                                     <UniversalFilters.PureTaxonomicFilter />

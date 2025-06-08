@@ -1209,6 +1209,7 @@ export interface RecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
     order?: RecordingsQuery['order']
+    savedFilterId?: string | null
 }
 
 export interface UniversalFiltersGroup {
