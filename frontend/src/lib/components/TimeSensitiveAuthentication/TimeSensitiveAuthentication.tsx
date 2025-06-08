@@ -27,6 +27,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
     return (
         <LemonModal
+            zIndex="1169"
             title="Re-authenticate for security"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
