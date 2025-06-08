@@ -263,7 +263,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "message_preferences/error.html", {"error": error}, status=400)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False).order_by("name")
+    categories = MessageCategory.objects.filter(deleted=False, team=recipient.team).order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
 
     context = {
