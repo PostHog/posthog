@@ -68,7 +68,17 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setMode('draw')
         setHtml(null)
         setImageFile(null)
-    }, [setIsOpen])
+    }, [
+        setIsOpen,
+        setOriginalImage,
+        setCurrentText,
+        setTextInputPosition,
+        setSelectedTextIndex,
+        setDragStartOffset,
+        setMode,
+        setHtml,
+        setImageFile,
+    ])
 
     const redrawCanvas = useCallback(() => {
         const canvas = canvasRef.current
@@ -123,7 +133,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                 ctx.strokeRect(textItem.x - 2, textItem.y - textHeight, textWidth + 4, textHeight + 4)
             }
         })
-    }, [originalImage, drawings, texts, isDrawing, currentPath, color, mode, selectedTextIndex])
+    }, [originalImage, drawings, texts, isDrawing, currentPath, color, mode, selectedTextIndex, lineWidth, fontSize])
 
     useEffect(() => {
         if (isOpen && imageFile && !originalImage) {
@@ -172,7 +182,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
             setSelectedTextIndex(null)
             setHtml(null)
         }
-    }, [isOpen, imageFile, originalImage, handleClose, html])
+    }, [isOpen, imageFile, originalImage, handleClose, html, setOriginalImage, setSelectedTextIndex, setHtml])
 
     useEffect(() => {
         if (isOpen && originalImage) {
@@ -393,16 +403,15 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                 colors={getSeriesColorPalette().slice(0, 20)}
                             />
                             <LemonSelect
-                                disabledReason={mode !== 'draw' ? 'Please use the draw mode' : undefined}
                                 value={lineWidth}
                                 onChange={setLineWidth}
                                 options={Array.from({ length: 10 }, (_, i) => {
                                     const value = 1 + i * 2
                                     return {
                                         label: (
-                                            // eslint-disable-next-line react/forbid-dom-props
                                             <div
                                                 className="w-12 bg-gray-700 rounded-full"
+                                                // eslint-disable-next-line react/forbid-dom-props
                                                 style={{ height: `${value}px` }}
                                             />
                                         ),
@@ -421,10 +430,9 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                 tooltip="Draw"
                             />
                             <LemonSelect
-                                disabledReason={mode !== 'draw' ? undefined : 'Please use the text mode'}
                                 value={fontSize}
                                 onChange={setFontSize}
-                                options={Array.from({ length: 21 }, (_, i) => {
+                                options={Array.from({ length: 20 }, (_, i) => {
                                     const value = 10 + i * 2
                                     return { label: value.toString(), value }
                                 })}
