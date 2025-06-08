@@ -64,46 +64,21 @@ describe('BatchWritingGroupStore', () => {
 
     describe('Batch Writing Disabled', () => {
         beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false, maxConcurrentUpdates: 10 })
+            groupStore = new BatchWritingGroupStore(db)
         })
 
         it('should fetch group from db multiple times, write multiple times to db', async () => {
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId = groupStoreForBatch.forDistinctID('1', '1')
 
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { a: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { b: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { c: 'test' },
-                DateTime.now(),
-                false
-            )
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now(), false)
 
             expect(db.postgres.transaction).toHaveBeenCalledTimes(3)
             expect(db.fetchGroup).toHaveBeenCalledTimes(3)
             expect(db.updateGroup).toHaveBeenCalledTimes(3)
 
-            const cacheMetrics = groupStoreForDistinctId.getCacheMetrics()
+            const cacheMetrics = groupStoreForBatch.getCacheMetrics()
 
             // Validate cache operations counter
             expect(cacheMetrics.cacheHits).toBe(0)
@@ -113,17 +88,8 @@ describe('BatchWritingGroupStore', () => {
         it('should insert group if does not exist in postgres', async () => {
             jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId = groupStoreForBatch.forDistinctID('1', '1')
 
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { a: 'test' },
-                DateTime.now(),
-                false
-            )
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
 
             expect(db.fetchGroup).toHaveBeenCalledTimes(1)
             expect(db.insertGroup).toHaveBeenCalledTimes(1)
@@ -132,40 +98,15 @@ describe('BatchWritingGroupStore', () => {
 
     describe('Batch Writing Enabled', () => {
         beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: true, maxConcurrentUpdates: 10 })
+            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: true })
         })
 
         it('should accumulate writes in cache, write once to db', async () => {
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId = groupStoreForBatch.forDistinctID('1', '1')
 
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { a: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { b: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { c: 'test' },
-                DateTime.now(),
-                false
-            )
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now(), false)
 
             await groupStoreForBatch.flush()
 
@@ -184,7 +125,7 @@ describe('BatchWritingGroupStore', () => {
                 {}
             )
 
-            const cacheMetrics = groupStoreForDistinctId.getCacheMetrics()
+            const cacheMetrics = groupStoreForBatch.getCacheMetrics()
 
             expect(cacheMetrics.cacheHits).toBe(2)
             expect(cacheMetrics.cacheMisses).toBe(0)
@@ -193,17 +134,8 @@ describe('BatchWritingGroupStore', () => {
         it('should immediately write to db if new group', async () => {
             jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId = groupStoreForBatch.forDistinctID('1', '1')
 
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { a: 'test' },
-                DateTime.now(),
-                false
-            )
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
 
             expect(db.fetchGroup).toHaveBeenCalledTimes(1)
             expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
@@ -214,11 +146,10 @@ describe('BatchWritingGroupStore', () => {
         it('should accumulate changes in cache after db write, even if new group', async () => {
             jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId = groupStoreForBatch.forDistinctID('1', '1')
             const createdAt = DateTime.now()
 
-            await groupStoreForDistinctId.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, createdAt, false)
-            await groupStoreForDistinctId.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, createdAt, false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, createdAt, false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, createdAt, false)
 
             await groupStoreForBatch.flush()
 
@@ -264,35 +195,10 @@ describe('BatchWritingGroupStore', () => {
             })
 
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId = groupStoreForBatch.forDistinctID('1', '1')
 
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { a: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { b: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { c: 'test' },
-                DateTime.now(),
-                false
-            )
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now(), false)
 
             await groupStoreForBatch.flush()
 
@@ -314,29 +220,30 @@ describe('BatchWritingGroupStore', () => {
             )
         })
 
+        it('should fall back to direct upsert if optimistic update fails', async () => {
+            jest.spyOn(db, 'updateGroupOptimistically').mockResolvedValue(undefined)
+            jest.spyOn(db, 'updateGroup').mockResolvedValue(2)
+            jest.spyOn(db, 'fetchGroup').mockResolvedValue(group)
+            const groupStoreForBatch = groupStore.forBatch()
+
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'updated' }, DateTime.now(), false)
+
+            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+            expect(db.updateGroup).toHaveBeenCalledTimes(0)
+            expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(0)
+
+            await groupStoreForBatch.flush()
+
+            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(5)
+            expect(db.updateGroup).toHaveBeenCalledTimes(1)
+            expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(1)
+        })
+
         it('should share cache between distinct ids', async () => {
             const groupStoreForBatch = groupStore.forBatch()
-            const groupStoreForDistinctId1 = groupStoreForBatch.forDistinctID('1', '1')
-            const groupStoreForDistinctId2 = groupStoreForBatch.forDistinctID('1', '2')
 
-            await groupStoreForDistinctId1.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { a: 'test' },
-                DateTime.now(),
-                false
-            )
-            await groupStoreForDistinctId2.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                { b: 'test' },
-                DateTime.now(),
-                false
-            )
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
 
             await groupStoreForBatch.flush()
 

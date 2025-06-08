@@ -2,7 +2,7 @@ import { actions, afterMount, kea, listeners, LogicWrapper, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { MessageTemplate } from 'products/messaging/frontend/Library/messageTemplatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { EditorRef as _EditorRef } from 'react-email-editor'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
