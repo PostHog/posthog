@@ -29,6 +29,32 @@ export class Chart<
     }
 }
 
-export type * from 'chart.js'
+export type {
+    ActiveElement,
+    ChartConfiguration,
+    ChartData,
+    ChartDataset,
+    ChartEvent,
+    ChartItem,
+    ChartOptions,
+    ChartType,
+    ChartTypeRegistry,
+    Color,
+    DefaultDataPoint,
+    GridLineOptions,
+    InteractionItem,
+    LegendOptions,
+    Plugin,
+    ScaleOptions,
+    ScaleOptionsByType,
+    ScriptableLineSegmentContext,
+    Tick,
+    TickOptions,
+    Tooltip,
+    TooltipItem,
+    TooltipModel,
+    TooltipOptions,
+    TooltipPositionerFunction,
+} from 'chart.js'
 export { defaults, registerables } from 'chart.js'
 /* eslint-enable no-restricted-imports */
