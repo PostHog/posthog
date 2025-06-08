@@ -1,7 +1,7 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, path, reducers } from 'kea'
 
-import type { universalKeyboardShortcutsLogicType } from './universalKeyboardShortcutsLogicType'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+import type { universalKeyboardShortcutsLogicType } from './universalKeyboardShortcutsLogicType'
 
 // export const PanelLayoutNavItemShortcuts: Record<string, string> = {
 
@@ -21,7 +21,6 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
         registerKeyboardShortcut: (keyboardShortcut: keyboardShortcutItem) => ({ keyboardShortcut }),
         unregisterKeyboardShortcut: (name: string) => ({ name }),
         showKeyboardShortcuts: (show: boolean) => ({ show }),
-        // setActiveKeyboardShortcut: (keybind: string) => ({ keybind }),
         handleKeyboardShortcut: (keybind: string) => ({ keybind }),
     }),
     reducers({

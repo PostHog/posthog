@@ -4,5 +4,5 @@ import { universalKeyboardShortcutsLogic } from "./universalKeyboardShortcutsLog
 export const UniversalKeyboardShortcuts = ({ children }: { children: React.ReactNode }) => {
     useMountedLogic(universalKeyboardShortcutsLogic)
 
-    return children
+    return <>{children}</>
 }
