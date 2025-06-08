@@ -148,7 +148,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 style={{ '--project-panel-width': `${panelWidth}px` } as React.CSSProperties}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'Project' && (
+                    {activePanelIdentifier === 'PanelProject' && (
                         <ProjectTree
                             root="project://"
                             logicKey={PROJECT_TREE_KEY}
@@ -156,16 +156,16 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                             showRecents
                         />
                     )}
-                    {activePanelIdentifier === 'Products' && (
+                    {activePanelIdentifier === 'PanelProducts' && (
                         <ProjectTree root="products://" searchPlaceholder="Search products" />
                     )}
-                    {activePanelIdentifier === 'Shortcuts' && (
+                    {activePanelIdentifier === 'PanelShortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'Data' && (
+                    {activePanelIdentifier === 'PanelData' && (
                         <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}
-                    {activePanelIdentifier === 'People' && (
+                    {activePanelIdentifier === 'PanelPeople' && (
                         <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
                     )}
                 </PanelLayoutNavBar>
