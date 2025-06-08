@@ -87,6 +87,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
 const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
+    updated_at: null,
     key: '',
     name: '',
     filters: {
