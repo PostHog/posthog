@@ -2,6 +2,7 @@ from posthog.models.message_preferences import MessageCategory, MessageRecipient
 from posthog.test.base import BaseTest
 from django.test import Client
 from django.urls import reverse
+from django.db import IntegrityError
 import uuid
 import json
 from posthog.models.message_preferences import PreferenceStatus
@@ -43,7 +44,7 @@ class TestMessagePreferences(BaseTest):
 
     def test_duplicate_recipient_preference(self):
         MessageRecipientPreference.objects.create(team=self.team, identifier="test3@example.com", preferences={})
-        with self.assertRaises(Exception):  # Django will raise IntegrityError
+        with self.assertRaises(IntegrityError):  # Django will raise IntegrityError
             MessageRecipientPreference.objects.create(team=self.team, identifier="test3@example.com", preferences={})
 
     def test_set_preference(self):
@@ -159,5 +160,5 @@ class TestMessagePreferences(BaseTest):
     def test_update_preferences_invalid_preference_format(self):
         data = {"token": self.token, "preferences[]": ["invalid:format"]}
         response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Failed to update preferences"})

@@ -80,7 +80,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const formData = new FormData();
         formData.append('token', document.querySelector('input[name="token"]').value);
-        formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
         
         // Add all toggle states to formData using the full category key
         toggles.forEach(toggle => {

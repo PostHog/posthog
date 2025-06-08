@@ -309,4 +309,4 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"success": True})
 
     except Exception:
-        return JsonResponse({"error": "Failed to update preferences"}, status=500)
+        return JsonResponse({"error": "Failed to update preferences"}, status=400)
