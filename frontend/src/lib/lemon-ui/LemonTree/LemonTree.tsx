@@ -340,7 +340,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             return null
                         }
                         return (
-                            <div key={item.id} className="mt-2 py-1 px-2 flex items-center">
+                            <div key={item.id} className="not-first:mt-2 py-1 px-2 flex items-center">
                                 <span className="text-xs font-semibold text-quaternary">{item.displayName}</span>
                             </div>
                         )
@@ -798,8 +798,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             items.push(node)
                         }
                     } else {
-                        // Include all items in default/multi mode
-                        items.push(node)
+                        if (node.type !== 'separator' && node.type !== 'category') {
+                            // Include all items in default/multi mode
+                            items.push(node)
+                        }
                     }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
                         traverse(node.children)
@@ -913,7 +915,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 if (direction < 0 && index < 0) {
                     return undefined
                 }
-                if (items[index].type !== 'separator') {
+                if (items[index].type !== 'separator' || items[index].type !== 'category') {
                     return items[index]
                 }
             }
@@ -1092,7 +1094,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         if (currentIndex === -1) {
                             // If no item is focused, focus the first non-separator item
-                            const firstItem = visibleItems.find((item) => item.type !== 'separator')
+                            const firstItem = visibleItems.find(
+                                (item) => item.type !== 'separator' && item.type !== 'category'
+                            )
                             if (firstItem) {
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(firstItem.id)}"]`
@@ -1117,7 +1121,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         if (currentIndex === -1) {
                             // If no item is focused, focus the last non-separator item
-                            const lastItem = [...visibleItems].reverse().find((item) => item.type !== 'separator')
+                            const lastItem = [...visibleItems]
+                                .reverse()
+                                .find((item) => item.type !== 'separator' && item.type !== 'category')
                             if (lastItem) {
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(lastItem.id)}"]`
