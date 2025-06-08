@@ -1,5 +1,5 @@
 import { IconPencil, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonColorPicker, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { getSeriesColorPalette } from 'lib/colors'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -8,13 +8,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FilmCameraHog } from '../hedgehogs'
 import {
-    APPROX_TEXT_HEIGHT,
     type DrawingItem,
     type HistoryItem,
-    LINE_WIDTH,
     type Point,
     takeScreenshotLogic,
-    TEXT_FONT,
     type TextItem,
 } from './takeScreenshotLogic'
 
@@ -32,6 +29,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         textInputPosition,
         isLoading,
         html,
+        lineWidth,
+        fontSize,
     } = useValues(takeScreenshotLogic({ screenshotKey: screenshotKey }))
     const {
         setIsOpen,
@@ -45,6 +44,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setTextInputPosition,
         setHtml,
         setImageFile,
+        setLineWidth,
+        setFontSize,
     } = useActions(takeScreenshotLogic({ screenshotKey: screenshotKey }))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -101,7 +102,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
             ctx.moveTo(currentPath[0].x, currentPath[0].y)
             currentPath.forEach((point) => ctx.lineTo(point.x, point.y))
             ctx.strokeStyle = color
-            ctx.lineWidth = LINE_WIDTH
+            ctx.lineWidth = lineWidth
             ctx.lineCap = 'round'
             ctx.lineJoin = 'round'
             ctx.stroke()
@@ -116,7 +117,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
             if (index === selectedTextIndex) {
                 const textWidth = ctx.measureText(textItem.content).width
                 // Estimate height, or store it if calculated precisely elsewhere
-                const textHeight = textItem.height || APPROX_TEXT_HEIGHT
+                const textHeight = textItem.height || fontSize
                 ctx.strokeStyle = '#007bff' // A distinct selection color
                 ctx.lineWidth = 1
                 ctx.strokeRect(textItem.x - 2, textItem.y - textHeight, textWidth + 4, textHeight + 4)
@@ -201,7 +202,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                 const item = texts[i]
                 const textMetrics = ctx.measureText(item.content)
                 const textWidth = textMetrics.width
-                const textHeight = item.height || APPROX_TEXT_HEIGHT
+                const textHeight = item.height || fontSize
 
                 if (
                     offsetX >= item.x &&
@@ -258,7 +259,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         }
 
         if (mode === 'draw' && currentPath.length > 1) {
-            setDrawings((prevDrawings) => [...prevDrawings, { path: currentPath, color: color, width: LINE_WIDTH }])
+            setDrawings((prevDrawings) => [...prevDrawings, { path: currentPath, color: color, width: lineWidth }])
             setHistoryStack((prev) => [...prev, { type: 'draw' }])
             setCurrentPath([])
         }
@@ -281,7 +282,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
             if (canvas) {
                 const ctx = canvas.getContext('2d')
                 if (ctx) {
-                    ctx.font = TEXT_FONT
+                    ctx.font = `${fontSize}px Arial`
                     textWidth = ctx.measureText(submittedText).width
                 }
             }
@@ -293,9 +294,9 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                     x: textInputPosition.x,
                     y: textInputPosition.y,
                     color: color,
-                    font: TEXT_FONT,
+                    font: `${fontSize}px Arial`,
                     width: textWidth,
-                    height: APPROX_TEXT_HEIGHT,
+                    height: fontSize,
                 },
             ])
             setHistoryStack((prev) => [...prev, { type: 'text' }])
@@ -391,6 +392,24 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                 }}
                                 colors={getSeriesColorPalette().slice(0, 20)}
                             />
+                            <LemonSelect
+                                disabledReason={mode !== 'draw' ? 'Please use the draw mode' : undefined}
+                                value={lineWidth}
+                                onChange={setLineWidth}
+                                options={Array.from({ length: 10 }, (_, i) => {
+                                    const value = 1 + i * 2
+                                    return {
+                                        label: (
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            <div
+                                                className="w-12 bg-gray-700 rounded-full"
+                                                style={{ height: `${value}px` }}
+                                            />
+                                        ),
+                                        value,
+                                    }
+                                })}
+                            />
                             <LemonButton
                                 type={mode === 'draw' ? 'primary' : 'secondary'}
                                 onClick={() => {
@@ -400,6 +419,15 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                 }}
                                 icon={<IconPencil />}
                                 tooltip="Draw"
+                            />
+                            <LemonSelect
+                                disabledReason={mode !== 'draw' ? undefined : 'Please use the text mode'}
+                                value={fontSize}
+                                onChange={setFontSize}
+                                options={Array.from({ length: 21 }, (_, i) => {
+                                    const value = 10 + i * 2
+                                    return { label: value.toString(), value }
+                                })}
                             />
                             <LemonButton
                                 type={mode === 'text' || mode === 'moveText' ? 'primary' : 'secondary'}
@@ -504,10 +532,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                     </div>
                 </div>
             </LemonModal>
-            {/* maybe we should have a button as a part of the component
-        <LemonButton icon={<IconLlmPromptEvaluation />} size="xsmall" onClick={() => setIsOpen(true)}>
-            Take Screenshot
-        </LemonButton> */}
         </>
     )
 }
