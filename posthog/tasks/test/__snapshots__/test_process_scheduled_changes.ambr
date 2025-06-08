@@ -41,7 +41,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -186,7 +187,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -214,7 +216,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   ORDER BY "posthog_featureflag"."id" ASC
@@ -282,7 +285,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -1058,7 +1062,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -1201,7 +1206,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
@@ -1229,7 +1235,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   ORDER BY "posthog_featureflag"."id" ASC
@@ -1380,7 +1387,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -2165,69 +2173,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
-  FROM "posthog_featureflag"
-  WHERE "posthog_featureflag"."key" = 'flag-1'
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.62
-  '''
-  SELECT "posthog_scheduledchange"."id",
-         "posthog_scheduledchange"."record_id",
-         "posthog_scheduledchange"."model_name",
-         "posthog_scheduledchange"."payload",
-         "posthog_scheduledchange"."scheduled_at",
-         "posthog_scheduledchange"."executed_at",
-         "posthog_scheduledchange"."failure_reason",
-         "posthog_scheduledchange"."team_id",
-         "posthog_scheduledchange"."created_at",
-         "posthog_scheduledchange"."created_by_id",
-         "posthog_scheduledchange"."updated_at"
-  FROM "posthog_scheduledchange"
-  WHERE "posthog_scheduledchange"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.63
-  '''
-  SELECT "posthog_scheduledchange"."id",
-         "posthog_scheduledchange"."record_id",
-         "posthog_scheduledchange"."model_name",
-         "posthog_scheduledchange"."payload",
-         "posthog_scheduledchange"."scheduled_at",
-         "posthog_scheduledchange"."executed_at",
-         "posthog_scheduledchange"."failure_reason",
-         "posthog_scheduledchange"."team_id",
-         "posthog_scheduledchange"."created_at",
-         "posthog_scheduledchange"."created_by_id",
-         "posthog_scheduledchange"."updated_at"
-  FROM "posthog_scheduledchange"
-  WHERE "posthog_scheduledchange"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.64
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."key" = 'flag-1'
   LIMIT 21
@@ -2386,7 +2333,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."updated_at"
   FROM "posthog_featureflag"
   WHERE "posthog_featureflag"."id" = 99999
   LIMIT 21
