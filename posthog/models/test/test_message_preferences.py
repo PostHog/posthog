@@ -35,21 +35,21 @@ class TestMessagePreferences(BaseTest):
 
     def test_create_recipient_preference(self):
         recipient = MessageRecipientPreference.objects.create(
-            team=self.team, identifier="test@example.com", preferences={}
+            team=self.team, identifier="test2@example.com", preferences={}
         )
-        self.assertEqual(recipient.identifier, "test@example.com")
+        self.assertEqual(recipient.identifier, "test2@example.com")
         self.assertEqual(recipient.preferences, {})
-        self.assertEqual(str(recipient), "Preferences for test@example.com")
+        self.assertEqual(str(recipient), "Preferences for test2@example.com")
 
     def test_duplicate_recipient_preference(self):
-        MessageRecipientPreference.objects.create(team=self.team, identifier="test@example.com", preferences={})
+        MessageRecipientPreference.objects.create(team=self.team, identifier="test3@example.com", preferences={})
         with self.assertRaises(Exception):  # Django will raise IntegrityError
-            MessageRecipientPreference.objects.create(team=self.team, identifier="test@example.com", preferences={})
+            MessageRecipientPreference.objects.create(team=self.team, identifier="test3@example.com", preferences={})
 
     def test_set_preference(self):
         # Test setting a new preference
         recipient = MessageRecipientPreference.objects.create(
-            team=self.team, identifier="test@example.com", preferences={}
+            team=self.team, identifier="test4@example.com", preferences={}
         )
 
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
@@ -61,7 +61,7 @@ class TestMessagePreferences(BaseTest):
 
     def test_get_preference(self):
         recipient = MessageRecipientPreference.objects.create(
-            team=self.team, identifier="test@example.com", preferences={}
+            team=self.team, identifier="test5@example.com", preferences={}
         )
 
         # Test non-existent preference
@@ -73,12 +73,12 @@ class TestMessagePreferences(BaseTest):
 
     def test_get_all_preferences(self):
         recipient = MessageRecipientPreference.objects.create(
-            team=self.team, identifier="test@example.com", preferences={}
+            team=self.team, identifier="test6@example.com", preferences={}
         )
 
         # Set multiple preferences
         category2 = MessageCategory.objects.create(
-            team=self.team, key="product_updates", name="Product Updates", description="Product release notes"
+            team=self.team, key="product_updates_2", name="Product Updates 2", description="Product release notes 2"
         )
 
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
@@ -90,7 +90,7 @@ class TestMessagePreferences(BaseTest):
 
     def test_token_generation_and_validation(self):
         recipient = MessageRecipientPreference.objects.create(
-            team=self.team, identifier="test@example.com", preferences={}
+            team=self.team, identifier="test7@example.com", preferences={}
         )
 
         # Test token generation
@@ -111,7 +111,7 @@ class TestMessagePreferences(BaseTest):
         self.assertNotEqual(error, "")
 
     def test_preferences_page_valid_token(self):
-        response = self.client.get(reverse("preferences_page", kwargs={"token": self.token}))
+        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
 
@@ -126,17 +126,13 @@ class TestMessagePreferences(BaseTest):
         self.assertEqual(categories[1]["name"], "Product Updates")
 
     def test_preferences_page_invalid_token(self):
-        response = self.client.get(reverse("preferences_page", kwargs={"token": "invalid-token"}))
+        response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
         self.assertEqual(response.status_code, 400)
         self.assertTemplateUsed(response, "message_preferences/error.html")
 
-    def test_preferences_page_expired_token(self):
-        # This would require mocking time to properly test token expiration
-        pass
-
     def test_update_preferences_valid(self):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
-        response = self.client.post(reverse("update_preferences"), data)
+        response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content), {"success": True})
 
@@ -148,7 +144,7 @@ class TestMessagePreferences(BaseTest):
 
     def test_update_preferences_missing_token(self):
         response = self.client.post(
-            reverse("update_preferences"),
+            reverse("message_preferences_update"),
             {"preferences[]": [f"{self.category.id}:true"]},
         )
         self.assertEqual(response.status_code, 400)
@@ -156,12 +152,12 @@ class TestMessagePreferences(BaseTest):
 
     def test_update_preferences_invalid_token(self):
         data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
-        response = self.client.post(reverse("update_preferences"), data)
+        response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", json.loads(response.content))
 
     def test_update_preferences_invalid_preference_format(self):
         data = {"token": self.token, "preferences[]": ["invalid:format"]}
-        response = self.client.post(reverse("update_preferences"), data)
+        response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 500)
         self.assertEqual(json.loads(response.content), {"error": "Failed to update preferences"})
