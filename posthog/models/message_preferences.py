@@ -23,7 +23,7 @@ class MessageCategory(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    key = models.CharField(max_length=64, unique=True)
+    key = models.CharField(max_length=64)
     name = models.CharField(max_length=128)
     description = models.TextField(blank=True, default="")
     public_description = models.TextField(blank=True, default="")

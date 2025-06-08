@@ -55,7 +55,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("deleted", models.BooleanField(default=False)),
-                ("key", models.CharField(max_length=64, unique=True)),
+                ("key", models.CharField(max_length=64)),
                 ("name", models.CharField(max_length=128)),
                 ("description", models.TextField(blank=True, default="")),
                 ("public_description", models.TextField(blank=True, default="")),
