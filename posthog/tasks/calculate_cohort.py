@@ -34,22 +34,16 @@ COHORT_STALENESS_HOURS_GAUGE = Gauge(
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
-CALCULATE_COHORT_TIME_LIMIT_MINUTES = 60 * 60 * 10
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
     return Cohort.objects.filter(
         Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
         | Q(last_calculation__isnull=True),
-        Q(deleted=False),
-        # Include cohorts that are either not calculating,
-        # OR are calculating but stuck (>24 hours)
-        # This will help us catch cohorts where they failed to calculate and
-        # never had is_calculating set back False due to the process crashing
-        Q(is_calculating=False)
-        | Q(is_calculating=True, last_calculation__lte=timezone.now() - relativedelta(hours=24)),
-        Q(errors_calculating__lte=20),
-    ).exclude(Q(is_static=True))
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
 
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
@@ -95,12 +89,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
-@shared_task(
-    ignore_result=True,
-    max_retries=2,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    time_limit=CALCULATE_COHORT_TIME_LIMIT_MINUTES,
-)
+@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
