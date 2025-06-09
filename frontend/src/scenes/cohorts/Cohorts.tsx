@@ -123,7 +123,13 @@ export function Cohorts(): JSX.Element {
                                     Export all columns for users
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        deleteCohort({ id: cohort.id, name: cohort.name, deleted: true })
+                                    }}
+                                    fullWidth
+                                >
                                     Delete cohort
                                 </LemonButton>
                             </>

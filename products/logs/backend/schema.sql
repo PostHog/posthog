@@ -53,44 +53,33 @@ CREATE TABLE default.log_attributes
     `team_id` Int32,
     `time_bucket` DateTime64(0),
     `service_name` LowCardinality(String),
-    `attribute_keys` AggregateFunction(groupArrayDistinctArray, Array(LowCardinality(String))),
-    `attribute_values` AggregateFunction(groupArrayDistinctArray, Array(Tuple(
-        String,
-        String))),
-    `resource_attribute_keys` AggregateFunction(groupArrayDistinctArray, Array(LowCardinality(String))),
-    `resource_attribute_values` AggregateFunction(groupArrayDistinctArray, Array(Tuple(
-        String,
-        String)))
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
+
+    INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.001) GRANULARITY 1,
+    INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+    INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0)) GRANULARITY 1,
 )
 ENGINE = SharedAggregatingMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}')
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, service_name, time_bucket)
-SETTINGS index_granularity = 8192;
+ORDER BY (team_id, service_name, time_bucket, attribute_key, attribute_value);
 
+set enable_dynamic_type=1;
 CREATE MATERIALIZED VIEW default.log_to_log_attributes TO default.log_attributes
 (
     `team_id` Int32,
-    `time_bucket` DateTime,
+    `time_bucket` DateTime64(0),
     `service_name` LowCardinality(String),
-    `attribute_keys` AggregateFunction(groupArrayDistinctArray, Array(String)),
-    `attribute_values` AggregateFunction(groupArrayDistinctArray, Array(Tuple(
-        String,
-        String))),
-    `resource_attribute_keys` AggregateFunction(groupArrayDistinctArray, Array(String)),
-    `resource_attribute_values` AggregateFunction(groupArrayDistinctArray, Array(Tuple(
-        String,
-        String)))
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
 )
 AS SELECT
+    uuid,
     team_id AS team_id,
-    toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+    toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
     service_name AS service_name,
-    groupArrayDistinctArrayState(arrayFilter(x -> (length(x) < 256), mapKeys(attributes))) AS attribute_keys,
-    groupArrayDistinctArrayState(CAST(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), mapApply((k, v) -> (k, JSONExtract(v, 'Dynamic')::String),attributes)), 'Array(Tuple(String, String))')) AS attribute_values,
-    groupArrayDistinctArrayState(arrayFilter(x -> (length(x) < 256), mapKeys(resource_attributes))) AS resource_attribute_keys,
-    groupArrayDistinctArrayState(CAST(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), resource_attributes), 'Array(Tuple(String, String))')) AS resource_attribute_values
+    arrayJoin(arrayFilter((k,v) -> (length(k) < 256 and length(v) < 256), attributes::Array(Tuple(String, String)))) as attribute,
+    attribute.1 as attribute_key,
+    JSONExtract(attribute.2, 'Dynamic')::String as attribute_value
 FROM default.logs
-GROUP BY
-    team_id,
-    time_bucket,
-    service_name;
