@@ -1,9 +1,18 @@
-import { LemonTable } from '@posthog/lemon-ui'
+import { IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { PropertyOperator } from '~/types'
 
 import { attributeBreakdownLogic } from './attributeBreakdownLogic'
 
-export const AttributeBreakdowns = ({ attribute }: { attribute: string }): JSX.Element => {
+export const AttributeBreakdowns = ({
+    attribute,
+    addFilter,
+}: {
+    attribute: string
+    addFilter: (key: string, value: string, operator?: PropertyOperator) => void
+}): JSX.Element => {
     const logic = attributeBreakdownLogic({ attribute })
     const { attributeValues, logCount, breakdowns } = useValues(logic)
 
@@ -24,6 +33,28 @@ export const AttributeBreakdowns = ({ attribute }: { attribute: string }): JSX.E
                 dataSource={dataSource}
                 size="small"
                 columns={[
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: (_, record) => (
+                            <div className="flex gap-x-0">
+                                <LemonButton
+                                    tooltip="Add as filter"
+                                    size="xsmall"
+                                    onClick={() => addFilter(attribute, record.value)}
+                                >
+                                    <IconPlusSquare />
+                                </LemonButton>
+                                <LemonButton
+                                    tooltip="Exclude as filter"
+                                    size="xsmall"
+                                    onClick={() => addFilter(attribute, record.value, PropertyOperator.IsNot)}
+                                >
+                                    <IconMinusSquare />
+                                </LemonButton>
+                            </div>
+                        ),
+                    },
                     {
                         title: 'Count',
                         key: 'count',

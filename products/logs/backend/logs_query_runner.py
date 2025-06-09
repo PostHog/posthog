@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.client.connection import Workload
@@ -106,7 +107,7 @@ class LogsQueryRunner(QueryRunner):
                     "trace_id": result[1],
                     "span_id": result[2],
                     "body": result[3],
-                    "attributes": result[4],
+                    "attributes": {k: json.loads(v) for k, v in result[4].items()},
                     "timestamp": result[5],
                     "observed_timestamp": result[6],
                     "severity_text": result[7],
@@ -209,17 +210,18 @@ class LogsQueryRunner(QueryRunner):
 
         _step = dt.timedelta(seconds=int(60 * round(_step.total_seconds() / 60)))
         interval_type = IntervalType.MINUTE
-        interval_count = _step.total_seconds() // 60
 
-        if _step > dt.timedelta(minutes=30):
-            _step = dt.timedelta(seconds=int(3600 * round(_step.total_seconds() / 3600)))
-            interval_type = IntervalType.HOUR
-            interval_count = _step.total_seconds() // 3600
+        def find_closest(target, arr):
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
 
-        if _step > dt.timedelta(days=1):
-            _step = dt.timedelta(seconds=int(86400 * round(_step.total_seconds() / 86400)))
-            interval_type = IntervalType.DAY
-            interval_count = _step.total_seconds() // 86400
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(_step.total_seconds() // 60, [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440])
 
         return QueryDateRange(
             date_range=self.query.dateRange,
