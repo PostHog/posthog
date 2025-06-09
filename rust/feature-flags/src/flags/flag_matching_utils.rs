@@ -249,7 +249,7 @@ pub fn match_flag_filter_value(
     let Some(flag_id) = filter.get_feature_flag_id() else {
         return false;
     };
-    
+
     let Some(flag_value) = flag_evaluation_results.get(&flag_id) else {
         return false;
     };
@@ -257,7 +257,9 @@ pub fn match_flag_filter_value(
     match filter.value {
         Some(Value::Bool(true)) => flag_value != &FlagValue::Boolean(false),
         Some(Value::Bool(false)) => flag_value == &FlagValue::Boolean(false),
-        Some(Value::String(ref s)) => matches!(flag_value, FlagValue::String(flag_str) if flag_str == s),
+        Some(Value::String(ref s)) => {
+            matches!(flag_value, FlagValue::String(flag_str) if flag_str == s)
+        }
         _ => false,
     }
 }
