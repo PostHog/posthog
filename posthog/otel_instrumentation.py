@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 def _otel_django_request_hook(span, request):
     if span and span.is_recording():
-        actual_path = request.path or ""  # Use empty string if path is None
+        actual_path = request.path or ""
         http_method = request.method
         span.set_attribute("http.method", http_method)
         span.set_attribute("http.url", actual_path)
