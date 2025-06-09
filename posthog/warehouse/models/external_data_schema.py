@@ -242,7 +242,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         elif type == "earliest":
             self.sync_type_config["incremental_field_earliest_value"] = last_value_json
         else:
-            raise Exception(f"Unsupported type for update_incremental_field_value: {type}")
+            raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
             self.save()

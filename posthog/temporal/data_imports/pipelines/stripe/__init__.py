@@ -377,7 +377,9 @@ def stripe_source_v2(
         if not resource:
             raise Exception(f"Stripe endpoint does not exist: {endpoint}")
 
-        if not is_incremental or (db_incremental_field_last_value is None and db_incremental_field_last_value is None):
+        if not is_incremental or (
+            db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
+        ):
             stripe_objects = resource.method(params={**default_params, **resource.params})
             yield from stripe_objects.auto_paging_iter()
             return

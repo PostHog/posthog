@@ -5,6 +5,7 @@ from typing import Any, Literal
 import deltalake as deltalake
 import posthoganalytics
 import pyarrow as pa
+import pyarrow.compute as pc
 from django.db.models import F
 from dlt.sources import DltSource
 
@@ -402,12 +403,11 @@ def _get_incremental_field_value(
         return
 
     column = table[normalize_column_name(incremental_field_name)]
-    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
 
     if aggregate == "max":
-        last_value = numpy_arr.max()
+        last_value = pc.max(column)
     elif aggregate == "min":
-        last_value = numpy_arr.min()
+        last_value = pc.min(column)
     else:
         raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
 
