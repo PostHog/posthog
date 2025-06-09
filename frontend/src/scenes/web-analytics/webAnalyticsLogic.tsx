@@ -2866,6 +2866,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
             if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
+            } else if (!parsedFilters && filters) {
+                // if filters were set, but we failed to parse them, we reset the filters
+                actions.setWebAnalyticsFilters([])
             }
             if (
                 conversionGoalActionId &&
