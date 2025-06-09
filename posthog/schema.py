@@ -3056,7 +3056,7 @@ class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    attributes: str
+    attributes: dict[str, Any]
     body: str
     event_name: str
     instrumentation_scope: str
