@@ -10,8 +10,6 @@ import { YC_BATCHES } from './constants'
  * - Finds the current batch (most recent batch that has started)
  * - Returns current batch + all previous batches + 2 upcoming batches
  * - Adds placeholder at the top and "Earlier batches" at the bottom
- *
- * This logic should be kept in sync with the validation login in billing
  */
 export function getYCBatchOptions(): { label: string; value: string }[] {
     // Sort batches by start date descending

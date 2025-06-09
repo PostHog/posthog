@@ -24,6 +24,7 @@ export const RAISED_OPTIONS = [
 ]
 
 // Historical values should be fairly accurate (+/- 1 week), future values (Fall 2025+) are estimates based on historical dates
+// This should be kept in sync with startups API in billing
 export const YC_BATCHES = [
     {
         batch_name: 'Fall 2027',
