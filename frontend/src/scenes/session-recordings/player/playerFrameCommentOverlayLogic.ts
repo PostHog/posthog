@@ -4,10 +4,9 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { colonDelimitedDuration } from 'lib/utils'
-import { playerCommentOverlayLogicType } from 'scenes/session-recordings/player/playerFrameCommentOverlayLogicType'
 
 import { annotationsModel } from '~/models/annotationsModel'
-import { AnnotationScope } from '~/types'
+import { AnnotationScope, AnnotationType } from '~/types'
 
 import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
@@ -23,6 +22,7 @@ export interface RecordingAnnotationForm {
     content: string
     scope: AnnotationScope
     recordingId: number | null
+    annotationId: AnnotationType['id'] | null
 }
 
 export interface PlayerCommentOverlayLogicProps extends SessionRecordingPlayerLogicProps {
@@ -67,6 +67,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 content: '',
                 scope: AnnotationScope.Recording,
                 recordingId: null,
+                annotationId: null,
             } as RecordingAnnotationForm,
             errors: ({ content, scope }) => ({
                 content: !content?.trim() ? 'An annotation must have text content.' : null,
@@ -98,6 +99,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 //     actions.replaceAnnotation(updatedAnnotation)
                 // } else {
                 const createdAnnotation = await api.annotations.create(apiPayload)
+                console.log('createdAnnotation', createdAnnotation)
                 actions.appendAnnotations([createdAnnotation])
                 // }
 

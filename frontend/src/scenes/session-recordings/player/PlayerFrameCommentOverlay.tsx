@@ -31,6 +31,9 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     className="gap-y-2"
                 >
                     <div className="flex flex-row gap-2">
+                        <LemonField name="annotationId" className='hidden'>
+                        <input type="hidden"  />
+                        </LemonField>
                         <LemonField name="timeInRecording" label={<span>Comment at</span>} className="flex-1">
                             <LemonInput disabled={true} />
                         </LemonField>
