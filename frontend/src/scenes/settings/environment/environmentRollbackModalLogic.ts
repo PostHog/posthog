@@ -141,7 +141,7 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
             }
 
             try {
-                await api.create(`api/projects/environment_rollback/`, {
+                await api.create(`api/organizations/@current/environments_rollback/`, {
                     main_environment_id: values.selectedEnvironmentId,
                 })
 

@@ -15,7 +15,19 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted, groups
-from posthog.models import Organization, User
+from posthog.models import (
+    User,
+    Team,
+    Project,
+    Organization,
+    Insight,
+    Dashboard,
+    FeatureFlag,
+    Action,
+    Survey,
+    Experiment,
+    Cohort,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
@@ -37,6 +49,10 @@ from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_fla
 from posthog.exceptions_capture import capture_exception
 from drf_spectacular.utils import extend_schema
 from posthog.event_usage import report_organization_action
+from django.db import transaction
+from posthog.models.activity_logging.activity_log import Detail, Change, log_activity
+from posthog.models.utils import UUIDT
+from loginas.utils import is_impersonated_session
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -307,3 +323,73 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="environments_rollback",
+        permission_classes=[permissions.IsAuthenticated, OrganizationAdminWritePermissions],
+    )
+    def environments_rollback(self, request: Request, **kwargs) -> Response:
+        """
+        Migrate all insights and configurations from multiple environments to a single environment.
+        """
+        main_environment_id = request.data.get("main_environment_id")
+        organization = Organization.objects.get(id=kwargs["id"])
+        if not main_environment_id:
+            raise exceptions.ValidationError("main_environment_id is required")
+
+        try:
+            main_team = Team.objects.get(id=main_environment_id)
+            project = main_team.project
+        except Team.DoesNotExist:
+            raise exceptions.ValidationError("Main environment not found")
+
+        # Verify the team belongs to this organization
+        if main_team.organization_id != organization.id:
+            raise exceptions.PermissionDenied("The selected environment does not belong to this organization")
+
+        models_to_update = [
+            Insight,
+            Dashboard,
+            FeatureFlag,
+            Action,
+            Survey,
+            Experiment,
+            Cohort,
+        ]
+
+        with transaction.atomic():
+            # Update all models to point to the main team
+            for model in models_to_update:
+                model.objects.filter(team__project=project).exclude(team=main_team).update(team=main_team)
+
+            # Create new projects for each team (except the main team)
+            for team in Team.objects.filter(project=project).exclude(id=main_team.id):
+                if team.id != team.project_id:
+                    new_project = Project.objects.create(id=team.id, name=team.name, organization=project.organization)
+                    team.project = new_project
+                    team.save()
+
+            log_activity(
+                organization_id=cast(UUIDT, project.organization_id),
+                team_id=project.pk,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                scope="Project",
+                item_id=project.pk,
+                activity="environment_rollback",
+                detail=Detail(
+                    name=f"Migrated to single environment ({main_team.name})",
+                    changes=[
+                        Change(
+                            type="Project",
+                            action="environment_rollback",
+                            field="main_environment",
+                            after=str(main_team.id),
+                        )
+                    ],
+                ),
+            )
+
+        return Response({"success": True}, status=200)
