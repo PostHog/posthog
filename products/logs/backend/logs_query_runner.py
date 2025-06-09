@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.client.connection import Workload
@@ -106,7 +107,7 @@ class LogsQueryRunner(QueryRunner):
                     "trace_id": result[1],
                     "span_id": result[2],
                     "body": result[3],
-                    "attributes": result[4],
+                    "attributes": {k: json.loads(v) for k, v in result[4].items()},
                     "timestamp": result[5],
                     "observed_timestamp": result[6],
                     "severity_text": result[7],
