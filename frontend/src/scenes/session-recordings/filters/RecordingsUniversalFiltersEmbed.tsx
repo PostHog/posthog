@@ -1,5 +1,13 @@
 import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonButtonProps, LemonInput, LemonTabs, Popover } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonButtonProps,
+    LemonInput,
+    LemonModal,
+    LemonTabs,
+    Popover,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -9,6 +17,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -31,7 +40,7 @@ import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable
 import { ReplayActiveUsersTable } from '../components/ReplayActiveUsersTable'
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
-import { createPlaylist } from '../playlist/playlistUtils'
+import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -75,9 +84,11 @@ function HideRecordingsMenu(): JSX.Element {
 export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
     setFilters,
+    totalFiltersCount,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    totalFiltersCount?: number
 }): JSX.Element => {
     const { isFiltersExpanded } = useValues(playlistLogic)
     const { setIsFiltersExpanded } = useActions(playlistLogic)
@@ -115,7 +126,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         }}
                         fullWidth
                     >
-                        Filters
+                        Filters{' '}
+                        {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                 </>
             </MaxTool>
@@ -166,6 +178,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     allowReplayHogQLFilters?: boolean
     allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
+    const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { askMax } = useActions(maxThreadLogic({ conversationId: threadLogicKey, conversation }))
     const { openSidePanel } = useActions(sidePanelSettingsLogic)
@@ -203,22 +216,82 @@ export const RecordingsUniversalFiltersEmbed = ({
     }
 
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    const { savedFilters } = useValues(savedFiltersLogic)
-    const { loadSavedFilters } = useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
+    const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
-    const newPlaylistHandler = async (): Promise<void> => {
-        await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
+    const addSavedFilter = async (): Promise<void> => {
+        const f = await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
+        setIsSaveFiltersModalOpen(false)
         setSavedFilterName('')
+        setAppliedSavedFilter(f)
+    }
+
+    const updateSavedFilter = async (): Promise<void> => {
+        if (appliedSavedFilter === null) {
+            return
+        }
+
+        const f = await updatePlaylist(appliedSavedFilter.short_id, { filters, type: 'filters' }, false)
+        loadSavedFilters()
+        setAppliedSavedFilter(f)
     }
 
     const handleMaxOpen = (): void => {
         openSidePanel(SidePanelTab.Max)
         askMax(searchQuery)
         setSearchQuery('')
+    }
+
+    const closeSaveFiltersModal = (): void => {
+        setIsSaveFiltersModalOpen(false)
+        setSavedFilterName('')
+    }
+
+    const handleResetFilters = (): void => {
+        resetFilters?.()
+        setAppliedSavedFilter(null)
+    }
+
+    const SaveFiltersModal = (): JSX.Element => {
+        return (
+            <LemonModal
+                title="Save filters for later"
+                description="You can access them on 'Saved filters' tab"
+                isOpen={isSaveFiltersModalOpen}
+                onClose={closeSaveFiltersModal}
+            >
+                <div>
+                    <LemonInput
+                        value={savedFilterName}
+                        placeholder="Saved filter name"
+                        onChange={setSavedFilterName}
+                        size="small"
+                        autoFocus
+                        fullWidth
+                        onClick={(e) => {
+                            e.stopPropagation() // Prevent dropdown from closing
+                        }}
+                    />
+                    <div className="flex justify-end gap-2 mt-4">
+                        <LemonButton type="secondary" onClick={closeSaveFiltersModal} tooltip="Close">
+                            Close
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={savedFilterName.length === 0 ? 'Enter a name' : undefined}
+                            onClick={() => void addSavedFilter()}
+                        >
+                            Save filters
+                        </LemonButton>
+                    </div>
+                </div>
+            </LemonModal>
+        )
     }
 
     const tabs = [
@@ -284,7 +357,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                             suffix={['filter', 'filters']}
                             size="small"
                         />
-                        <div>
+                        <div className="mr-2">
                             <TestAccountFilter
                                 size="small"
                                 filters={filters}
@@ -296,9 +369,10 @@ export const RecordingsUniversalFiltersEmbed = ({
                             />
                         </div>
                     </div>
-                    <div className="px-2 py-2 font-medium">Applied filters:</div>
-                    <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
+
+                    <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
                         <div className="flex flex-wrap gap-2 items-center">
+                            <div className="py-2 font-medium">Applied filters:</div>
                             <DateFilter
                                 dateFrom={filters.date_from ?? '-3d'}
                                 dateTo={filters.date_to}
@@ -347,49 +421,61 @@ export const RecordingsUniversalFiltersEmbed = ({
                             >
                                 <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
                             </UniversalFilters>
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-center mt-8 justify-end border-t pt-4 mx-2">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={handleResetFilters}
+                            icon={<IconRevert />}
+                            tooltip="Reset any changes you've made to the filters"
+                            disabledReason={
+                                !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
+                            }
+                        >
+                            Reset filters
+                        </LemonButton>
+                        {appliedSavedFilter ? (
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={resetFilters}
-                                icon={<IconRevert />}
-                                tooltip="Reset any changes you've made to the filters"
+                                onClick={() => void updateSavedFilter()}
+                                tooltip="Update saved filter"
                                 disabledReason={
-                                    !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
+                                    equal(appliedSavedFilter.filters, filters) ? 'No changes to update' : undefined
                                 }
+                                sideAction={{
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        overlay: (
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: 'Save as a new filter',
+                                                        onClick: () => setIsSaveFiltersModalOpen(true),
+                                                    },
+                                                ]}
+                                            />
+                                        ),
+                                    },
+                                }}
                             >
-                                Reset filters
+                                Update "{appliedSavedFilter.name || 'Unnamed'}"
                             </LemonButton>
-                        </div>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => setIsSaveFiltersModalOpen(true)}
+                                disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
+                                tooltip="Save filters for later"
+                            >
+                                Save filters
+                            </LemonButton>
+                        )}
                     </div>
-                    {(totalFiltersCount ?? 0) > 0 && (
-                        <div className="flex gap-2 p-2 justify-start">
-                            {savedFilters.results?.find((filter) => equal(filter.filters, filters)) ? (
-                                <div className="text-sm italic text-text-secondary inline-flex items-center font-medium gap-1">
-                                    "
-                                    {savedFilters.results?.find((filter) => equal(filter.filters, filters))?.name ||
-                                        'Unnamed'}
-                                    " saved filter applied
-                                </div>
-                            ) : (
-                                <>
-                                    <LemonInput
-                                        value={savedFilterName}
-                                        placeholder="Saved filter name"
-                                        onChange={setSavedFilterName}
-                                        size="small"
-                                        autoFocus
-                                        fullWidth
-                                        onClick={(e) => {
-                                            e.stopPropagation() // Prevent dropdown from closing
-                                        }}
-                                    />
-                                    <LemonButton type="primary" size="xsmall" onClick={() => void newPlaylistHandler()}>
-                                        Save filters
-                                    </LemonButton>
-                                </>
-                            )}
-                        </div>
-                    )}
+                    {SaveFiltersModal()}
                 </div>
             ),
         },

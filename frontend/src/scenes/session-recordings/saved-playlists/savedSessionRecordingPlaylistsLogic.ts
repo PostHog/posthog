@@ -68,6 +68,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         checkForSavedFilterRedirect: true,
         setSavedFiltersSearch: (search: string) => ({ search }),
+        setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType) => ({ appliedSavedFilter }),
     })),
     reducers(() => ({
         savedFiltersSearch: [
@@ -93,6 +94,12 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 loadPlaylists: () => false,
                 loadPlaylistsSuccess: () => false,
                 loadPlaylistsFailure: () => true,
+            },
+        ],
+        appliedSavedFilter: [
+            null,
+            {
+                setAppliedSavedFilter: (_, { appliedSavedFilter }) => appliedSavedFilter,
             },
         ],
     })),
@@ -202,6 +209,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 const savedFilter = await api.recordings.getPlaylist(savedFilterId)
                 if (savedFilter) {
                     router.actions.push(urls.replay(ReplayTabs.Home, savedFilter.filters))
+                    actions.setAppliedSavedFilter(savedFilter)
                 }
             }
         },
