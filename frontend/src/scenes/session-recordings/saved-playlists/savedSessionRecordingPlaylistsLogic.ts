@@ -68,7 +68,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         checkForSavedFilterRedirect: true,
         setSavedFiltersSearch: (search: string) => ({ search }),
-        setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType) => ({ appliedSavedFilter }),
+        setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType | null) => ({ appliedSavedFilter }),
     })),
     reducers(() => ({
         savedFiltersSearch: [
@@ -97,7 +97,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
         appliedSavedFilter: [
-            null,
+            null as SessionRecordingPlaylistType | null,
             {
                 setAppliedSavedFilter: (_, { appliedSavedFilter }) => appliedSavedFilter,
             },
