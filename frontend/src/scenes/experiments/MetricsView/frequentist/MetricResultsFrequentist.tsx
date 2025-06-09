@@ -6,10 +6,12 @@ import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
 
 export function MetricResultsFrequentist({
+    results,
     metrics,
     metricType,
     isSecondary,
 }: {
+    results: any[]
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metricType: InsightType
     isSecondary: boolean
@@ -18,13 +20,14 @@ export function MetricResultsFrequentist({
         <div className="w-full overflow-x-auto">
             <div className="min-w-[1000px]">
                 <div className="rounded bg-[var(--bg-table)]">
-                    <ConfidenceIntervalAxis />
+                    <ConfidenceIntervalAxis results={results} />
                     {metrics.map((_, metricIndex) => {
                         return (
                             <MetricRow
                                 key={metricIndex}
                                 metrics={metrics}
                                 metricIndex={metricIndex}
+                                result={results[metricIndex]}
                                 metric={metrics[metricIndex]}
                                 metricType={metricType}
                                 isSecondary={isSecondary}

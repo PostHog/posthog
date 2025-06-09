@@ -62,6 +62,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         experiment,
         getInsightType,
         legacyMetricResults,
+        metricResults,
         legacySecondaryMetricResults,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
@@ -191,6 +192,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
             {metrics.length > 0 ? (
                 statsMethod === ExperimentStatsMethod.Frequentist ? (
                     <MetricResultsFrequentist
+                        results={metricResults}
                         metrics={metrics}
                         metricType={getInsightType(metrics[0])}
                         isSecondary={!!isSecondary}
