@@ -94,6 +94,8 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from cookiel
         "db": {
           "kafkaProducer": {},
         },
+        "fetchPromisesForChecking": {},
+        "fetchPromisesForUpdate": {},
         "methodCountsPerDistinctId": {},
         "options": {
           "personCacheEnabledForChecks": true,
