@@ -3056,7 +3056,7 @@ class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    attributes: str
+    attributes: dict[str, Any]
     body: str
     event_name: str
     instrumentation_scope: str
@@ -3069,6 +3069,13 @@ class LogMessage(BaseModel):
     timestamp: datetime
     trace_id: str
     uuid: str
+
+
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):
