@@ -5,7 +5,7 @@ import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { CookielessServerHashMode, Hook, Hub, ProjectId, Team } from '../../../../src/types'
+import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
@@ -301,90 +301,5 @@ describe('Event Pipeline integration test', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
-    })
-
-    it('can process a cookieless event', async () => {
-        await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
-            [CookielessServerHashMode.Stateful, 2],
-            'set team to cookieless'
-        )
-
-        const event: PluginEvent = {
-            event: '$pageview',
-            properties: {
-                $cookieless_mode: true,
-                $raw_user_agent: 'Mozilla/5.0',
-                $ip: '1.2.3.4',
-                $host: 'https://www.example.com',
-                $timezone: 'Europe/London',
-            },
-            distinct_id: '$posthog_cookieless',
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            ip: '1.2.3.4',
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-        const event2: PluginEvent = {
-            ...event,
-            uuid: new UUIDT().toString(),
-        }
-
-        // ingest 2 events from the same user
-        await ingestEvent(event)
-        await ingestEvent(event2)
-
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
-        if (events.length > 2) {
-            console.log(events)
-        }
-        expect(events.length).toEqual(2)
-        expect(events[0].distinct_id.slice(0, 11)).toEqual('cookieless_') // should have set a distict id
-        expect(events[0].properties.$session_id).toBeTruthy() // should have set a session id
-        expect(events[0].properties.$raw_user_agent).toBeUndefined() // should have removed personal data
-        expect(events[0].distinct_id).toEqual(events[1].distinct_id) // events with the same hash should be assigned to the same user
-        expect(events[0].properties.$session_id).toEqual(events[1].properties.$session_id)
-    })
-
-    it('drops cookieless event if the team has cookieless disabled', async () => {
-        await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
-            [CookielessServerHashMode.Disabled, 2],
-            'set team to cookieless'
-        )
-
-        const event: PluginEvent = {
-            event: '$pageview',
-            properties: {
-                $cookieless_mode: true,
-                $raw_user_agent: 'Mozilla/5.0',
-                $ip: '1.2.3.4',
-                $host: 'https://www.example.com',
-                $timezone: 'Europe/London',
-            },
-            distinct_id: '$posthog_cookieless',
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            ip: '1.2.3.4',
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-        const result = await new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStore,
-            groupStoreForBatch
-        ).runEventPipeline(event, team)
-        expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
 })

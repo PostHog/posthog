@@ -31,16 +31,17 @@ class Column(typing.Protocol):
 class TableBase:
     """Base class for `TableReference` and `Table`."""
 
-    def __init__(self, name: str, parents: tuple[str, ...] | None = None) -> None:
+    def __init__(self, name: str, parents: tuple[str, ...] | None = None, alias: str | None = None) -> None:
         self.name = name
         self.parents = parents
+        self.alias = alias
 
     def __repr__(self):
         return f"<{self.__class__.__name__}: '{self.fully_qualified_name}'>"
 
     @property
     def fully_qualified_name(self) -> str:
-        """Return this `TableReference`'s fully qualified name.
+        """Return this table's fully qualified name.
 
         This consists of the parents and name concatenated, separated by a ".".
         """
@@ -97,8 +98,9 @@ class Table(TableBase, typing.Generic[ColumnType]):
         name: str,
         columns: list[ColumnType],
         parents: tuple[str, ...] | None = None,
+        alias: str | None = None,
     ) -> None:
-        super().__init__(name, parents)
+        super().__init__(name, parents, alias)
         self.columns = columns
 
     def __iter__(self) -> collections.abc.Iterator[ColumnType]:
