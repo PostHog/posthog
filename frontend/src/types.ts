@@ -50,6 +50,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    MarketingAnalyticsConfig,
     Node,
     NodeKind,
     QuerySchema,
@@ -642,6 +643,7 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
 }
 
