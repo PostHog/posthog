@@ -50,6 +50,7 @@ export const scene: SceneExport = {
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
+    settingSectionId: 'environment-autocapture',
 }
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {

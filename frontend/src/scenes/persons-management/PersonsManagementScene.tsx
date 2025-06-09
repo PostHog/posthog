@@ -38,4 +38,5 @@ export function PersonsManagementScene(): JSX.Element {
 export const scene: SceneExport = {
     component: PersonsManagementScene,
     logic: personsManagementSceneLogic,
+    settingSectionId: 'environment-autocapture',
 }

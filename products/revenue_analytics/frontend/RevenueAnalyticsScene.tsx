@@ -1,4 +1,4 @@
-import { IconDatabase, IconGear, IconPieChart, IconPlus } from '@posthog/icons'
+import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -10,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
@@ -26,6 +25,7 @@ import { TopCustomersTile } from './tiles/TopCustomersTile'
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
+    settingSectionId: 'environment-revenue-analytics',
 }
 
 const PRODUCT_NAME = 'Revenue Analytics'
@@ -37,7 +37,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         return (
@@ -74,21 +73,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <PageHeader
-                delimited
-                buttons={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconGear />}
-                        onClick={() => {
-                            openSettingsPanel({ sectionId: 'environment-revenue-analytics' })
-                        }}
-                    >
-                        Settings
-                    </LemonButton>
-                }
-            />
+            <PageHeader />
             <RevenueAnalyticsSceneContent />
         </BindLogic>
     )

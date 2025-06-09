@@ -22,6 +22,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof sessionRecordingDetailLogic)['props'] => ({
         id,
     }),
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
