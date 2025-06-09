@@ -98,8 +98,6 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
     with (
         patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture,
-        patch("posthog.temporal.common.sentry.capture_exception") as mock_sentry_capture,
-        patch("posthog.temporal.common.sentry.set_tag") as mock_sentry_set_tag,
     ):
         async with Worker(
             temporal_client,
@@ -130,7 +128,6 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
         if fail:
             # Verify capture_exception was called with correct properties
             assert mock_ph_capture.call_count == 2  # Once for activity, once for workflow
-            assert mock_sentry_capture.call_count == 2  # Once for activity, once for workflow
 
             # Verify activity exception capture
             activity_call = mock_ph_capture.call_args_list[0]
@@ -142,14 +139,6 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
             else:
                 assert "fail" not in activity_call[1]["properties"]
 
-            # Verify that Sentry's set_tag was called with expected properties
-            mock_sentry_set_tag.assert_any_call("temporal.execution_type", "activity")
-            mock_sentry_set_tag.assert_any_call("temporal.workflow.id", workflow_id)
-            if capture_additional_properties:
-                mock_sentry_set_tag.assert_any_call("fail", str(fail))
-            else:
-                assert ("fail", str(fail)) not in mock_sentry_set_tag.call_args_list
-
             # Verify workflow exception capture
             workflow_call = mock_ph_capture.call_args_list[1]
             assert isinstance(workflow_call[0][0], ActivityError)
@@ -160,14 +149,5 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
             else:
                 assert "fail" not in workflow_call[1]["properties"]
 
-            # Verify that Sentry's set_tag was called with expected properties
-            mock_sentry_set_tag.assert_any_call("temporal.execution_type", "workflow")
-            mock_sentry_set_tag.assert_any_call("temporal.workflow.id", workflow_id)
-            if capture_additional_properties:
-                mock_sentry_set_tag.assert_any_call("fail", str(fail))
-            else:
-                assert ("fail", str(fail)) not in mock_sentry_set_tag.call_args_list
-
         else:
             mock_ph_capture.assert_not_called()
-            mock_sentry_capture.assert_not_called()
