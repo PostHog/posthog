@@ -311,6 +311,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
         sendBroadcast: true,
+        setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
+        setNewHogCode: (newHogCode: string) => ({ newHogCode }),
+        clearHogCodeDiff: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -354,6 +357,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 setShowEventsList: (_, { showEventsList }) => showEventsList,
+            },
+        ],
+        oldHogCode: [
+            null as string | null,
+            {
+                setOldHogCode: (_, { oldHogCode }) => oldHogCode,
+                clearHogCodeDiff: () => null,
+            },
+        ],
+        newHogCode: [
+            null as string | null,
+            {
+                setNewHogCode: (_, { newHogCode }) => newHogCode,
+                clearHogCodeDiff: () => null,
             },
         ],
     })),

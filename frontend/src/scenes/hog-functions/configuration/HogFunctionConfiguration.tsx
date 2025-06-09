@@ -30,6 +30,7 @@ import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuratio
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
+import MaxTool from 'scenes/max/MaxTool'
 import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 import { urls } from 'scenes/urls'
 
@@ -41,7 +42,6 @@ import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebh
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
-import MaxTool from 'scenes/max/MaxTool'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -92,6 +92,8 @@ export function HogFunctionConfiguration({
         usesGroups,
         hasGroupsAddon,
         mightDropEvents,
+        oldHogCode,
+        newHogCode,
     } = useValues(logic)
 
     const {
@@ -102,7 +104,10 @@ export function HogFunctionConfiguration({
         resetToTemplate,
         duplicateFromTemplate,
         setConfigurationValue,
-        deleteHogFunction
+        deleteHogFunction,
+        setOldHogCode,
+        setNewHogCode,
+        clearHogCodeDiff,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -518,40 +523,68 @@ export function HogFunctionConfiguration({
                                                             instead.
                                                         </LemonBanner>
                                                     )}
-                                                     <MaxTool
+                                                    <MaxTool
                                                         name="create_hog_transformation_function"
                                                         displayName="Write and tweak Hog code"
                                                         context={{
                                                             current_hog_code: value ?? '',
                                                         }}
                                                         callback={(toolOutput: string) => {
-                                                            onChange(toolOutput)
+                                                            // Store the old value before changing
+                                                            setOldHogCode(value ?? '')
+                                                            // Store the new value from Max Tool
+                                                            setNewHogCode(toolOutput)
+                                                            // Don't immediately update the form - let user accept/reject
                                                         }}
                                                         suggestions={[]}
                                                         introOverride={{
                                                             headline: 'What transformation do you want to create?',
-                                                            description: 'Let me help you quickly write the code for your transformation, and tweak it.',
+                                                            description:
+                                                                'Let me help you quickly write the code for your transformation, and tweak it.',
                                                         }}
                                                     >
-                                                    <CodeEditorResizeable
-                                                        language={type.startsWith('site_') ? 'typescript' : 'hog'}
-                                                        value={value ?? ''}
-                                                        onChange={(v) => onChange(v ?? '')}
-                                                        globals={sampleGlobalsWithInputs}
-                                                        options={{
-                                                            minimap: {
-                                                                enabled: false,
-                                                            },
-                                                            wordWrap: 'on',
-                                                            scrollBeyondLastLine: false,
-                                                            automaticLayout: true,
-                                                            fixedOverflowWidgets: true,
-                                                            suggest: {
-                                                                showInlineDetails: true,
-                                                            },
-                                                            quickSuggestionsDelay: 300,
-                                                        }}
-                                                    />
+                                                        <CodeEditorResizeable
+                                                            language={type.startsWith('site_') ? 'typescript' : 'hog'}
+                                                            value={newHogCode ?? value ?? ''}
+                                                            originalValue={
+                                                                oldHogCode && newHogCode ? oldHogCode : undefined
+                                                            }
+                                                            onChange={(v) => {
+                                                                // If user manually edits while diff is showing, clear the diff
+                                                                if (oldHogCode && newHogCode) {
+                                                                    clearHogCodeDiff()
+                                                                }
+                                                                onChange(v ?? '')
+                                                            }}
+                                                            globals={sampleGlobalsWithInputs}
+                                                            showDiffActions={!!(oldHogCode && newHogCode)}
+                                                            onAcceptChanges={() => {
+                                                                if (newHogCode) {
+                                                                    onChange(newHogCode)
+                                                                }
+                                                                clearHogCodeDiff()
+                                                            }}
+                                                            onRejectChanges={() => {
+                                                                if (oldHogCode) {
+                                                                    onChange(oldHogCode)
+                                                                }
+                                                                clearHogCodeDiff()
+                                                            }}
+                                                            options={{
+                                                                minimap: {
+                                                                    enabled: false,
+                                                                },
+                                                                wordWrap: 'on',
+                                                                scrollBeyondLastLine: false,
+                                                                automaticLayout: true,
+                                                                fixedOverflowWidgets: true,
+                                                                suggest: {
+                                                                    showInlineDetails: true,
+                                                                },
+                                                                quickSuggestionsDelay: 300,
+                                                                readOnly: !!(oldHogCode && newHogCode),
+                                                            }}
+                                                        />
                                                     </MaxTool>
                                                 </>
                                             )}
