@@ -7,6 +7,7 @@ import json
 import time
 import uuid
 from redis import Redis
+import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
@@ -18,21 +19,12 @@ from ee.session_recordings.session_summary.summarize_session import (
 )
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog.redis import get_client
-from posthog.temporal.common.codec import EncryptionCodec
-from temporalio.api.common.v1 import Payload
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import connect
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from temporalio.client import Client as TemporalClient, WorkflowHandle
 
-
-async def _connect_to_temporal_client() -> TemporalClient:
-    return await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        server_root_ca_cert=settings.TEMPORAL_CLIENT_ROOT_CA,
-    )
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -47,6 +39,15 @@ class SessionSummaryInputs:
     window_mapping_reversed: dict[str, str]
     session_start_time_str: str
     session_duration: int
+
+
+async def _connect_to_temporal_client() -> TemporalClient:
+    return await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        server_root_ca_cert=settings.TEMPORAL_CLIENT_ROOT_CA,
+    )
 
 
 def _get_input_data_from_redis(redis_client: Redis, redis_input_key: str) -> tuple[str, SessionSummaryInputs]:
@@ -88,6 +89,7 @@ async def stream_llm_summary_activity(redis_input_key: str) -> str:
         redis_client=redis_client, redis_input_key=redis_input_key
     )
     last_summary_state = ""
+    last_heartbeat_timestamp = time.time()
     session_summary_generator = stream_llm_session_summary(
         session_id=summary_inputs.session_id,
         user_pk=summary_inputs.user_pk,
@@ -112,8 +114,10 @@ async def stream_llm_summary_activity(redis_input_key: str) -> str:
             900,  # 15 minutes TTL to keep alive for retries
             json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
         )
-        # Heartbeat to avoid workflow timeout
-        temporalio.activity.heartbeat()
+        # Heartbeat to avoid workflow timeout, throttle to 5 seconds to avoid sending too many
+        if time.time() - last_heartbeat_timestamp > 5:
+            temporalio.activity.heartbeat()
+            last_heartbeat_timestamp = time.time()
     return last_summary_state
 
 
@@ -145,22 +149,17 @@ async def _start_workflow(redis_input_key: str, workflow_id: str) -> WorkflowHan
     return handle
 
 
-def _decode_payload(payload_data: bytes) -> str | None:
-    try:
-        decrypted_payload = Payload.FromString(EncryptionCodec(settings).decrypt(payload_data))
-        data = decrypted_payload.data
-        json_data = json.loads(data)
-        last_summary_state = json_data.get("last_summary_state")
-        if not isinstance(last_summary_state, str):
-            return None
-        return last_summary_state
-    except Exception:
-        return None
-
-
 def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key: str) -> None:
-    redis_client.delete(redis_input_key)
-    redis_client.delete(redis_output_key)
+    try:
+        redis_client.delete(redis_input_key)
+        redis_client.delete(redis_output_key)
+    except Exception:
+        # Log, but don't fail, as the records will be cleaned up by the TTL
+        logger.exception(
+            "Failed to clean up Redis keys for session summary",
+            redis_input_key=redis_input_key,
+            redis_output_key=redis_output_key,
+        )
 
 
 def execute_summarize_session(
@@ -194,7 +193,6 @@ def execute_summarize_session(
         raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
     if summary_data.prompt_data.prompt_data.metadata.duration is None:
         raise ValueError(f"Session duration is missing in the session metadata for session_id {session_id}")
-
     # Prepare the input
     input_data = SessionSummaryInputs(
         session_id=session_id,
@@ -229,16 +227,12 @@ def execute_summarize_session(
     while True:
         desc = asyncio.run(handle.describe())
         if desc.status.name == "COMPLETED":
-            try:
-                final_result = asyncio.run(handle.result())
-                # Yield final result if it's different from the last state OR if we haven't yielded anything yet
-                if final_result != last_summary_state or not last_summary_state:
-                    yield final_result
-                _clean_up_redis(redis_client, redis_input_key, redis_output_key)
-                return
-            except Exception:
-                # TODO: Handle any errors in getting the result
-                pass
+            final_result = asyncio.run(handle.result())
+            # Yield final result if it's different from the last state OR if we haven't yielded anything yet
+            if final_result != last_summary_state or not last_summary_state:
+                yield final_result
+            _clean_up_redis(redis_client, redis_input_key, redis_output_key)
+            return
         # Check if workflow is completed unsuccessfully
         if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
             # Handle failure - yield an error message
