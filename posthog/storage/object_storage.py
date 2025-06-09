@@ -52,6 +52,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         """
         pass
 
+    @abc.abstractmethod
+    def delete(self, bucket: str, key: str) -> None:
+        pass
+
 
 class UnavailableStorage(ObjectStorageClient):
     def head_bucket(self, bucket: str):
@@ -76,6 +80,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
+        pass
+
+    def delete(self, bucket: str, key: str) -> None:
         pass
 
 
@@ -190,6 +197,15 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def delete(self, bucket: str, key: str) -> None:
+        response = {}
+        try:
+            response = self.aws_client.delete_object(Bucket=bucket, Key=key)
+        except Exception as e:
+            logger.exception("object_storage.delete_failed", bucket=bucket, key=key, error=e, s3_response=response)
+            capture_exception(e)
+            raise ObjectStorageError("delete failed") from e
+
 
 _client: ObjectStorageClient = UnavailableStorage()
 
@@ -225,6 +241,10 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
         content=content,
         extras=extras,
     )
+
+
+def delete(file_name: str, bucket: str | None = None) -> None:
+    return object_storage_client().delete(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def tag(file_name: str, tags: dict[str, str]) -> None:

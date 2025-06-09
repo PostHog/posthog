@@ -8,6 +8,7 @@ import IconBigQuery from 'public/services/bigquery.png'
 import IconBraze from 'public/services/braze.png'
 import IconChargebee from 'public/services/chargebee.png'
 import IconCloudflare from 'public/services/cloudflare.png'
+import IconDoIt from 'public/services/doit.svg'
 import IconGoogleSheets from 'public/services/Google_Sheets.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
@@ -24,6 +25,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconMSSQL from 'public/services/sql-azure.png'
 import IconStripe from 'public/services/stripe.png'
+import IconTemporalIO from 'public/services/temporal.png'
 import IconVitally from 'public/services/vitally.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { getDataWarehouseSourceUrl } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
@@ -92,6 +94,8 @@ export function DataWarehouseSourceIcon({
         Redshift: IconRedshift,
         GoogleSheets: IconGoogleSheets,
         Mongodb: IconMongodb,
+        TemporalIO: IconTemporalIO,
+        DoIt: IconDoIt,
     }[type]
 
     if (disableTooltip) {

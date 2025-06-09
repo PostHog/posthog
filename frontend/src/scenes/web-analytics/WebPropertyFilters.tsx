@@ -31,10 +31,11 @@ export const WebPropertyFilters = (): JSX.Element => {
                   '$browser',
                   '$os',
                   '$referring_domain',
-                  '$geoip_country_name',
                   '$geoip_country_code',
                   '$geoip_city_name',
                   '$geoip_subdivision_1_code',
+                  '$geoip_subdivision_1_name',
+                  '$geoip_time_zone',
                   '$pathname',
               ],
               [TaxonomicFilterGroupType.SessionProperties]: [

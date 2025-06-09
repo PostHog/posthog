@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
+use crate::api::types::{ConfigResponse, FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -270,12 +270,14 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse::new(
-            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
-            flags_response.flags,
-            None,
+        FlagsResponse {
+            errors_while_computing_flags: flag_hash_key_override_error
+                || flags_response.errors_while_computing_flags,
+            flags: flags_response.flags,
+            quota_limited: None,
             request_id,
-        )
+            config: ConfigResponse::default(),
+        }
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -531,12 +533,13 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                return FlagsResponse::new(
+                return FlagsResponse {
                     errors_while_computing_flags,
-                    flag_details_map,
-                    None,
+                    flags: flag_details_map,
+                    quota_limited: None,
                     request_id,
-                );
+                    config: ConfigResponse::default(),
+                };
             }
 
             // Step 3: Evaluate remaining flags with cached properties
@@ -595,12 +598,13 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        FlagsResponse::new(
+        FlagsResponse {
             errors_while_computing_flags,
-            flag_details_map,
-            None,
+            flags: flag_details_map,
+            quota_limited: None,
             request_id,
-        )
+            config: ConfigResponse::default(),
+        }
     }
 
     /// Matches a feature flag with property overrides.
@@ -1049,7 +1053,7 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
-        if let Some(first_condition) = feature_flag
+        if let Some(super_condition) = feature_flag
             .filters
             .super_groups
             .as_ref()
@@ -1057,11 +1061,11 @@ impl FeatureFlagMatcher {
         {
             let person_properties = self.get_person_properties(
                 property_overrides.clone(),
-                first_condition.properties.as_deref().unwrap_or(&[]),
+                super_condition.properties.as_deref().unwrap_or(&[]),
             )?;
 
             let has_relevant_super_condition_properties =
-                first_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().map_or(false, |props| {
                     props
                         .iter()
                         .any(|prop| person_properties.contains_key(&prop.key))
@@ -1069,7 +1073,7 @@ impl FeatureFlagMatcher {
 
             let (is_match, _) = self.is_condition_match(
                 feature_flag,
-                first_condition,
+                super_condition,
                 Some(person_properties),
                 hash_key_overrides,
             )?;
@@ -1375,7 +1379,7 @@ mod tests {
             flag_group_type_mapping::GroupTypeMappingCache,
             flag_models::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
         },
-        properties::property_models::OperatorType,
+        properties::property_models::{OperatorType, PropertyType},
         utils::test_utils::{
             add_person_to_cohort, create_test_flag, get_person_id_by_distinct_id,
             insert_cohort_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
@@ -1515,7 +1519,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("override@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -1577,7 +1581,7 @@ mod tests {
                         key: "industry".to_string(),
                         value: Some(json!("tech")),
                         operator: None,
-                        prop_type: "group".to_string(),
+                        prop_type: PropertyType::Group,
                         group_type_index: Some(1),
                         negation: None,
                     }]),
@@ -1808,7 +1812,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("test@example.com")),
                         operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -1941,7 +1945,7 @@ mod tests {
                             key: "age".to_string(),
                             value: Some(json!(25)),
                             operator: Some(OperatorType::Gte),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         },
@@ -1949,7 +1953,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("example@domain.com")),
                             operator: Some(OperatorType::Icontains),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         },
@@ -2177,7 +2181,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("test@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -2239,7 +2243,7 @@ mod tests {
                         key: "age".to_string(),
                         value: Some(json!(25)),
                         operator: Some(OperatorType::Gte),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -2339,7 +2343,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("user1@example.com")),
                             operator: None,
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2351,7 +2355,7 @@ mod tests {
                             key: "age".to_string(),
                             value: Some(json!(30)),
                             operator: Some(OperatorType::Gte),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2582,7 +2586,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -2655,7 +2659,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2667,7 +2671,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2688,7 +2692,7 @@ mod tests {
                         key: "is_enabled".to_string(),
                         value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -2807,7 +2811,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2819,7 +2823,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2840,7 +2844,7 @@ mod tests {
                         key: "is_enabled".to_string(),
                         value: Some(json!("true")),
                         operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -2913,7 +2917,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2925,7 +2929,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -2946,7 +2950,7 @@ mod tests {
                         key: "is_enabled".to_string(),
                         value: Some(json!(false)),
                         operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -3088,7 +3092,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3181,7 +3185,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3274,7 +3278,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3388,7 +3392,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(dependent_cohort_row.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3481,7 +3485,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3567,7 +3571,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3652,7 +3656,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3732,7 +3736,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3825,7 +3829,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -3895,7 +3899,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("user3@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -3991,7 +3995,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("user4@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4072,7 +4076,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("user5@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4102,7 +4106,7 @@ mod tests {
                         key: "age".to_string(),
                         value: Some(json!(30)),
                         operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4201,7 +4205,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("test@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4272,7 +4276,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("test@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4376,7 +4380,7 @@ mod tests {
                         key: "$some_prop".to_string(),
                         value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4409,7 +4413,7 @@ mod tests {
                         key: "$some_prop".to_string(),
                         value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4442,7 +4446,7 @@ mod tests {
                         key: "$some_prop".to_string(),
                         value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4713,7 +4717,7 @@ mod tests {
                         key: "id".to_string(),
                         value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
+                        prop_type: PropertyType::Cohort,
                         group_type_index: None,
                         negation: Some(false),
                     }]),
@@ -4773,7 +4777,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("test@example.com")),
                         operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),
@@ -4842,7 +4846,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("@storytell.ai")),
                             operator: Some(OperatorType::Icontains),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -4859,7 +4863,7 @@ mod tests {
                                 "matt.amick@purplewave.com"
                             ])),
                             operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -4871,7 +4875,7 @@ mod tests {
                             key: "email".to_string(),
                             value: Some(json!("@posthog.com")),
                             operator: Some(OperatorType::Icontains),
-                            prop_type: "person".to_string(),
+                            prop_type: PropertyType::Person,
                             group_type_index: None,
                             negation: None,
                         }]),
@@ -4887,7 +4891,7 @@ mod tests {
                         key: "$feature_enrollment/artificial-hog".to_string(),
                         value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     }]),

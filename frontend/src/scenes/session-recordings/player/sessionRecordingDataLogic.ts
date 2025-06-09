@@ -1,5 +1,5 @@
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -8,7 +8,10 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
-import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import {
+    InspectorListItemComment,
+    RecordingComment,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
@@ -16,9 +19,11 @@ import {
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { annotationsModel } from '~/models/annotationsModel'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
+    AnnotationScope,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
@@ -33,7 +38,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -60,7 +65,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
         actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam'], annotationsModel, ['annotations']],
     })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -251,7 +256,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     sources.forEach((s) => {
                         const k = keyForSource(s)
                         // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || { snapshots: [] }
+                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
+                        cache.snapshotsBySource[k].sourceLoaded = true
                     })
 
                     return { sources: sources }
@@ -495,11 +501,13 @@ LIMIT 1000000
                 const nextSourcesToLoad =
                     values.snapshotSources?.filter((s) => {
                         const sourceKey = keyForSource(s)
-                        return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                        return (
+                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
+                        )
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 100))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 50))
                 }
 
                 if (!props.blobV2PollingDisabled) {
@@ -508,7 +516,7 @@ LIMIT 1000000
             } else {
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
                     const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
                 })
 
                 if (nextSourceToLoad) {
@@ -587,6 +595,42 @@ LIMIT 1000000
         },
     })),
     selectors(({ cache }) => ({
+        sessionAnnotations: [
+            (s) => [s.annotations, s.start, s.end],
+            (annotations, start, end): InspectorListItemComment[] => {
+                const allowedScopes = [AnnotationScope.Project, AnnotationScope.Organization]
+                const startValue = start?.valueOf()
+                const endValue = end?.valueOf()
+
+                const result: InspectorListItemComment[] = []
+                for (const annotation of annotations) {
+                    if (!allowedScopes.includes(annotation.scope)) {
+                        continue
+                    }
+
+                    if (!annotation.date_marker || !startValue || !endValue || !annotation.content) {
+                        continue
+                    }
+
+                    const annotationTime = dayjs(annotation.date_marker).valueOf()
+                    if (annotationTime < startValue || annotationTime > endValue) {
+                        continue
+                    }
+
+                    result.push({
+                        type: 'comment',
+                        source: 'annotation',
+                        data: annotation,
+                        timestamp: dayjs(annotation.date_marker),
+                        timeInRecording: annotation.date_marker.valueOf() - startValue,
+                        search: annotation.content,
+                        highlightColor: 'primary',
+                    })
+                }
+
+                return result
+            },
+        ],
         webVitalsEvents: [
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>
@@ -831,12 +875,13 @@ LIMIT 1000000
                 if (!sources || !cache.snapshotsBySource) {
                     return []
                 }
-                return processAllSnapshots(
+                const processedSnapshots = processAllSnapshots(
                     sources,
                     cache.snapshotsBySource || {},
                     viewportForTimestamp,
                     sessionRecordingId
                 )
+                return processedSnapshots['processed'].snapshots || []
             },
         ],
 
@@ -893,6 +938,17 @@ LIMIT 1000000
             },
         ],
 
+        isLikelyPastTTL: [
+            (s) => [s.start, s.snapshotSources],
+            (start, snapshotSources) => {
+                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
+                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
+                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
+                const hasNoSources = snapshotSources?.length === 0
+                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
+            },
+        ],
+
         bufferedToTime: [
             (s) => [s.segments],
             (segments): number | null => {
@@ -920,15 +976,22 @@ LIMIT 1000000
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
-                return () => ({
-                    version: '2023-04-28',
-                    data: {
-                        id: sessionPlayerMetaData?.id ?? '',
-                        person: sessionPlayerMetaData?.person,
-                        snapshots: snapshots,
-                    },
-                })
+            (
+                sessionPlayerMetaData,
+                snapshots
+            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
+                return (type?: ExportedSessionType) => {
+                    return type === 'rrweb'
+                        ? snapshots
+                        : {
+                              version: '2023-04-28',
+                              data: {
+                                  id: sessionPlayerMetaData?.id ?? '',
+                                  person: sessionPlayerMetaData?.person,
+                                  snapshots: snapshots,
+                              },
+                          }
+                }
             },
         ],
 
@@ -960,4 +1023,16 @@ LIMIT 1000000
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        // Clear the cache
+
+        if (cache.realTimePollingTimeoutID) {
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = undefined
+        }
+
+        cache.windowIdForTimestamp = undefined
+        cache.viewportForTimestamp = undefined
+        cache.snapshotsBySource = undefined
+    }),
 ])

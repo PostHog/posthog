@@ -87,7 +87,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
-    type: Literal["event"]
+    type: Literal["event", "element"]
     key: str
     value: Any
     operator: str | None = None

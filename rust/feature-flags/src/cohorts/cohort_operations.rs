@@ -13,6 +13,7 @@ use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
+use crate::properties::property_models::PropertyType;
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::Client as DatabaseClient;
 
@@ -78,7 +79,7 @@ impl Cohort {
             })?;
 
         let mut props = cohort_property.properties.to_inner();
-        props.retain(|f| !(f.key == "id" && f.prop_type == "cohort"));
+        props.retain(|f| !(f.key == "id" && f.prop_type == PropertyType::Cohort));
         Ok(props)
     }
 
@@ -475,6 +476,7 @@ mod tests {
     use super::*;
     use crate::{
         cohorts::cohort_models::{CohortPropertyType, CohortValues},
+        properties::property_models::PropertyType,
         utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
             setup_pg_writer_client,
@@ -548,7 +550,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].key, "$initial_browser_version");
         assert_eq!(result[0].value, Some(json!(["125"])));
-        assert_eq!(result[0].prop_type, "person");
+        assert_eq!(result[0].prop_type, PropertyType::Person);
     }
 
     #[test]
@@ -562,7 +564,7 @@ mod tests {
                         key: "email".to_string(),
                         value: Some(json!("test@example.com")),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     },
@@ -570,7 +572,7 @@ mod tests {
                         key: "age".to_string(),
                         value: Some(json!(25)),
                         operator: None,
-                        prop_type: "person".to_string(),
+                        prop_type: PropertyType::Person,
                         group_type_index: None,
                         negation: None,
                     },

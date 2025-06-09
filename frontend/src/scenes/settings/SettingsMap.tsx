@@ -1,10 +1,14 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/auto-assignment/ErrorTrackingAutoAssignment'
+import { ExceptionAutocaptureSettings } from 'scenes/error-tracking/configuration/ExceptionAutocaptureSettings'
+import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingCustomGrouping } from 'scenes/error-tracking/configuration/rules/ErrorTrackingCustomGrouping'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -23,11 +27,7 @@ import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
 
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './environment/AutocaptureSettings'
+import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
@@ -43,7 +43,6 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -167,6 +166,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamTimezone />,
             },
             {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
@@ -241,8 +245,14 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'revenue-base-currency',
-                title: 'Revenue base currency',
-                component: <RevenueBaseCurrencySettings />,
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
             },
             {
                 id: 'revenue-analytics-events',
@@ -253,6 +263,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
             },
         ],
     },
@@ -382,26 +393,32 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <UserGroups />,
             },
             {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <ErrorTrackingAutoAssignment />,
+                flag: 'ERROR_TRACKING_ALERT_ROUTING',
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <ErrorTrackingCustomGrouping />,
+                flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
+            },
+            {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
                 flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
-                id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment',
-                component: <ErrorTrackingAutoAssignment />,
-                flag: 'ERROR_TRACKING_ALERT_ROUTING',
-            },
-            {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <ErrorTrackingSymbolSets />,
-            },
-            {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                component: <ErrorTrackingAlerting />,
             },
         ],
     },

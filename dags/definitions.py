@@ -5,7 +5,7 @@ from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 from django.conf import settings
 
-from dags.common import ClickhouseClusterResource
+from dags.common import ClickhouseClusterResource, job_status_metrics_sensors
 from dags import (
     backups,
     ch_examples,
@@ -17,7 +17,10 @@ from dags import (
     person_overrides,
     property_definitions,
     slack_alerts,
-    web_preaggregated_internal,
+    symbol_set_cleanup,
+    web_preaggregated_daily,
+    web_preaggregated_ddl,
+    web_preaggregated_hourly,
 )
 
 # Define resources for different environments
@@ -54,9 +57,17 @@ defs = dagster.Definitions(
         exchange_rate.hourly_exchange_rates_in_clickhouse,
         orm_examples.pending_deletions,
         orm_examples.process_pending_deletions,
-        web_preaggregated_internal.web_analytics_preaggregated_tables,
-        web_preaggregated_internal.web_stats_daily,
-        web_preaggregated_internal.web_bounces_daily,
+        symbol_set_cleanup.symbol_sets_to_delete,
+        symbol_set_cleanup.symbol_set_cleanup_results,
+        web_preaggregated_ddl.web_analytics_preaggregated_tables,
+        web_preaggregated_ddl.web_analytics_preaggregated_hourly_tables,
+        web_preaggregated_ddl.web_analytics_combined_views,
+        web_preaggregated_daily.web_stats_daily,
+        web_preaggregated_daily.web_bounces_daily,
+        web_preaggregated_daily.web_stats_daily_export,
+        web_preaggregated_daily.web_bounces_daily_export,
+        web_preaggregated_hourly.web_stats_hourly,
+        web_preaggregated_hourly.web_bounces_hourly,
     ],
     jobs=[
         deletes.deletes_job,
@@ -67,9 +78,11 @@ defs = dagster.Definitions(
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         property_definitions.property_definitions_ingestion_job,
+        symbol_set_cleanup.symbol_set_cleanup_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
-        web_preaggregated_internal.recreate_web_pre_aggregated_data_job,
+        web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
+        web_preaggregated_daily.web_pre_aggregate_daily_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -81,11 +94,14 @@ defs = dagster.Definitions(
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
-        web_preaggregated_internal.recreate_web_analytics_preaggregated_internal_data_daily,
+        symbol_set_cleanup.daily_symbol_set_cleanup_schedule,
+        web_preaggregated_daily.web_pre_aggregate_daily_schedule,
+        web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
         slack_alerts.notify_slack_on_failure,
+        *job_status_metrics_sensors,
     ],
     resources=resources,
 )

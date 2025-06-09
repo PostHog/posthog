@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
@@ -114,6 +115,12 @@ class PipelineNonDLT:
             ):
                 self._job.rows_synced = 0
                 self._job.save()
+
+            # Check for duplicate primary keys
+            if self._is_incremental and self._resource.has_duplicate_primary_keys:
+                raise DuplicatePrimaryKeysException(
+                    f"The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key. Primary keys being used are: {self._resource.primary_keys}"
+                )
 
             # Setup row tracking
             if self._resource.rows_to_sync:
@@ -218,8 +225,11 @@ class PipelineNonDLT:
         if should_partition_table(delta_table, self._schema, self._resource):
             partition_count = self._schema.partition_count or self._resource.partition_count
             partition_size = self._schema.partition_size or self._resource.partition_size
-            partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
-            partition_format = self._schema.partition_format
+            partition_keys = (
+                self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
+            )
+            partition_format = self._schema.partition_format or self._resource.partition_format
+            partition_mode = self._schema.partition_mode or self._resource.partition_mode
             if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
                 pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
@@ -227,7 +237,7 @@ class PipelineNonDLT:
                     partition_count=partition_count,
                     partition_size=partition_size,
                     partition_keys=partition_keys,
-                    partition_mode=self._schema.partition_mode,
+                    partition_mode=partition_mode,
                     partition_format=partition_format,
                     logger=self._logger,
                 )

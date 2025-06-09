@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
@@ -42,12 +42,23 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
+        toggleMarkdownRendering: true,
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
+        searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => searchQuery }],
+        isRenderingMarkdown: [
+            true as boolean,
+            {
+                setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
+                toggleMarkdownRendering: (state) => !state,
+            },
+        ],
     }),
 
     selectors({
@@ -97,6 +108,27 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                 ]
             },
         ],
+    }),
+
+    listeners(({ values }) => ({
+        setIsRenderingMarkdown: ({ isRenderingMarkdown }) => {
+            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(isRenderingMarkdown))
+        },
+        toggleMarkdownRendering: () => {
+            localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
+        },
+    })),
+
+    afterMount(({ actions }) => {
+        const savedState = localStorage.getItem('llm-observability-markdown-rendering')
+        if (savedState !== null) {
+            try {
+                const isRenderingMarkdown = JSON.parse(savedState)
+                actions.setIsRenderingMarkdown(isRenderingMarkdown)
+            } catch {
+                // If parsing fails, keep the default value
+            }
+        }
     }),
 
     urlToAction(({ actions }) => ({

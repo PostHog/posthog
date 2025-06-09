@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
 )
+from posthog.temporal.data_imports.pipelines.doit.source import DOIT_INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.pipelines.mssql import (
     MSSQLSourceConfig,
     get_schemas as get_mssql_schemas,
@@ -99,8 +100,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
-        if schema.status == ExternalDataSchema.Status.CANCELLED:
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
+
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limits too low"
 
         return schema.status
 
@@ -362,6 +366,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
+        elif source.source_type == ExternalDataSource.Type.DOIT:
+            incremental_columns = DOIT_INCREMENTAL_FIELDS
 
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)

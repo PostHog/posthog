@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
@@ -11,6 +12,7 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
@@ -25,20 +27,46 @@ export function sanitizeColor(color: string | undefined): string | undefined {
     }
 
     // test if the color is valid by adding a # to the beginning of the string
-    if (!validateColor(`#${color}`, 'color')) {
+    if (CSS.supports('color', `#${color}`)) {
         return `#${color}`
     }
 
     return color
 }
 
-export function validateColor(color: string | undefined, fieldName: string): string | undefined {
-    if (!color) {
+export function validateCSSProperty(property: string, value: string | undefined): string | undefined {
+    if (!value) {
         return undefined
     }
-    // Test if the color value is valid using CSS.supports
-    const isValidColor = CSS.supports('color', color)
-    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
+    const isValidCSSProperty = CSS.supports(property, value)
+    return !isValidCSSProperty ? `${value} is not a valid property for ${property}.` : undefined
+}
+
+export function validateSurveyAppearance(
+    appearance: SurveyAppearance,
+    hasRatingQuestions: boolean,
+    surveyType: SurveyType
+): DeepPartialMap<SurveyAppearance, ValidationErrorType> {
+    return {
+        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
+        borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        // Only validate rating button colors if there's a rating question
+        ...(hasRatingQuestions && {
+            ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
+            ratingButtonColor: validateCSSProperty('background-color', appearance.ratingButtonColor),
+        }),
+        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor),
+        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor),
+        maxWidth: validateCSSProperty('width', appearance.maxWidth),
+        boxPadding: validateCSSProperty('padding', appearance.boxPadding),
+        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
+        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius),
+        zIndex: validateCSSProperty('z-index', appearance.zIndex),
+        widgetSelector:
+            surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
+                ? 'Please enter a CSS selector.'
+                : undefined,
+    }
 }
 
 export function getSurveyResponseKey(questionIndex: number): string {
@@ -63,7 +91,7 @@ export const getResponseFieldWithId = (
 }
 
 export function sanitizeSurveyDisplayConditions(
-    displayConditions: SurveyDisplayConditions | null
+    displayConditions?: SurveyDisplayConditions | null
 ): SurveyDisplayConditions | null {
     if (!displayConditions) {
         return null
@@ -77,7 +105,7 @@ export function sanitizeSurveyDisplayConditions(
 }
 
 export function sanitizeSurveyAppearance(
-    appearance: SurveyAppearance | null,
+    appearance?: SurveyAppearance | null,
     isPartialResponsesEnabled = false
 ): SurveyAppearance | null {
     if (!appearance) {
@@ -93,6 +121,8 @@ export function sanitizeSurveyAppearance(
         ratingButtonColor: sanitizeColor(appearance.ratingButtonColor),
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
+        thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
+        thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
     }
 }
 
@@ -349,4 +379,29 @@ export function buildPartialResponsesFilter(survey: Survey): string {
                 toString(uuid)
             )
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
+    const sanitizedQuestions =
+        survey.questions?.map((question) => ({
+            ...question,
+            question: sanitizeHTML(question.question ?? ''),
+            description: sanitizeHTML(question.description ?? ''),
+        })) || []
+
+    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
+
+    // Remove widget-specific fields if survey type is not Widget
+    if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
+        delete sanitizedAppearance.widgetType
+        delete sanitizedAppearance.widgetLabel
+        delete sanitizedAppearance.widgetColor
+    }
+
+    return {
+        ...survey,
+        conditions: sanitizeSurveyDisplayConditions(survey.conditions),
+        questions: sanitizedQuestions,
+        appearance: sanitizedAppearance,
+    }
 }

@@ -7,7 +7,6 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconPlus,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -21,8 +20,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -31,7 +29,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
@@ -86,15 +83,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (!isLayoutPanelVisible) {
-            showLayoutPanel(true)
-        } else {
-            showLayoutPanel(false)
-            clearActivePanelIdentifier()
-        }
-
         if (activePanelIdentifier !== item) {
             setActivePanelIdentifier(item)
+            showLayoutPanel(true)
+        } else if (activePanelIdentifier === item) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
         }
     }
 
@@ -106,6 +100,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
+        }
+        if (isMobileLayout && isLayoutNavbarVisible) {
+            showLayoutNavBar(false)
         }
         if (to) {
             router.actions.push(to)
@@ -143,34 +140,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.projectHomepage(), true)
             },
-            tooltip: 'Home',
-        },
-        {
-            identifier: 'Project',
-            id: 'Project',
-            icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Project')
-                }
-            },
-            showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Project'
-                    ? 'Close project tree'
-                    : 'Open project tree',
-        },
-        {
-            identifier: 'Recent',
-            id: 'Recent',
-            icon: <IconClock className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Recent')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Recent' ? 'Close recent' : 'Open recent',
+            tooltip: isLayoutNavCollapsed ? 'Home' : null,
         },
         {
             identifier: 'Products',
@@ -182,7 +152,45 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
+        },
+        {
+            identifier: 'Project',
+            id: 'Project',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Project')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutNavCollapsed
+                ? isLayoutPanelVisible && activePanelIdentifier === 'Project'
+                    ? 'Close project tree'
+                    : 'Open project tree'
+                : null,
+        },
+        {
+            identifier: 'Data',
+            id: 'Data',
+            icon: <IconDatabase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Data')
+                }
+            },
+            showChevron: true,
+        },
+        {
+            identifier: 'People',
+            id: 'People',
+            icon: <IconPeople />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('People')
+                }
+            },
+            showChevron: true,
+            tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
             identifier: 'Shortcuts',
@@ -194,36 +202,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
-        },
-        {
-            identifier: 'Data management',
-            id: 'Data management',
-            icon: <IconDatabase />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Data management')
-                }
-            },
-            showChevron: true,
-            tooltip:
-                isLayoutPanelVisible && activePanelIdentifier === 'Data management'
-                    ? 'Close data management'
-                    : 'Open data management',
-        },
-        {
-            identifier: 'Persons',
-            id: 'Persons',
-            icon: <IconPeople />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Persons')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close persons' : 'Open persons',
-            tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
             identifier: 'Activity',
@@ -255,34 +233,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         {!isLayoutNavCollapsed && (
                             <div
-                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
                                 aria-label="Add a new item menu actions"
                             >
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <ButtonPrimitive
-                                            size="base"
-                                            iconOnly
-                                            data-attr="search-button"
-                                            tooltip="Add new"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                            }}
-                                        >
-                                            <IconPlus className="text-secondary" />
-                                        </ButtonPrimitive>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent>
-                                        <NewMenu type="dropdown" />
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-
                                 <ButtonPrimitive
                                     size="base"
                                     iconOnly
                                     onClick={toggleSearchBar}
-                                    data-attr="search-button"
+                                    data-attr="tree-navbar-search-button"
                                     tooltip={
                                         <div className="flex flex-col gap-0.5">
                                             <span>
@@ -346,37 +304,44 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     {!isLayoutNavCollapsed && (
                                                         <>
                                                             <span className="truncate">{item.id}</span>
-                                                            <span className="ml-auto">
-                                                                <IconChevronRight className="size-3 text-secondary" />
+                                                            <span className="ml-auto pr-1">
+                                                                <IconChevronRight className="size-3 text-tertiary" />
                                                             </span>
                                                         </>
                                                     )}
                                                 </ButtonPrimitive>
                                             ) : (
-                                                <Link
-                                                    data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
-                                                    buttonProps={{
-                                                        menuItem: !isLayoutNavCollapsed,
-                                                        className: 'group',
-                                                        iconOnly: isLayoutNavCollapsed,
-                                                    }}
-                                                    to={item.to}
-                                                    tooltip={item.tooltip}
-                                                    tooltipPlacement="right"
-                                                    tooltipDocLink={item.tooltipDocLink}
+                                                <ButtonGroupPrimitive
+                                                    fullWidth
+                                                    className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
                                                 >
-                                                    <span
-                                                        className={`flex text-tertiary group-hover:text-primary ${
-                                                            isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                                        }`}
+                                                    <Link
+                                                        data-attr={`menu-item-${item.identifier
+                                                            .toString()
+                                                            .toLowerCase()}`}
+                                                        buttonProps={{
+                                                            menuItem: !isLayoutNavCollapsed,
+                                                            className: 'group',
+                                                            iconOnly: isLayoutNavCollapsed,
+                                                        }}
+                                                        to={item.to}
+                                                        tooltip={item.tooltip}
+                                                        tooltipPlacement="right"
+                                                        tooltipDocLink={item.tooltipDocLink}
                                                     >
-                                                        {item.icon}
-                                                    </span>
+                                                        <span
+                                                            className={`flex text-tertiary group-hover:text-primary ${
+                                                                isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                                            }`}
+                                                        >
+                                                            {item.icon}
+                                                        </span>
 
-                                                    {!isLayoutNavCollapsed && (
-                                                        <span className="truncate">{item.id}</span>
-                                                    )}
-                                                </Link>
+                                                        {!isLayoutNavCollapsed && (
+                                                            <span className="truncate">{item.id}</span>
+                                                        )}
+                                                    </Link>
+                                                </ButtonGroupPrimitive>
                                             )}
                                         </ListBox.Item>
                                     ))}
@@ -386,7 +351,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div
                                     className={cn(
-                                        'flex flex-col gap-px h-full',
+                                        'relative flex flex-col gap-px h-full',
                                         !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
                                     )}
                                 >
@@ -511,6 +476,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             closeThreshold={100}
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
+                            data-attr="tree-navbar-resizer"
                         />
                     )}
                 </nav>
@@ -523,7 +489,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutNavBar(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-100)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                     />
                 )}
 
@@ -533,7 +499,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutPanel(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-100)] lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                     />
                 )}
             </div>

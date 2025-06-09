@@ -415,37 +415,49 @@ export class HogExecutorService {
                             })
                         },
                         postHogCapture: (event) => {
+                            const distinctId = event.distinct_id || globals.event?.distinct_id
+                            const eventName = event.event
+                            const eventProperties = event.properties || {}
+
                             if (typeof event.event !== 'string') {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
                             }
 
-                            if (result.capturedPostHogEvents!.length > 0) {
+                            if (!distinctId) {
+                                throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
+                            }
+
+                            if (result.capturedPostHogEvents.length > 0) {
                                 throw new Error(
                                     'postHogCapture was called more than once. Only one call is allowed per function'
                                 )
                             }
 
-                            const givenCount = globals.event.properties?.$hog_function_execution_count
-                            const executionCount = typeof givenCount === 'number' ? givenCount : 0
+                            if (globals.event) {
+                                // Protection to stop a recursive loop
+                                const givenCount = globals.event.properties?.$hog_function_execution_count
+                                const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
-                            if (executionCount > 0) {
-                                result.logs.push({
-                                    level: 'warn',
-                                    timestamp: DateTime.now(),
-                                    message: `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`,
-                                })
-                                return
+                                if (executionCount > 0) {
+                                    result.logs.push({
+                                        level: 'warn',
+                                        timestamp: DateTime.now(),
+                                        message: `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`,
+                                    })
+                                    return
+                                }
+
+                                // Increment the execution count so that we can check it in the future
+                                eventProperties.$hog_function_execution_count = executionCount + 1
                             }
 
-                            result.capturedPostHogEvents!.push({
+                            result.capturedPostHogEvents.push({
                                 team_id: invocation.teamId,
                                 timestamp: DateTime.utc().toISO(),
-                                distinct_id: event.distinct_id || invocation.state.globals.event.distinct_id,
-                                event: event.event,
+                                distinct_id: distinctId,
+                                event: eventName,
                                 properties: {
-                                    ...event.properties,
-                                    // Increment the execution count so that we can check it in the future
-                                    $hog_function_execution_count: executionCount + 1,
+                                    ...eventProperties,
                                 },
                             })
                         },
@@ -541,8 +553,10 @@ export class HogExecutorService {
                             }
 
                             const fetchQueueParameters = this.enrichFetchRequest({
-                                // TODO: Add support for other providers
-                                ...createMailjetRequest(email, auth),
+                                ...createMailjetRequest(email, auth, {
+                                    api_key: this.config.MAILJET_PUBLIC_KEY,
+                                    secret_key: this.config.MAILJET_SECRET_KEY,
+                                }),
                                 return_queue: 'hog',
                             })
 
