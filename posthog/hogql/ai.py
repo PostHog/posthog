@@ -967,4 +967,5 @@ These functions are not available in the current version of HogQL (NEVER USE THE
 - continue
 - left
 - right
+- arrayConcat
 """
