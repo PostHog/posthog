@@ -41,47 +41,47 @@ import { ItemEvent, ItemEventDetail } from './ItemEvent'
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
-    ['events']: {
+    events: {
         Icon: undefined,
         tooltip: 'Recording event',
     },
-    ['console']: {
+    console: {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
-    ['network']: {
+    network: {
         Icon: IconDashboard,
         tooltip: 'Network event',
     },
-    ['offline-status']: {
+    'offline-status': {
         Icon: IconCloud,
         tooltip: 'browser went offline or returned online',
     },
-    ['browser-visibility']: {
+    'browser-visibility': {
         Icon: IconEye,
         tooltip: 'browser tab/window became visible or hidden',
     },
-    ['$session_config']: {
+    $session_config: {
         Icon: IconGear,
         tooltip: 'Session recording config',
     },
-    ['doctor']: {
+    doctor: {
         Icon: undefined,
         tooltip: 'Doctor event',
     },
-    ['comment']: {
+    comment: {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
-    ['annotation']: {
+    annotation: {
         Icon: IconChat,
         tooltip: 'An annotation was added to this timestamp',
     },
-    ['inspector-summary']: {
+    'inspector-summary': {
         Icon: undefined,
         tooltip: undefined,
     },
-    ['inactivity']: {
+    inactivity: {
         Icon: undefined,
         tooltip: undefined,
     },
