@@ -13,6 +13,7 @@ class CoreFilterDefinition(TypedDict):
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
+    virtual: NotRequired[bool]
 
 
 """
