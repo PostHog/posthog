@@ -108,6 +108,10 @@ export function HogFunctionConfiguration({
         setOldHogCode,
         setNewHogCode,
         clearHogCodeDiff,
+        reportAIHogTransformationPrompted,
+        reportAIHogTransformationAccepted,
+        reportAIHogTransformationRejected,
+        reportAIHogTransformationPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -534,7 +538,12 @@ export function HogFunctionConfiguration({
                                                             setOldHogCode(value ?? '')
                                                             // Store the new value from Max Tool
                                                             setNewHogCode(toolOutput)
+                                                            // Report that AI was prompted
+                                                            reportAIHogTransformationPrompted()
                                                             // Don't immediately update the form - let user accept/reject
+                                                        }}
+                                                        onMaxOpen={() => {
+                                                            reportAIHogTransformationPromptOpen()
                                                         }}
                                                         suggestions={[]}
                                                         introOverride={{
@@ -562,12 +571,14 @@ export function HogFunctionConfiguration({
                                                                 if (newHogCode) {
                                                                     onChange(newHogCode)
                                                                 }
+                                                                reportAIHogTransformationAccepted()
                                                                 clearHogCodeDiff()
                                                             }}
                                                             onRejectChanges={() => {
                                                                 if (oldHogCode) {
                                                                     onChange(oldHogCode)
                                                                 }
+                                                                reportAIHogTransformationRejected()
                                                                 clearHogCodeDiff()
                                                             }}
                                                             options={{

@@ -314,6 +314,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
+        reportAIHogTransformationPrompted: true,
+        reportAIHogTransformationAccepted: true,
+        reportAIHogTransformationRejected: true,
+        reportAIHogTransformationPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -1153,6 +1157,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
 
     listeners(({ actions, values, cache }) => ({
+        reportAIHogTransformationPrompted: () => {
+            posthog.capture('ai_hog_transformation_prompted')
+        },
+        reportAIHogTransformationAccepted: () => {
+            posthog.capture('ai_hog_transformation_accepted')
+        },
+        reportAIHogTransformationRejected: () => {
+            posthog.capture('ai_hog_transformation_rejected')
+        },
+        reportAIHogTransformationPromptOpen: () => {
+            posthog.capture('ai_hog_transformation_prompt_open')
+        },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
