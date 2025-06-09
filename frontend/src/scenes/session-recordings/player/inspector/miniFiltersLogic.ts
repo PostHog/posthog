@@ -16,47 +16,47 @@ export type SharedListMiniFilter = {
 
 export const MiniFilters: SharedListMiniFilter[] = [
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-posthog',
         name: 'PostHog',
         tooltip: 'Standard PostHog events except Pageviews, Autocapture, and Exceptions.',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-custom',
         name: 'Custom',
         tooltip: 'Custom events tracked by your app',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-pageview',
         name: 'Pageview / Screen',
         tooltip: 'Pageview (or Screen for mobile) events',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-autocapture',
         name: 'Autocapture',
         tooltip: 'Autocapture events such as clicks and inputs',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-exceptions',
         name: 'Exceptions',
         tooltip: 'Exception events from PostHog or its Sentry integration',
     },
     {
-        type: FilterableInspectorListItemTypes.CONSOLE,
+        type: 'console',
         key: 'console-info',
         name: 'Info',
     },
     {
-        type: FilterableInspectorListItemTypes.CONSOLE,
+        type: 'console',
         key: 'console-warn',
         name: 'Warn',
     },
     {
-        type: FilterableInspectorListItemTypes.CONSOLE,
+        type: 'console',
         key: 'console-error',
         name: 'Error',
     },
@@ -97,7 +97,7 @@ export const MiniFilters: SharedListMiniFilter[] = [
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
     {
-        type: FilterableInspectorListItemTypes.DOCTOR,
+        type: 'doctor',
         key: 'doctor',
         name: 'Doctor',
         tooltip:
@@ -195,7 +195,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
 
         hasEventsFiltersSelected: [
             (s) => [s.miniFiltersForType],
-            (miniFiltersForType) => miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled),
+            (miniFiltersForType) => miniFiltersForType('events').some((x) => x.enabled),
         ],
 
         miniFilters: [

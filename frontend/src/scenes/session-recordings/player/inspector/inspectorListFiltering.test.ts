@@ -113,12 +113,12 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         windowId: 'this window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         windowId: 'a different window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
@@ -137,7 +137,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: 'an event' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -158,7 +158,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -176,7 +176,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                         highlightColor: 'primary',
                     } as unknown as InspectorListItemEvent,
@@ -185,7 +185,7 @@ describe('filtering inspector list items', () => {
                         data: { event: '$pageview' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemPerformance,
                     {
-                        type: FilterableInspectorListItemTypes.DOCTOR,
+                        type: 'doctor',
                         data: { event: '$pageview' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemDoctor,
                 ],

@@ -184,12 +184,12 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const hasConsoleItems = allItemsByItemType[FilterableInspectorListItemTypes.CONSOLE]?.length > 0
+    const hasConsoleItems = allItemsByItemType['console']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-console-toggle-all"
-            type={FilterableInspectorListItemTypes.CONSOLE}
+            type="console"
             icon={<IconTerminal />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
@@ -229,12 +229,12 @@ function EventsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
 
-    const hasEventItems = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
+    const hasEventItems = allItemsByItemType['events']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-events-toggle-all"
-            type={FilterableInspectorListItemTypes.EVENTS}
+            type="events"
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}

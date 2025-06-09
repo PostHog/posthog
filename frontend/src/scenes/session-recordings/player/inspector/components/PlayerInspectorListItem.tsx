@@ -42,11 +42,11 @@ import { ItemEvent, ItemEventDetail } from './ItemEvent'
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
-    [FilterableInspectorListItemTypes.EVENTS]: {
+    ['events']: {
         Icon: undefined,
         tooltip: 'Recording event',
     },
-    [FilterableInspectorListItemTypes.CONSOLE]: {
+    ['console']: {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
@@ -130,9 +130,9 @@ function RowItemTitle({
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
             {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
+            ) : item.type === 'console' ? (
                 <ItemConsoleLog item={item} />
-            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
+            ) : item.type === 'events' ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
@@ -142,7 +142,7 @@ function RowItemTitle({
                 <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
-            ) : item.type === FilterableInspectorListItemTypes.DOCTOR ? (
+            ) : item.type === 'doctor' ? (
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
@@ -168,12 +168,12 @@ function RowItemDetail({
         <div onClick={onClick}>
             {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
+            ) : item.type === 'console' ? (
                 <ItemConsoleLogDetail item={item} />
-            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
+            ) : item.type === 'events' ? (
                 <ItemEventDetail item={item} />
             ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
-              FilterableInspectorListItemTypes.DOCTOR ? (
+              'doctor' ? (
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
@@ -238,7 +238,7 @@ export function PlayerInspectorListItem({
     const isHovering = useIsHovering(hoverRef)
 
     let TypeIcon = typeToIconAndDescription[item.type].Icon
-    if (TypeIcon === undefined && item.type === FilterableInspectorListItemTypes.EVENTS) {
+    if (TypeIcon === undefined && item.type === 'events') {
         // KLUDGE this is a hack to lean on this function, yuck
         TypeIcon = eventToIcon(item.data.event)
     }
