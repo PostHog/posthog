@@ -67,6 +67,9 @@ export type HogFlow = {
     abort_action?: string
 }
 
+export type HogFlowEdge = HogFlow['edges'][number]
+export type HogFlowAction = HogFlow['actions'][number]
+
 export type HogFlowInvocation = {
     id: string
     team_id: number
