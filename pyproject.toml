@@ -112,7 +112,7 @@ dependencies = [
     "sqlparse==0.4.4",
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
-    "stripe==10.3.0",
+    "stripe==12.2.0",
     "structlog==23.2.0",
     "temporalio==1.7.1",
     "tiktoken==0.9.*",

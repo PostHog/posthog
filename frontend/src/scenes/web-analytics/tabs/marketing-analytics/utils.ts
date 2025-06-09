@@ -1,7 +1,6 @@
 type MarketingAnalyticsSchemaField = {
     type: string[]
     required: boolean
-    default?: string
 }
 
 export type MarketingAnalyticsSchema = keyof typeof MARKETING_ANALYTICS_SCHEMA

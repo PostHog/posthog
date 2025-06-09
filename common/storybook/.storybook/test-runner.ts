@@ -26,6 +26,12 @@ declare module '@storybook/types' {
             /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
             waitForSelector?: string | string[]
             /**
+             * By default we wait for images to have width as an indication the page is ready for screenshot testing
+             * Some stories have broken images on purpose to test what the UI does
+             * in those cases set `allowImagesWithoutWidth` to `true`
+             */
+            allowImagesWithoutWidth?: boolean
+            /**
              * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
              * @default false
              */
@@ -152,12 +158,19 @@ async function expectStoryToMatchSnapshot(
 
 
 async function takeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
+        const {
+        allowImagesWithoutWidth = false,
+    } = storyContext.parameters?.testOptions ?? {}
+
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
     // Wait until we're sure we've finished loading everything
     await waitForPageReady(page)
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    // check if all images have width, unless purposefully skipped
+    if (!allowImagesWithoutWidth) {
+        await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    }
     await page.waitForTimeout(2000)
 
     // Do take the snapshot
