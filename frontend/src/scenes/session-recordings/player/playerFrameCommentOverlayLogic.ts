@@ -9,6 +9,7 @@ import { playerCommentOverlayLogicType } from 'scenes/session-recordings/player/
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope } from '~/types'
 
+import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 
 export interface RecordingAnnotationForm {
