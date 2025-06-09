@@ -3133,11 +3133,6 @@ export interface RevenueAnalyticsGoal {
 
 export interface RevenueAnalyticsConfig {
     /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
-
-    /**
      * @default []
      */
     events: RevenueAnalyticsEventItem[]

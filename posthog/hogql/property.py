@@ -57,8 +57,11 @@ from django.db import models
 
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsInvoiceItemView,
+    RevenueAnalyticsProductView,
+)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -657,6 +660,8 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
         return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
     elif property.key == "amount":
         return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+    elif property.key == "cohort":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
     else:
         raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 

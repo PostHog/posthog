@@ -104,7 +104,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# synced with frontend/src/lib/taxonomy.tsx and core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -1917,7 +1917,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "numerical_event_properties": {},
-    "person_properties": {},
+    "person_properties": {
+        "email": {
+            "label": "Email address",
+            "description": "The email address of the user.",
+            "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
+        },
+    },
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
@@ -2077,6 +2083,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "product": {
             "label": "Product",
             "description": "The product of the revenue event.",
+            "type": "String",
+        },
+        "cohort": {
+            "label": "Cohort",
+            "description": "The cohort of the customer connected to the revenue event.",
             "type": "String",
         },
     },

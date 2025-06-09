@@ -13,8 +13,8 @@ use crate::common::*;
 use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-    insert_new_team_in_redis, insert_person_for_team_in_pg, setup_pg_reader_client,
-    setup_redis_client,
+    insert_new_team_in_redis, insert_person_for_team_in_pg, insert_suppression_rule_in_pg,
+    setup_pg_reader_client, setup_redis_client, update_team_autocapture_exceptions,
 };
 
 pub mod common;
@@ -2874,6 +2874,133 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
     assert!(legacy_data.get("flags").is_none());
     assert!(v2_data.get("flags").is_some());
     assert!(v2_data.get("featureFlags").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "error_tracking_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Enable autocapture exceptions for the team
+    team.autocapture_exceptions_opt_in = Some(true);
+
+    // Update team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Enable autocapture exceptions in the database too
+    update_team_autocapture_exceptions(pg_client.clone(), team.id, true)
+        .await
+        .unwrap();
+
+    // Insert some suppression rules
+    let filter1 = json!({"errorType": "TypeError", "message": "Cannot read property"});
+    let filter2 = json!({"stackTrace": {"contains": "node_modules"}});
+
+    insert_suppression_rule_in_pg(pg_client.clone(), team.id, filter1.clone())
+        .await
+        .unwrap();
+    insert_suppression_rule_in_pg(pg_client.clone(), team.id, filter2.clone())
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Error tracking should be enabled with suppression rules
+    assert!(json_data["errorTracking"].is_object());
+    let error_tracking = &json_data["errorTracking"];
+    assert_eq!(error_tracking["autocaptureExceptions"], json!(true));
+
+    let suppression_rules = &error_tracking["suppressionRules"];
+    assert!(suppression_rules.is_array());
+    let rules_array = suppression_rules.as_array().unwrap();
+    assert_eq!(rules_array.len(), 2);
+    assert!(rules_array.contains(&filter1));
+    assert!(rules_array.contains(&filter2));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_error_tracking_disabled() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "error_tracking_disabled_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Explicitly disable autocapture exceptions for the team
+    update_team_autocapture_exceptions(pg_client.clone(), team.id, false)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Error tracking should be disabled with empty suppression rules
+    assert!(json_data["errorTracking"].is_object());
+    let error_tracking = &json_data["errorTracking"];
+    assert_eq!(error_tracking["autocaptureExceptions"], json!(false));
+
+    let suppression_rules = &error_tracking["suppressionRules"];
+    assert!(suppression_rules.is_array());
+    assert_eq!(suppression_rules.as_array().unwrap().len(), 0);
 
     Ok(())
 }

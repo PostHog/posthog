@@ -5,10 +5,6 @@ import posthog from 'posthog-js'
 
 import type { takeScreenshotLogicType } from './takeScreenshotLogicType'
 
-export const LINE_WIDTH = 3
-export const TEXT_FONT = '16px Arial'
-export const APPROX_TEXT_HEIGHT = 16
-
 // Define interfaces for better type safety
 export interface Point {
     x: number
@@ -63,6 +59,8 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
         }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setBlob: (blob: Blob) => ({ blob }),
+        setLineWidth: (lineWidth: number) => ({ lineWidth }),
+        setFontSize: (fontSize: number) => ({ fontSize }),
     }),
     reducers({
         isOpen: [
@@ -159,6 +157,18 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             { x: 0, y: 0, visible: false } as { x: number; y: number; visible: boolean },
             {
                 setTextInputPosition: (_, { textInputPosition }) => textInputPosition,
+            },
+        ],
+        lineWidth: [
+            3,
+            {
+                setLineWidth: (_, { lineWidth }) => lineWidth,
+            },
+        ],
+        fontSize: [
+            16,
+            {
+                setFontSize: (_, { fontSize }) => fontSize,
             },
         ],
     }),

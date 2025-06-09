@@ -164,7 +164,7 @@ mod tests {
         flags::flag_models::{
             FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
         },
-        properties::property_models::{OperatorType, PropertyFilter},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
     };
 
@@ -264,7 +264,7 @@ mod tests {
                                 key: "country".to_string(),
                                 value: Some(json!("US")),
                                 operator: Some(OperatorType::Exact),
-                                prop_type: "person".to_string(),
+                                prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
                             }]),
@@ -311,7 +311,7 @@ mod tests {
                                 key: "is_premium".to_string(),
                                 value: Some(json!(true)),
                                 operator: Some(OperatorType::Exact),
-                                prop_type: "person".to_string(),
+                                prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
                             }]),

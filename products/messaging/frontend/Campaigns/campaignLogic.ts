@@ -1,7 +1,9 @@
-import { actions, afterMount, kea, key, path, props } from 'kea'
+import { afterMount, connect, kea, key, path, props } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import type { campaignLogicType } from './campaignLogicType'
+import { campaignSceneLogic } from './campaignSceneLogic'
 import { Workflow } from './Workflows/temporary_workflow_types_for_dev_to_be_deleted'
 
 export interface CampaignLogicProps {
@@ -23,10 +25,28 @@ export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignLogic']),
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
-    actions({
-        updateCampaign: (workflow: Partial<Workflow>) => ({ workflow }),
-        updateWorkflow: (workflow: Workflow['workflow']) => ({ workflow }),
-    }),
+    connect(() => ({
+        values: [campaignSceneLogic, ['currentTab']],
+    })),
+    forms(() => ({
+        campaign: {
+            defaults: {
+                ...DEFAULT_WORKFLOW,
+                triggerEvents: {},
+                hasConversionGoal: false,
+                conversionProperties: [],
+                conversionWindowMinutes: 7 * 24 * 60, // 7 days in minutes
+                collectionMethod: 'exit_only_at_end',
+            },
+            errors: ({ name }) => ({
+                name: !name ? 'Please enter a name' : undefined,
+            }),
+            submit: async (values) => {
+                // TODO: Add API call to save campaign
+                alert(`Submitting campaign: ${JSON.stringify(values)}`)
+            },
+        },
+    })),
     loaders(({ props }) => ({
         campaign: [
             { ...DEFAULT_WORKFLOW } as Workflow,
@@ -38,9 +58,6 @@ export const campaignLogic = kea<campaignLogicType>([
 
                     // TODO: Add GET /hog_flows/{id} API call
                     return { ...DEFAULT_WORKFLOW }
-                },
-                updateCampaign: ({ workflow }: { workflow: Partial<Workflow> }) => {
-                    return { ...DEFAULT_WORKFLOW, ...workflow }
                 },
             },
         ],
