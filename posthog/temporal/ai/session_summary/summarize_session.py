@@ -65,7 +65,6 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
     info = workflow_info()
     client = await _connect_to_temporal_client()
     handle = await client.get_workflow_handle(worklfow_id=info.workflow_id, run_id=info.run_id)
-    await handle.update_latest_summary_state(latest_summary_state)
     # Iterate the async generator, store chunks, and return the combined result
     async for state in session_summary_generator:
         latest_summary_state = state
@@ -90,7 +89,7 @@ class SummarizeSessionWorkflow(PostHogWorkflow):
         self.summary_state = latest_summary_state
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> None:
+    def parse_inputs(inputs: list[str]) -> SessionSummaryInputs:
         try:
             parsed_inputs = json.loads(inputs[0])
             return SessionSummaryInputs(**parsed_inputs)
@@ -131,7 +130,7 @@ async def _query_workflow_state(handle: WorkflowHandle) -> tuple[str, WorkflowEx
     return current_summary, desc
 
 
-def excectute_test_summarize_session(
+def execute_summarize_session(
     session_id: str,
     user_pk: int,
     team: Team,
@@ -208,7 +207,7 @@ def stream_recording_summary(
             extra_summary_context=extra_summary_context,
             local_reads_prod=local_reads_prod,
         )
-    return excectute_test_summarize_session(
+    return execute_summarize_session(
         session_id=session_id,
         user_pk=user_pk,
         team=team,
@@ -225,7 +224,7 @@ def _astream(
     local_reads_prod: bool = False,
 ) -> SyncIterableToAsync:
     return SyncIterableToAsync(
-        excectute_test_summarize_session(
+        execute_summarize_session(
             session_id=session_id,
             user_pk=user_pk,
             team=team,
