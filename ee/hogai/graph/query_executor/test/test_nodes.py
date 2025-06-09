@@ -33,7 +33,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
     maxDiff = None
 
-    @patch("ee.hogai.graph.query_executor.query_runner.process_query_dict", side_effect=process_query_dict)
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict", side_effect=process_query_dict)
     def test_node_runs(self, mock_process_query_dict):
         node = QueryExecutorNode(self.team)
         new_state = node.run(
@@ -79,7 +79,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertFalse(new_state.root_tool_insight_type)
 
     @patch(
-        "ee.hogai.graph.query_executor.query_runner.process_query_dict",
+        "ee.hogai.graph.query_executor.query_executor.process_query_dict",
         side_effect=ValueError("You have not glibbled the glorp before running this."),
     )
     def test_node_handles_internal_error(self, mock_process_query_dict):
@@ -110,7 +110,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertIsNotNone(msg.id)
 
     @patch(
-        "ee.hogai.graph.query_executor.query_runner.process_query_dict",
+        "ee.hogai.graph.query_executor.query_executor.process_query_dict",
         side_effect=ValidationError(
             "This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
         ),
@@ -167,7 +167,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
 
     def test_fallback_to_json(self):
         node = QueryExecutorNode(self.team)
-        with patch("ee.hogai.graph.query_executor.query_runner.process_query_dict") as mock_process_query_dict:
+        with patch("ee.hogai.graph.query_executor.query_executor.process_query_dict") as mock_process_query_dict:
             mock_process_query_dict.return_value = QueryStatus(
                 id="test", team_id=self.team.pk, query_async=True, complete=True, results=[{"test": "test"}]
             )

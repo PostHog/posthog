@@ -381,7 +381,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
-    listeners(({ actions, values, key }) => ({
+    listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
@@ -509,7 +509,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         setMaxContext: () => {
             // Set MaxAI context when insight changes
             if (values.insight && values.insight.query) {
-                maxContextLogic.findMounted()?.actions.addOrUpdateActiveInsight(key, values.insight)
+                maxContextLogic
+                    .findMounted()
+                    ?.actions.addOrUpdateActiveInsight(values.insight.short_id!, values.insight)
             }
         },
     })),

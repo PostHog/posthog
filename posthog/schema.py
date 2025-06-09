@@ -1418,14 +1418,6 @@ class MatchedRecordingEvent(BaseModel):
     uuid: str
 
 
-class MaxNavigationContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    page_title: Optional[str] = None
-    path: str
-
-
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3009,13 +3001,6 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: Optional[str] = None
-
-
-class GlobalInfo(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    navigation: Optional[MaxNavigationContext] = None
 
 
 class PathsFilter(BaseModel):
@@ -10763,16 +10748,6 @@ class DataTableNode(BaseModel):
     ] = Field(..., description="Source of the events")
 
 
-class DashboardContextForMax(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    id: Union[str, float]
-    insights: list[InsightContextForMax]
-    name: Optional[str] = None
-
-
 class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10902,13 +10877,31 @@ class HumanMessage(BaseModel):
     ui_context: Optional[MaxContextShape] = None
 
 
-class InsightContextForMax(BaseModel):
+class MaxContextShape(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dashboards: Optional[dict[str, MaxDashboardContext]] = None
+    insights: Optional[dict[str, MaxInsightContext]] = None
+
+
+class MaxDashboardContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    filters: DashboardFilter
+    id: Union[str, float]
+    insights: list[MaxInsightContext]
+    name: Optional[str] = None
+
+
+class MaxInsightContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     description: Optional[str] = None
     id: Union[str, float]
-    insight_type: Optional[str] = None
     name: Optional[str] = None
     query: Union[
         EventsNode,
@@ -10966,15 +10959,6 @@ class InsightContextForMax(BaseModel):
         TracesQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
-
-
-class MaxContextShape(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dashboards: Optional[dict[str, DashboardContextForMax]] = None
-    global_info: Optional[GlobalInfo] = None
-    insights: Optional[dict[str, InsightContextForMax]] = None
 
 
 class QueryRequest(BaseModel):
@@ -11204,8 +11188,8 @@ class RootAssistantMessage(
 
 
 PropertyGroupFilterValue.model_rebuild()
-DashboardContextForMax.model_rebuild()
 HumanMessage.model_rebuild()
-InsightContextForMax.model_rebuild()
 MaxContextShape.model_rebuild()
+MaxDashboardContext.model_rebuild()
+MaxInsightContext.model_rebuild()
 QueryRequest.model_rebuild()

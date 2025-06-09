@@ -1,5 +1,5 @@
 import { IconPageChart } from '@posthog/icons'
-import { actions, BuiltLogic, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
@@ -7,46 +7,42 @@ import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { sceneLogic } from '~/scenes/sceneLogic'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import {
-    DashboardContextForMax,
-    InsightContextForMax,
     MaxContextOption,
     MaxContextShape,
-    MaxNavigationContext,
+    MaxDashboardContext,
+    MaxInsightContext,
     MultiDashboardContextContainer,
     MultiInsightContextContainer,
 } from './maxTypes'
 
-const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): InsightContextForMax => {
+const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
     const source = (insight.query as any)?.source
     return {
         id: insight.short_id!,
         name: insight.name,
         description: insight.description,
         query: source,
-        insight_type: source?.kind,
     }
 }
 
-const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): DashboardContextForMax => {
+const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => {
     return {
         id: dashboard.id,
         name: dashboard.name,
         description: dashboard.description,
         insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        filters: dashboard.filters,
     }
 }
 
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
     connect(() => ({
-        values: [breadcrumbsLogic({ hashParams: {} }), ['documentTitle']],
-        actions: [sceneLogic, ['setScene as sceneLogicSetScene'], router, ['locationChanged']],
+        actions: [router, ['locationChanged']],
     })),
     actions({
         enableCurrentPageContext: true,
@@ -55,8 +51,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
         addOrUpdateContextDashboard: (key: string, data: DashboardType<QueryBasedInsightModel>) => ({ key, data }),
         removeContextInsight: (key: string) => ({ key }),
         removeContextDashboard: (key: string) => ({ key }),
-        setNavigationContext: (path: string, pageTitle?: string) => ({ path, pageTitle }),
-        clearNavigationContext: true,
         addOrUpdateActiveInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
         clearActiveInsights: true,
         setActiveDashboard: (dashboardContext: DashboardType<QueryBasedInsightModel>) => ({ dashboardContext }),
@@ -116,7 +110,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
         activeDashboard: [
-            null as DashboardContextForMax | null,
+            null as MaxDashboardContext | null,
             {
                 setActiveDashboard: (
                     _: any,
@@ -125,27 +119,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 clearActiveDashboard: () => null,
             },
         ],
-        navigation: [
-            null as MaxNavigationContext | null,
-            {
-                setNavigationContext: (_: any, { path, pageTitle }: { path: string; pageTitle?: string }) => ({
-                    path,
-                    page_title: pageTitle,
-                }),
-                clearNavigationContext: () => null,
-            },
-        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         locationChanged: () => {
             actions.clearActiveInsights()
             actions.clearActiveDashboard()
-        },
-        sceneLogicSetScene: () => {
-            // Scene has been set, now update navigation with proper title
-            setTimeout(() => {
-                actions.setNavigationContext(router.values.location.pathname, values.documentTitle)
-            }, 100)
         },
         handleTaxonomicFilterChange: async (
             {
@@ -223,17 +201,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
             }
         },
     })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            actions.setNavigationContext(router.values.location.pathname, values.documentTitle)
-        },
-    })),
     selectors({
         contextOptions: [
             (s: any) => [s.activeInsights, s.activeDashboard],
             (
                 activeInsights: MultiInsightContextContainer,
-                activeDashboard: DashboardContextForMax | null
+                activeDashboard: MaxDashboardContext | null
             ): MaxContextOption[] => {
                 if (Object.values(activeInsights).length === 0 && !activeDashboard) {
                     return []
@@ -274,7 +247,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (s: any) => [
                 s.hasData,
                 s.contextInsights,
-                s.navigation,
                 s.contextDashboards,
                 s.useCurrentPageContext,
                 s.activeInsights,
@@ -283,11 +255,10 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (
                 hasData: boolean,
                 contextInsights: MultiInsightContextContainer | null,
-                navigation: MaxNavigationContext | null,
                 contextDashboards: MultiDashboardContextContainer | null,
                 useCurrentPageContext: boolean,
                 activeInsights: MultiInsightContextContainer | null,
-                activeDashboard: DashboardContextForMax | null
+                activeDashboard: MaxDashboardContext | null
             ): MaxContextShape | null => {
                 const context: MaxContextShape = {}
 
@@ -308,10 +279,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     context.insights = allInsights
                 }
 
-                if (navigation) {
-                    context.global_info = { ...(context.global_info || {}), navigation }
-                }
-
                 return hasData ? context : null
             },
         ],
@@ -328,7 +295,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextDashboards: MultiDashboardContextContainer | null,
                 useCurrentPageContext: boolean,
                 activeInsights: MultiInsightContextContainer | null,
-                activeDashboard: DashboardContextForMax | null
+                activeDashboard: MaxDashboardContext | null
             ): boolean => {
                 return (
                     Object.keys(contextInsights || {}).length > 0 ||

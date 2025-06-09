@@ -25,7 +25,7 @@ class AssistantNode(ABC):
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
-        thread_id = config.get("configurable", {}).get("thread_id")
+        thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
         return self.run(state, config)
@@ -101,7 +101,7 @@ class AssistantNode(ABC):
         """
         Extracts contextual tools from the runnable config.
         """
-        contextual_tools = config.get("configurable", {}).get("contextual_tools") or {}
+        contextual_tools = (config.get("configurable") or {}).get("contextual_tools") or {}
         if not isinstance(contextual_tools, dict):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
@@ -110,7 +110,7 @@ class AssistantNode(ABC):
         """
         Extracts the UI context from the runnable config.
         """
-        ui_context_data = config.get("configurable", {}).get("ui_context")
+        ui_context_data = (config.get("configurable") or {}).get("ui_context")
         if ui_context_data is None:
             return None
         return MaxContextShape.model_validate(ui_context_data)
@@ -119,10 +119,10 @@ class AssistantNode(ABC):
         """
         Extracts the user distinct ID from the runnable config.
         """
-        return config.get("configurable", {}).get("distinct_id") or None
+        return (config.get("configurable") or {}).get("distinct_id") or None
 
     def _get_trace_id(self, config: RunnableConfig) -> Any | None:
         """
         Extracts the trace ID from the runnable config.
         """
-        return config.get("configurable", {}).get("trace_id") or None
+        return (config.get("configurable") or {}).get("trace_id") or None

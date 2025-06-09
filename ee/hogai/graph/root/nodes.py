@@ -2,6 +2,7 @@ import datetime
 import importlib
 import math
 import pkgutil
+from string import Template
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -19,7 +20,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
-from ee.hogai.graph.query_executor.query_runner import QueryRunner
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 import products
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -41,6 +42,7 @@ from ..base import AssistantNode
 from .prompts import (
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_SYSTEM_PROMPT,
+    ROOT_USER_CONTEXT_PROMPT,
 )
 
 # TRICKY: Dynamically import max_tools from all products
@@ -61,13 +63,16 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    def _run_and_format_insight(self, insight, query_runner: QueryRunner) -> str:
+    def _run_and_format_insight(
+        self, insight, query_runner: AssistantQueryExecutor, dashboard_filters: Optional[dict] = None
+    ) -> str:
         """
         Run and format a single insight for AI consumption.
 
         Args:
             insight: Insight object with query and metadata
-            query_runner: QueryRunner instance for execution
+            query_runner: AssistantQueryExecutor instance for execution
+            dashboard_filters: Optional dashboard filters to apply to the query
 
         Returns:
             Formatted insight string or empty string if failed
@@ -83,7 +88,8 @@ class RootNodeUIContextMixin(AssistantNode):
 
         try:
             # Handle both Pydantic model and dict cases
-            if hasattr(insight.query, "model_dump"):
+            is_pydantic_model = hasattr(insight.query, "model_dump")
+            if is_pydantic_model:
                 # Pydantic model - convert to dict with JSON serialization for enums
                 query_dict = insight.query.model_dump(mode="json")
                 query_kind = getattr(insight.query, "kind", None)
@@ -95,29 +101,35 @@ class RootNodeUIContextMixin(AssistantNode):
             if not query_kind or query_kind not in query_class_map:
                 return ""  # Skip unsupported query types
 
+            # Apply dashboard filters if they exist
+            if dashboard_filters:
+                from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+
+                query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
+
             query_class = query_class_map[query_kind]
-            if hasattr(insight.query, "model_dump"):
-                # Use the original Pydantic model directly
+            if is_pydantic_model and not dashboard_filters:
+                # Use the original Pydantic model directly (only if no dashboard filters to apply)
                 query_obj = insight.query
             else:
-                # Validate from dict
+                # Validate from dict (always when dashboard filters are applied)
                 query_obj = query_class.model_validate(query_dict)
 
-            # Run the query and format results
-            formatted_results = query_runner.run_and_format_query(query_obj)
+            # Run the query and get raw results
+            raw_results = query_runner.run_query_raw(query_obj)
 
             result = f"## {insight.name or f'Insight {insight.id}'}"
             if insight.description:
                 result += f": {insight.description}"
             result += f"\nQuery: {query_dict}"
-            result += f"\n\nResults:\n{formatted_results}"
+            result += f"\n\nResults:\n{raw_results}"
             return result
 
         except Exception:
             # Skip insights that fail to run
             return ""
 
-    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> dict[str, str]:
+    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
         """
         Format UI context into template variables for the prompt.
 
@@ -128,13 +140,9 @@ class RootNodeUIContextMixin(AssistantNode):
             Dict of context variables for prompt template
         """
         if not ui_context:
-            return {
-                "ui_context_dashboard": "",
-                "ui_context_insights": "",
-                "ui_context_navigation": "",
-            }
+            return ""
 
-        query_runner = QueryRunner(self._team, self._utc_now_datetime)
+        query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
 
         # Format dashboard context with insights
         dashboard_context = ""
@@ -142,33 +150,28 @@ class RootNodeUIContextMixin(AssistantNode):
             dashboard_contexts = []
 
             for _, dashboard in ui_context.dashboards.items():
-                dashboard_text = f"Dashboard: {dashboard.name or f'Dashboard {dashboard.id}'}"
+                dashboard_text = f"# Dashboard: {dashboard.name or f'# Dashboard {dashboard.id}'}"
                 if dashboard.description:
                     dashboard_text += f"\nDescription: {dashboard.description}"
 
                 if dashboard.insights:
                     dashboard_text += f"\nInsights in dashboard:"
                     for insight in dashboard.insights:
-                        insight_text = f"\n- {insight.name or f'Insight {insight.id}'}"
-                        if insight.description:
-                            insight_text += f": {insight.description}"
+                        # Get formatted insight
+                        dashboard_filters = (
+                            dashboard.filters.model_dump()
+                            if hasattr(dashboard, "filters") and dashboard.filters
+                            else None
+                        )
+                        formatted_insight = self._run_and_format_insight(insight, query_runner, dashboard_filters)
+                        if formatted_insight:
+                            dashboard_text += f"\n{formatted_insight}"
 
-                        # Run the insight and include results
-                        insight_results = self._run_and_format_insight(insight, query_runner)
-                        if insight_results:
-                            # Extract just the results part for inline display
-                            lines = insight_results.split("\n")
-                            results_start = next((i for i, line in enumerate(lines) if line.startswith("Results:")), -1)
-                            if results_start >= 0 and results_start + 1 < len(lines):
-                                insight_text += f"\nQuery: {insight.query}"
-                                insight_text += f"\nResults:\n{chr(10).join(lines[results_start + 1:])}"
-
-                        dashboard_text += insight_text
-
-                dashboard_contexts.append(dashboard_text)
+                if dashboard_text:
+                    dashboard_contexts.append(dashboard_text)
 
             if dashboard_contexts:
-                dashboard_context = f"<dashboards_context>Dashboards the user is looking at:\n{chr(10).join(dashboard_contexts)}\n</dashboards_context>"
+                dashboard_context = f"<dashboards_context>\nDashboards the user is looking at:\n{chr(10).join(dashboard_contexts)}\n</dashboards_context>"
 
         # Format standalone insights context
         insights_context = ""
@@ -181,48 +184,16 @@ class RootNodeUIContextMixin(AssistantNode):
 
             if insights_results:
                 joined_results = "\n\n".join(insights_results)
-                insights_context = f"<standalone_insights_context>Insights the user is looking at:\n{joined_results}\n</standalone_insights_context>"
+                insights_context = f"<standalone_insights_context>\nInsights the user is looking at:\n{joined_results}\n</standalone_insights_context>"
 
-        # Format navigation context
-        navigation_context = ""
-        if ui_context.global_info and ui_context.global_info.navigation:
-            nav = ui_context.global_info.navigation
-            navigation_context = f"<navigation_context>\nCurrent page: {nav.path}"
-            if nav.page_title:
-                navigation_context += f"\nPage title: {nav.page_title}"
-            navigation_context += "\n</navigation_context>"
-
-        return {
-            "ui_context_dashboard": dashboard_context,
-            "ui_context_insights": insights_context,
-            "ui_context_navigation": navigation_context,
-        }
-
-    def _run_insights_from_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
-        """
-        Extract and run insights from UI context.
-
-        Args:
-            ui_context: UI context data or None
-
-        Returns:
-            Formatted insights string or empty string
-        """
-        if not ui_context or not ui_context.insights:
-            return ""
-
-        insights_results = []
-        query_runner = QueryRunner(self._team, self._utc_now_datetime)
-
-        for _, insight in ui_context.insights.items():
-            result = self._run_and_format_insight(insight, query_runner)
-            if result:
-                insights_results.append(result)
-
-        if insights_results:
-            joined_results = "\n\n".join(insights_results)
-            return f"<insights>\n{joined_results}\n</insights>"
+        if dashboard_context or insights_context:
+            return self._render_user_context_template(dashboard_context, insights_context)
         return ""
+
+    def _render_user_context_template(self, dashboard_context: str, insights_context: str) -> str:
+        """Render the user context template with the provided context strings."""
+        template = Template(ROOT_USER_CONTEXT_PROMPT)
+        return template.substitute(ui_context_dashboard=dashboard_context, ui_context_insights=insights_context)
 
 
 class RootNode(RootNodeUIContextMixin):
@@ -263,7 +234,7 @@ class RootNode(RootNodeUIContextMixin):
         project_now = utc_now.astimezone(self._team.timezone_info)
 
         ui_context = self._get_ui_context(config)
-        ui_context_vars = self._format_ui_context(ui_context)
+        user_context = self._format_ui_context(ui_context)
 
         message = chain.invoke(
             {
@@ -271,7 +242,7 @@ class RootNode(RootNodeUIContextMixin):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
-                **ui_context_vars,
+                "user_context": user_context,
             },
             config,
         )

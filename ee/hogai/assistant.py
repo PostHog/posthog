@@ -244,10 +244,7 @@ class Assistant:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
             # Add ui_context to the message if available
             if self._ui_context:
-                # remove global_info as it is not added by the user
-                # and we don't want to show it in the client
-                filtered_ui_context = {k: v for k, v in self._ui_context.items() if k not in ["global_info"]}
-                message_with_ui_context = self._latest_message.model_copy(update={"ui_context": filtered_ui_context})
+                message_with_ui_context = self._latest_message.model_copy(update={"ui_context": self._ui_context})
                 return AssistantState(
                     messages=[message_with_ui_context],
                     start_id=message_with_ui_context.id,
@@ -378,6 +375,10 @@ class Assistant:
                 return ReasoningMessage(
                     content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
                 )
+            case AssistantNodeName.ROOT:
+                if self._ui_context and (self._ui_context.get("insights") or self._ui_context.get("dashboards")):
+                    return ReasoningMessage(content="Calculating insights")
+                return None
             case _:
                 return None
 

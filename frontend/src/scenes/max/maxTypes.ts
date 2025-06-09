@@ -1,44 +1,33 @@
-import { QuerySchema } from '~/queries/schema/schema-general'
+import { DashboardFilter, QuerySchema } from '~/queries/schema/schema-general'
 
-export interface InsightContextForMax {
+export interface MaxInsightContext {
     id: string | number
     name?: string
     description?: string
 
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
-
-    insight_type?: string
 }
 
-export interface DashboardContextForMax {
+export interface MaxDashboardContext {
     id: string | number
     name?: string
     description?: string
-    insights: InsightContextForMax[]
+    insights: MaxInsightContext[]
+    filters: DashboardFilter
 }
 
 export interface MultiDashboardContextContainer {
-    [dashboardKey: string]: DashboardContextForMax
+    [dashboardKey: string]: MaxDashboardContext
 }
 
 export interface MultiInsightContextContainer {
-    [insightKey: string]: InsightContextForMax
-}
-
-export interface MaxNavigationContext {
-    path: string
-    page_title?: string
+    [insightKey: string]: MaxInsightContext
 }
 
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
     dashboards?: MultiDashboardContextContainer
     insights?: MultiInsightContextContainer
-
-    // General information that's always good to have, if available
-    global_info?: {
-        navigation?: MaxNavigationContext
-    }
 }
 
 // Taxonomic filter options
@@ -47,7 +36,7 @@ export interface MaxContextOption {
     name: string
     icon: React.ReactNode
     items?: {
-        insights?: InsightContextForMax[]
-        dashboards?: DashboardContextForMax[]
+        insights?: MaxInsightContext[]
+        dashboards?: MaxDashboardContext[]
     }
 }

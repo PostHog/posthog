@@ -15,17 +15,16 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    DashboardContextForMax,
+    DashboardFilter,
+    MaxDashboardContext,
     EntityType,
     EventsNode,
     FunnelsQuery,
-    GlobalInfo,
     HogQLQuery,
     HumanMessage,
-    InsightContextForMax,
+    MaxInsightContext,
     LifecycleQuery,
     MaxContextShape,
-    MaxNavigationContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -503,6 +502,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             # Verify the node ran successfully and returned a message
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
+            # The message should be an AssistantMessage, not VisualizationMessage
+            self.assertIsInstance(result.messages[0], AssistantMessage)
+            assert isinstance(result.messages[0], AssistantMessage)
             self.assertEqual(result.messages[0].content, "I'll help with recordings")
 
             # Verify _get_model was called with contextual tools config
@@ -676,12 +678,12 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self.mixin = RootNode(self.team)  # Using RootNode since it inherits from RootNodeUIContextMixin
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Trend results: 100 users"
+        mock_query_runner.run_query_raw.return_value = "Trend results: 100 users"
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="User Trends",
             description="Daily active users",
@@ -696,14 +698,14 @@ Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'compareF
 Results:
 Trend results: 100 users"""
         self.assertEqual(result, expected)
-        mock_query_runner.run_and_format_query.assert_called_once()
+        mock_query_runner.run_query_raw.assert_called_once()
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Funnel results: 50% conversion"
+        mock_query_runner.run_query_raw.return_value = "Funnel results: 50% conversion"
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=456,
             name="Conversion Funnel",
             description=None,
@@ -719,12 +721,12 @@ Results:
 Funnel results: 50% conversion"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Retention: 30% Day 7"
+        mock_query_runner.run_query_raw.return_value = "Retention: 30% Day 7"
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=789,
             name=None,
             description=None,
@@ -745,12 +747,12 @@ Results:
 Retention: 30% Day 7"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Query results: 42 events"
+        mock_query_runner.run_query_raw.return_value = "Query results: 42 events"
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=101,
             name="Custom Query",
             description="HogQL analysis",
@@ -766,23 +768,23 @@ Results:
 Query results: 42 events"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
 
-        insight = InsightContextForMax(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
+        insight = MaxInsightContext(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
         self.assertEqual(result, "")
-        mock_query_runner.run_and_format_query.assert_not_called()
+        mock_query_runner.run_query_raw.assert_not_called()
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_exception_handling(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
+        mock_query_runner.run_query_raw.side_effect = Exception("Query failed")
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Failed Query",
             description=None,
@@ -793,13 +795,13 @@ Query results: 42 events"""
 
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Dashboard insight results"
+        mock_query_runner.run_query_raw.return_value = "Dashboard insight results"
 
         # Create mock insight
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Dashboard Insight",
             description="Test insight",
@@ -807,29 +809,32 @@ Query results: 42 events"""
         )
 
         # Create mock dashboard
-        dashboard = DashboardContextForMax(
-            id=456, name="Test Dashboard", description="Test dashboard description", insights=[insight]
+        dashboard = MaxDashboardContext(
+            id=456,
+            name="Test Dashboard",
+            description="Test dashboard description",
+            insights=[insight],
+            filters=DashboardFilter(),
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards={"456": dashboard}, insights=None, global_info=None)
+        ui_context = MaxContextShape(dashboards={"456": dashboard}, insights=None)
 
         result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("Dashboard: Test Dashboard", result["ui_context_dashboard"])
-        self.assertIn("Description: Test dashboard description", result["ui_context_dashboard"])
-        self.assertIn("Dashboard Insight: Test insight", result["ui_context_dashboard"])
-        self.assertIn("Dashboard insight results", result["ui_context_dashboard"])
-        self.assertEqual(result["ui_context_insights"], "")
-        self.assertEqual(result["ui_context_navigation"], "")
+        self.assertIn("Dashboard: Test Dashboard", result)
+        self.assertIn("Description: Test dashboard description", result)
+        self.assertIn("Dashboard Insight: Test insight", result)
+        self.assertIn("Dashboard insight results", result)
+        self.assertNotIn("<standalone_insights_context>", result)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Standalone insight results"
+        mock_query_runner.run_query_raw.return_value = "Standalone insight results"
 
         # Create mock insight
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Standalone Insight",
             description="Test standalone insight",
@@ -837,62 +842,31 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights={"123": insight}, global_info=None)
+        ui_context = MaxContextShape(dashboards=None, insights={"123": insight})
 
         result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("Standalone Insight: Test standalone insight", result["ui_context_insights"])
-        self.assertIn("Standalone insight results", result["ui_context_insights"])
-        self.assertEqual(result["ui_context_dashboard"], "")
+        self.assertIn("Standalone Insight: Test standalone insight", result)
+        self.assertIn("Standalone insight results", result)
+        self.assertNotIn("<dashboards_context>", result)
 
-    def test_format_ui_context_with_navigation(self):
-        # Create mock navigation
-        navigation = MaxNavigationContext(path="/insights/trends", page_title="Trends Analysis")
-
-        # Create mock global info
-        global_info = GlobalInfo(navigation=navigation)
-
-        # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, global_info=global_info)
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn("Current page: /insights/trends", result["ui_context_navigation"])
-        self.assertIn("Page title: Trends Analysis", result["ui_context_navigation"])
-        self.assertIn("<navigation_context>", result["ui_context_navigation"])
-
-    def test_format_ui_context_with_navigation_no_page_title(self):
-        # Create mock navigation without page title
-        navigation = MaxNavigationContext(path="/dashboard/123", page_title=None)
-
-        # Create mock global info
-        global_info = GlobalInfo(navigation=navigation)
-
-        # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, global_info=global_info)
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn("Current page: /dashboard/123", result["ui_context_navigation"])
-        self.assertNotIn("Page title:", result["ui_context_navigation"])
-
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._run_insights_from_ui_context(None)
+        result = self.mixin._format_ui_context(None)
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
         ui_context = MaxContextShape(insights=None)
-        result = self.mixin._run_insights_from_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context)
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Insight execution results"
+        mock_query_runner.run_query_raw.return_value = "Insight execution results"
 
         # Create mock insight
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Test Insight",
             description="Test description",
@@ -902,30 +876,30 @@ Query results: 42 events"""
         # Create mock UI context
         ui_context = MaxContextShape(insights={"123": insight})
 
-        result = self.mixin._run_insights_from_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("<insights>", result)
+        self.assertIn("<standalone_insights_context>", result)
         self.assertIn("Test Insight: Test description", result)
         self.assertIn("Insight execution results", result)
-        self.assertIn("</insights>", result)
+        self.assertIn("</standalone_insights_context>", result)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
+        mock_query_runner.run_query_raw.side_effect = Exception("Query failed")
 
         # Create mock insight that will fail
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Failed Insight",
             description=None,
-            query=TrendsQuery(series=[EventsNode(event="pageview")]),
+            query=TrendsQuery(series=[]),
         )
 
         # Create mock UI context
         ui_context = MaxContextShape(insights={"123": insight})
 
-        result = self.mixin._run_insights_from_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context)
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")

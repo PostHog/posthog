@@ -5989,28 +5989,6 @@
             "required": ["customEventName"],
             "type": "object"
         },
-        "DashboardContextForMax": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": ["string", "number"]
-                },
-                "insights": {
-                    "items": {
-                        "$ref": "#/definitions/InsightContextForMax"
-                    },
-                    "type": "array"
-                },
-                "name": {
-                    "type": "string"
-                }
-            },
-            "required": ["id", "insights"],
-            "type": "object"
-        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -11508,28 +11486,6 @@
             },
             "type": "object"
         },
-        "InsightContextForMax": {
-            "additionalProperties": false,
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": ["string", "number"]
-                },
-                "insight_type": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "query": {
-                    "$ref": "#/definitions/QuerySchema"
-                }
-            },
-            "required": ["id", "query"],
-            "type": "object"
-        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -12571,19 +12527,35 @@
                 "dashboards": {
                     "$ref": "#/definitions/MultiDashboardContextContainer"
                 },
-                "global_info": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "navigation": {
-                            "$ref": "#/definitions/MaxNavigationContext"
-                        }
-                    },
-                    "type": "object"
-                },
                 "insights": {
                     "$ref": "#/definitions/MultiInsightContextContainer"
                 }
             },
+            "type": "object"
+        },
+        "MaxDashboardContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "filters": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "insights", "filters"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -12602,17 +12574,23 @@
             "required": ["type", "values"],
             "type": "object"
         },
-        "MaxNavigationContext": {
+        "MaxInsightContext": {
             "additionalProperties": false,
             "properties": {
-                "page_title": {
+                "description": {
                     "type": "string"
                 },
-                "path": {
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "name": {
                     "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/QuerySchema"
                 }
             },
-            "required": ["path"],
+            "required": ["id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -12704,13 +12682,13 @@
         },
         "MultiDashboardContextContainer": {
             "additionalProperties": {
-                "$ref": "#/definitions/DashboardContextForMax"
+                "$ref": "#/definitions/MaxDashboardContext"
             },
             "type": "object"
         },
         "MultiInsightContextContainer": {
             "additionalProperties": {
-                "$ref": "#/definitions/InsightContextForMax"
+                "$ref": "#/definitions/MaxInsightContext"
             },
             "type": "object"
         },

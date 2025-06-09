@@ -28,7 +28,6 @@ describe('maxContextLogic', () => {
         name: 'Test Insight',
         description: 'Test insight description',
         query: { kind: 'TrendsQuery' },
-        insight_type: 'TrendsQuery',
     }
 
     const mockDashboard: DashboardType<QueryBasedInsightModel> = {
@@ -241,7 +240,6 @@ describe('maxContextLogic', () => {
 
             logic.actions.addOrUpdateContextInsight('insight-key', contextInsight)
             logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
-            logic.actions.setNavigationContext('/test', 'Test Page')
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
@@ -251,7 +249,6 @@ describe('maxContextLogic', () => {
                             name: 'Test Insight',
                             description: 'Test insight description',
                             query: { kind: 'TrendsQuery' },
-                            insight_type: 'TrendsQuery',
                         },
                     },
                     dashboards: {
@@ -265,15 +262,8 @@ describe('maxContextLogic', () => {
                                     name: 'Test Insight',
                                     description: 'Test insight description',
                                     query: { kind: 'TrendsQuery' },
-                                    insight_type: 'TrendsQuery',
                                 },
                             ],
-                        },
-                    },
-                    global_info: {
-                        navigation: {
-                            path: '/test',
-                            page_title: 'Test Page',
                         },
                     },
                 }),

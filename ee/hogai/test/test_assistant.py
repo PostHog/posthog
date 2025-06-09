@@ -1370,7 +1370,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ui_context = {
             "dashboard": {"id": "dashboard_123", "filters": {"date_range": "7d"}},
             "insights": {"current_query": "test query", "chart_type": "line"},
-            "global_info": {"foo": "bar"},  # This should be filtered out
         }
 
         # First run: Create assistant with ui_context
@@ -1398,15 +1397,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         human_messages = [msg for msg in stored_messages2 if isinstance(msg, HumanMessage)]
         self.assertEqual(len(human_messages), 2, "Should have exactly two human messages")
 
-        # Check first message still has original ui_context (with global_info filtered)
         first_message = human_messages[0]
         expected_first_context = {
             "dashboard": {"id": "dashboard_123", "filters": {"date_range": "7d"}},
             "insights": {"current_query": "test query", "chart_type": "line"},
-            # global_info should be filtered out
         }
         self.assertEqual(first_message.ui_context, expected_first_context)
-        self.assertNotIn("global_info", first_message.ui_context or {})
 
         # Check second message has new ui_context
         second_message = human_messages[1]
