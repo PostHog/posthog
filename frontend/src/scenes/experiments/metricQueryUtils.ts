@@ -12,7 +12,9 @@ import type {
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
+    ExperimentMeanMetric,
     ExperimentMetric,
+    ExperimentMetricOutlierHandling,
     FunnelsFilter,
     FunnelsQuery,
     InsightVizNode,
@@ -81,6 +83,16 @@ const getMathProperties = (
         .with({ math: ExperimentMetricMathType.UniqueSessions }, ({ math }) => ({ math }))
         .otherwise(() => ({ math: ExperimentMetricMathType.TotalCount, math_property: undefined }))
 
+/**
+ * returns the outlier handling for a mean metric
+ */
+const getOutlierHandling = (metric: ExperimentMeanMetric): ExperimentMetricOutlierHandling => {
+    return {
+        ...(metric.lower_bound_percentile && { lower_bound_percentile: metric.lower_bound_percentile }),
+        ...(metric.upper_bound_percentile && { upper_bound_percentile: metric.upper_bound_percentile }),
+    }
+}
+
 type MetricToQueryOptions = {
     breakdownFilter: BreakdownFilter
     filterTestAccounts: boolean
@@ -132,6 +144,7 @@ export const getQuery =
                     dateRange,
                     interval: trendsInterval,
                     trendsFilter,
+                    ...getOutlierHandling(meanMetric),
                     series: [
                         {
                             kind: source.kind,
@@ -161,7 +174,6 @@ export const getQuery =
                     ...(Object.keys(breakdownFilter).length > 0 ? { breakdownFilter } : {}),
                     dateRange,
                     funnelsFilter,
-                    // series: getFunnelPreviewSeries(funnelMetric),
                     series: getFunnelSeries(funnelMetric),
                 } as FunnelsQuery
             })
@@ -213,7 +225,6 @@ const createSourceNode = (step: ExperimentFunnelMetricStep): ExperimentMetricSou
 
 /**
  * takes a metric and returns a filter that can be used as part of a query.
- *
  */
 export const getFilter = (metric: ExperimentMetric): FilterType => {
     return match(metric)
@@ -252,7 +263,7 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
         })
         .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
             /**
-             *
+             * we create a source node for each step on the funnel series.
              */
             const funnelSteps = funnelMetric.series.map((step, index) => {
                 return {
