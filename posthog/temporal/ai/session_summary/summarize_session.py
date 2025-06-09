@@ -64,7 +64,7 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
     )
     info = workflow_info()
     client = await _connect_to_temporal_client()
-    handle = await client.get_workflow_handle(worklfow_id=info.workflow_id, run_id=info.run_id)
+    handle = client.get_workflow_handle(workflow_id=info.workflow_id, run_id=info.workflow_run_id)
     # Iterate the async generator, store chunks, and return the combined result
     async for state in session_summary_generator:
         latest_summary_state = state
