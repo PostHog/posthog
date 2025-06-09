@@ -524,24 +524,17 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
     queryset = PropertyDefinition.objects.all()
 
-    # TODO get these from CORE_FILTER_DEFINITIONS_BY_GROUP
     _BUILTIN_VIRTUAL_PERSON_PROPERTIES = [
         {
-            "id": "builtin_virt_initial_channel_type",
-            "name": "$virt_initial_channel_type",
-            "is_numerical": False,
-            "property_type": "String",
-            "tags": [],
+            "id": "$builtin_" + key,
+            "name": key,
+            "is_numerical": val["type"] == "Numeric",
+            "property_type": val["type"],
+            "tags": val.get("tags", []),
             "virtual": True,
-        },
-        {
-            "id": "builtin_virt_initial_referring_domain_type",
-            "name": "$virt_initial_referring_domain_type",
-            "is_numerical": False,
-            "property_type": "String",
-            "tags": [],
-            "virtual": True,
-        },
+        }
+        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"].items()
+        if val.get("virtual", False)
     ]
 
     def dangerously_get_queryset(self):
@@ -763,6 +756,13 @@ class PropertyDefinitionViewSet(
         # hidden filter
         if v.get("exclude_hidden", False) and prop.get("hidden", False):
             return False
+
+        # virtual feature flag filter (not supported anywhere yet but add the logic and tests anyway for completeness)
+        if v.get("is_feature_flag") is not None:
+            if v["is_feature_flag"]:
+                return prop["name"].startswith("$feature/")
+            else:
+                return not prop["name"].startswith("$feature/")
 
         return True
 

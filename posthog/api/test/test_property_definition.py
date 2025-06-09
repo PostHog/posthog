@@ -592,7 +592,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 for prop in virtual_props
             )
 
-    def test_virtual_property_feature_flag_filter(self):
+    def test_virtual_property_feature_flag_filter_true(self):
         # Mock virtual properties to include some feature flag ones
         with patch.object(
             PropertyDefinitionViewSet,
@@ -624,9 +624,30 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 for prop in response.json()["results"]
                 if prop["name"].startswith("$virt_") or prop["name"].startswith("$feature/")
             ]
-            assert len(virtual_props) == 1
-            assert virtual_props[0]["name"] == "$feature/virt_flag"
+            assert {p["name"] for p in virtual_props} == {"$feature/virt_flag"}
 
+    def test_virtual_property_feature_flag_filter_false(self):
+        # Mock virtual properties to include some feature flag ones
+        with patch.object(
+            PropertyDefinitionViewSet,
+            "_BUILTIN_VIRTUAL_PERSON_PROPERTIES",
+            [
+                {
+                    "id": "builtin_virt_initial_channel_type",
+                    "name": "$virt_initial_channel_type",
+                    "is_numerical": False,
+                    "property_type": "String",
+                    "tags": [],
+                },
+                {
+                    "id": "builtin_virt_feature_flag",
+                    "name": "$feature/virt_flag",
+                    "is_numerical": False,
+                    "property_type": "String",
+                    "tags": [],
+                },
+            ],
+        ):
             # Test feature_flag=false filter
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_feature_flag=false"
@@ -637,8 +658,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 for prop in response.json()["results"]
                 if prop["name"].startswith("$virt_") or prop["name"].startswith("$feature/")
             ]
-            assert len(virtual_props) == 1
-            assert virtual_props[0]["name"] == "$virt_initial_channel_type"
+            assert {p["name"] for p in virtual_props} == {"$virt_initial_channel_type"}
 
     def test_virtual_property_hidden_filter(self):
         response = self.client.get(
