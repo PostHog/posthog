@@ -69,7 +69,7 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
             # Skip cases where no updates happened or the same state was sent again
             continue
         last_summary_state = current_summary_state
-        temporalio.activity.heartbeat({"last_summary_state": last_summary_state})
+        temporalio.activity.heartbeat({"last_summary_state": last_summary_state, "timestamp": time.time()})
     return last_summary_state
 
 
@@ -111,6 +111,19 @@ async def _start_workflow(str_inputs: list[str], workflow_id: str) -> WorkflowHa
     return handle
 
 
+def _decode_payload(payload_data: bytes) -> str | None:
+    try:
+        decrypted_payload = Payload.FromString(EncryptionCodec(settings).decrypt(payload_data))
+        data = decrypted_payload.data
+        json_data = json.loads(data)
+        last_summary_state = json_data.get("last_summary_state")
+        if not isinstance(last_summary_state, str):
+            return None
+        return last_summary_state
+    except Exception:
+        return None
+
+
 def execute_summarize_session(
     session_id: str,
     user_pk: int,
@@ -136,6 +149,7 @@ def execute_summarize_session(
             event_label="session-summary-error",
             event_data="Failed to prepare summary data",
         )
+        return
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data.prompt_data.metadata.start_time is None:
         raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
@@ -163,7 +177,25 @@ def execute_summarize_session(
     last_summary_state = ""
     while True:
         desc = asyncio.run(handle.describe())
-        # Access heartbeat details from activity
+        if desc.status.name == "COMPLETED":
+            try:
+                final_result = asyncio.run(handle.result())
+                # Yield final result if it's different from the last state OR if we haven't yielded anything yet
+                if final_result != last_summary_state or not last_summary_state:
+                    yield final_result
+                    return
+            except Exception:
+                # TODO: Handle any errors in getting the result
+                pass
+        # Check if workflow is completed unsuccessfully
+        if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+            # Handle failure - yield an error message
+            yield serialize_to_sse_event(
+                event_label="session-summary-error",
+                event_data=f"Failed to generate summary: {desc.status.name}",
+            )
+            return
+        # If the workflow is still running, access heartbeat details from activity
         if not desc.raw_description.pending_activities:
             continue
         for activity in desc.raw_description.pending_activities:
@@ -171,12 +203,7 @@ def execute_summarize_session(
                 continue
             heartbeat_payloads = activity.heartbeat_details.payloads
             for payload in heartbeat_payloads:
-                # Decode payloads
-                decrypted_payload = Payload.FromString(EncryptionCodec(settings).decrypt(payload.data))
-                # Get chunk
-                data = decrypted_payload.data
-                json_data = json.loads(data)
-                current_summary_state = json_data.get("last_summary_state")
+                current_summary_state = _decode_payload(payload.data)
                 if not current_summary_state or current_summary_state == last_summary_state:
                     # Skip cases where no updates happened or the same state was sent again
                     continue
@@ -184,19 +211,6 @@ def execute_summarize_session(
                 last_summary_state = current_summary_state
                 yield last_summary_state
             # Get the final result after workflow completes
-        if desc.status.name == "COMPLETED":
-            try:
-                final_result = asyncio.run(handle.result())
-                # Yield final result if it's different from the last state OR if we haven't yielded anything yet
-                if final_result != last_summary_state or not last_summary_state:
-                    yield final_result
-            except Exception:
-                # Handle any errors in getting the result
-                pass
-        # Check if workflow is completed unsuccessfully
-        if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
-            # TODO: Handle errors
-            break
         # Wait till next heartbeat to let new chunks come in from the stream
         time.sleep(0.1)
 
