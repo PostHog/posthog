@@ -1,18 +1,21 @@
 export type HogFlow = {
-    // Primary key is id + version
     id: string
     team_id: number
     version: number
+
+    name: string
     status: 'active' | 'draft' | 'archived'
 
     trigger:
         | {
               type: 'event'
-              filters: any // HogFunctionFilters
+              // TODO(team-messaging): use HogFunctionFilters instead of any
+              filters: any
           }
         | {
               type: 'pre-processed-event'
-              filters: any // HogFunctionFilters
+              // TODO(team-messaging): use HogFunctionFilters instead of any
+              filters: any
           }
         | {
               type: 'schedule'
@@ -54,7 +57,8 @@ export type HogFlow = {
         name: string
         description: string
         type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
-        config: any // HogFunctionInputSchemaType[] // Try to type this strongly to the "type"
+        // TODO(team-messaging): use HogFunctionInputSchemaType[] instead of any
+        config: any
 
         // Maybe v1?
         on_error: 'continue' | 'abort' | 'complete' | 'branch'
@@ -77,7 +81,7 @@ export type HogFlowInvocation = {
         current_action_id: string
     }
 
-    // Job queue specific values
+    // TODO(team-messaging): use CyclotronInvocationQueueParameters or other type
     queue: 'hogflow' | 'fetch' | 'hog' | 'email'
     queueParameters?: any // dependent on queue type
     queuePriority?: number

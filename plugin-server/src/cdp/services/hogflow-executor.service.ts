@@ -1,10 +1,11 @@
+import { HogFlow } from '@posthog/shared-types'
+
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
-    HogFlow,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
