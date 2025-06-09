@@ -285,6 +285,15 @@ class FeatureFlagSerializer(
         variant_list = (filters.get("multivariate") or {}).get("variants", [])
         variants = {variant["key"] for variant in variant_list}
 
+        # Validate rollout percentages for multivariate variants
+        if variant_list:
+            variant_rollout_sum = sum(variant.get("rollout_percentage", 0) for variant in variant_list)
+            if variant_rollout_sum != 100:
+                raise serializers.ValidationError(
+                    "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+                    code="invalid_input",
+                )
+
         for condition in filters["groups"]:
             if condition.get("variant") and condition["variant"] not in variants:
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
@@ -391,16 +400,6 @@ class FeatureFlagSerializer(
 
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
-
-        variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
-        variant_rollout_sum = 0
-        for variant in variants:
-            variant_rollout_sum += variant.get("rollout_percentage")
-
-        if len(variants) > 0 and variant_rollout_sum != 100:
-            raise exceptions.ValidationError(
-                "Invalid variant definitions: Variant rollout percentages must sum to 100."
-            )
 
         try:
             FeatureFlag.objects.filter(
