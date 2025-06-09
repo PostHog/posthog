@@ -186,11 +186,16 @@ def _traverse_attributes(thing: typing.Any, *path: str):
 
 
 def get_incremental_fields():
-    return {
-        table_alias: resource_contents["filter_field_names"]
-        for table_alias, resource_contents in RESOURCE_SCHEMAS.items()
-        if "filter_field_names" in resource_contents
-    }
+    d = {}
+    for alias, contents in RESOURCE_SCHEMAS.items():
+        assert isinstance(contents, dict)
+
+        if "filter_field_names" not in contents:
+            continue
+
+        d[alias] = contents["filter_field_names"]
+
+    return d
 
 
 class BigQueryTable(Table[GoogleAdsColumn]):
@@ -220,15 +225,20 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
     table_schemas = {}
 
     for table_alias, resource_contents in RESOURCE_SCHEMAS.items():
+        assert isinstance(resource_contents, dict)
+
         resource_name = resource_contents["resource_name"]
         assert isinstance(resource_name, str)
 
         field_names = resource_contents["field_names"]
+
         requires_filter = resource_contents.get("filter_field_names", None) is not None
 
         columns = []
 
         for field_name in field_names:
+            assert isinstance(field_name, str)
+
             try:
                 field = fields_map[field_name]
             except KeyError:
@@ -246,7 +256,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
         table = BigQueryTable(
             name=resource_name, alias=table_alias, requires_filter=requires_filter, columns=columns, parents=None
         )
-        table_schemas[table.alias] = table
+        table_schemas[table_alias] = table
 
     return table_schemas
 
