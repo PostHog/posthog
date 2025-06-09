@@ -187,7 +187,11 @@ class LogsQueryRunner(QueryRunner):
 
     @cached_property
     def settings(self):
-        return HogQLGlobalSettings(allow_experimental_object_type=False, allow_experimental_join_condition=False)
+        return HogQLGlobalSettings(
+            allow_experimental_object_type=False,
+            allow_experimental_join_condition=False,
+            transform_null_in=False,
+        )
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
