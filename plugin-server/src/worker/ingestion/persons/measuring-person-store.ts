@@ -9,6 +9,8 @@ import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
     personDatabaseOperationsPerBatchHistogram,
+    personFetchForCheckingCacheOperationsCounter,
+    personFetchForUpdateCacheOperationsCounter,
     personMethodCallsPerBatchHistogram,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
@@ -72,6 +74,8 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
      */
     private personCache: Map<string, InternalPerson | null>
     private personCheckCache: Map<string, InternalPerson | null>
+    private fetchPromisesForChecking: Map<string, Promise<InternalPerson | null>>
+    private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
 
     constructor(
         private db: DB,
@@ -83,10 +87,10 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         this.methodCountsPerDistinctId = new Map()
         this.databaseOperationCountsPerDistinctId = new Map()
         this.updateLatencyPerDistinctIdSeconds = new Map()
-
         this.personCache = new Map()
         this.personCheckCache = new Map()
-
+        this.fetchPromisesForChecking = new Map()
+        this.fetchPromisesForUpdate = new Map()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -139,12 +143,27 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
             return checkCachedPerson
         }
 
-        this.incrementDatabaseOperation('fetchForChecking', distinctId)
-        const start = performance.now()
-        const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
-        observeLatencyByVersion(person, start, 'fetchForChecking')
-        this.setCheckCachedPerson(teamId, distinctId, person ?? null)
-        return person ?? null
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        let fetchPromise = this.fetchPromisesForChecking.get(cacheKey)
+        if (!fetchPromise) {
+            personFetchForCheckingCacheOperationsCounter.inc({ operation: 'miss' })
+            fetchPromise = (async () => {
+                try {
+                    this.incrementDatabaseOperation('fetchForChecking', distinctId)
+                    const start = performance.now()
+                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
+                    observeLatencyByVersion(person, start, 'fetchForChecking')
+                    this.setCheckCachedPerson(teamId, distinctId, person ?? null)
+                    return person ?? null
+                } finally {
+                    this.fetchPromisesForChecking.delete(cacheKey)
+                }
+            })()
+            this.fetchPromisesForChecking.set(cacheKey, fetchPromise)
+        } else {
+            personFetchForCheckingCacheOperationsCounter.inc({ operation: 'hit' })
+        }
+        return fetchPromise
     }
 
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
@@ -155,12 +174,27 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
             return cachedPerson
         }
 
-        this.incrementDatabaseOperation('fetchForUpdate', distinctId)
-        const start = performance.now()
-        const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
-        observeLatencyByVersion(person, start, 'fetchForUpdate')
-        this.setCachedPerson(teamId, distinctId, person ?? null)
-        return person ?? null
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        let fetchPromise = this.fetchPromisesForUpdate.get(cacheKey)
+        if (!fetchPromise) {
+            personFetchForUpdateCacheOperationsCounter.inc({ operation: 'miss' })
+            fetchPromise = (async () => {
+                try {
+                    this.incrementDatabaseOperation('fetchForUpdate', distinctId)
+                    const start = performance.now()
+                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
+                    observeLatencyByVersion(person, start, 'fetchForUpdate')
+                    this.setCachedPerson(teamId, distinctId, person ?? null)
+                    return person ?? null
+                } finally {
+                    this.fetchPromisesForUpdate.delete(cacheKey)
+                }
+            })()
+            this.fetchPromisesForUpdate.set(cacheKey, fetchPromise)
+        } else {
+            personFetchForUpdateCacheOperationsCounter.inc({ operation: 'hit' })
+        }
+        return fetchPromise
     }
 
     async createPerson(
@@ -372,6 +406,8 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     private clearCache(): void {
         this.personCache.clear()
         this.personCheckCache.clear()
+        this.fetchPromisesForChecking.clear()
+        this.fetchPromisesForUpdate.clear()
     }
 
     private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
