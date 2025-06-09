@@ -79,15 +79,27 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
 
     // Then we find the highest offset for each topic partition
     const highestOffsets = Object.entries(messagesByTopicPartition).flatMap(([topic, partitions]) => {
-        return Object.entries(partitions).map(([partition, messages]) => {
-            const highestOffset = Math.max(...messages.map((message) => message.offset))
+        return Object.entries(partitions)
+            .map(([partition, messages]) => {
+                const highestOffset = Math.max(...messages.map((message) => message.offset))
+                return {
+                    topic,
+                    partition: parseInt(partition),
+                    offset: highestOffset,
+                }
+            })
+            .filter((tpo) => {
+                if (tpo.offset < 0) {
+                    logger.error('📝', 'kafka: findOffsetsToCommit: attempt to store invalid consumer group offset', {
+                        topic: tpo.topic,
+                        partition: tpo.partition,
+                        offset: tpo.offset,
+                    })
+                    return false
+                }
 
-            return {
-                topic,
-                partition: parseInt(partition),
-                offset: highestOffset,
-            }
-        })
+                return true
+            })
     })
 
     return highestOffsets
