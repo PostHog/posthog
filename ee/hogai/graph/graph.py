@@ -138,7 +138,6 @@ class InsightsAssistantGraph(BaseAssistantGraph):
 
     def add_query_planner(
         self,
-        next_node: AssistantNodeName = AssistantNodeName.SQL_GENERATOR,
         end_node: AssistantNodeName = AssistantNodeName.END,
     ):
         builder = self._graph
@@ -149,7 +148,10 @@ class InsightsAssistantGraph(BaseAssistantGraph):
             AssistantNodeName.QUERY_PLANNER,
             query_planner.router,
             path_map={
-                "plan_found": next_node,
+                "trends": AssistantNodeName.TRENDS_GENERATOR,
+                "funnel": AssistantNodeName.FUNNEL_GENERATOR,
+                "retention": AssistantNodeName.RETENTION_GENERATOR,
+                "sql": AssistantNodeName.SQL_GENERATOR,
                 "end": end_node,
                 AssistantNodeName.QUERY_PLANNER_TOOLS: AssistantNodeName.QUERY_PLANNER_TOOLS,
             },

@@ -9,24 +9,27 @@ from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
     ToolMessage as LangchainToolMessage,
+    HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel
+
+from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
+from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
+from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
 
 from .prompts import (
     CORE_MEMORY_INSTRUCTIONS,
     QUERY_PLANNER_SYSTEM_PROMPT,
     REACT_ACTIONS_PROMPT,
     REACT_DEFINITIONS_PROMPT,
-    REACT_FOLLOW_UP_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_PROPERTY_FILTERS_PROMPT,
     REACT_REACHED_LIMIT_PROMPT,
-    REACT_USER_PROMPT,
 )
 from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
 from ee.hogai.utils.helpers import remove_line_breaks
@@ -89,8 +92,11 @@ class QueryPlannerNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", QUERY_PLANNER_SYSTEM_PROMPT),
-                ("user", REACT_DEFINITIONS_PROMPT),
+                (
+                    "system",
+                    [{"type": "text", "text": QUERY_PLANNER_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                ),
+                ("user", [{"type": "text", "text": REACT_DEFINITIONS_PROMPT, "cache_control": {"type": "ephemeral"}}]),
             ],
             template_format="mustache",
         )
@@ -125,6 +131,9 @@ class QueryPlannerNode(AssistantNode):
                 "project_name": self._team.name,
                 "actions": state.rag_context,
                 "actions_prompt": REACT_ACTIONS_PROMPT,
+                "trends_json_schema": TRENDS_SCHEMA,
+                "funnel_json_schema": FUNNEL_SCHEMA,
+                "retention_json_schema": RETENTION_SCHEMA,
             },
             config,
         )
@@ -151,7 +160,9 @@ class QueryPlannerNode(AssistantNode):
             return PartialAssistantState(intermediate_steps=[(result, None)])
 
         # The plan has been found, move onto generation
-        return PartialAssistantState(plan=output_message.text(), intermediate_steps=[])
+        root_tool_insight_type, plan = output_message.text().split("\n", 1)
+        root_tool_insight_type = root_tool_insight_type.removeprefix("Insight type: ")
+        return PartialAssistantState(plan=plan, root_tool_insight_type=root_tool_insight_type, intermediate_steps=[])
 
     def router(self, state: AssistantState):
         if state.intermediate_steps:
@@ -159,7 +170,7 @@ class QueryPlannerNode(AssistantNode):
         # Human-in-the-loop - get out of the product analytics subgraph
         if not state.root_tool_call_id:
             return "end"
-        return "plan_found"
+        return state.root_tool_insight_type
 
     @property
     def _model(self) -> ChatAnthropic:
@@ -232,20 +243,18 @@ class QueryPlannerNode(AssistantNode):
 
         # Only process the last ten visualization messages.
         viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-10:]
-        for idx, message in enumerate(viz_messages):
-            prompt = REACT_USER_PROMPT if idx == 0 else REACT_FOLLOW_UP_PROMPT
+        for message in viz_messages:
             conversation.append(
-                HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
-                    question=message.query
+                LangchainHumanMessage(
+                    content=f"Plan for this query: {message.query}\nRemember to strictly follow the response format."
                 )
             )
             conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
         # The description of a new insight is added to the end of the conversation.
-        new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
         conversation.append(
-            HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
-                question=state.root_tool_insight_plan,
+            LangchainHumanMessage(
+                content=f"Plan for this query: {state.root_tool_insight_plan}\nRemember to strictly follow the response format."
             )
         )
 
