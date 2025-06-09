@@ -161,8 +161,17 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
     cfg = GoogleAdsServiceAccountSourceConfig(
         resource_name="", customer_id=customer_id, developer_token=developer_token, **service_account_config
     )
-    for resource in ("campaign", "campaign_stats", "ad_group", "ad_group_stats", "ad", "ad_stats"):
+    for resource in (
+        "campaign",
+        "campaign_stats",
+        "ad_group",
+        "ad_group_stats",
+        "ad",
+        "ad_stats",
+        "keyword",
+        "keyword_stats",
+    ):
         cfg.resource_name = resource
         source = google_ads_source(cfg)
 
-        list(source.items)
+        _ = list(source.items)

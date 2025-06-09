@@ -14,9 +14,11 @@ from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
 from posthog.temporal.data_imports.pipelines.google_ads.schemas import RESOURCE_SCHEMAS
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableSchemas
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
+from posthog.warehouse.types import IncrementalFieldType
 
 
 def _clean_customer_id(s: str | None) -> str | None:
@@ -183,7 +185,24 @@ def _traverse_attributes(thing: typing.Any, *path: str):
     return current
 
 
-def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
+def get_incremental_fields():
+    return {
+        table_alias: resource_contents["filter_field_names"]
+        for table_alias, resource_contents in RESOURCE_SCHEMAS.items()
+        if "filter_field_names" in resource_contents
+    }
+
+
+class BigQueryTable(Table[GoogleAdsColumn]):
+    def __init__(self, *args, requires_filter: bool, **kwargs):
+        self.requires_filter = requires_filter
+        super().__init__(*args, **kwargs)
+
+
+TableSchemas = dict[str, BigQueryTable]
+
+
+def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
     """Obtain Google Ads schemas.
 
     This is a two step process:
@@ -205,6 +224,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
         assert isinstance(resource_name, str)
 
         field_names = resource_contents["field_names"]
+        requires_filter = resource_contents.get("filter_field_names", None) is not None
 
         columns = []
 
@@ -223,13 +243,21 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
                 )
             )
 
-        table = Table(name=resource_name, alias=table_alias, columns=columns, parents=None)
+        table = BigQueryTable(
+            name=resource_name, alias=table_alias, requires_filter=requires_filter, columns=columns, parents=None
+        )
         table_schemas[table.alias] = table
 
     return table_schemas
 
 
-def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
+def google_ads_source(
+    config: GoogleAdsSourceConfig,
+    is_incremental: bool = False,
+    db_incremental_field_last_value: typing.Any = None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
+) -> SourceResponse:
     """A data warehouse Google Ads source.
 
     We utilize the Google Ads gRPC API to query for the configured resource and
@@ -238,8 +266,34 @@ def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
     name = NamingConvention().normalize_identifier(config.resource_name)
     table = get_schemas(config)[config.resource_name]
 
+    if table.requires_filter and not is_incremental:
+        is_incremental = True
+        incremental_field = "segments.date"
+        incremental_field_type = IncrementalFieldType.Date
+
     def get_rows() -> collections.abc.Iterator[pa.Table]:
         query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
+
+        if is_incremental:
+            if incremental_field is None or incremental_field_type is None:
+                raise ValueError("incremental_field and incremental_field_type can't be None")
+
+            if db_incremental_field_last_value is None:
+                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
+                    incremental_field_type
+                )
+            else:
+                last_value = db_incremental_field_last_value
+
+            if isinstance(last_value, dt.datetime) or isinstance(last_value, dt.date):
+                last_value = f"'{last_value.isoformat()}'"
+
+            query += f" WHERE {incremental_field} >= {last_value}"
+
+            if incremental_field_type == IncrementalFieldType.Date:
+                # Dates require an upper bound too, so we pick something very in the future.
+                # TODO: Make sure to bump this before 2100-01-01.
+                query += f" AND {incremental_field} < '2100-01-01'"
 
         client = google_ads_client(config)
         service = client.get_service("GoogleAdsService", version="v19")

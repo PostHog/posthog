@@ -36,6 +36,7 @@ from posthog.temporal.data_imports.pipelines.doit.source import (
 )
 from posthog.temporal.data_imports.pipelines.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
+    get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
@@ -1133,13 +1134,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             google_ads_schemas = get_google_ads_schemas(
                 google_ads_config,
             )
+            incremental_fields = get_google_ads_incremental_fields()
 
             result_mapped_to_options = [
                 {
                     "table": name,
                     "should_sync": False,
-                    "incremental_fields": [],
-                    "incremental_available": False,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_name, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in incremental_fields[name]
+                    ],
+                    "incremental_available": True,
                     "incremental_field": None,
                     "sync_type": None,
                 }
