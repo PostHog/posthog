@@ -915,7 +915,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 if (direction < 0 && index < 0) {
                     return undefined
                 }
-                if (items[index].type !== 'separator' || items[index].type !== 'category') {
+                if (items[index].type !== 'separator' && items[index].type !== 'category') {
                     return items[index]
                 }
             }
