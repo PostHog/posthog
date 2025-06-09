@@ -451,10 +451,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "email": user.email,
         }
 
-        if user.first_name:
-            data["first_name"] = user.first_name
-        if user.last_name:
-            data["last_name"] = user.last_name
+        # "-" as fallback as they're required by some of the Zaps, e.g. Brilliant (merch)
+        data["first_name"] = user.first_name if user.first_name else "-"
+        data["last_name"] = user.last_name if user.last_name else "-"
 
         try:
             res = billing_manager.apply_startup_program(organization, data)

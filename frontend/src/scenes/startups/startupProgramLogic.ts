@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -74,7 +74,7 @@ export interface StartupProgramFormValues {
 }
 
 export interface StartupProgramLogicProps {
-    isYC: boolean
+    referrer?: string
 }
 
 function validateIncorporationDate(date: Dayjs | undefined, isYC: boolean): string | undefined {
@@ -113,7 +113,6 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
 export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
-    key(({ isYC }: StartupProgramLogicProps) => isYC || false),
     connect({
         values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
         actions: [paymentEntryLogic, ['showPaymentEntryModal']],
@@ -130,6 +129,24 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         ],
     }),
     selectors({
+        isYC: [() => [(_, props) => props.referrer], (referrer: string | undefined) => referrer === 'yc'],
+        isReferralProgram: [
+            () => [(_, props) => props.referrer],
+            (referrer: string | undefined) => !!referrer && referrer !== 'yc',
+        ],
+        referrer: [() => [(_, props) => props.referrer], (referrer: string | undefined) => referrer],
+        referrerDisplayName: [
+            () => [(_, props) => props.referrer],
+            (referrer: string | undefined) => {
+                if (!referrer || referrer === 'yc') {
+                    return ''
+                }
+                return referrer
+                    .split('-')
+                    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ')
+            },
+        ],
         isAlreadyOnStartupPlan: [
             (s) => [s.billing],
             (billing: BillingType | null) => {
@@ -161,15 +178,15 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     forms(({ values, actions, props }) => ({
         startupProgram: {
             defaults: {
-                type: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                type: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                 startup_domain: values.domainFromEmail || '',
                 organization_name: values.currentOrganization?.name || '',
                 organization_id: values.currentOrganization?.id || '',
                 raised: undefined,
                 incorporation_date: undefined,
-                yc_batch: props.isYC ? '' : undefined,
+                yc_batch: values.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
-                yc_merch_count: props.isYC ? 1 : undefined,
+                yc_merch_count: values.isYC ? 1 : undefined,
             } as StartupProgramFormValues,
             errors: ({ organization_id, raised, incorporation_date, yc_batch, yc_proof_screenshot_url }) => {
                 if (!values.billing?.has_active_subscription) {
@@ -180,30 +197,33 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
 
                 return {
                     organization_id: !organization_id ? 'Please select an organization' : undefined,
-                    raised: validateFunding(raised, props.isYC),
-                    incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
-                    yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
+                    raised: validateFunding(raised, values.isYC),
+                    incorporation_date: validateIncorporationDate(incorporation_date, values.isYC),
+                    yc_batch: values.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
                     yc_proof_screenshot_url:
-                        props.isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
+                        values.isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
                 }
             },
             submit: async (formValues: StartupProgramFormValues) => {
                 const valuesToSubmit: Record<string, any> = {
-                    program: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                    program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                     organization_id: formValues.organization_id,
                     yc_merch_count: formValues.yc_merch_count,
                 }
 
-                if (props.isYC) {
+                if (values.isYC) {
                     valuesToSubmit.yc_batch = formValues.yc_batch
                     valuesToSubmit.yc_proof_screenshot_url = formValues.yc_proof_screenshot_url
                 }
 
-                if (!props.isYC) {
+                if (!values.isYC) {
                     valuesToSubmit.raised = formValues.raised
                     valuesToSubmit.incorporation_date = dayjs.isDayjs(formValues.incorporation_date)
                         ? formValues.incorporation_date.format('YYYY-MM-DD')
                         : undefined
+                    if (props.referrer) {
+                        valuesToSubmit.referrer = props.referrer
+                    }
                 }
 
                 try {

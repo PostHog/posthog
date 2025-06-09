@@ -701,7 +701,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
-    [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
+    [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
