@@ -104,6 +104,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
             actions.loadMetrics()
         },
     })),
+
     afterMount(({ actions }) => {
         actions.loadMetrics()
     }),

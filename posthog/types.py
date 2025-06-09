@@ -35,6 +35,7 @@ from posthog.schema import (
     LifecycleQuery,
     StickinessActorsQuery,
     ErrorTrackingIssueFilter,
+    LogPropertyFilter,
 )
 
 FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
@@ -69,6 +70,7 @@ AnyPropertyFilter: TypeAlias = Union[
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
+    LogPropertyFilter,
 ]
 
 EntityNode: TypeAlias = Union[EventsNode, ActionsNode, DataWarehouseNode]

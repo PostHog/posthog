@@ -155,6 +155,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    use_virtual_style_addressing: bool = False
 
     def __post_init__(self):
         if self.max_file_size_mb:

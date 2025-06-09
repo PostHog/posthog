@@ -320,7 +320,9 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("arrayExists(v -> toString(v) ilike '%ReferenceError%', properties.$exception_types)"),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -331,7 +333,9 @@ class TestProperty(BaseTest):
                     "operator": "exact",
                 }
             ),
-            self._parse_expr("arrayExists(v -> v in ('ReferenceError', 'TypeError'), properties.$exception_types)"),
+            self._parse_expr(
+                "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -342,7 +346,9 @@ class TestProperty(BaseTest):
                     "operator": "is_not",
                 }
             ),
-            self._parse_expr("arrayExists(v -> v not in ('ReferenceError', 'TypeError'), properties.$exception_types)"),
+            self._parse_expr(
+                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -354,7 +360,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), properties.$exception_types)"
+                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 

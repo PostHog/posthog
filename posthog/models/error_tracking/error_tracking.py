@@ -80,6 +80,30 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
+class ErrorTrackingRelease(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
+    # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
+    # id of the model
+    hash_id = models.TextField(null=False, blank=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    version = models.TextField(null=False, blank=False)
+    project = models.TextField(null=False, blank=False)  # For now, we may spin this out to a dedicated model later
+
+    # Releases can have some metadata attached to them (like id, name, version,
+    # commit, whatever), which we put onto exceptions if they're
+    metadata = models.JSONField(null=True, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "hash_id"]),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "hash_id"], name="unique_release_hash_id_per_team"),
+        ]
+
+
 class ErrorTrackingSymbolSet(UUIDModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -95,6 +119,16 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
     content_hash = models.TextField(null=True, blank=False)
+
+    # Symbol sets can have an associated release, if they were uploaded
+    # with one
+    # TODO - should we really on_delete: CASCADE here?
+    release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
+
+    def delete(self, *args, **kwargs):
+        # On delete, we want to clean up unresolved stack frames too
+        self.errortrackingstackframe_set.filter(resolved=False).delete()
+        super().delete(*args, **kwargs)
 
     class Meta:
         indexes = [
@@ -172,12 +206,31 @@ class ErrorTrackingGroupingRule(UUIDModel):
         # ]
 
 
+class ErrorTrackingSuppressionRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Grouping rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.CASCADE, null=True)
+    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it

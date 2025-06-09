@@ -5,7 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-customerio",

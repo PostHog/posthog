@@ -6,13 +6,11 @@ import { PluginsServerConfig } from '~/src/types'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
-import { createInvocation } from '../../utils'
-import { HogFunctionManagerService } from '../hog-function-manager.service'
+import { createInvocation } from '../../utils/invocation-utils'
 import { CyclotronJobQueue, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
-    let mockHogFunctionManager: jest.Mocked<HogFunctionManagerService>
     let mockConsumeBatch: jest.Mock
 
     const exampleHogFunction = createHogFunction({
@@ -24,7 +22,6 @@ describe('CyclotronJobQueue', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        mockHogFunctionManager = {} as jest.Mocked<HogFunctionManagerService>
         mockConsumeBatch = jest.fn()
     })
 
@@ -34,7 +31,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('postgres')
         })
@@ -46,7 +43,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('kafka')
         })
@@ -57,7 +54,7 @@ describe('CyclotronJobQueue', () => {
             config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()

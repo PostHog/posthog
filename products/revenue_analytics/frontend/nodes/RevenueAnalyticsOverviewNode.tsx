@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { humanFriendlyNumber, range } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -61,7 +61,7 @@ export function RevenueAnalyticsOverviewNode(props: {
 }
 
 const ItemCell = ({ item }: { item?: RevenueAnalyticsOverviewItem }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
     const {
         dateFilter: { dateFrom, dateTo },
     } = useValues(revenueAnalyticsLogic)

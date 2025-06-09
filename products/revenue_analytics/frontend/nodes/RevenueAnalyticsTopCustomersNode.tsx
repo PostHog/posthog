@@ -16,7 +16,7 @@ import {
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
-import { revenueEventsSettingsLogic } from '../settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 let uniqueNode = 0
 export function RevenueAnalyticsTopCustomersNode(props: {
@@ -35,7 +35,7 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
 
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
     const { response, responseLoading, queryId } = useValues(logic)
 
     if (responseLoading) {

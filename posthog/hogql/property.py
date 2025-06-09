@@ -47,6 +47,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
+    LogPropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -301,6 +302,7 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
+        | LogPropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
@@ -384,6 +386,7 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
+        or property.type == "log"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -443,6 +446,8 @@ def property_to_expr(
             chain = ["sessions"]
         elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
+        elif property.type == "log":
+            chain = ["attributes"]
         else:
             chain = ["properties"]
 
@@ -463,6 +468,16 @@ def property_to_expr(
             "$exception_sources",
             "$exception_functions",
         ]
+
+        if is_string_array_property:
+            # if materialized these columns will be strings so we need to extract them
+            extracted_field = ast.Call(
+                name="JSONExtract",
+                args=[
+                    ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                    ast.Constant(value="Array(String)"),
+                ],
+            )
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -492,7 +507,7 @@ def property_to_expr(
                             "arrayExists(v -> {expr}, {key})",
                             {
                                 "expr": expr,
-                                "key": field,
+                                "key": extracted_field,
                             },
                         )
                     else:
@@ -533,7 +548,7 @@ def property_to_expr(
         if is_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
-                {"expr": expr, "key": field},
+                {"expr": expr, "key": extracted_field},
             )
         else:
             return expr

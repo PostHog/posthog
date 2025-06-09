@@ -1,23 +1,28 @@
 use std::sync::Arc;
 
 use common_database::Client as DatabaseClient;
-use tracing::instrument;
 
 use super::redirect_service::RedirectError;
 
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 
-#[instrument(name = "fetch_redirect_url", skip(db_reader_client))]
 pub async fn fetch_redirect_url(
     db_reader_client: PostgresReader,
     short_link_domain: &str,
     short_code: &str,
 ) -> Result<String, RedirectError> {
+    let span = tracing::span!(
+        tracing::Level::INFO,
+        "fetch_redirect_url",
+        short_code = short_code,
+        short_link_domain = short_link_domain
+    );
+    let _enter = span.enter();
     let mut conn = db_reader_client.get_connection().await.map_err(|e| {
         tracing::error!("Failed to get database connection: {}", e);
         RedirectError::DatabaseUnavailable
     })?;
-    // TODO: Validate query
+
     let query = sqlx::query!(
         r#"
         SELECT redirect_url

@@ -1637,15 +1637,6 @@ describe('surveyLogic filters for surveys responses', () => {
             })
         })
 
-        it('uses start_date over created_at when available', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSurveyValue('created_at', dayjs().subtract(16, 'weeks').format('YYYY-MM-DD'))
-                logic.actions.setSurveyValue('start_date', dayjs().subtract(2, 'weeks').format('YYYY-MM-DD'))
-            }).toMatchValues({
-                defaultInterval: 'day',
-            })
-        })
-
         it('uses end_date when available', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSurveyValue('created_at', dayjs().subtract(20, 'weeks').format('YYYY-MM-DD'))

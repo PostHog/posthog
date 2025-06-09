@@ -284,6 +284,9 @@ def get_delta_mapping_for(
             delta_mapping["day"] = 1
         elif position == "End":
             delta_mapping["day"] = 31
+    elif kind == "M":
+        if number:
+            delta_mapping["minutes"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)

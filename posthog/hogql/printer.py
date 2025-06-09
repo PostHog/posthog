@@ -171,7 +171,7 @@ def prepare_ast_for_printing(
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
@@ -1768,6 +1768,8 @@ class _Printer(Visitor):
         )
 
     def _get_timezone(self) -> str:
+        if self.context.modifiers.convertToProjectTimezone is False:
+            return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:

@@ -195,6 +195,12 @@ export const teamLogic = kea<teamLogicType>([
                 return true
             },
         ],
+        hasIngestedEvent: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean => {
+                return currentTeam?.ingested_event ?? false
+            },
+        ],
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),

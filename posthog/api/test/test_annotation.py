@@ -4,6 +4,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 from django.utils.timezone import now
 from rest_framework import status
+from parameterized import parameterized
 
 from posthog.models import Annotation, Organization, Team, User
 from posthog.test.base import (
@@ -28,8 +29,8 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         mock_capture.assert_not_called()
 
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["content"], "hello world!")
+        assert len(response["results"]) == 1
+        assert response["results"][0]["content"] == "hello world!"
 
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture) -> None:
@@ -38,7 +39,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         """
         with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
-            self.assertEqual(len(response["results"]), 0)
+            assert len(response["results"]) == 0
 
         Annotation.objects.create(
             organization=self.organization,
@@ -50,7 +51,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
-            self.assertEqual(len(response["results"]), 1)
+            assert len(response["results"]) == 1
 
         Annotation.objects.create(
             organization=self.organization,
@@ -62,7 +63,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
-            self.assertEqual(len(response["results"]), 2)
+            assert len(response["results"]) == 2
 
     def test_org_scoped_annotations_are_returned_between_projects(self):
         second_team = Team.objects.create(organization=self.organization, name="Second team")
@@ -76,8 +77,8 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
 
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["content"], "Cross-project annotation!")
+        assert len(response["results"]) == 1
+        assert response["results"][0]["content"] == "Cross-project annotation!"
 
     def test_cannot_fetch_annotations_of_org_user_does_not_belong_to(self):
         separate_org, _, separate_team = Organization.objects.bootstrap(None, name="Second team")
@@ -96,16 +97,13 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         response_1 = self.client.get(f"/api/projects/{separate_team.id}/annotations/")
 
-        self.assertEqual(response_1.status_code, 403)
-        self.assertEqual(
-            response_1.json(),
-            self.permission_denied_response("You don't have access to the project."),
-        )
+        assert response_1.status_code == 403
+        assert response_1.json() == self.permission_denied_response("You don't have access to the project.")
 
         response_2 = self.client.get(f"/api/projects/{self.team.id}/annotations/")
 
-        self.assertEqual(response_2.status_code, 200)
-        self.assertEqual(response_2.json()["results"], [])
+        assert response_2.status_code == 200
+        assert response_2.json()["results"] == []
 
     @patch("posthog.api.annotation.report_user_action")
     def test_creating_annotation(self, mock_capture):
@@ -123,13 +121,13 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             },
         )
         date_marker: datetime = datetime(2020, 1, 1, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         instance = Annotation.objects.get(pk=response.json()["id"])
-        self.assertEqual(instance.content, "Marketing campaign")
-        self.assertEqual(instance.scope, "organization")
-        self.assertEqual(instance.date_marker, date_marker)
-        self.assertEqual(instance.team, self.team)
-        self.assertEqual(instance.creation_type, "USR")
+        assert instance.content == "Marketing campaign"
+        assert instance.scope == "organization"
+        assert instance.date_marker == date_marker
+        assert instance.team == self.team
+        assert instance.creation_type == "USR"
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
@@ -176,13 +174,13 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
         test_annotation.refresh_from_db()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(test_annotation.scope, Annotation.Scope.PROJECT)
+        assert response.status_code == status.HTTP_200_OK
+        assert test_annotation.scope == Annotation.Scope.PROJECT
         # Previously the project was `self.team``, but after downgrading scope from "Organization" to "Project", we want
         # the current project (i.e. `second_team`, whose ID was used in the API request) to own the annotation.
         # This is so that an annotation doesn't disappear when its downgraded and it actually belonged to a different
         # project than the one the user is viewing.
-        self.assertEqual(test_annotation.team, second_team)
+        assert test_annotation.team == second_team
 
     def test_updating_annotation(self):
         test_annotation = Annotation.objects.create(
@@ -199,10 +197,10 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
         test_annotation.refresh_from_db()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(test_annotation.content, "Updated text")
-        self.assertEqual(test_annotation.scope, "organization")
-        self.assertEqual(test_annotation.date_marker, None)
+        assert response.status_code == status.HTTP_200_OK
+        assert test_annotation.content == "Updated text"
+        assert test_annotation.scope == "organization"
+        assert test_annotation.date_marker is None
 
     def test_deleting_annotation(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
@@ -213,5 +211,48 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         with patch("posthog.api.team.report_user_action"):
             response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertTrue(Annotation.objects.filter(pk=instance.pk).exists())
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert Annotation.objects.filter(pk=instance.pk).exists()
+
+    @parameterized.expand(
+        [
+            ("organization", "organization scoped", 1),
+            ("project", "project scoped", 1),
+            ("insight", "insight scoped", 1),
+            ("dashboard_item", "insight scoped", 1),
+            ("dashboard", "dashboard scoped", 1),
+            (None, None, 4),
+        ]
+    )
+    def test_annotation_can_be_filtered_by_scope(self, scope: str, expected_content: str, expected_result_count: int):
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="organization scoped",
+            scope=Annotation.Scope.ORGANIZATION,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="project scoped",
+            scope=Annotation.Scope.PROJECT,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="insight scoped",
+            scope=Annotation.Scope.INSIGHT,
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            content="dashboard scoped",
+            scope=Annotation.Scope.DASHBOARD,
+        )
+
+        scope_query_param = f"?scope={scope}" if scope else ""
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/{scope_query_param}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == expected_result_count
+        if expected_result_count == 1:
+            assert response.json()["results"][0]["content"] == expected_content

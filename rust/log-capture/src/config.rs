@@ -5,7 +5,7 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "3305")]
+    #[envconfig(from = "BIND_PORT", default = "4317")]
     pub port: u16,
 
     #[envconfig(from = "JWT_SECRET")]
@@ -22,6 +22,9 @@ pub struct Config {
 
     #[envconfig(from = "CLICKHOUSE_PASSWORD", default = "")]
     pub clickhouse_password: String,
+
+    #[envconfig(from = "CLICKHOUSE_TABLE", default = "logs")]
+    pub clickhouse_table: String,
 
     #[envconfig(from = "INSETER_PERIOD_MS", default = "1000")]
     pub inserter_period_ms: u64,

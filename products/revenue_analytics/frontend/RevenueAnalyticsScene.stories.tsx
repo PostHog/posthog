@@ -7,12 +7,14 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
+import revenueAnalyticsInsightsQueryMock from './__mocks__/RevenueAnalyticsInsightsQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
-import trendsQueryMock from './__mocks__/TrendsQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const meta: Meta = {
@@ -29,6 +31,17 @@ const meta: Meta = {
     },
     decorators: [
         mswDecorator({
+            get: {
+                '/api/environments/:team_id/external_data_sources/': () => {
+                    return [
+                        200,
+                        {
+                            ...EMPTY_PAGINATED_RESPONSE,
+                            results: [externalDataSourceResponseMock],
+                        },
+                    ]
+                },
+            },
             post: {
                 '/api/environments/:team_id/query': (req) => {
                     const query = (req.body as any).query
@@ -42,8 +55,8 @@ const meta: Meta = {
                         return [200, revenueAnalyticsTopCustomersMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'TrendsQuery') {
-                        return [200, trendsQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsInsightsQuery') {
+                        return [200, revenueAnalyticsInsightsQueryMock]
                     }
                 },
             },
@@ -51,26 +64,6 @@ const meta: Meta = {
     ],
 }
 export default meta
-
-export function RevenueAnalyticsDashboardOnboarding(): JSX.Element {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': (req) => {
-                const query = (req.body as any).query
-                const queryKind = query.kind
-
-                if (queryKind === 'DatabaseSchemaQuery') {
-                    return [200, { tables: {} }] // Empty schema, we don't care about this here
-                }
-            },
-        },
-    })
-
-    // Open the revenue analytics dashboard page
-    useEffect(() => router.actions.push(urls.revenueAnalytics()), [])
-
-    return <App />
-}
 
 export function RevenueAnalyticsDashboardTableView(): JSX.Element {
     const { setGrowthRateDisplayMode, setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
@@ -93,6 +86,34 @@ export function RevenueAnalyticsDashboardTableView(): JSX.Element {
 
 export function RevenueAnalyticsDashboardLineView(): JSX.Element {
     const { setGrowthRateDisplayMode, setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        // Open the revenue analytics dashboard page
+        router.actions.push(urls.revenueAnalytics())
+
+        setGrowthRateDisplayMode('line')
+        setTopCustomersDisplayMode('line')
+    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode])
+
+    return <App />
+}
+
+export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
+    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
+
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/external_data_sources/': () => {
+                return [
+                    200,
+                    {
+                        ...EMPTY_PAGINATED_RESPONSE,
+                        results: [{ ...externalDataSourceResponseMock, status: 'Running', last_run_at: null }],
+                    },
+                ]
+            },
+        },
+    })
 
     useEffect(() => {
         // Open the revenue analytics dashboard page

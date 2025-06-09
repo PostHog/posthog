@@ -118,10 +118,11 @@ export function MaxTool({
     }
     return (
         <div
-            className={
+            className={clsx(
+                'relative',
                 // Rounding is +1px to account for the border
-                isMaxOpen ? 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]' : ''
-            }
+                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]'
+            )}
         >
             {content}
         </div>

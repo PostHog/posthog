@@ -48,10 +48,9 @@ const UniversalSearch = (): JSX.Element => {
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const floatingRef = useRef<HTMLDivElement | null>(null)
 
-    const onClose = (query: string): void => {
+    const onClose = (): void => {
         searchInputRef.current?.blur()
         setVisible(false)
-        setSearchQuery(query)
     }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
@@ -84,13 +83,13 @@ const UniversalSearch = (): JSX.Element => {
                 visible={visible}
                 closeOnClickInside={false}
                 floatingRef={floatingRef}
-                onClickOutside={() => onClose('')}
+                onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
                     prefix={<RecordingsUniversalFilterGroup />}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
-                    onClose={() => onClose('')}
+                    onClose={() => onClose()}
                     onChange={setSearchQuery}
                     size="small"
                     fullWidth

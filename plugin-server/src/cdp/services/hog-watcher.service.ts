@@ -4,7 +4,13 @@ import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
-import { HogFunctionInvocationResult, HogFunctionTiming, HogFunctionType } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionTiming,
+    HogFunctionType,
+} from '../types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -47,6 +53,13 @@ type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunct
 // TODO: Future follow up - we should swap this to an API call or something.
 // Having it as a celery task ID based on a file path is brittle and hard to test.
 export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
+
+// Check if the result is of type CyclotronJobInvocationHogFunction
+export const isHogFunctionResult = (
+    result: CyclotronJobInvocationResult
+): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+    return 'hogFunction' in result.invocation
+}
 
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
@@ -162,17 +175,20 @@ export class HogWatcherService {
         await this.onStateChange(id, state)
     }
 
-    public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
+    public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
 
-        const costs: Record<HogFunctionType['id'], number> = {}
+        const costs: Record<CyclotronJobInvocation['functionId'], number> = {}
         // Create a map to store the function types
-        const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
+        const functionTypes: Record<CyclotronJobInvocation['functionId'], HogFunctionType['type']> = {}
 
         results.forEach((result) => {
-            let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
-            // Store the function type for later use
-            functionTypes[result.invocation.hogFunction.id] = result.invocation.hogFunction.type
+            if (!isHogFunctionResult(result)) {
+                return
+            }
+
+            let cost = (costs[result.invocation.functionId] = costs[result.invocation.functionId] || 0)
+            functionTypes[result.invocation.functionId] = result.invocation.hogFunction.type
 
             if (result.finished) {
                 // Calculate cost based on individual timings, not the total
@@ -180,7 +196,7 @@ export class HogWatcherService {
 
                 // Calculate cost for this individual timing
 
-                for (const timing of result.invocation.timings) {
+                for (const timing of result.invocation.state.timings) {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 

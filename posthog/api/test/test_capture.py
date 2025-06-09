@@ -241,8 +241,7 @@ class TestCapture(BaseTest):
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
         args = patch_process_event_with_plugins.call_args[1]["data"]
-
-        return {
+        res = {
             "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
@@ -250,8 +249,12 @@ class TestCapture(BaseTest):
             "data": json.loads(args["data"]),
             "token": args["token"],
             "now": args["now"],
-            "sent_at": args["sent_at"],
         }
+
+        if "sent_at" in args:
+            res["sent_at"] = args["sent_at"]
+
+        return res
 
     def _send_original_version_session_recording_event(
         self,
@@ -431,12 +434,31 @@ class TestCapture(BaseTest):
                     assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_non_numeric_offset(self, kafka_produce):
+        data = {
+            "event": "$exception",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "offset": "should_blow_up",  # only integer values may pass!
+            },
+        }
+        with self.assertNumQueries(0):  # Capture does not hit PG anymore
+            response = self.client.get(
+                "/e/?data={}".format(quote(self._to_json(data))),
+                HTTP_ORIGIN="https://localhost",
+            )
+
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
             "properties": {
                 "distinct_id": 2,
                 "token": self.team.api_token,
+                "offset": 1234,
                 "$elements": [
                     {
                         "tag_name": "a",
@@ -540,7 +562,6 @@ class TestCapture(BaseTest):
             "data": expected_data,
             "token": self.team.api_token,
             "uuid": ANY,
-            "sent_at": "",
             "now": ANY,
         } == self._to_arguments(kafka_produce)
 
@@ -1123,7 +1144,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1217,7 +1237,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1248,7 +1267,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1278,7 +1296,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1413,7 +1430,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
@@ -2386,7 +2402,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
@@ -2401,6 +2417,8 @@ class TestCapture(BaseTest):
 
         assert event_data["event"] == "$csp_violation"
         assert event_data["properties"]["$csp_document_url"] == "https://example.com/foo/bar"
+        # copied from $csp_document_url
+        assert event_data["properties"]["$current_url"] == "https://example.com/foo/bar"
         assert event_data["properties"]["$csp_violated_directive"] == "default-src self"
         assert event_data["properties"]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
 
@@ -2422,7 +2440,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp?token={self.team.api_token}",
+            f"/report?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
@@ -2431,7 +2449,7 @@ class TestCapture(BaseTest):
 
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data="this is not valid json",
             content_type="application/csp-report",
         )
@@ -2444,7 +2462,7 @@ class TestCapture(BaseTest):
         invalid_csp_report = {"not-a-csp-report": "invalid format"}
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(invalid_csp_report),
             content_type="application/csp-report",
         )
@@ -2455,7 +2473,7 @@ class TestCapture(BaseTest):
 
     def test_integration_csp_report_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data="this is not valid json}",
             content_type="application/csp-report",
         )
@@ -2472,7 +2490,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(invalid_format),
             content_type="application/csp-report",
         )
@@ -2491,7 +2509,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(valid_csp_report),
             content_type="application/json",  # Not application/csp-report
         )
@@ -2520,7 +2538,7 @@ class TestCapture(BaseTest):
         ]
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
@@ -2572,7 +2590,7 @@ class TestCapture(BaseTest):
         ]
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
@@ -2635,3 +2653,77 @@ class TestCapture(BaseTest):
         # Should return 400 as usual - the /e/ endpoint doesn't handle CSP content types
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert response.json()["code"] == "no_data"
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_enabled(self, mock_logger):
+        """Test that debug logging is enabled when debug=true parameter is present"""
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=true",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "CSP debug request"
+        assert call_args[1]["method"] == "POST"
+        assert "debug=true" in call_args[1]["url"]
+        assert call_args[1]["content_type"] == "application/csp-report"
+        assert "body" in call_args[1]
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_disabled(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_not_called()
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_case_insensitive(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=TRUE",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
+
+        mock_logger.reset_mock()
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=True",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()

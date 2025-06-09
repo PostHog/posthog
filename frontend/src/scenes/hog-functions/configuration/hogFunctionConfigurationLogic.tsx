@@ -14,7 +14,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
-import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -43,6 +42,7 @@ import {
     ChartDisplayType,
     EventType,
     FilterLogicalOperator,
+    HogFunctionConfigurationContextId,
     HogFunctionConfigurationType,
     HogFunctionInputSchemaType,
     HogFunctionInputType,
@@ -60,6 +60,7 @@ import {
 } from '~/types'
 
 import { EmailTemplate } from '../email-templater/emailTemplaterLogic'
+import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
@@ -303,7 +304,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
             ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
-        loadSampleGlobals: true,
+        loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
@@ -499,7 +500,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sampleGlobals: [
             null as HogFunctionInvocationGlobals | null,
             {
-                loadSampleGlobals: async (_, breakpoint) => {
+                loadSampleGlobals: async ({ eventId }, breakpoint) => {
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
@@ -507,9 +508,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        let response = await performQuery(values.lastEventQuery)
+                        let response = await performQuery({
+                            ...values.lastEventQuery,
+                            properties: eventId
+                                ? [
+                                      {
+                                          type: PropertyFilterType.HogQL,
+                                          key: `uuid = '${eventId}'`,
+                                      },
+                                  ]
+                                : undefined,
+                        })
                         if (!response?.results?.[0] && values.lastEventSecondQuery) {
-                            response = await performQuery(values.lastEventSecondQuery)
+                            response = await performQuery({
+                                ...values.lastEventSecondQuery,
+                                properties: eventId
+                                    ? [
+                                          {
+                                              type: PropertyFilterType.HogQL,
+                                              key: `uuid = '${eventId}'`,
+                                          },
+                                      ]
+                                    : undefined,
+                            })
                         }
                         if (!response?.results?.[0]) {
                             throw new Error(errorMessage)
@@ -596,8 +617,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
 
-                if (!values.hasAddon) {
-                    // Remove the source field if the user doesn't have the addon
+                if (!values.hasAddon && values.type !== 'transformation') {
+                    // Remove the source field if the user doesn't have the addon (except for transformations)
                     delete payload.hog
                     delete payload.inputs_schema
                 }
@@ -661,6 +682,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,
         ],
         loaded: [(s) => [s.hogFunction, s.template], (hogFunction, template) => !!hogFunction || !!template],
+
+        contextId: [
+            (s) => [s.configuration],
+            (configuration): HogFunctionConfigurationContextId => {
+                return eventToHogFunctionContextId(configuration.filters?.events?.[0]?.id)
+            },
+        ],
+
         inputFormErrors: [
             (s) => [s.configuration],
             (configuration) => {
@@ -724,8 +753,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.logicProps],
-            (configuration, currentProject, groupTypes, logicProps): HogFunctionInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
+            (configuration, currentProject, groupTypes, contextId): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -735,7 +764,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     timestamp: dayjs().toISOString(),
                     elements_chain: '',
                     url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    ...(logicProps.logicKey === ERROR_TRACKING_LOGIC_KEY
+                    ...(contextId === 'error-tracking'
                         ? {
                               event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
                               properties: {
@@ -743,18 +772,28 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                   description: 'This is the issue description',
                               },
                           }
+                        : contextId === 'activity-log'
+                        ? {
+                              event: '$activity_log_entry_created',
+                              properties: {
+                                  activity: 'created',
+                                  scope: 'Insight',
+                                  item_id: 'abcdef',
+                              },
+                          }
                         : {
                               event: '$pageview',
                               properties: {
                                   $current_url: currentUrl,
                                   $browser: 'Chrome',
+                                  this_is_an_example_event: true,
                               },
                           }),
                 }
                 const globals: HogFunctionInvocationGlobals = {
                     event,
                     person:
-                        logicProps.logicKey != ERROR_TRACKING_LOGIC_KEY
+                        contextId !== 'error-tracking'
                             ? {
                                   id: personId,
                                   properties: {
@@ -775,33 +814,46 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         url: currentUrl,
                     },
                 }
-                groupTypes.forEach((groupType) => {
-                    if (logicProps.logicKey === ERROR_TRACKING_LOGIC_KEY) {
-                        return
-                    }
-                    const id = uuid()
-                    globals.groups![groupType.group_type] = {
-                        id: id,
-                        type: groupType.group_type,
-                        index: groupType.group_type_index,
-                        url: `${window.location.origin}/groups/${groupType.group_type_index}/${encodeURIComponent(id)}`,
-                        properties: {},
-                    }
-                })
+
+                if (contextId !== 'error-tracking') {
+                    groupTypes.forEach((groupType) => {
+                        const id = uuid()
+                        globals.groups![groupType.group_type] = {
+                            id: id,
+                            type: groupType.group_type,
+                            index: groupType.group_type_index,
+                            url: `${window.location.origin}/groups/${groupType.group_type_index}/${encodeURIComponent(
+                                id
+                            )}`,
+                            properties: {},
+                        }
+                    })
+                }
 
                 return globals
             },
         ],
-        globalsWithInputs: [
+        sampleGlobalsWithInputs: [
             (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
             (
                 sampleGlobals,
                 exampleInvocationGlobals,
                 configuration
-            ): HogFunctionInvocationGlobals & { inputs?: Record<string, any> } => {
+            ): Partial<HogFunctionInvocationGlobals> & { inputs?: Record<string, any> } => {
                 const inputs: Record<string, any> = {}
                 for (const input of configuration?.inputs_schema || []) {
                     inputs[input.key] = input.type
+                }
+
+                if (configuration.type === 'source_webhook') {
+                    return {
+                        request: {
+                            body: {},
+                            headers: {},
+                            ip: '127.0.0.1',
+                        },
+                        inputs,
+                    }
                 }
 
                 return {
@@ -1074,6 +1126,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return mightDropEvents(hogCode)
             },
         ],
+
+        canLoadSampleGlobals: [
+            (s) => [s.lastEventQuery],
+            (lastEventQuery) => {
+                return !!lastEventQuery
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -1251,8 +1310,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
-            cache.subTemplateId = router.values.hashParams.sub_template_id
-            actions.loadTemplate() // comes with plugin info
+            actions.loadTemplate()
         } else if (props.id && props.id !== 'new') {
             actions.loadHogFunction()
         }

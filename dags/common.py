@@ -1,4 +1,5 @@
 from enum import Enum
+
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
 
@@ -8,10 +9,12 @@ from posthog.clickhouse.cluster import (
     RetryPolicy,
     get_cluster,
 )
+from posthog.clickhouse.custom_metrics import MetricsClient
 
 
 class JobOwners(str, Enum):
     TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
 
 
@@ -55,3 +58,31 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                 ),
             ),
         )
+
+
+def report_job_status_metric(
+    context: dagster.RunStatusSensorContext, cluster: dagster.ResourceParam[ClickhouseCluster]
+) -> None:
+    MetricsClient(cluster).increment(
+        "dagster_run_status",
+        labels={
+            "job_name": context.dagster_run.job_name,
+            "status": context.dagster_run.status.name,
+        },
+    ).result()
+
+
+job_status_metrics_sensors = [
+    dagster.run_status_sensor(
+        name=f"{report_job_status_metric.__name__}_{status.name}",
+        run_status=status,
+        default_status=dagster.DefaultSensorStatus.RUNNING,
+        monitor_all_code_locations=True,
+    )(report_job_status_metric)
+    for status in [
+        dagster.DagsterRunStatus.STARTED,
+        dagster.DagsterRunStatus.SUCCESS,
+        dagster.DagsterRunStatus.FAILURE,
+        dagster.DagsterRunStatus.CANCELED,
+    ]
+]

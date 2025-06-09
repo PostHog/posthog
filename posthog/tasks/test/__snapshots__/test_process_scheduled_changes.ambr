@@ -2,7 +2,6 @@
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -12,7 +11,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -223,7 +223,6 @@
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.14
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -233,7 +232,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -807,6 +807,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -851,6 +852,7 @@
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
          "posthog_experiment"."archived",
+         "posthog_experiment"."deleted",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."exposure_criteria",
@@ -1227,7 +1229,6 @@
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.38
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1237,7 +1238,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -1827,6 +1829,7 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1859,6 +1862,7 @@
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
          "posthog_experiment"."archived",
+         "posthog_experiment"."deleted",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
          "posthog_experiment"."exposure_criteria",

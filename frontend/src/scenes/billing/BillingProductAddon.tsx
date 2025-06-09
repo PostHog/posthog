@@ -1,8 +1,7 @@
-import { IconCheckCircle, IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { ReactNode, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -34,16 +33,12 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading, showTierBreakdown } =
-        useValues(billingProductLogic({ product: addon, productRef }))
-    const { toggleIsPricingModalOpen, setTrialModalOpen, activateTrial, setShowTierBreakdown } = useActions(
-        billingProductLogic({ product: addon })
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, showTierBreakdown } = useValues(
+        billingProductLogic({ product: addon, productRef })
     )
-    const { openSupportForm } = useActions(supportLogic)
+    const { toggleIsPricingModalOpen, setShowTierBreakdown } = useActions(billingProductLogic({ product: addon }))
     const logic = billingProductAddonLogic({ addon })
     const { gaugeItems } = useValues(logic)
-
-    const upgradePlan = currentAndUpgradePlans?.upgradePlan
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -97,6 +92,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         </LemonTag>
                                     </div>
                                 )
+                            )}
+                            {addon.legacy_product && (
+                                <div>
+                                    <LemonTag type="highlight" icon={<IconInfo />}>
+                                        Legacy add-on
+                                    </LemonTag>
+                                </div>
                             )}
                         </div>
                         <p className="ml-0 mb-0">
@@ -204,60 +206,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
             {/* Unsubscribe survey modal */}
             {surveyID && <UnsubscribeSurveyModal product={addon} />}
-
-            {/* Trial modal */}
-            {/* Not currently used but keeping around incase we need it again */}
-            <LemonModal
-                isOpen={trialModalOpen}
-                onClose={() => setTrialModalOpen(false)}
-                title={`Start your ${addon.name} trial`}
-                description={`You'll have ${addon.trial?.length} days to try it out before being charged.`}
-                footer={
-                    <>
-                        <LemonButton type="secondary" onClick={() => setTrialModalOpen(false)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton type="primary" onClick={activateTrial} loading={trialLoading}>
-                            Start trial
-                        </LemonButton>
-                    </>
-                }
-            >
-                <p className="mb-1.5">Here's some stuff about the trial:</p>
-                <ul className="flex flex-col gap-0.5">
-                    <li className="ml-2">
-                        🎉 It's <b>free!</b>
-                    </li>
-                    <li className="ml-2">
-                        📅 The trial is for <b>{addon.trial?.length} days</b>
-                    </li>
-                    <li className="ml-2">
-                        🚀 You'll get access to <b>all the features</b> of the plan immediately
-                    </li>
-                    <li className="ml-2">
-                        📧 3 days before the trial ends, you'll be emailed a reminder that you'll be charged
-                    </li>
-                    <li className="ml-2">
-                        🚫 If you don't want to be charged, you can cancel anytime before the trial ends
-                    </li>
-                    <li className="ml-2">
-                        💵 At the end of the trial, you'll be be subscribed and charged{' '}
-                        {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}
-                    </li>
-                    <li className="ml-2">
-                        ☎️ If you have any questions, you can{' '}
-                        <Link
-                            onClick={() => {
-                                setTrialModalOpen(false)
-                                openSupportForm({ kind: 'support', target_area: 'billing' })
-                            }}
-                            className="cursor-pointer"
-                        >
-                            contact us
-                        </Link>
-                    </li>
-                </ul>
-            </LemonModal>
         </div>
     )
 }

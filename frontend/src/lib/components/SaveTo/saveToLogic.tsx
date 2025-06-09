@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
 import type { saveToLogicType } from './saveToLogicType'
 
@@ -27,8 +27,8 @@ export const saveToLogic = kea<saveToLogicType>([
     path(['lib', 'components', 'SaveTo', 'saveToLogic']),
     props({} as SaveToLogicProps),
     connect(() => ({
-        values: [projectTreeLogic, ['lastNewFolder'], featureFlagLogic, ['featureFlags']],
-        actions: [projectTreeLogic, ['setLastNewFolder']],
+        values: [projectTreeDataLogic, ['lastNewFolder'], featureFlagLogic, ['featureFlags']],
+        actions: [projectTreeDataLogic, ['setLastNewFolder']],
     })),
     actions({
         openSaveToModal: (props: OpenSaveToProps) => props,
@@ -59,7 +59,11 @@ export const saveToLogic = kea<saveToLogicType>([
         ],
     }),
     selectors({
-        isFeatureEnabled: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.TREE_VIEW] ?? false],
+        isFeatureEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE] || false,
+        ],
     }),
     listeners(({ actions, values }) => ({
         setLastNewFolder: ({ folder }) => {

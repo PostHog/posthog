@@ -1,5 +1,5 @@
-import { IconX } from '@posthog/icons'
-import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { IconRevert, IconX } from '@posthog/icons'
+import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -69,8 +69,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         dataModelingJobs,
         hasMoreJobsToLoad,
     } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery, loadOlderDataModelingJobs, cancelDataWarehouseSavedQuery } =
-        useActions(dataWarehouseViewsLogic)
+    const {
+        updateDataWarehouseSavedQuery,
+        loadOlderDataModelingJobs,
+        cancelDataWarehouseSavedQuery,
+        revertMaterialization,
+    } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
@@ -97,7 +101,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                     <div>
-                        {savedQuery?.sync_frequency || savedQuery?.last_run_at ? (
+                        {savedQuery?.sync_frequency ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
@@ -151,6 +155,34 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         loading={updatingDataWarehouseSavedQuery}
                                         options={OPTIONS}
                                     />
+                                    {editingView && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            tooltip="Revert materialized view to view"
+                                            disabledReason={
+                                                savedQuery?.status === 'Running' &&
+                                                'Cannot revert while materialization is running'
+                                            }
+                                            icon={<IconRevert />}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Revert materialization',
+                                                    maxWidth: '30rem',
+                                                    description:
+                                                        'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
+                                                    primaryButton: {
+                                                        status: 'danger',
+                                                        children: 'Revert materialization',
+                                                        onClick: () => revertMaterialization(editingView.id),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         ) : (
@@ -174,7 +206,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                 id: editingView.id,
                                                 sync_frequency: '24hour',
                                                 types: [[]],
-                                                lifecycle: 'create',
+                                                lifecycle:
+                                                    dataModelingJobs && dataModelingJobs.results.length > 0
+                                                        ? 'update'
+                                                        : 'create',
                                             })
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
@@ -320,11 +355,18 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         {
                             key: 'Status',
                             title: 'Status',
-                            render: (_, { type, status }) => {
+                            render: (_, { type, status, last_run_at }) => {
                                 if (type === 'source') {
                                     return (
                                         <Tooltip title="This is a source table, so it doesn't have a status">
                                             <span className="text-secondary">N/A</span>
+                                        </Tooltip>
+                                    )
+                                }
+                                if (last_run_at === 'never' && !status) {
+                                    return (
+                                        <Tooltip title="This is a view, so it's always available with the latest data">
+                                            <span className="text-secondary">Available</span>
                                         </Tooltip>
                                     )
                                 }
@@ -334,10 +376,17 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         {
                             key: 'Last run at',
                             title: 'Last run at',
-                            render: (_, { type, last_run_at }) => {
+                            render: (_, { type, last_run_at, status }) => {
                                 if (type === 'source') {
                                     return (
                                         <Tooltip title="This is a source table, so it is never run">
+                                            <span className="text-secondary">N/A</span>
+                                        </Tooltip>
+                                    )
+                                }
+                                if (last_run_at === 'never' && !status) {
+                                    return (
+                                        <Tooltip title="This is a view, so it is never run">
                                             <span className="text-secondary">N/A</span>
                                         </Tooltip>
                                     )

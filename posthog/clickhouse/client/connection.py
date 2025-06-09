@@ -1,15 +1,16 @@
 import logging
 import os
-from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import Enum
 from functools import cache
+from collections.abc import Mapping
 
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
+
 
 from posthog.settings import data_stores
 from posthog.utils import patchable
@@ -126,10 +127,10 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
 @contextmanager
 def get_http_client(**overrides):
     kwargs = {
-        "host": settings.QUERYSERVICE_HOST,
+        "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
-        "secure": settings.QUERYSERVICE_SECURE,
-        "username": settings.CLICKHOUSE_USER,
+        "secure": settings.CLICKHOUSE_SECURE,
+        "user": settings.CLICKHOUSE_USER,  # kwargs have user not username
         "password": settings.CLICKHOUSE_PASSWORD,
         "settings": {"mutations_sync": "1"} if settings.TEST else {},
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
@@ -140,6 +141,43 @@ def get_http_client(**overrides):
         **overrides,
     }
     yield ProxyClient(get_client(**kwargs))
+
+
+def get_kwargs_for_client(
+    workload: Workload = Workload.DEFAULT,
+    team_id=None,
+    readonly=False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+):
+    if workload == Workload.LOGS:
+        return {
+            "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+            "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+            "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+        }
+
+    (user, password) = get_clickhouse_creds(ch_user)
+    base_kwargs = {"user": user, "password": password}
+
+    if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
+        user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
+        return {**base_kwargs, **user_settings}
+
+    # Note that `readonly` does nothing if the relevant vars are not set!
+    if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
+        return {
+            "user": settings.READONLY_CLICKHOUSE_USER,
+            "password": settings.READONLY_CLICKHOUSE_PASSWORD,
+        }
+
+    if (
+        workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
+    ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
+        return {**base_kwargs, "host": settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, "verify": False}
+
+    return base_kwargs
 
 
 @patchable
@@ -154,32 +192,10 @@ def get_client_from_pool(
 
     The connection pool for HTTP is managed by a library.
     """
-    if settings.CLICKHOUSE_USE_HTTP:
-        if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
-            return get_http_client(**settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)])
 
-        # Note that `readonly` does nothing if the relevant vars are not set!
-        if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
-            return get_http_client(
-                username=settings.READONLY_CLICKHOUSE_USER,
-                password=settings.READONLY_CLICKHOUSE_PASSWORD,
-            )
-
-        if (
-            workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
-        ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
-            return get_http_client(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False)
-
-        if workload == Workload.LOGS:
-            return get_http_client(
-                host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
-                database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
-                user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
-                password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-                secure=settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
-            )
-
-        return get_http_client()
+    if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
+        kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        return get_http_client(**kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
 
@@ -195,36 +211,8 @@ def get_pool(
 
     Note that the same pool should be returned every call.
     """
-    (user, password) = get_clickhouse_creds(ch_user)
-
-    if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
-        user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
-        if "user" not in user_settings:
-            user_settings = {**user_settings, "user": user, "password": password}
-        return make_ch_pool(**user_settings)
-
-    # Note that `readonly` does nothing if the relevant vars are not set!
-    if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
-        return make_ch_pool(
-            user=settings.READONLY_CLICKHOUSE_USER,
-            password=settings.READONLY_CLICKHOUSE_PASSWORD,
-        )
-
-    if (
-        workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
-    ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
-        return make_ch_pool(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False, user=user, password=password)
-
-    if workload == Workload.LOGS:
-        return make_ch_pool(
-            host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
-            database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
-            user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
-            password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-            secure=settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
-        )
-
-    return make_ch_pool(user=user, password=password)
+    kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    return make_ch_pool(**kwargs)
 
 
 def default_client(host=settings.CLICKHOUSE_HOST):

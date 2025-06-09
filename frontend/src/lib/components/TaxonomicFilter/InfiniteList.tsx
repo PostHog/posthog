@@ -1,7 +1,7 @@
-import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
+import './InfiniteList.scss'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconPlus } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -15,6 +15,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -176,7 +177,7 @@ const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
+    const { mouseInteractionsEnabled, activeTab, searchQuery, eventNames, allowNonCapturedEvents, groupType, value } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -199,17 +200,73 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const isActiveTab = listGroupType === activeTab
 
+    const trimmedSearchQuery = searchQuery.trim()
+
+    // Show "Add non-captured event" option for CustomEvents group when searching
+    const showNonCapturedEventOption =
+        allowNonCapturedEvents &&
+        (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+            listGroupType === TaxonomicFilterGroupType.Events) &&
+        trimmedSearchQuery &&
+        trimmedSearchQuery.length > 0 &&
+        !isLoading &&
+        // Only show if no results found at all
+        results.length === 0
+
     // Only show empty state if:
     // 1. There are no results
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
-    const showEmptyState = totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource)
+    // 4. We're not showing the non-captured event option
+    const showEmptyState =
+        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
         const itemValue = item ? group?.getValue?.(item) : null
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
+
+        // Show create custom event option when there are no results
+        if (showNonCapturedEventOption && rowIndex === 0) {
+            const selectNonCapturedEvent = (): void => {
+                selectItem(
+                    group,
+                    trimmedSearchQuery,
+                    { name: trimmedSearchQuery, isNonCaptured: true },
+                    trimmedSearchQuery
+                )
+            }
+
+            return (
+                <LemonRow
+                    key={`item_${rowIndex}`}
+                    fullWidth
+                    className={clsx(
+                        'taxonomic-list-row',
+                        'border border-dashed border-secondary border rounded min-h-9 justify-center'
+                    )}
+                    outlined={false}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            selectNonCapturedEvent()
+                        }
+                    }}
+                    onClick={selectNonCapturedEvent}
+                    onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
+                    icon={<IconPlus className="text-muted size-4" />}
+                    data-attr="prop-filter-event-option-custom"
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="text-muted">Select event:</span>
+                        <span className="font-medium">{trimmedSearchQuery}</span>
+                        <LemonTag type="caution" size="small">
+                            Not seen yet
+                        </LemonTag>
+                    </div>
+                </LemonRow>
+            )
+        }
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
@@ -322,7 +379,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         <List
                             width={width}
                             height={height}
-                            rowCount={Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)}
+                            rowCount={
+                                showNonCapturedEventOption
+                                    ? 1
+                                    : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+                            }
                             overscanRowCount={100}
                             rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}

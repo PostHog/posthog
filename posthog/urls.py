@@ -229,7 +229,7 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
-    opt_slash_path("csp", capture.get_csp_event),  # CSP violation reports
+    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth

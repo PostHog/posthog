@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
-import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
@@ -9,6 +10,9 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
@@ -23,20 +27,46 @@ export function sanitizeColor(color: string | undefined): string | undefined {
     }
 
     // test if the color is valid by adding a # to the beginning of the string
-    if (!validateColor(`#${color}`, 'color')) {
+    if (CSS.supports('color', `#${color}`)) {
         return `#${color}`
     }
 
     return color
 }
 
-export function validateColor(color: string | undefined, fieldName: string): string | undefined {
-    if (!color) {
+export function validateCSSProperty(property: string, value: string | undefined): string | undefined {
+    if (!value) {
         return undefined
     }
-    // Test if the color value is valid using CSS.supports
-    const isValidColor = CSS.supports('color', color)
-    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
+    const isValidCSSProperty = CSS.supports(property, value)
+    return !isValidCSSProperty ? `${value} is not a valid property for ${property}.` : undefined
+}
+
+export function validateSurveyAppearance(
+    appearance: SurveyAppearance,
+    hasRatingQuestions: boolean,
+    surveyType: SurveyType
+): DeepPartialMap<SurveyAppearance, ValidationErrorType> {
+    return {
+        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
+        borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        // Only validate rating button colors if there's a rating question
+        ...(hasRatingQuestions && {
+            ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
+            ratingButtonColor: validateCSSProperty('background-color', appearance.ratingButtonColor),
+        }),
+        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor),
+        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor),
+        maxWidth: validateCSSProperty('width', appearance.maxWidth),
+        boxPadding: validateCSSProperty('padding', appearance.boxPadding),
+        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
+        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius),
+        zIndex: validateCSSProperty('z-index', appearance.zIndex),
+        widgetSelector:
+            surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
+                ? 'Please enter a CSS selector.'
+                : undefined,
+    }
 }
 
 export function getSurveyResponseKey(questionIndex: number): string {
@@ -99,37 +129,105 @@ export type NPSBreakdown = {
     promoters: number
     passives: number
     detractors: number
+    score: string
 }
 
-export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
-    // Validate input structure
-    if (!surveyRatingResults.data || surveyRatingResults.data.length !== 11) {
+// NPS calculation constants
+const NPS_SCALE_SIZE = 11 // 0-10 scale
+const NPS_PROMOTER_MIN = 9 // 9-10 are promoters
+const NPS_PASSIVE_MIN = 7 // 7-8 are passives. 0-6 are detractors but we don't need a variable for that.
+
+interface NPSRawData {
+    values: number[]
+    total: number
+}
+
+/**
+ * Extracts raw NPS data from processed survey data
+ */
+function extractNPSRawData(processedData: QuestionProcessedResponses): NPSRawData | null {
+    if (
+        !processedData?.data ||
+        processedData.type !== SurveyQuestionType.Rating ||
+        !Array.isArray(processedData.data) ||
+        processedData.data.length !== NPS_SCALE_SIZE
+    ) {
         return null
     }
 
-    if (surveyRatingResults.total === 0) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    return {
+        values: processedData.data.map((item) => item.value),
+        total: processedData.totalResponses,
     }
-
-    const PROMOTER_MIN = 9
-    const PASSIVE_MIN = 7
-
-    const promoters = surveyRatingResults.data.slice(PROMOTER_MIN, 11).reduce((a, b) => a + b, 0)
-    const passives = surveyRatingResults.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((a, b) => a + b, 0)
-    const detractors = surveyRatingResults.data.slice(0, PASSIVE_MIN).reduce((a, b) => a + b, 0)
-    return { total: surveyRatingResults.total, promoters, passives, detractors }
 }
 
-export function calculateNpsScore(npsBreakdown: NPSBreakdown): number {
-    if (npsBreakdown.total === 0) {
-        return 0
+/**
+ * Extracts raw NPS data from legacy survey rating results
+ */
+function extractNPSRawDataFromLegacy(surveyRatingResults: SurveyRatingResults[number]): NPSRawData | null {
+    if (!surveyRatingResults?.data || surveyRatingResults.data.length !== NPS_SCALE_SIZE) {
+        return null
     }
-    return ((npsBreakdown.promoters - npsBreakdown.detractors) / npsBreakdown.total) * 100
+
+    return {
+        values: surveyRatingResults.data,
+        total: surveyRatingResults.total,
+    }
+}
+
+/**
+ * Core NPS calculation logic - works with raw data arrays
+ */
+function calculateNPSFromRawData(rawData: NPSRawData): NPSBreakdown {
+    if (rawData.total === 0) {
+        return { total: 0, promoters: 0, passives: 0, detractors: 0, score: '0.0' }
+    }
+
+    const promoters = rawData.values.slice(NPS_PROMOTER_MIN, NPS_SCALE_SIZE).reduce((acc, curr) => acc + curr, 0)
+    const passives = rawData.values.slice(NPS_PASSIVE_MIN, NPS_PROMOTER_MIN).reduce((acc, curr) => acc + curr, 0)
+    const detractors = rawData.values.slice(0, NPS_PASSIVE_MIN).reduce((acc, curr) => acc + curr, 0)
+
+    const score = ((promoters - detractors) / rawData.total) * 100
+
+    return {
+        total: rawData.total,
+        promoters,
+        passives,
+        detractors,
+        score: score.toFixed(1),
+    }
+}
+
+export function calculateNpsBreakdownFromProcessedData(processedData: QuestionProcessedResponses): NPSBreakdown | null {
+    const rawData = extractNPSRawData(processedData)
+    return rawData ? calculateNPSFromRawData(rawData) : null
+}
+
+export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
+    const rawData = extractNPSRawDataFromLegacy(surveyRatingResults)
+    return rawData ? calculateNPSFromRawData(rawData) : null
 }
 
 // Helper to escape special characters in SQL strings
 function escapeSqlString(value: string): string {
     return value.replace(/['\\]/g, '\\$&')
+}
+
+export function getSurveyResponse(question: SurveyQuestion, index: number): string {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
+
+    if (question.type === SurveyQuestionType.MultipleChoice) {
+        return `if(
+        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
+        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
+        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
+    )`
+    }
+
+    return `COALESCE(
+        NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
+        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
+    )`
 }
 
 /**
@@ -176,9 +274,11 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
         // split the string '$survey_response_' and take the last part, as that's the question id
         const questionId = filter.key.split(`${SurveyEventProperties.SURVEY_RESPONSE}_`).at(-1)
-        if (!questionId || !survey.questions.find((question) => question.id === questionId)) {
+        const question = survey.questions.find((question) => question.id === questionId)
+        if (!questionId || !question) {
             continue
         }
+
         const questionIndex = survey.questions.findIndex((question) => question.id === questionId)
 
         // Create the condition for this filter
@@ -192,31 +292,31 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             case 'is_not':
                 if (Array.isArray(filter.value)) {
                     valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ${
+                    condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? 'NOT IN' : 'IN'
                     } (${valueList}))`
                 } else {
                     escapedValue = escapeSqlString(String(filter.value))
-                    condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ${
+                    condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? '!=' : '='
                     } '${escapedValue}')`
                 }
                 break
             case 'icontains':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ILIKE '%${escapedValue}%')`
+                condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 break
             case 'not_icontains':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT getSurveyResponse(${questionIndex}, '${questionId}') ILIKE '%${escapedValue}%')`
+                condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 break
             case 'regex':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(match(getSurveyResponse(${questionIndex}, '${questionId}'), '${escapedValue}'))`
+                condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
                 break
             case 'not_regex':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT match(getSurveyResponse(${questionIndex}, '${questionId}'), '${escapedValue}'))`
+                condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
                 break
             // Add more operators as needed
             default:
@@ -240,12 +340,10 @@ export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
 }
 
-const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 export function getSurveyStartDateForQuery(survey: Survey): string {
-    return survey.start_date
-        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
-        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
+    return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Survey): string {

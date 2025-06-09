@@ -11,6 +11,7 @@
     (SELECT posthog_test_stripe_charge.id AS id,
             parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
             posthog_test_stripe_charge.customer AS customer_id,
+            posthog_test_stripe_charge.invoice AS invoice_id,
             NULL AS session_id,
             NULL AS event_name,
             upper(posthog_test_stripe_charge.currency) AS original_currency,
@@ -33,7 +34,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueExampleDataWarehouseTablesQueryRunner.test_no_crash_when_no_data
@@ -49,6 +51,7 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

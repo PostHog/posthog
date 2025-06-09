@@ -15,7 +15,7 @@ from .person_admin import PersonAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .plugin_admin import PluginAdmin
 from .plugin_config_admin import PluginConfigAdmin
-from .link_admin import LinkAdmin
+from products.links.backend.admin import LinkAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin

@@ -13,6 +13,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
@@ -90,6 +91,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
-    [Scene.Links]: () => import('./links/LinksScene'),
-    [Scene.Link]: () => import('./links/LinkScene'),
+    [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
+    [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
 }

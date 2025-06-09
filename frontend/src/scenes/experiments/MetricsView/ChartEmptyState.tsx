@@ -34,9 +34,7 @@ export function ChartEmptyState({
                     <LemonTag size="small" className="mr-2">
                         <IconActivity fontSize="1em" />
                     </LemonTag>
-                    <span>
-                        Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures per variant to show results
-                    </span>
+                    <span>Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures to show results</span>
                 </div>
             ) : (
                 <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">

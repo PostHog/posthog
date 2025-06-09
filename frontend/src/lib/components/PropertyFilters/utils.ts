@@ -28,6 +28,7 @@ import {
     GroupPropertyFilter,
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
+    LogPropertyFilter,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -115,6 +116,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
+        [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     }
 
 export function formatPropertyLabel(
@@ -224,6 +226,9 @@ export function isLogEntryPropertyFilter(filter?: AnyFilterLike | null): filter 
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
+export function isLogPropertyFilter(filter?: AnyFilterLike | null): filter is LogPropertyFilter {
+    return filter?.type === PropertyFilterType.Log
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -253,7 +258,8 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
-        isGroupPropertyFilter(filter)
+        isGroupPropertyFilter(filter) ||
+        isLogPropertyFilter(filter)
     )
 }
 
@@ -310,6 +316,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
     [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
+    [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
 }
 
 export const filterToTaxonomicFilterType = (
@@ -362,6 +369,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.LogEntry
         : filterType === PropertyFilterType.ErrorTrackingIssue
         ? PropertyDefinitionType.Resource
+        : filterType === PropertyFilterType.Log
+        ? PropertyDefinitionType.Log
         : PropertyDefinitionType.Event
 }
 
@@ -396,6 +405,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssues) {
         return PropertyFilterType.ErrorTrackingIssue
+    }
+
+    if (filterType == TaxonomicFilterGroupType.Logs) {
+        return PropertyFilterType.Log
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

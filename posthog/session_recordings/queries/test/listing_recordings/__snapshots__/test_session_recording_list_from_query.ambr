@@ -39,7 +39,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.1
@@ -82,7 +83,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.2
@@ -125,7 +127,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.3
@@ -168,7 +171,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_all_filters_at_once
@@ -220,7 +224,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties
@@ -263,7 +268,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties.1
@@ -306,7 +312,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties.2
@@ -349,7 +356,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized
@@ -392,7 +400,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized.1
@@ -435,7 +444,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized.2
@@ -478,7 +488,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query
@@ -515,7 +526,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions
@@ -552,7 +564,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions.1
@@ -589,7 +602,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions.2
@@ -626,7 +640,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering
@@ -663,7 +678,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering.1
@@ -700,7 +716,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering.2
@@ -737,7 +754,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging
@@ -774,7 +792,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging.1
@@ -811,7 +830,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging.2
@@ -848,7 +868,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_does_not_contain_event_properties
@@ -891,7 +912,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_does_not_match_regex_event_properties
@@ -934,7 +956,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
@@ -977,7 +1000,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
@@ -1020,7 +1044,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
@@ -1063,7 +1088,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
@@ -1106,7 +1132,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_two_is_not_event_properties
@@ -1149,7 +1176,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter
@@ -1186,7 +1214,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter.1
@@ -1223,7 +1252,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl
@@ -1260,7 +1290,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.1
@@ -1297,7 +1328,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.2
@@ -1334,7 +1366,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_to_filter
@@ -1371,7 +1404,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_to_filter.1
@@ -1408,7 +1442,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_duration_filter
@@ -1445,7 +1480,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_duration_filter.1
@@ -1482,7 +1518,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter
@@ -1525,7 +1562,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter.1
@@ -1568,7 +1606,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_has_ttl_applied_too
@@ -1611,7 +1650,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_has_ttl_applied_too.1
@@ -1648,7 +1688,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_active_sessions
@@ -1691,7 +1732,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_active_sessions.1
@@ -1734,7 +1776,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter
@@ -1782,7 +1825,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter.1
@@ -1830,7 +1874,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter.2
@@ -1878,7 +1923,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded
@@ -1921,7 +1967,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
@@ -1979,7 +2026,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
@@ -2037,7 +2085,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
@@ -2080,7 +2129,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
@@ -2138,7 +2188,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
@@ -2196,7 +2247,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_person_properties
@@ -2254,7 +2306,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_person_properties.1
@@ -2312,7 +2365,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties
@@ -2355,7 +2409,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties.1
@@ -2398,7 +2453,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties_materialized
@@ -2441,7 +2497,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties_materialized.1
@@ -2484,7 +2541,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_matching_on_session_id
@@ -2527,7 +2585,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_matching_on_session_id.1
@@ -2570,7 +2629,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties
@@ -2613,7 +2673,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.1
@@ -2656,7 +2717,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.2
@@ -2699,7 +2761,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.3
@@ -2742,7 +2805,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized
@@ -2785,7 +2849,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.1
@@ -2828,7 +2893,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.2
@@ -2871,7 +2937,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.3
@@ -2914,7 +2981,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded
@@ -2972,7 +3040,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded.1
@@ -3015,7 +3084,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded_materialized
@@ -3073,7 +3143,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded_materialized.1
@@ -3116,7 +3187,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_two_events_and_multiple_teams
@@ -3159,7 +3231,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_0_single_distinct_id
@@ -3196,7 +3269,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_1_multiple_distinct_ids
@@ -3233,7 +3307,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_2_non_existent_distinct_id
@@ -3270,7 +3345,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_by_distinct_ids_3_empty_distinct_ids
@@ -3307,7 +3383,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -3350,7 +3427,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -3393,7 +3471,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -3436,7 +3515,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -3479,7 +3559,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_snapshot_source
@@ -3516,7 +3597,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_snapshot_source.1
@@ -3553,7 +3635,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_errors
@@ -3596,7 +3679,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_errors.1
@@ -3639,7 +3723,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_logs
@@ -3682,7 +3767,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_logs.1
@@ -3725,7 +3811,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_warns
@@ -3768,7 +3855,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_warns.1
@@ -3811,7 +3899,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_mixed_console_counts
@@ -3854,7 +3943,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_mixed_console_counts.1
@@ -3897,7 +3987,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_on_session_ids
@@ -3939,7 +4030,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_on_session_ids.1
@@ -3981,7 +4073,640 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = NULL
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort.1
+  '''
+  /* cohort_calculation: */
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort.2
+  '''
+  /* cohort_calculation: */
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(version) as version,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person.version = person_max.version
+     WHERE team_id = 99999
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 99999
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 99999
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
+              (SELECT distinct_id,
+                      argMax(person_id, version) as person_id
+               FROM person_distinct_id2
+               WHERE team_id = 99999
+               GROUP BY distinct_id
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 99999
+                   AND id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 99999
+                        AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(properties, '$is_internal'), '^"|"$', '')))) )
+                 GROUP BY id
+                 HAVING max(is_deleted) = 0
+                 AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort.4
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), in(s.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                      (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(person_distinct_id2.team_id, 99999), 1, notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_materialized
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = NULL
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_materialized.1
+  '''
+  /* cohort_calculation: */
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_materialized.2
+  '''
+  /* cohort_calculation: */
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(version) as version,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person.version = person_max.version
+     WHERE team_id = 99999
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 99999
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 99999
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
+              (SELECT distinct_id,
+                      argMax(person_id, version) as person_id
+               FROM person_distinct_id2
+               WHERE team_id = 99999
+               GROUP BY distinct_id
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 99999
+                   AND id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 99999
+                        AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(properties, '$is_internal'), '^"|"$', '')))) )
+                 GROUP BY id
+                 HAVING max(is_deleted) = 0
+                 AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_materialized.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_materialized.4
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), in(s.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                      (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(person_distinct_id2.team_id, 99999), 1, notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = NULL
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events.1
+  '''
+  /* cohort_calculation: */
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events.2
+  '''
+  /* cohort_calculation: */
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(version) as version,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person.version = person_max.version
+     WHERE team_id = 99999
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 99999
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 99999
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
+              (SELECT distinct_id,
+                      argMax(person_id, version) as person_id
+               FROM person_distinct_id2
+               WHERE team_id = 99999
+               GROUP BY distinct_id
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 99999
+                   AND id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 99999
+                        AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(properties, '$is_internal'), '^"|"$', '')))) )
+                 GROUP BY id
+                 HAVING max(is_deleted) = 0
+                 AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events.4
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), in(s.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                      (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(person_distinct_id2.team_id, 99999), 1, notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events_materialized
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = NULL
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events_materialized.1
+  '''
+  /* cohort_calculation: */
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events_materialized.2
+  '''
+  /* cohort_calculation: */
+  SELECT DISTINCT p.id
+  FROM
+    (SELECT *
+     FROM person
+     JOIN
+       (SELECT id,
+               max(version) as version,
+               max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id) as person_max ON person.id = person_max.id
+     AND person.version = person_max.version
+     WHERE team_id = 99999
+       AND person_max.is_deleted = 0 ) AS p
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 99999
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
+  WHERE team_id = 99999
+    AND (pdi.distinct_id IN
+           (SELECT distinct_id
+            FROM
+              (SELECT distinct_id,
+                      argMax(person_id, version) as person_id
+               FROM person_distinct_id2
+               WHERE team_id = 99999
+               GROUP BY distinct_id
+               HAVING argMax(is_deleted, version) = 0)
+            WHERE person_id IN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 99999
+                   AND id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 99999
+                        AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(properties, '$is_internal'), '^"|"$', '')))) )
+                 GROUP BY id
+                 HAVING max(is_deleted) = 0
+                 AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events_materialized.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery.test_filter_users_from_excluded_cohort_no_events_materialized.4
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), in(s.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                      (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(person_distinct_id2.team_id, 99999), 1, notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_person_properties_exact
@@ -4039,7 +4764,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_person_properties_not_contains
@@ -4097,7 +4823,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_listing_ignores_future_replays
@@ -4134,7 +4861,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters
@@ -4177,7 +4905,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.1
@@ -4220,7 +4949,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.2
@@ -4263,7 +4993,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.3
@@ -4306,7 +5037,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.4
@@ -4349,7 +5081,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.5
@@ -4392,7 +5125,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_event_filters
@@ -4435,7 +5169,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_event_filters.1
@@ -4478,7 +5213,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -4521,7 +5257,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -4564,7 +5301,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
@@ -4607,7 +5345,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
@@ -4650,7 +5389,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -4693,7 +5433,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters
@@ -4745,7 +5486,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.1
@@ -4797,7 +5539,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.2
@@ -4840,7 +5583,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.3
@@ -4883,7 +5627,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_person_filters
@@ -4941,7 +5686,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_person_filters.1
@@ -4999,7 +5745,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_ordering
@@ -5036,7 +5783,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_ordering.1
@@ -5073,7 +5821,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_person_id_filter
@@ -5119,7 +5868,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_sessions_with_current_data
@@ -5156,7 +5906,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter
@@ -5199,7 +5950,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter.1
@@ -5242,7 +5994,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter_materialized
@@ -5285,7 +6038,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter_materialized.1
@@ -5328,7 +6082,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter
@@ -5371,7 +6126,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter.1
@@ -5414,7 +6170,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props
@@ -5457,7 +6214,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
@@ -5500,7 +6258,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
@@ -5543,7 +6302,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
@@ -5586,7 +6346,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_materialized
@@ -5629,7 +6390,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_materialized.1
@@ -5672,7 +6434,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter
@@ -5715,7 +6478,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter.1
@@ -5758,7 +6522,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -5801,7 +6566,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -5844,7 +6610,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter
@@ -5887,7 +6654,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter.1
@@ -5945,7 +6713,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -5988,7 +6757,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -6046,7 +6816,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter
@@ -6089,7 +6860,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter.1
@@ -6147,7 +6919,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter_materialized
@@ -6190,7 +6963,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter_materialized.1
@@ -6248,6 +7022,7 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

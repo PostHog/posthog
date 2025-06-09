@@ -22,7 +22,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 
-from posthog.api.utils import action
+from posthog.api.utils import action, is_insight_query
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
@@ -266,27 +266,3 @@ async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
             "Connection": "keep-alive",
         },
     )
-
-
-def is_insight_query(query):
-    insight_kinds = {
-        "TrendsQuery",
-        "FunnelsQuery",
-        "RetentionQuery",
-        "PathsQuery",
-        "StickinessQuery",
-        "LifecycleQuery",
-    }
-    if getattr(query, "kind", None) in insight_kinds:
-        return True
-    if getattr(query, "kind", None) == "HogQLQuery":
-        return True
-    if getattr(query, "kind", None) == "DataTableNode":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_kinds:
-            return True
-    if getattr(query, "kind", None) == "DataVisualizationNode":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_kinds:
-            return True
-    return False

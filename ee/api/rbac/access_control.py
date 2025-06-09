@@ -9,7 +9,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.documentation import extend_schema
 
 from ee.models.rbac.access_control import AccessControl
-from posthog.models.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,

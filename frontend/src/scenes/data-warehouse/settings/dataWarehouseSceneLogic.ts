@@ -161,17 +161,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): Record<string, DatabaseSchemaTable[]> => {
                 return dataWarehouseTables.reduce((acc: Record<string, DatabaseSchemaTable[]>, table) => {
-                    if (table.source) {
-                        if (!acc[table.source.source_type]) {
-                            acc[table.source.source_type] = []
-                        }
-                        acc[table.source.source_type].push(table)
-                    } else {
-                        if (!acc['S3']) {
-                            acc['S3'] = []
-                        }
-                        acc['S3'].push(table)
-                    }
+                    const group = table.source?.source_type ?? 'S3'
+                    acc[group] ??= []
+                    acc[group].push(table)
+
                     return acc
                 }, {})
             },

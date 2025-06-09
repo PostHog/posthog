@@ -278,6 +278,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
     This test could not be broken into two as the project not existing and us not
     having permissions to access it looks the same from our perspective.
 
+    Permissions could be granted at the project level, or at the dataset level.
+    To account for this, we check that the project exists by listing projects
+    (`list_projects` call) and by listing datasets (with `list_datasets`) and
+    inspecting the project associated with each dataset.
+
     Attributes:
         project_id: ID of the BigQuery project we are checking.
         service_account_info: Service account credentials used to access the
@@ -320,6 +325,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
         projects = {p.project_id for p in client.list_projects()}
 
         if self.project_id in projects:
+            return DestinationTestStepResult(status=Status.PASSED)
+
+        dataset_projects = {d.project for d in client.list_datasets()}
+
+        if self.project_id in dataset_projects:
             return DestinationTestStepResult(status=Status.PASSED)
         else:
             return DestinationTestStepResult(

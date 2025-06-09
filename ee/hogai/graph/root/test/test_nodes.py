@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -11,6 +11,7 @@ from parameterized import parameterized
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.models.assistant import CoreMemory
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -401,6 +402,87 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
         self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
 
+    def test_node_gets_contextual_tool(self):
+        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team)
+
+            node._get_model(
+                AssistantState(messages=[HumanMessage(content="show me long recordings")]),
+                {
+                    "configurable": {
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}
+                    }
+                },
+            )
+
+            # Verify bind_tools was called (contextual tools were processed)
+            mock_model.bind_tools.assert_called_once()
+            tools = mock_model.bind_tools.call_args[0][0]
+            # Verify the search_session_recordings tool was included
+            tool_names = [getattr(tool, "name", None) or tool.__name__ for tool in tools]
+            self.assertIn("search_session_recordings", tool_names)
+
+    def test_node_does_not_get_contextual_tool_if_not_configured(self):
+        with (
+            patch(
+                "ee.hogai.graph.root.nodes.RootNode._get_model",
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Simple response")]),
+            ),
+            patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()),
+            patch(
+                "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+                return_value=("Success", {}),
+            ),
+        ):
+            node = RootNode(self.team)
+            state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
+            mock_model = node._get_model()
+
+            next_state = node.run(state, {})
+
+            self.assertIsInstance(next_state, PartialAssistantState)
+            self.assertEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[0]
+            self.assertIsInstance(assistant_message, AssistantMessage)
+            self.assertEqual(assistant_message.content, "Simple response")
+            self.assertEqual(assistant_message.tool_calls, [])
+            mock_model.bind_tools.assert_not_called()
+
+    def test_node_injects_contextual_tool_prompts(self):
+        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as mock_get_model:
+            # Use FakeChatOpenAI like other tests
+            fake_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="I'll help with recordings")])
+            mock_get_model.return_value = fake_model
+
+            node = RootNode(self.team)
+            state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
+
+            # Test with contextual tools
+            result = node.run(
+                state,
+                {
+                    "configurable": {
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}
+                    }
+                },
+            )
+
+            # Verify the node ran successfully and returned a message
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertEqual(len(result.messages), 1)
+            self.assertEqual(result.messages[0].content, "I'll help with recordings")
+
+            # Verify _get_model was called with contextual tools config
+            mock_get_model.assert_called()
+            config_arg = mock_get_model.call_args[0][1]
+            self.assertIn("contextual_tools", config_arg["configurable"])
+            self.assertIn("search_session_recordings", config_arg["configurable"]["contextual_tools"])
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
@@ -416,12 +498,16 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(node.router(state_1), "root")
 
         # Test case 2: Has root tool call with query_kind - should return that query_kind
+        # If the user has not completed the onboarding, it should return memory_onboarding instead
         state_2 = AssistantState(
             messages=[AssistantMessage(content="Hello")],
             root_tool_call_id="xyz",
             root_tool_insight_plan="Foobar",
             root_tool_insight_type="trends",
         )
+        self.assertEqual(node.router(state_2), "memory_onboarding")
+        core_memory = CoreMemory.objects.create(team=self.team)
+        core_memory.change_status_to_skipped()
         self.assertEqual(node.router(state_2), "insights")
 
         # Test case 3: No tool call message or root tool call - should return "end"

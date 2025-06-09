@@ -53,6 +53,8 @@ export interface TaxonomicFilterProps {
      */
     useVerticalLayout?: boolean
     initialSearchQuery?: string
+    /** Allow users to select events that haven't been captured yet (default: false) */
+    allowNonCapturedEvents?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -138,6 +140,7 @@ export enum TaxonomicFilterGroupType {
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
     ErrorTrackingIssues = 'error_tracking_issues',
+    Logs = 'logs',
     // Misc
     Replay = 'replay',
     Resources = 'resources',

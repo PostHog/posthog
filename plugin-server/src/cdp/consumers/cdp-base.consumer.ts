@@ -9,7 +9,8 @@ import { HogFunctionManagerService } from '../services/hog-function-manager.serv
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
-import { HogFunctionTypeType } from '../types'
+import { HogFlowExecutorService } from '../services/hogflow-executor.service'
+import { HogFlowManagerService } from '../services/hogflow-manager.service'
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -18,7 +19,9 @@ export interface TeamIDWithConfig {
 
 export abstract class CdpConsumerBase {
     hogFunctionManager: HogFunctionManagerService
+    hogFlowManager: HogFlowManagerService
     hogExecutor: HogExecutorService
+    hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
     hogMasker: HogMaskerService
     groupsManager: GroupsManagerService
@@ -26,7 +29,6 @@ export abstract class CdpConsumerBase {
     hogFunctionMonitoringService: HogFunctionMonitoringService
     redis: CdpRedis
 
-    protected hogTypes: HogFunctionTypeType[] = []
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
 
@@ -35,9 +37,11 @@ export abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
     }

@@ -6,9 +6,11 @@ from products.revenue_analytics.backend.views.revenue_analytics_base_view import
 from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
     RevenueAnalyticsChargeView,
     STRIPE_CHARGE_RESOURCE_NAME,
-    ZERO_DECIMAL_CURRENCIES_IN_STRIPE,
 )
+from products.revenue_analytics.backend.views.currency_helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
 
 
 class TestRevenueAnalyticsViews(BaseTest):
@@ -113,7 +115,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(views), 1)
         self.assertEqual(views[0].name, "stripe.charge_revenue_view")
 
-    def test_revenue_charge_and_customer_views(self):
+    def test_revenue_all_views(self):
         """Test that RevenueAnalyticsBaseView creates both charge and customer views"""
         customer_table = DataWarehouseTable.objects.create(
             name="customer",
@@ -125,7 +127,7 @@ class TestRevenueAnalyticsViews(BaseTest):
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
-        _schema = ExternalDataSchema.objects.create(
+        _customer_schema = ExternalDataSchema.objects.create(
             team=self.team,
             name="Customer",
             source=self.source,
@@ -134,12 +136,52 @@ class TestRevenueAnalyticsViews(BaseTest):
             last_synced_at="2024-01-01",
         )
 
+        product_table = DataWarehouseTable.objects.create(
+            name="product",
+            format="Parquet",
+            team=self.team,
+            external_data_source=self.source,
+            external_data_source_id=self.source.id,
+            credential=self.credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        _product_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name="Product",
+            source=self.source,
+            table=product_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        invoice_table = DataWarehouseTable.objects.create(
+            name="invoice",
+            format="Parquet",
+            team=self.team,
+            external_data_source=self.source,
+            external_data_source_id=self.source.id,
+            credential=self.credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        _invoice_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name="Invoice",
+            source=self.source,
+            table=invoice_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
-        self.assertEqual(len(views), 2)
+        self.assertEqual(len(views), 4)
 
         names = [view.name for view in views]
         self.assertIn("stripe.charge_revenue_view", names)
         self.assertIn("stripe.customer_revenue_view", names)
+        self.assertIn("stripe.product_revenue_view", names)
+        self.assertIn("stripe.invoice_item_revenue_view", names)
 
         # Test individual views
         charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source)
@@ -149,3 +191,11 @@ class TestRevenueAnalyticsViews(BaseTest):
         customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
         self.assertEqual(len(customer_views), 1)
         self.assertEqual(customer_views[0].name, "stripe.customer_revenue_view")
+
+        product_views = RevenueAnalyticsProductView.for_schema_source(self.source)
+        self.assertEqual(len(product_views), 1)
+        self.assertEqual(product_views[0].name, "stripe.product_revenue_view")
+
+        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
+        self.assertEqual(len(invoice_item_views), 1)
+        self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")

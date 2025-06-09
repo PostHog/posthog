@@ -2,13 +2,15 @@ import { IconCalendar } from '@posthog/icons'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect, LemonSelectOption, LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { SavedInsightsTabs } from '~/types'
+import { InsightType, SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters({
     filters,
@@ -19,7 +21,16 @@ export function SavedInsightsFilters({
 }): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
+    const insightTypeOptions = calendarHeatmapInsightEnabled
+        ? INSIGHT_TYPE_OPTIONS
+        : (INSIGHT_TYPE_OPTIONS as LemonSelectOption<InsightType>[]).filter(
+              (option): option is LemonSelectOptionLeaf<InsightType> =>
+                  'value' in option && option.value !== InsightType.CALENDAR_HEATMAP
+          )
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
@@ -53,9 +64,9 @@ export function SavedInsightsFilters({
                     <span>Type:</span>
                     <LemonSelect
                         size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
+                        options={insightTypeOptions}
                         value={insightType}
-                        onChange={(v: any): void => setFilters({ insightType: v })}
+                        onChange={(v?: string): void => setFilters({ insightType: v })}
                         dropdownMatchSelectWidth={false}
                         data-attr="insight-type"
                     />

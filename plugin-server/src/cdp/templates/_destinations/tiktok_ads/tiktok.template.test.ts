@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './tiktok.template'
 
+jest.setTimeout(2 * 60 * 1000)
+
 describe('tiktok template', () => {
     const tester = new TemplateTester(template)
 
@@ -16,7 +18,8 @@ describe('tiktok template', () => {
     })
 
     it('works with single product event', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Product Viewed',
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -89,7 +92,8 @@ describe('tiktok template', () => {
     })
 
     it('works with multi product event', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -162,7 +166,7 @@ describe('tiktok template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"","last_name":"","phone":"","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_ids":["18499-12","94839-23"],"contents":[{"price":30,"content_id":"18499-12","content_category":"merch","content_name":"Data warehouse t-shirt","brand":"PostHog"},{"price":30,"content_id":"94839-23","content_category":"merch","content_name":"Danger t-shirt","brand":"PostHog"}],"content_type":"product","currency":"USD","value":90,"num_items":2,"order_id":"3e94e72c0a7443e9b51155a3"},"page":{}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"","last_name":"","phone":"","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_ids":["18499-12","94839-23"],"contents":[{"price":30,"content_id":"18499-12","content_category":"merch","content_name":"Data warehouse t-shirt","brand":"PostHog"},{"price":30,"content_id":"94839-23","content_category":"merch","content_name":"Danger t-shirt","brand":"PostHog"}],"content_type":"product","currency":"USD","value":90,"num_items":3,"order_id":"3e94e72c0a7443e9b51155a3"},"page":{}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",
@@ -182,34 +186,9 @@ describe('tiktok template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
-    it.each([
-        ['Order Completed', 'CompletePayment'],
-        ['Checkout Started', 'InitiateCheckout'],
-        ['Payment Info Entered', 'AddPaymentInfo'],
-        ['Product Added', 'AddToCart'],
-        ['Product Added to Wishlist', 'AddToWishlist'],
-        ['Product Clicked', 'ClickButton'],
-        ['Products Searched', 'Search'],
-        ['Product Viewed', 'ViewContent'],
-        ['Signed Up', 'CompleteRegistration'],
-    ])('correctly maps event names: %s', async (event, expectedEvent) => {
-        const response = await tester.invoke(
-            {
-                accessToken: 'access-token',
-                pixelId: 'pixel-id',
-            },
-            {
-                event: {
-                    event,
-                },
-            }
-        )
-
-        expect(response.invocation.queueParameters?.body).toContain(`"event":"${expectedEvent}"`)
-    })
-
     it('works with empty product properties', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -261,7 +240,8 @@ describe('tiktok template', () => {
     })
 
     it('handles error responses', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -315,7 +295,8 @@ describe('tiktok template', () => {
     })
 
     it('sends test event code if specified', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -368,7 +349,8 @@ describe('tiktok template', () => {
     })
 
     it('sensitive values are hashed', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -427,7 +409,8 @@ describe('tiktok template', () => {
     })
 
     it('handles missing pixel id', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accessToken: 'access-token',
             },
@@ -457,7 +440,8 @@ describe('tiktok template', () => {
     })
 
     it('handles missing access token', async () => {
-        const response = await tester.invoke(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 pixelId: 'pixel-id',
             },

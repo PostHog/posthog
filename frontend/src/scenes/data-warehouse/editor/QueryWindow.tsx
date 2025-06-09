@@ -6,9 +6,11 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
@@ -64,11 +66,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
-        !!editingView?.status &&
-        (editingView.status === 'Completed' ||
-            editingView.status === 'Failed' ||
-            editingView.status === 'Cancelled' ||
-            editingView.status === 'Running')
+        !!editingView?.last_run_at ||
+        (!!editingView?.status &&
+            (editingView.status === 'Completed' ||
+                editingView.status === 'Failed' ||
+                editingView.status === 'Cancelled' ||
+                editingView.status === 'Running'))
 
     const renderAddSQLVariablesButton = (): JSX.Element => (
         <LemonButton
@@ -139,7 +142,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 Editing {isMaterializedView ? 'materialized view' : 'view'} "{editingView.name}"
                             </>
                         )}
-                        {editingInsight && <>Editing insight "{editingInsight.name}"</>}
+                        {editingInsight && (
+                            <>
+                                Editing insight "
+                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
+                            </>
+                        )}
                     </span>
                 </div>
             )}

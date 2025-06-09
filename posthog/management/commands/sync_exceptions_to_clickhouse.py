@@ -1,10 +1,11 @@
 import logging
 
+
 import structlog
 from django.core.management.base import BaseCommand
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.error_tracking import override_error_tracking_issue_fingerprint
-
+from posthog.kafka_client.client import KafkaProducer
 from posthog.models import ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +44,7 @@ class Command(BaseCommand):
 
         query = """
         SELECT
-            fo.fingerprint, fo.team_id, fo.max_version, min(e.timestamp)
+            fo.fingerprint, fo.team_id, fo.max_version, min_timestamp
         FROM
             (
             SELECT
@@ -57,12 +58,12 @@ class Command(BaseCommand):
             GROUP BY 1, 2
             ) fo
         INNER JOIN
-            (SELECT mat_$exception_fingerprint, team_id, uuid, e.timestamp
+            (SELECT mat_$exception_fingerprint as fingerprint, team_id, min(e.timestamp) as min_timestamp
             FROM events as e
             WHERE e.event = '$exception'
-            AND e.timestamp > %(exception_start_date)s) e ON e.mat_$exception_fingerprint = fo.fingerprint AND e.team_id = fo.team_id
-        GROUP BY
-            fo.fingerprint, fo.team_id, fo.max_version
+            AND e.timestamp > %(exception_start_date)s
+            GROUP BY 1, 2) e
+        ON e.fingerprint = fo.fingerprint AND e.team_id = fo.team_id
         """
         logger.info("executing clickhouse query")
         fingerprints = sync_execute(
@@ -107,3 +108,4 @@ class Command(BaseCommand):
 
         logger.info(f"fingerprint overriden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
+        KafkaProducer().flush(5 * 60)

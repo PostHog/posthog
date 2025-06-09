@@ -67,6 +67,24 @@ export function SupportForm(): JSX.Element | null {
     // Track which fields have been initialized (had cursor positioned at end)
     const initializedFields = useRef<Record<string, boolean>>({})
 
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+        const items = e.clipboardData?.items
+        if (!items) {
+            return
+        }
+
+        // Convert DataTransferItemList to array for iteration
+        const itemsArray = Array.from(items)
+        for (const item of itemsArray) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile()
+                if (file) {
+                    setFilesToUpload([...filesToUpload, file])
+                }
+            }
+        }
+    }
+
     // Restore focus to the appropriate field after re-renders
     // Only position cursor at the end on first focus for each field
     useEffect(() => {
@@ -170,7 +188,7 @@ export function SupportForm(): JSX.Element | null {
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
                 {(props) => (
-                    <div ref={dropRef} className="flex flex-col gap-2">
+                    <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"

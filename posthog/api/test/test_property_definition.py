@@ -48,6 +48,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team, name="$initial_referrer", property_type="String"
         )  # We want to hide this property on events, but not on persons
+        # We want to make sure that $session_entry_X properties are not returned
+        PropertyDefinition.objects.get_or_create(team=self.team, name="$session_entry_utm_source")
 
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="$browser")
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="first_visit")

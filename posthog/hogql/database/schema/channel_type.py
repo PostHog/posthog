@@ -62,6 +62,7 @@ def create_initial_domain_type(name: str, timings: Optional[HogQLTimings] = None
                 )
             },
         ),
+        isolate_scope=True,
     )
 
 
@@ -110,6 +111,7 @@ def create_initial_channel_type(
             custom_rules=custom_rules,
             timings=timings,
         ),
+        isolate_scope=True,
     )
 
 

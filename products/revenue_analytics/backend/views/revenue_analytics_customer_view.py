@@ -3,6 +3,7 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.models.team.team import Team
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -28,6 +29,10 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
+    @staticmethod
+    def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:
+        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER
+
     # No customer views for events, we only have that for schema sources
     @staticmethod
     def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
@@ -73,6 +78,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
             RevenueAnalyticsCustomerView(
                 id=str(table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
+                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

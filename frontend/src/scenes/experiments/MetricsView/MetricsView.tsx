@@ -3,6 +3,7 @@ import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
+import { credibleIntervalForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
 import { DeltaChart } from './DeltaChart'
@@ -61,7 +62,6 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         secondaryMetricResults,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
-        credibleIntervalForVariant,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants

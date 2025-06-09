@@ -23,6 +23,9 @@ pub struct Config {
 
     #[envconfig(default = "phog.gg")]
     pub default_domain_for_public_store: String,
+
+    #[envconfig(default = "false")]
+    pub enable_metrics: bool,
 }
 
 impl Default for Config {
@@ -41,6 +44,7 @@ impl Config {
             internal_link_redis_url: "redis://localhost:6379/".to_string(),
             redis_internal_ttl_seconds: 86400,
             default_domain_for_public_store: "phog.gg".to_string(),
+            enable_metrics: false,
         }
     }
 }
@@ -67,5 +71,6 @@ mod tests {
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_internal_ttl_seconds, 86400);
         assert_eq!(config.default_domain_for_public_store, "phog.gg");
+        assert!(!config.enable_metrics);
     }
 }

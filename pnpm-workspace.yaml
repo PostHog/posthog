@@ -6,7 +6,7 @@ packages:
     - common/plugin_transpiler
     - common/storybook
     - common/tailwind
-    - common/workflows
+    - common/shared-types
     - cypress
     - ee/frontend
     - frontend

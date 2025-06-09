@@ -104,7 +104,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 s.memberCount,
                 apiStatusLogic.selectors.internetConnectionIssue,
                 s.projectNoticesAcknowledged,
-                eventIngestionRestrictionLogic.selectors.hasAnyRestriction,
+                eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
             ],
             (
                 organization,

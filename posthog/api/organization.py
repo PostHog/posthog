@@ -102,6 +102,7 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "members_can_invite",
             "member_count",
             "is_ai_data_processing_approved",
         ]

@@ -1,5 +1,5 @@
 import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -10,8 +10,8 @@ import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } f
 
 import { playlistLogic } from '../playlist/playlistLogic'
 import { countColumn } from '../saved-playlists/SavedSessionRecordingPlaylists'
-import { SavedSessionRecordingPlaylistsEmptyState } from '../saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function SavedFilters({
     setFilters,
@@ -19,14 +19,19 @@ export function SavedFilters({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    const { savedFilters, savedFiltersLoading, paginationSavedFilters } = useValues(savedFiltersLogic)
-    const { deletePlaylist } = useActions(savedFiltersLogic)
+    const { savedFilters, paginationSavedFilters, savedFiltersSearch, savedFiltersLoading } =
+        useValues(savedFiltersLogic)
+    const { deletePlaylist, setSavedFiltersSearch } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
     const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
 
-    if (savedFiltersLoading || savedFilters.results?.length === 0) {
-        return <SavedSessionRecordingPlaylistsEmptyState />
+    if (savedFiltersLoading && !savedFiltersSearch) {
+        return <SavedFiltersLoadingState />
+    }
+
+    if (savedFilters.results?.length === 0 && !savedFiltersSearch) {
+        return <SavedFiltersEmptyState />
     }
 
     const nameColumn = (): LemonTableColumn<SessionRecordingPlaylistType, 'name'> => {
@@ -93,12 +98,22 @@ export function SavedFilters({
     ]
 
     return (
-        <LemonTable
-            loading={savedFiltersLoading}
-            dataSource={savedFilters.results}
-            columns={columns}
-            pagination={paginationSavedFilters}
-            noSortingCancellation
-        />
+        <>
+            <LemonInput
+                fullWidth
+                className="mb-2"
+                type="search"
+                placeholder="Search for saved filters"
+                onChange={setSavedFiltersSearch}
+                value={savedFiltersSearch}
+                stopPropagation={true}
+            />
+            <LemonTable
+                dataSource={savedFilters.results}
+                columns={columns}
+                pagination={paginationSavedFilters}
+                noSortingCancellation
+            />
+        </>
     )
 }
