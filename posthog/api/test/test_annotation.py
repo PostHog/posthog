@@ -273,7 +273,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         session_start = datetime(2023, 1, 1, 10, 0, 0, tzinfo=ZoneInfo("UTC"))
         session_end = datetime(2023, 1, 1, 11, 0, 0, tzinfo=ZoneInfo("UTC"))
 
-        # Create annotation either inside or outside the session date range
+        # Create an annotation either inside or outside the session date range
         annotation_date = session_start + timedelta(minutes=30) if in_date_range else session_start - timedelta(hours=1)
 
         Annotation.objects.create(
@@ -285,7 +285,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             date_marker=annotation_date,
         )
 
-        # Query with date range filter (simulating session replay time range)
+        # Query with a date range filter (simulating session replay time range)
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",
             {
@@ -333,7 +333,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 date_marker=date_marker,
             )
 
-        # Test: Get all annotations within session time range
+        # Test: Get all annotations within the session time range
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",
             {

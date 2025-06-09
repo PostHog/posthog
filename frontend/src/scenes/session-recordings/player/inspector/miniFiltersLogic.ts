@@ -1,4 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { FilterableInspectorListItemTypes } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
