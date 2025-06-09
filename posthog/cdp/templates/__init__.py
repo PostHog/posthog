@@ -32,7 +32,6 @@ from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
 from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
-from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
 from .mailchimp.template_mailchimp import template as mailchimp
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
@@ -56,7 +55,6 @@ from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pix
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
 
 from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
-from .reddit.template_reddit_conversions_api import template_reddit_conversions_api as reddit_conversions_api
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
@@ -77,7 +75,6 @@ HOG_FUNCTION_TEMPLATES = [
     discord,
     engage,
     gleap,
-    google_ads,
     google_cloud_storage,
     google_pubsub,
     hubspot,
@@ -100,7 +97,6 @@ HOG_FUNCTION_TEMPLATES = [
     meta_ads,
     microsoft_teams,
     posthog,
-    reddit_conversions_api,
     reddit_pixel,
     rudderstack,
     salesforce_create,

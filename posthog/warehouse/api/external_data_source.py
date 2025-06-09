@@ -29,9 +29,14 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
 from posthog.temporal.data_imports.pipelines.chargebee import (
     validate_credentials as validate_chargebee_credentials,
 )
-from posthog.temporal.data_imports.pipelines.doit.source import DoItSourceConfig, doit_list_reports
+from posthog.temporal.data_imports.pipelines.doit.source import (
+    DOIT_INCREMENTAL_FIELDS,
+    DoItSourceConfig,
+    doit_list_reports,
+)
 from posthog.temporal.data_imports.pipelines.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
+    get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
@@ -1129,14 +1134,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             google_ads_schemas = get_google_ads_schemas(
                 google_ads_config,
             )
+            incremental_fields = get_google_ads_incremental_fields()
 
             result_mapped_to_options = [
                 {
                     "table": name,
                     "should_sync": False,
-                    "incremental_fields": [],
-                    "incremental_available": False,
-                    "incremental_field": None,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_name, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in incremental_fields[name]
+                    ],
+                    "incremental_available": True,
+                    "incremental_field": incremental_fields[name][0]
+                    if len(incremental_fields.get(name, [])) > 0
+                    else None,
                     "sync_type": None,
                 }
                 for name, _ in google_ads_schemas.items()
@@ -1158,7 +1169,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "table": name,
                     "should_sync": False,
-                    "incremental_fields": [],
+                    "incremental_fields": DOIT_INCREMENTAL_FIELDS,
                     "incremental_available": False,
                     "incremental_field": None,
                     "sync_type": None,

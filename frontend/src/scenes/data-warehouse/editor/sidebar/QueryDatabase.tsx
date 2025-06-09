@@ -192,11 +192,13 @@ const QueryDatabaseTreeView = (): JSX.Element => {
 
                         return undefined
                     }}
-                    itemSideActionIcon={(item) => {
+                    itemSideActionButton={(item) => {
                         if (item.record?.type === 'sources') {
                             return (
                                 <ButtonPrimitive
                                     iconOnly
+                                    isSideActionRight
+                                    className="z-2"
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))

@@ -3,6 +3,7 @@ pub mod billing;
 pub mod config_response_builder;
 pub mod cookieless;
 pub mod decoding;
+pub mod error_tracking;
 pub mod evaluation;
 pub mod flags;
 pub mod properties;

@@ -13,12 +13,15 @@ from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
+from posthog.temporal.data_imports.pipelines.google_ads.schemas import RESOURCE_SCHEMAS
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableSchemas
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
+from posthog.warehouse.types import IncrementalFieldType
 
 
-def clean_customer_id(s: str | None) -> str | None:
+def _clean_customer_id(s: str | None) -> str | None:
     """Clean customer IDs from Google Ads.
 
     Customer IDs can contain dashes, but we need the ID without them.
@@ -34,7 +37,7 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
     """Google Ads source config using service account for authentication."""
 
     resource_name: str
-    customer_id: str = config.value(converter=clean_customer_id)
+    customer_id: str = config.value(converter=_clean_customer_id)
 
     private_key: str = config.value(
         default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
@@ -91,7 +94,7 @@ class GoogleAdsColumn(Column):
         is_repeatable: bool,
         type_url: str,
     ):
-        self.name = qualified_name.split(".", 1)[1]
+        self.name = qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
         self.data_type = data_type
         self.type_url = type_url
@@ -182,7 +185,30 @@ def _traverse_attributes(thing: typing.Any, *path: str):
     return current
 
 
-def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
+def get_incremental_fields():
+    d = {}
+    for alias, contents in RESOURCE_SCHEMAS.items():
+        assert isinstance(contents, dict)
+
+        if "filter_field_names" not in contents:
+            continue
+
+        d[alias] = contents["filter_field_names"]
+
+    return d
+
+
+class BigQueryTable(Table[GoogleAdsColumn]):
+    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
+        self.requires_filter = requires_filter
+        self.primary_key = primary_key
+        super().__init__(*args, **kwargs)
+
+
+TableSchemas = dict[str, BigQueryTable]
+
+
+def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
     """Obtain Google Ads schemas.
 
     This is a two step process:
@@ -193,33 +219,62 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
     """
     client = google_ads_client(config)
     gaf_service = client.get_service("GoogleAdsFieldService")
-    resources_query = gaf_service.search_google_ads_fields(query="select name where category = 'RESOURCE'")
-
+    fields_query = gaf_service.search_google_ads_fields(
+        query=f"select name, data_type, is_repeated, type_url where selectable = true"
+    )
+    fields_map = {field.name: field for field in fields_query.results}
     table_schemas = {}
 
-    for resource in resources_query.results:
-        fields_query = gaf_service.search_google_ads_fields(
-            query=f"select name, data_type, is_repeated, type_url where category = 'ATTRIBUTE' and selectable = true and name like '{resource.name}.%'"
-        )
+    for table_alias, resource_contents in RESOURCE_SCHEMAS.items():
+        assert isinstance(resource_contents, dict)
+
+        resource_name = resource_contents["resource_name"]
+        assert isinstance(resource_name, str)
+
+        field_names = resource_contents["field_names"]
+
+        requires_filter = resource_contents.get("filter_field_names", None) is not None
+        primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
 
         columns = []
-        for field in fields_query.results:
+
+        for field_name in field_names:
+            assert isinstance(field_name, str)
+
+            try:
+                field = fields_map[field_name]
+            except KeyError:
+                field = fields_map[field_name.removeprefix(f"{resource_name}.")]
+
             columns.append(
                 GoogleAdsColumn(
-                    qualified_name=field.name,
+                    qualified_name=field_name,
                     data_type=field.data_type,
                     is_repeatable=field.is_repeated,
                     type_url=field.type_url,
                 )
             )
 
-        table = Table(name=resource.name, columns=columns, parents=None)
-        table_schemas[table.name] = table
+        table = BigQueryTable(
+            name=resource_name,
+            alias=table_alias,
+            requires_filter=requires_filter,
+            primary_key=primary_key,
+            columns=columns,
+            parents=None,
+        )
+        table_schemas[table_alias] = table
 
     return table_schemas
 
 
-def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
+def google_ads_source(
+    config: GoogleAdsSourceConfig,
+    is_incremental: bool = False,
+    db_incremental_field_last_value: typing.Any = None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
+) -> SourceResponse:
     """A data warehouse Google Ads source.
 
     We utilize the Google Ads gRPC API to query for the configured resource and
@@ -228,23 +283,49 @@ def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
     name = NamingConvention().normalize_identifier(config.resource_name)
     table = get_schemas(config)[config.resource_name]
 
+    if table.requires_filter and not is_incremental:
+        is_incremental = True
+        incremental_field = "segments.date"
+        incremental_field_type = IncrementalFieldType.Date
+
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        query = f"SELECT {','.join(f'{table.name}.{field.name}' for field in table)} FROM {table.name}"
+        query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
+
+        if is_incremental:
+            if incremental_field is None or incremental_field_type is None:
+                raise ValueError("incremental_field and incremental_field_type can't be None")
+
+            if db_incremental_field_last_value is None:
+                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
+                    incremental_field_type
+                )
+            else:
+                last_value = db_incremental_field_last_value
+
+            if isinstance(last_value, dt.datetime) or isinstance(last_value, dt.date):
+                last_value = f"'{last_value.isoformat()}'"
+
+            query += f" WHERE {incremental_field} >= {last_value}"
+
+            if incremental_field_type == IncrementalFieldType.Date:
+                # Dates require an upper bound too, so we pick something very in the future.
+                # TODO: Make sure to bump this before 2100-01-01.
+                query += f" AND {incremental_field} < '2100-01-01'"
 
         client = google_ads_client(config)
         service = client.get_service("GoogleAdsService", version="v19")
         stream = service.search_stream(query=query, customer_id=config.customer_id)
 
-        yield from stream_as_arrow_table(stream, table)
+        yield from _stream_as_arrow_table(stream, table)
 
     return SourceResponse(
         name=name,
         items=get_rows(),
-        primary_keys=["id"] if "id" in table else None,
+        primary_keys=table.primary_key,
     )
 
 
-def stream_as_arrow_table(
+def _stream_as_arrow_table(
     stream: collections.abc.Iterable[ga_services.SearchGoogleAdsStreamResponse],
     table: Table[GoogleAdsColumn],
     table_size: int | None = None,
@@ -253,7 +334,7 @@ def stream_as_arrow_table(
     rows = []
 
     for batch in stream:
-        for dict_row in stream_response_as_dicts(batch, table):
+        for dict_row in _stream_response_as_dicts(batch, table):
             rows.append(dict_row)
 
             if table_size is not None and len(rows) >= table_size:
@@ -268,7 +349,7 @@ def stream_as_arrow_table(
         yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
 
 
-def stream_response_as_dicts(
+def _stream_response_as_dicts(
     response: ga_services.SearchGoogleAdsStreamResponse,
     table: Table[GoogleAdsColumn],
 ) -> collections.abc.Iterable[dict[str, typing.Any]]:
@@ -285,9 +366,8 @@ def stream_response_as_dicts(
         row_dict = {}
 
         for path in field_paths:
-            key = path.split(".", 1)[1]
             value = _traverse_attributes(row, *path.split("."))
-            column = table[key]
+            column = table[path.replace(".", "_")]
 
             # TODO: Special type handling moved somewhere else.
             if column.is_enum:
@@ -309,6 +389,6 @@ def stream_response_as_dicts(
                 else:
                     value = dt.date.fromisoformat(value)
 
-            row_dict[key] = value
+            row_dict[path] = value
 
         yield row_dict

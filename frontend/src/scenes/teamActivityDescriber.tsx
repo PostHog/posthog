@@ -476,6 +476,7 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     revenue_analytics_config: () => null,
+    base_currency: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,

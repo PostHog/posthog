@@ -553,8 +553,10 @@ export class HogExecutorService {
                             }
 
                             const fetchQueueParameters = this.enrichFetchRequest({
-                                // TODO: Add support for other providers
-                                ...createMailjetRequest(email, auth),
+                                ...createMailjetRequest(email, auth, {
+                                    api_key: this.config.MAILJET_PUBLIC_KEY,
+                                    secret_key: this.config.MAILJET_SECRET_KEY,
+                                }),
                                 return_queue: 'hog',
                             })
 

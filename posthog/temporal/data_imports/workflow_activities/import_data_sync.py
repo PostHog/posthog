@@ -712,7 +712,15 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             config = GoogleAdsServiceAccountSourceConfig.from_dict(
                 {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
             )
-            source = google_ads_source(config)
+            source = google_ads_source(
+                config,
+                is_incremental=schema.is_incremental,
+                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.is_incremental
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+            )
             return _run(
                 job_inputs=job_inputs,
                 source=source,

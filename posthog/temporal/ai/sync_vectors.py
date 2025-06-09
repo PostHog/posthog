@@ -12,7 +12,6 @@ import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
 from azure.core import exceptions as azure_exceptions
-from django.conf import settings
 from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
@@ -26,17 +25,6 @@ from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
 logger = structlog.get_logger(__name__)
-
-
-async def _get_orgs_from_the_feature_flag() -> list[str]:
-    payload = posthoganalytics.get_feature_flag_payload("max-rag", "temporal_worker")
-    try:
-        orgs = json.loads(cast(str, payload))["organizations"]
-        if isinstance(orgs, list):
-            return orgs
-    except:
-        pass
-    return []
 
 
 async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
@@ -55,11 +43,6 @@ async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_si
         # order with list slices would be non-deterministic, as the queryset would remove already processed actions.
         | Q(last_summarized_at=start_dt)
     )
-
-    # Include only orgs from the feature flag in non-development environments
-    if not settings.DEBUG:
-        orgs = await _get_orgs_from_the_feature_flag()
-        filter_conditions &= Q(team__organization__in=orgs)
 
     actions_to_summarize = Action.objects.filter(filter_conditions).order_by("id", "team_id", "updated_at")
     if offset is None and batch_size is None:

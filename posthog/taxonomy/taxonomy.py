@@ -1894,7 +1894,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$csp_script_sample": {
             "label": "Script sample",
-            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
             "examples": ["eval('alert(1)')"],
         },
         "$csp_report_type": {
@@ -2068,6 +2068,23 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
     },
+    "revenue_analytics_properties": {
+        "amount": {
+            "label": "Amount",
+            "description": "The amount of the revenue event.",
+            "type": "Numeric",
+        },
+        "product": {
+            "label": "Product",
+            "description": "The product of the revenue event.",
+            "type": "String",
+        },
+        "cohort": {
+            "label": "Cohort",
+            "description": "The cohort of the customer connected to the revenue event.",
+            "type": "String",
+        },
+    },
 }
 
 # copy distinct_id to event properties (needs to be done before copying to person properties, so it exists in person properties as well)
@@ -2136,6 +2153,7 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         "description": (
             f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']} Captured at the start of the session and remains constant for the duration of the session."
         ),
+        "ignored_in_assistant": True,
     }
 
 

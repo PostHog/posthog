@@ -134,6 +134,7 @@ export function processAllSnapshots(
     snapshotsBySource['processed'] = {
         source: 'processed',
         processed: true,
+        sourceLoaded: true,
         snapshots: needToPatchMeta
             ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId)
             : result,

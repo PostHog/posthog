@@ -20,6 +20,7 @@ import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPropertyDefinitionIcon,
+    getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -49,6 +50,7 @@ import {
     PersonProperty,
     PersonType,
     PropertyDefinition,
+    PropertyDefinitionType,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -407,6 +409,43 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         valuesEndpoint: (key) =>
                             `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
                         getPopoverHeader: () => 'Issues',
+                    },
+                    {
+                        name: 'Revenue analytics properties',
+                        searchPlaceholder: 'revenue analytics properties',
+                        type: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.RevenueAnalyticsProperties]
+                        )
+                            .map(([key, { type: property_type }]) => ({
+                                id: key,
+                                name: key,
+                                value: key,
+                                property_type,
+                                type: PropertyDefinitionType.RevenueAnalytics,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(
+                                        o.value
+                                    )
+                            ),
+                        getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.RevenueAnalyticsProperties
+                            )
+
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/environments/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(
+                                key
+                            )}`
+                        },
+                        getPopoverHeader: () => 'Revenue analytics properties',
                     },
                     {
                         name: 'Log attributes',

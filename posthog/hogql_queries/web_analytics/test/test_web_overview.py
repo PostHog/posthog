@@ -654,7 +654,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_revenue(self):
         s1 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
+        self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [
             RevenueAnalyticsEventItem(
                 eventName="purchase",
@@ -663,6 +663,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         ]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
         self._create_events(
             [

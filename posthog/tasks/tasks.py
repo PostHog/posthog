@@ -840,13 +840,3 @@ def count_items_in_playlists() -> None:
         logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
         enqueue_recordings_that_match_playlist_filters()
-
-
-@shared_task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    try:
-        from posthog.tasks.warehouse import capture_external_data_rows_synced
-    except ImportError:
-        pass
-    else:
-        capture_external_data_rows_synced()
