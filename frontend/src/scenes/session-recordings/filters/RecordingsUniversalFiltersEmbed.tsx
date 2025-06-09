@@ -549,7 +549,7 @@ const RecordingsUniversalFilterGroup = ({
                         <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
 
                         <Popover
-                            overlay={<UniversalFilters.PureTaxonomicFilter isWide={false} />}
+                            overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}
                             placement="bottom"
                             visible={isPopoverVisible}
                             onClickOutside={() => setIsPopoverVisible(false)}
