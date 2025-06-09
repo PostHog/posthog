@@ -6,9 +6,7 @@ from datetime import timedelta
 import json
 import time
 import uuid
-import aiohttp
 import temporalio
-from temporalio.api.common.v1 import Payload
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.utils.asgi import SyncIterableToAsync
@@ -21,7 +19,17 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-from posthog.temporal.common.codec import EncryptionCodec
+from temporalio.client import Client as TemporalClient, WorkflowHandle, WorkflowExecutionDescription
+from temporalio.activity import info as workflow_info
+
+
+async def _connect_to_temporal_client() -> TemporalClient:
+    return await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        server_root_ca_cert=settings.TEMPORAL_CLIENT_ROOT_CA,
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -39,15 +47,8 @@ class SessionSummaryInputs:
 
 
 @temporalio.activity.defn
-async def test_summary_activity(inputs: SessionSummaryInputs) -> SessionSummaryInputs:
-    async with aiohttp.ClientSession() as session:
-        async with session.get("http://httpbin.org/get") as resp:
-            return await resp.text()
-
-
-@temporalio.activity.defn
 async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
-    last_chunk = ""
+    latest_summary_state = ""
     session_summary_generator = stream_llm_session_summary(
         session_id=inputs.session_id,
         user_pk=inputs.user_pk,
@@ -61,23 +62,32 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
         session_start_time_str=inputs.session_start_time_str,
         session_duration=inputs.session_duration,
     )
+    info = workflow_info()
+    client = await _connect_to_temporal_client()
+    handle = await client.get_workflow_handle(worklfow_id=info.workflow_id, run_id=info.run_id)
+    await handle.update_latest_summary_state(latest_summary_state)
     # Iterate the async generator, store chunks, and return the combined result
-    async for chunk in session_summary_generator:
-        last_chunk = chunk
-        # Send heartbeat with current accumulated content
-        temporalio.activity.heartbeat({"last_chunk": last_chunk})
-    return last_chunk
+    async for state in session_summary_generator:
+        latest_summary_state = state
+        # Send update to workflow instead of heartbeat
+        await handle.execute_update(SummarizeSessionWorkflow.update_latest_summary_state, latest_summary_state)
+    return latest_summary_state
 
 
 @temporalio.workflow.defn(name="summarize-session")
 class SummarizeSessionWorkflow(PostHogWorkflow):
     def __init__(self):
-        self.chunks: list[str] = []
+        self.summary_state: str = ""
 
     @temporalio.workflow.query
-    def get_chunks(self) -> list[str]:
-        """Query to get the current list of streamed chunks."""
-        return self.chunks
+    def get_latest_summary_state(self) -> str:
+        """Query to get the current accumulated summary."""
+        return self.summary_state
+
+    @temporalio.workflow.update
+    async def update_latest_summary_state(self, latest_summary_state: str) -> None:
+        """Update handler to set current accumulated summary as the latest summary state"""
+        self.summary_state = latest_summary_state
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> None:
@@ -99,6 +109,26 @@ class SummarizeSessionWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return result
+
+
+async def _start_workflow(str_inputs: list[str], workflow_id: str) -> WorkflowHandle:
+    client = await _connect_to_temporal_client()
+    retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
+    handle = await client.start_workflow(
+        "summarize-session",
+        str_inputs,
+        id=workflow_id,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        retry_policy=retry_policy,
+    )
+    return handle
+
+
+async def _query_workflow_state(handle: WorkflowHandle) -> tuple[str, WorkflowExecutionDescription]:
+    current_summary = await handle.query(SummarizeSessionWorkflow.get_latest_summary_state)
+    desc = await handle.describe()
+    return current_summary, desc
 
 
 def excectute_test_summarize_session(
@@ -129,17 +159,6 @@ def excectute_test_summarize_session(
     if summary_data.prompt_data.prompt_data.metadata.duration is None:
         raise ValueError(f"Session duration is missing in the session metadata for session_id {session_id}")
     # Connect to the client and prepare the input
-    client = asyncio.run(
-        connect(
-            settings.TEMPORAL_HOST,
-            settings.TEMPORAL_PORT,
-            settings.TEMPORAL_NAMESPACE,
-            server_root_ca_cert=settings.TEMPORAL_CLIENT_ROOT_CA,
-            client_cert=settings.TEMPORAL_CLIENT_CERT,
-            client_key=settings.TEMPORAL_CLIENT_KEY,
-        )
-    )
-    retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     # TODO: Generate a proper id
     random_id = str(uuid.uuid4())
     session_start_time_str = summary_data.prompt_data.prompt_data.metadata.start_time.isoformat()
@@ -158,40 +177,20 @@ def excectute_test_summarize_session(
     )
     str_inputs = [json.dumps(dataclasses.asdict(inputs))]
     # Start streaming the workflow
-    handle = asyncio.run(
-        client.start_workflow(
-            "summarize-session",
-            str_inputs,
-            id=random_id,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            retry_policy=retry_policy,
-        )
-    )
+    handle = asyncio.run(_start_workflow(str_inputs=str_inputs, workflow_id=random_id))
+    last_summary = ""
     while True:
-        desc = asyncio.run(handle.describe())
-        # Access heartbeat details from activity
-        if not desc.raw_description.pending_activities:
-            continue
-        for activity in desc.raw_description.pending_activities:
-            if not activity.heartbeat_details:
-                continue
-            heartbeat_payloads = activity.heartbeat_details.payloads
-            for payload in heartbeat_payloads:
-                # Decode payloads
-                decrypted_payload = Payload.FromString(EncryptionCodec(settings).decrypt(payload.data))
-                # Get chunk
-                data = decrypted_payload.data
-                json_data = json.loads(data)
-                last_chunk = json_data.get("last_chunk")
-                if not last_chunk:
-                    continue
-                # Yield chunk
-                yield last_chunk
+        # Query the workflow for the current summary
+        current_summary, desc = asyncio.run(_query_workflow_state(handle))
+        # Yield only if there's new content
+        if current_summary != last_summary:
+            yield current_summary
+            last_summary = current_summary
+        # Check if workflow is complete
         if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
             break
-        # Wait till next heartbeat
-        time.sleep(0.5)
+        # Small delay between queries to let new chunks come in
+        time.sleep(0.1)
 
 
 def stream_recording_summary(
