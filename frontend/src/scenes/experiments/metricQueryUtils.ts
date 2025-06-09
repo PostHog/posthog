@@ -1,6 +1,9 @@
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { match } from 'ts-pattern'
+
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -15,19 +18,25 @@ import type {
     InsightVizNode,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
-import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/queries/schema'
+} from '~/queries/schema/schema-general'
+import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+/**
+ * we need a left to right compose function. We won't use right to left
+ * because it's counter intuitive for people not familiar with functional programming...
+ *
+ * this should be extracted into a library...
+ */
+export function compose<A, B, C>(f1: (a: A) => B, f2: (b: B) => C): (a: A) => C
+export function compose<A, B, C, D>(f1: (a: A) => B, f2: (b: B) => C, f3: (c: C) => D): (a: A) => D
+export function compose(...fns: Array<(arg: any) => any>): (arg: any) => any {
+    return (arg: any) => fns.reduce((acc, fn) => fn(acc), arg)
+}
 
 const isEventMetricSource = (source: ExperimentMetricSource): source is EventsNode =>
     source.kind === NodeKind.EventsNode
-
-const isActionMericSorce = (source: ExperimentMetricSource): source is ActionsNode =>
-    source.kind === NodeKind.ActionsNode
 
 const defaultTrendsFilter: TrendsFilter = {
     display: ChartDisplayType.ActionsLineGraph,
@@ -61,14 +70,16 @@ export const getExperimentDateRange = (experiment: Experiment): DateRange => {
 /**
  * returns the math properties for the source
  */
-const getMathProperties = (source: ExperimentMetricSource) =>
+const getMathProperties = (
+    source: ExperimentMetricSource
+): { math: ExperimentMetricMathType; math_property?: string } =>
     match(source)
         .with({ math: ExperimentMetricMathType.Sum }, ({ math, math_property }) => ({
             math,
             math_property,
         }))
         .with({ math: ExperimentMetricMathType.UniqueSessions }, ({ math }) => ({ math }))
-        .otherwise(() => {})
+        .otherwise(() => ({ math: ExperimentMetricMathType.Sum, math_property: undefined }))
 
 type MetricToQueryOptions = {
     breakdownFilter: BreakdownFilter
@@ -87,77 +98,82 @@ type MetricToQueryOptions = {
  * - Metric Preview
  * - Results Breakdowns
  */
-export function metricToQuery(
-    metric: ExperimentMetric,
-    options?: Partial<MetricToQueryOptions>
-): FunnelsQuery | TrendsQuery | undefined {
-    /**
-     * we get all the options or their defaults. There's no overrides that could
-     * cause unexpected effects.
-     */
-    const {
-        breakdownFilter = {},
-        filterTestAccounts = true,
-        trendsFilter = defaultTrendsFilter,
-        trendsInterval = 'day',
-        funnelsFilter = defaultFunnelsFilter,
-        dateRange = getDefultDateRange(),
-    } = options || {}
+export const getQuery =
+    (options?: Partial<MetricToQueryOptions>) =>
+    (metric: ExperimentMetric): FunnelsQuery | TrendsQuery => {
+        /**
+         * we get all the options or their defaults. There's no overrides that could
+         * cause unexpected effects.
+         */
+        const {
+            breakdownFilter = {},
+            filterTestAccounts = true,
+            trendsFilter = defaultTrendsFilter,
+            trendsInterval = 'day',
+            funnelsFilter = defaultFunnelsFilter,
+            dateRange = getDefultDateRange(),
+        } = options || {}
 
-    return match(metric)
-        .with({ metric_type: ExperimentMetricType.MEAN }, (meanMetric) => {
-            const source = meanMetric.source
+        return match(metric)
+            .with({ metric_type: ExperimentMetricType.MEAN }, (meanMetric) => {
+                const source = meanMetric.source
 
-            // Return undefined if this is not an EventsNode and has no math specified
-            if (!isEventMetricSource(source) && !source.math) {
-                return undefined
-            }
+                // Return undefined if this is not an EventsNode and has no math specified
+                if (!isEventMetricSource(source) && !source.math) {
+                    throw new Error('TrendsQuery requires an EventsNode with math')
+                }
 
-            /**
-             * return a TrendsQuery
-             */
-            return {
-                kind: NodeKind.TrendsQuery,
-                filterTestAccounts,
-                dateRange,
-                interval: trendsInterval,
-                trendsFilter,
-                series: [
-                    {
-                        kind: source.kind,
-                        ...match(source)
-                            .with({ kind: NodeKind.EventsNode }, (event) => ({ event: event.event, name: event.name }))
-                            .with({ kind: NodeKind.ActionsNode }, (action) => ({ id: action.id, name: action.name }))
-                            .otherwise(() => {}),
-                        ...getMathProperties(source),
-                    },
-                ],
-            } as TrendsQuery
-        })
-        .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
-            /**
-             * return a FunnelsQuery
-             */
-            return {
-                kind: NodeKind.FunnelsQuery,
-                filterTestAccounts,
-                // only add breakdownFilter if it's not empty. It has no default value.
-                ...(Object.keys(breakdownFilter).length > 0 ? { breakdownFilter } : {}),
-                dateRange,
-                funnelsFilter,
-                // series: getFunnelPreviewSeries(funnelMetric),
-                series: getFunnelSeries(funnelMetric),
-            } as FunnelsQuery
-        })
-        .otherwise(() => undefined)
-}
+                /**
+                 * return a TrendsQuery
+                 */
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    filterTestAccounts,
+                    dateRange,
+                    interval: trendsInterval,
+                    trendsFilter,
+                    series: [
+                        {
+                            kind: source.kind,
+                            ...match(source)
+                                .with({ kind: NodeKind.EventsNode }, (event) => ({
+                                    event: event.event,
+                                    name: event.name,
+                                }))
+                                .with({ kind: NodeKind.ActionsNode }, (action) => ({
+                                    id: action.id,
+                                    name: action.name,
+                                }))
+                                .otherwise(() => {}),
+                            ...getMathProperties(source),
+                        },
+                    ],
+                } as TrendsQuery
+            })
+            .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
+                /**
+                 * return a FunnelsQuery
+                 */
+                return {
+                    kind: NodeKind.FunnelsQuery,
+                    filterTestAccounts,
+                    // only add breakdownFilter if it's not empty. It has no default value.
+                    ...(Object.keys(breakdownFilter).length > 0 ? { breakdownFilter } : {}),
+                    dateRange,
+                    funnelsFilter,
+                    // series: getFunnelPreviewSeries(funnelMetric),
+                    series: getFunnelSeries(funnelMetric),
+                } as FunnelsQuery
+            })
+            .exhaustive()
+    }
 
 /**
  * takes an experiment funnel metric and returns a series of events and actions
  * that can be used in a query.
  */
-function getFunnelSeries(funnelMetric: ExperimentFunnelMetric): (EventsNode | ActionsNode)[] {
-    const { events, actions } = metricToFilter(funnelMetric)
+const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | ActionsNode)[] => {
+    const { events, actions } = getFilter(funnelMetric)
 
     return actionsAndEventsToSeries(
         {
@@ -196,9 +212,10 @@ const createSourceNode = (step: ExperimentFunnelMetricStep): ExperimentMetricSou
 }
 
 /**
- * takes a metric and returns a filter that can be used as part of a query
+ * takes a metric and returns a filter that can be used as part of a query.
+ *
  */
-export function metricToFilter(metric: ExperimentMetric): FilterType {
+export const getFilter = (metric: ExperimentMetric): FilterType => {
     return match(metric)
         .with({ metric_type: ExperimentMetricType.MEAN }, (meanMetric) => {
             const source = meanMetric.source
@@ -258,47 +275,10 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
         }))
 }
 
-type MetricToInsightQueryOptions = {
-    showTable: boolean
-    showLastComputation: boolean
-    showLastComputationRefresh: boolean
-    queryOptions: Partial<MetricToQueryOptions>
-}
-
-/**
- * wraps an experiment metric into an InsightVizNode, by creating a query first.
- * this is the format that the Query component expects
- */
-export function metricToInsightQuery(
-    metric: ExperimentMetric,
-    options?: Partial<MetricToInsightQueryOptions>
-): InsightVizNode {
-    const query = metricToQuery(metric, options?.queryOptions)
-
-    if (!query) {
-        throw new Error('Could not transform metric to query')
-    }
-
-    const { showTable = false, showLastComputation = false, showLastComputationRefresh = false } = options || {}
-
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: query,
-        showTable,
-        showLastComputation,
-        showLastComputationRefresh,
-    }
-}
-
-type ExposureConfigToEventsNodeOptions = {
-    featureFlagKey: string
-    featureFlagVariants: MultivariateFlagVariant[]
-}
-
-export function exposureConfigToEventsNode(
+export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
-    options: ExposureConfigToEventsNodeOptions
-): EventsNode {
+    options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
+): EventsNode => {
     if (exposureConfig && exposureConfig.event !== '$feature_flag_called') {
         const { featureFlagKey, featureFlagVariants } = options
         return {
@@ -332,62 +312,41 @@ export function exposureConfigToEventsNode(
     }
 }
 
-type Prettify<T> = {
-    [K in keyof T]: T[K]
-} & {}
-
-export function getMetricWithExposureConfig(
-    metric: ExperimentMetric,
-    exposureConfig: ExperimentEventExposureConfig,
-    options: ExposureConfigToEventsNodeOptions & Partial<Pick<MetricToInsightQueryOptions, 'queryOptions'>>
-): FunnelsQuery | TrendsQuery {
-    const { featureFlagKey, featureFlagVariants, queryOptions } = options
-    const metricWithExposure = match(metric)
-        .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
-            /**
-             * we get the exposure event node
-             */
-            const exposureEventNode = exposureConfigToEventsNode(exposureConfig, {
-                featureFlagKey,
-                featureFlagVariants,
+export const addExposureToMetric =
+    (expposureEvent: EventsNode) =>
+    (metric: ExperimentMetric): ExperimentMetric =>
+        match(metric)
+            .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
+                /**
+                 * we add the exposure event node to the funnel metric
+                 */
+                return {
+                    ...funnelMetric,
+                    series: [expposureEvent, ...funnelMetric.series],
+                }
             })
-            /**
-             * we add the exposure event node to the funnel metric
-             */
-            return {
-                ...funnelMetric,
-                series: [exposureEventNode, ...funnelMetric.series],
-            }
-        })
-        .otherwise(() => metric)
+            .otherwise(() => metric)
 
-    const query = metricToQuery(metricWithExposure, queryOptions)
-
-    if (!query) {
-        throw new Error('Could not transform metric to query')
-    }
-
-    return query
+type InsightVizNodeOptions = {
+    showTable: boolean
+    showLastComputation: boolean
+    showLastComputationRefresh: boolean
 }
 
-export function getInsightWithExposure(
-    metric: ExperimentMetric,
-    exposureConfig: ExperimentEventExposureConfig,
-    options: ExposureConfigToEventsNodeOptions & Partial<MetricToInsightQueryOptions>
-): InsightVizNode {
-    const query = getMetricWithExposureConfig(metric, exposureConfig, options)
+/**
+ * wraps a query into an InsightVizNode, by adding some default options.
+ * this is the format that the Query component expects
+ */
+export const getInsight =
+    (options: Partial<InsightVizNodeOptions>) =>
+    (query: FunnelsQuery | TrendsQuery): InsightVizNode => {
+        const { showTable = false, showLastComputation = false, showLastComputationRefresh = false } = options || {}
 
-    if (!query) {
-        throw new Error('Could not transform metric to query')
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: query,
+            showTable,
+            showLastComputation,
+            showLastComputationRefresh,
+        }
     }
-
-    const { showTable = false, showLastComputation = false, showLastComputationRefresh = false } = options || {}
-
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: query,
-        showTable,
-        showLastComputation,
-        showLastComputationRefresh,
-    }
-}

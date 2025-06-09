@@ -1,11 +1,9 @@
 import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { FunnelLayout } from 'lib/constants'
 
 import { performQuery } from '~/queries/query'
 import type {
-    AnyEntityNode,
     ExperimentEventExposureConfig,
     ExperimentMetric,
     FunnelsQuery,
@@ -13,7 +11,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
+import { NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
 import type { Experiment, FunnelStep, TrendResult } from '~/types'
 import {
     BreakdownAttributionType,
@@ -21,13 +19,18 @@ import {
     FunnelConversionWindowTimeUnit,
     FunnelStepReference,
     FunnelVizType,
-    PropertyFilterType,
-    PropertyOperator,
     StepOrderValue,
 } from '~/types'
 
 import type { experimentResultBreakdownLogicType } from './experimentResultBreakdownLogicType'
-import { getExperimentDateRange, getInsightWithExposure } from './metricQueryUtils'
+import {
+    addExposureToMetric,
+    compose,
+    getExperimentDateRange,
+    getExposureConfigEventsNode,
+    getQuery,
+} from './metricQueryUtils'
+import { getInsight } from './metricQueryUtils'
 
 export type ExperimentResultBreakdownLogicProps = {
     experiment: Experiment
@@ -67,44 +70,64 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                 loadBreakdownResults: async (): Promise<BreakDownResults> => {
                     try {
                         const { metric, experiment } = props
+
+                        /**
+                         * we create the exposure node. For this case, we need
+                         * need to use the experiment's exposure config
+                         */
+                        const exposureEventNode = getExposureConfigEventsNode(
+                            experiment.exposure_criteria?.exposure_config as ExperimentEventExposureConfig,
+                            {
+                                featureFlagKey: experiment.feature_flag_key,
+                                featureFlagVariants: experiment.parameters.feature_flag_variants,
+                            }
+                        )
+
+                        /**
+                         * we create the query builder with all the options.
+                         */
+                        const queryBuilder = compose<
+                            ExperimentMetric,
+                            ExperimentMetric,
+                            FunnelsQuery | TrendsQuery,
+                            InsightVizNode
+                        >(
+                            addExposureToMetric(exposureEventNode),
+                            getQuery({
+                                filterTestAccounts: !!experiment.exposure_criteria?.filterTestAccounts,
+                                dateRange: getExperimentDateRange(experiment),
+                                breakdownFilter: {
+                                    breakdown: `$feature/${experiment.feature_flag_key}`,
+                                    breakdown_type: 'event',
+                                },
+                                funnelsFilter: {
+                                    layout: FunnelLayout.vertical,
+                                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                                    funnelOrderType: StepOrderValue.ORDERED,
+                                    funnelStepReference: FunnelStepReference.total,
+                                    funnelVizType: FunnelVizType.Steps,
+                                    funnelWindowInterval: 14,
+                                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                                },
+                                trendsFilter: {
+                                    aggregationAxisFormat: 'numeric',
+                                    display: ChartDisplayType.ActionsLineGraphCumulative,
+                                    resultCustomizationBy: ResultCustomizationBy.Value,
+                                    yAxisScaleType: 'linear',
+                                },
+                            }),
+                            getInsight({
+                                showTable: true,
+                                showLastComputation: true,
+                                showLastComputationRefresh: false,
+                            })
+                        )
+
                         /**
                          * take the metric and the experiment and create a new Funnel or Trends query.
                          * we need the experiment for exposure configuration.
                          */
-                        const query = getInsightWithExposure(
-                            metric,
-                            experiment.exposure_criteria?.exposure_config as ExperimentEventExposureConfig,
-                            {
-                                showTable: true,
-                                showLastComputation: true,
-                                showLastComputationRefresh: false,
-                                featureFlagKey: experiment.feature_flag_key,
-                                featureFlagVariants: experiment.parameters.feature_flag_variants,
-                                queryOptions: {
-                                    filterTestAccounts: !!experiment.exposure_criteria?.filterTestAccounts,
-                                    dateRange: getExperimentDateRange(experiment),
-                                    breakdownFilter: {
-                                        breakdown: `$feature/${experiment.feature_flag_key}`,
-                                        breakdown_type: 'event',
-                                    },
-                                    funnelsFilter: {
-                                        layout: FunnelLayout.vertical,
-                                        breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                                        funnelOrderType: StepOrderValue.ORDERED,
-                                        funnelStepReference: FunnelStepReference.total,
-                                        funnelVizType: FunnelVizType.Steps,
-                                        funnelWindowInterval: 14,
-                                        funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                                    },
-                                    trendsFilter: {
-                                        aggregationAxisFormat: 'numeric',
-                                        display: ChartDisplayType.ActionsLineGraphCumulative,
-                                        resultCustomizationBy: ResultCustomizationBy.Value,
-                                        yAxisScaleType: 'linear',
-                                    },
-                                },
-                            }
-                        )
+                        const query = queryBuilder(metric)
 
                         /**
                          * perform the query
@@ -117,7 +140,7 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                             throw new Error('No results returned from query')
                         }
 
-                        let results = response.results as FunnelStep[] | FunnelStep[][] | TrendResult[]
+                        let results = response.results
 
                         /**
                          * we need to filter the results to remove any non-variant breakdown
