@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -66,7 +67,14 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect(() => ({
-        values: [commandBarLogic, ['initialQuery', 'barStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [
+            commandBarLogic,
+            ['initialQuery', 'barStatus'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [
             commandBarLogic,
             ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
@@ -285,6 +293,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup4Response,
                 s.searchQuery,
                 s.activeTab,
+                s.featureFlags,
             ],
             (
                 searchResponse,
@@ -295,7 +304,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group3Response,
                 group4Response,
                 query,
-                activeTab
+                activeTab,
+                featureFlags
             ) => {
                 if (
                     !searchResponse &&
@@ -342,9 +352,18 @@ export const searchBarLogic = kea<searchBarLogicType>([
 
                 if (activeTab === Tab.All || activeTab === Tab.Products) {
                     const productTreeItems = getDefaultTreeProducts()
+
+                    // Filter out items that don't have the correct feature flag
+                    const filteredTreeItems = productTreeItems.filter((item) => {
+                        if (item.flag) {
+                            return !!featureFlags[item.flag as keyof typeof featureFlags]
+                        }
+                        return true
+                    })
+
                     const treeResults = query
-                        ? rankProductTreeItems(productTreeItems, query)
-                        : rankProductTreeItems(productTreeItems, '')
+                        ? rankProductTreeItems(filteredTreeItems, query)
+                        : rankProductTreeItems(filteredTreeItems, '')
                     results.push(...treeResults)
                 }
 
@@ -389,8 +408,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
             (tabsForGroups): Record<TabGroup, Tab[]> => {
                 return {
                     all: [Tab.All],
-                    products: [Tab.Products],
                     event_data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
+                    products: [Tab.Products],
                     posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag, Tab.Survey],
                 }
             },
@@ -413,6 +432,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup4Response,
                 s.searchQuery,
                 s.activeTab,
+                s.featureFlags,
             ],
             (
                 searchResponse,
@@ -423,7 +443,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group3Response,
                 group4Response,
                 searchQuery,
-                activeTab
+                activeTab,
+                featureFlags
             ): [Record<Tab, string | null>, string] => {
                 /** :TRICKY: We need to pull in the searchQuery to memoize the counts. */
 
@@ -436,9 +457,19 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 // Handle Products tab count
                 if (activeTab === Tab.Products || activeTab === Tab.All) {
                     const treeItems = getDefaultTreeProducts()
+                    const flagFilteredItems = treeItems.filter((item) => {
+                        if (item.flag) {
+                            return !!featureFlags[item.flag as keyof typeof featureFlags]
+                        }
+                        return true
+                    })
+
                     const filteredItems = searchQuery
-                        ? treeItems.filter((item) => item.path.toLowerCase().includes(searchQuery.toLowerCase()))
-                        : treeItems
+                        ? flagFilteredItems.filter((item) =>
+                              item.path.toLowerCase().includes(searchQuery.toLowerCase())
+                          )
+                        : flagFilteredItems
+
                     counts[Tab.Products] = filteredItems.length.toString()
                 }
 
