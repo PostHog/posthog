@@ -1,13 +1,18 @@
 from collections.abc import Callable
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list, enqueue_cohorts_to_calculate, MAX_AGE_MINUTES
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_from_list,
+    enqueue_cohorts_to_calculate,
+    increment_version_and_enqueue_calculate_cohort,
+    MAX_AGE_MINUTES,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -90,5 +95,100 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             )
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
+
+        @patch("posthog.tasks.calculate_cohort.chain")
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+        def test_increment_version_and_enqueue_calculate_cohort_with_nested_cohorts(
+            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+        ) -> None:
+            # Test dependency graph structure:
+            # A ──┐
+            #     ├─→ C ──→ D
+            # B ──┘
+            # Expected execution order: A, B, C, D
+            # Create leaf cohort A
+            cohort_a = Cohort.objects.create(
+                team=self.team,
+                name="Cohort A",
+                groups=[{"properties": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}]}],
+                is_static=False,
+            )
+
+            # Create leaf cohort B
+            cohort_b = Cohort.objects.create(
+                team=self.team,
+                name="Cohort B",
+                groups=[{"properties": [{"key": "$some_prop_b", "value": "something_b", "type": "person"}]}],
+                is_static=False,
+            )
+
+            # Create cohort C that depends on both cohort A and B
+            cohort_c = Cohort.objects.create(
+                team=self.team,
+                name="Cohort C",
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "id", "value": cohort_a.id, "type": "cohort"},
+                            {"key": "id", "value": cohort_b.id, "type": "cohort"},
+                        ]
+                    }
+                ],
+                is_static=False,
+            )
+
+            # Create cohort D that depends on cohort C
+            cohort_d = Cohort.objects.create(
+                team=self.team,
+                name="Cohort D",
+                groups=[{"properties": [{"key": "id", "value": cohort_c.id, "type": "cohort"}]}],
+                is_static=False,
+            )
+
+            # Mock chain application
+            mock_chain_instance = MagicMock()
+            mock_chain.return_value = mock_chain_instance
+
+            # Mock task signatures
+            mock_task_a = MagicMock()
+            mock_task_b = MagicMock()
+            mock_task_c = MagicMock()
+            mock_task_d = MagicMock()
+            mock_calculate_cohort_ch_si.side_effect = [mock_task_a, mock_task_b, mock_task_c, mock_task_d]
+
+            increment_version_and_enqueue_calculate_cohort(cohort_d, initiating_user=None)
+
+            # Verify that all cohorts have their versions incremented and are marked as calculating
+            cohort_a.refresh_from_db()
+            cohort_b.refresh_from_db()
+            cohort_c.refresh_from_db()
+            cohort_d.refresh_from_db()
+
+            self.assertEqual(cohort_a.pending_version, 1)
+            self.assertEqual(cohort_b.pending_version, 1)
+            self.assertEqual(cohort_c.pending_version, 1)
+            self.assertEqual(cohort_d.pending_version, 1)
+            self.assertTrue(cohort_a.is_calculating)
+            self.assertTrue(cohort_b.is_calculating)
+            self.assertTrue(cohort_c.is_calculating)
+            self.assertTrue(cohort_d.is_calculating)
+
+            # Verify that calculate_cohort_ch.si was called for each cohort in the correct order
+            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
+
+            # Check that tasks were created with correct arguments (order: A, B, C, D)
+            expected_calls = [
+                call(cohort_a.id, 1, None),
+                call(cohort_b.id, 1, None),
+                call(cohort_c.id, 1, None),
+                call(cohort_d.id, 1, None),
+            ]
+            mock_calculate_cohort_ch_si.assert_has_calls(expected_calls)
+
+            # Verify that chain was called with the tasks in the correct order
+            mock_chain.assert_called_once_with(mock_task_a, mock_task_b, mock_task_c, mock_task_d)
+
+            # Verify that the chain was applied async
+            mock_chain_instance.apply_async.assert_called_once()
 
     return TestCalculateCohort
