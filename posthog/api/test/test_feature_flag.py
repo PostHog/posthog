@@ -589,7 +589,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Invalid variant definitions: Variant rollout percentages must sum to 100.",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
     def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
         # Create initial flag
         response = self.client.post(
