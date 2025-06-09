@@ -72,6 +72,12 @@ export type RecordingComment = {
     timeInRecording: number
 }
 
+const _filterableItemTypes = ['events', 'console', 'network', 'comment', 'doctor'] as const
+const _itemTypes = [..._filterableItemTypes, 'performance', 'offline-status', 'browser-visibility'] as const
+
+export type InspectorListItemType = (typeof _itemTypes)[number]
+export type FilterableInspectorListItemTypes = (typeof _filterableItemTypes)[number]
+
 export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
@@ -79,9 +85,8 @@ export type InspectorListItemBase = {
     highlightColor?: 'danger' | 'warning' | 'primary'
     windowId?: string
     windowNumber?: number | '?' | undefined
+    type: InspectorListItemType
 }
-
-export type InspectorListItemType = InspectorListItem['type']
 
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: FilterableInspectorListItemTypes.EVENTS
@@ -870,7 +875,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             [
                                 FilterableInspectorListItemTypes.EVENTS,
                                 FilterableInspectorListItemTypes.COMMENT,
-                            ].includes(key)
+                            ].includes(key as FilterableInspectorListItemTypes)
                         ) {
                             acc[key] = value
                         }

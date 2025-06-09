@@ -9,7 +9,7 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
 import {
-    InspectorListItemComment,
+    InspectorListItemAnnotationComment,
     RecordingComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
@@ -604,12 +604,12 @@ LIMIT 1000000
     selectors(({ cache }) => ({
         sessionAnnotations: [
             (s) => [s.annotations, s.start, s.end],
-            (annotations, start, end): InspectorListItemComment[] => {
+            (annotations, start, end): InspectorListItemAnnotationComment[] => {
                 const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
                 const startValue = start?.valueOf()
                 const endValue = end?.valueOf()
 
-                const result: InspectorListItemComment[] = []
+                const result: InspectorListItemAnnotationComment[] = []
                 for (const annotation of annotations) {
                     if (!allowedScopes.includes(annotation.scope)) {
                         continue
