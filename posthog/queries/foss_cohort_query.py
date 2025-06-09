@@ -219,22 +219,19 @@ class FOSSCohortQuery(EventQuery):
                                 prop_cohort: Cohort = Cohort.objects.get(
                                     pk=prop.value, team__project_id=team.project_id
                                 )
-                                if prop_cohort.is_static:
-                                    new_property_group_list.append(
-                                        PropertyGroup(
-                                            type=PropertyOperatorType.AND,
-                                            values=[
-                                                Property(
-                                                    type="static-cohort",
-                                                    key="id",
-                                                    value=prop_cohort.pk,
-                                                    negation=negation_value,
-                                                )
-                                            ],
-                                        )
+                                new_property_group_list.append(
+                                    PropertyGroup(
+                                        type=PropertyOperatorType.AND,
+                                        values=[
+                                            Property(
+                                                type="static-cohort" if prop_cohort.is_static else "dynamic-cohort",
+                                                key="id",
+                                                value=prop_cohort.pk,
+                                                negation=negation_value,
+                                            )
+                                        ],
                                     )
-                                else:
-                                    new_property_group_list.append(_unwrap(prop_cohort.properties, negation_value))
+                                )
                             except Cohort.DoesNotExist:
                                 new_property_group_list.append(
                                     PropertyGroup(
@@ -407,9 +404,11 @@ class FOSSCohortQuery(EventQuery):
 
     @cached_property
     def should_pushdown_persons(self) -> bool:
-        return "person" not in [
-            prop.type for prop in getattr(self._outer_property_groups, "flat", [])
-        ] and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+        return (
+            "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+            and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+            and "dynamic-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
+        )
 
     def _get_date_condition(self) -> tuple[str, dict[str, Any]]:
         date_query = ""
@@ -461,10 +460,10 @@ class FOSSCohortQuery(EventQuery):
                 res, params = self.get_performed_event_multiple(prop, prepend, idx)
         elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
-        elif (
-            prop.type == "static-cohort"
-        ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
+        elif prop.type == "static-cohort":  # static cohorts are handled by flattening during initialization
             res, params = self.get_static_cohort_condition(prop, prepend, idx)
+        elif prop.type == "dynamic-cohort":
+            res, params = self.get_dynamic_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
@@ -490,6 +489,23 @@ class FOSSCohortQuery(EventQuery):
         cohort = Cohort.objects.get(pk=cast(int, prop.value))
         query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
+
+    def get_dynamic_cohort_condition(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
+        cohort_id = cast(int, prop.value)
+
+        param_key_cohort = f"{prepend}_dynamic_cohort_{idx}"
+        param_key_team = f"{prepend}_dynamic_cohort_team_{idx}"
+
+        query = f"""
+        SELECT person_id FROM cohortpeople
+        WHERE cohort_id = %({param_key_cohort})s
+        AND team_id = %({param_key_team})s
+        """
+
+        return f"id {'NOT' if prop.negation else ''} IN ({query})", {
+            param_key_cohort: cohort_id,
+            param_key_team: self._team_id,
+        }
 
     def _get_entity_event_filters(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
         params: dict[str, Any] = {}
@@ -591,6 +607,7 @@ class FOSSCohortQuery(EventQuery):
         self._should_join_persons = (
             self._column_optimizer.is_using_person_properties
             or len(self._column_optimizer.used_properties_with_type("static-cohort")) > 0
+            or len(self._column_optimizer.used_properties_with_type("dynamic-cohort")) > 0
         )
 
     @cached_property
