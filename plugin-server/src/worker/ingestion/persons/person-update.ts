@@ -110,7 +110,6 @@ export function applyEventPropertyUpdates(event: PluginEvent, personProperties: 
             personProperties[key] = value
         }
     })
-    })
     Object.entries(properties).map(([key, value]) => {
         // note: due to the type of equality check here
         // if there is an array or object nested as a $set property
