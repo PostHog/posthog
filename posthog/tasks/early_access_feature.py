@@ -4,7 +4,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
-from posthog.ph_client import get_regional_ph_client
+from posthog.ph_client import get_client
 
 
 logger = structlog.get_logger(__name__)
@@ -71,7 +71,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     print(f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature {feature_id}")  # noqa: T201
 
-    posthog_client = get_regional_ph_client()
+    posthog_client = get_client()
 
     if not posthog_client:
         print(f"[CELERY][EARLY ACCESS FEATURE] No PostHog client found")  # noqa: T201

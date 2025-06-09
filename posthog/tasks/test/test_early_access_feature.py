@@ -8,7 +8,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
-    @patch("posthog.tasks.early_access_feature.get_regional_ph_client")
+    @patch("posthog.tasks.early_access_feature.get_client")
     def test_sends_event_for_enrolled_users(self, mock_get_client: MagicMock) -> None:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -46,7 +46,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         mock_client.shutdown.assert_called_once()
 
-    @patch("posthog.tasks.early_access_feature.get_regional_ph_client")
+    @patch("posthog.tasks.early_access_feature.get_client")
     def test_no_event_for_enrolled_users_on_different_team(self, mock_get_client: MagicMock) -> None:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
