@@ -399,7 +399,6 @@ Here are a few key differences compared to other programming languages:
 
 HOG_EXAMPLE_MESSAGE = """
 Here are some valid Hog code examples:
-
 // Example 1: PII Data Hashing
 // Get the properties to hash from inputs and split by comma
 let propertiesToHash := []
@@ -408,19 +407,15 @@ if (notEmpty(inputs.propertiesToHash)) {
 }
 let hashDistinctId := inputs.hashDistinctId
 let salt := inputs.salt
-
 if (empty(propertiesToHash) and not hashDistinctId) {
     return event
 }
-
 // Create a deep copy of the event to modify
 let returnEvent := event
-
 // Helper function to get nested property value
 fun getNestedValue(obj, path) {
     let parts := splitByString('.', path)
     let current := obj
-    
     for (let part in parts) {
         if (current = null) {
             return null
@@ -429,12 +424,10 @@ fun getNestedValue(obj, path) {
     }
     return current
 }
-
 // Helper function to set nested property value
 fun setNestedValue(obj, path, value) {
     let parts := splitByString('.', path)
     let current := obj
-    
     // Navigate to the parent object of the target property
     for (let i := 1; i < length(parts); i := i + 1) {
         let part := parts[i]
@@ -443,12 +436,10 @@ fun setNestedValue(obj, path, value) {
         }
         current := current[part]
     }
-    
     // Set the value on the last part
     let lastPart := parts[length(parts)]
     current[lastPart] := value
 }
-
 // Hash distinct_id if enabled also potentially using a salt
 if (hashDistinctId and notEmpty(event.distinct_id)) {
     if(notEmpty(salt)) {
@@ -457,7 +448,6 @@ if (hashDistinctId and notEmpty(event.distinct_id)) {
         returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))
     }
 }
-
 // Hash each property value potentially using a salt
 for (let _, path in propertiesToHash) {
     let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas
@@ -471,9 +461,7 @@ for (let _, path in propertiesToHash) {
         }
     }
 }
-
 return returnEvent
-
 // Example 2: GeoIP Enrichment
 // Define the properties to be added to the event
 let geoipProperties := {
@@ -535,7 +523,7 @@ if (response.subdivisions) {
         location[f'subdivision_{index + 1}_name'] := subdivision.names?.en
     }
 }
-print('geoip location data for ip:', location) 
+print('geoip location data for ip:', location)
 let returnEvent := event
 returnEvent.properties := returnEvent.properties ?? {}
 returnEvent.properties.$set := returnEvent.properties.$set ?? {}
@@ -554,23 +542,19 @@ for (let key, value in location) {
     returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value
 }
 return returnEvent
-
 // Example 3: IP Anonymization
 // Check if the event has an IP address
 if (empty(event.properties?.$ip)) {
     print('No IP address found in event')
     return event
 }
-
 let ip := event.properties.$ip
 let parts := splitByString('.', ip)
-
 // Check if we have exactly 4 parts for IPv4
 if (length(parts) != 4) {
     print('Invalid IP address format: wrong number of octets')
     return event
 }
-
 // Validate each octet is a number between 0 and 255
 for (let i := 1; i <= 4; i := i + 1) {
     let octet := toInt(parts[i])
@@ -579,16 +563,12 @@ for (let i := 1; i <= 4; i := i + 1) {
         return event
     }
 }
-
 // Replace the last octet with '0'
 let anonymizedIp := concat(parts[1], '.', parts[2], '.', parts[3], '.0')
-    
 let returnEvent := event
 returnEvent.properties.$ip := anonymizedIp
 return returnEvent
-
 // Example 4: URL Parameter Masking
-
 // Function to check if parameter matches any mask pattern
 fun isParameterInList(paramName, paramsString) {
     let paramsList := splitByString(',', paramsString)
@@ -606,32 +586,25 @@ fun maskURLParameters(url, paramsToMask, maskValue) {
     if (empty(url) or typeof(url) != 'string') {
         return url
     }
-
-    try {
         // Split URL into base and query string
         let parts := splitByString('?', url, 2)
         if (length(parts) < 2) {
             return url
         }
-        
         let baseUrl := parts[1]
         let queryString := parts[2]
-        
         // Handle malformed URLs that start with ?
         if (empty(baseUrl)) {
             return url
         }
-        
         // Split query string into parameters
         let params := splitByString('&', queryString)
         let maskedParams := []
-        
         // Process each parameter
         for (let param in params) {
             if (not empty(param)) {
                 let keyValue := splitByString('=', param, 2)
                 let paramName := keyValue[1]
-                
                 // Handle parameters without values (e.g., ?key&foo=bar)
                 if (length(keyValue) < 2) {
                     if (isParameterInList(paramName, paramsToMask)) {
@@ -648,7 +621,6 @@ fun maskURLParameters(url, paramsToMask, maskValue) {
                 }
             }
         }
-        
         // Reconstruct URL with masked parameters
         return concat(baseUrl, '?', arrayStringConcat(maskedParams, '&'))
     } catch (error) {
@@ -656,10 +628,8 @@ fun maskURLParameters(url, paramsToMask, maskValue) {
         return url
     }
 }
-
 // Create a copy of the event to modify
 let maskedEvent := event
-
 // Process each URL property
 for (let propName, paramsToMask in inputs.urlProperties) {
     if (not empty(event.properties?.[propName])) {
@@ -670,19 +640,14 @@ for (let propName, paramsToMask in inputs.urlProperties) {
         )
     }
 }
-
 return maskedEvent
-
 // Example 5: Filter Properties
-
 // Check if the event has properties
 if (empty(event.properties)) {
     return event
 }
-
 let returnEvent := event
 let propertiesToFilter := splitByString(',', inputs.propertiesToFilter)
-
 // Process each property to filter
 let i := 1
 while (i <= length(propertiesToFilter)) {
@@ -691,7 +656,6 @@ while (i <= length(propertiesToFilter)) {
         let parts := splitByString('.', prop)
         let current := returnEvent.properties
         let found := true
-        
         // Navigate to the parent object
         let j := 1
         while (j < length(parts) and found) {
@@ -702,41 +666,29 @@ while (i <= length(propertiesToFilter)) {
             }
             j := j + 1
         }
-        
         // Handle the last part if we found the parent object
         if (found and j == length(parts)) {
             let lastPart := parts[length(parts)]
             if (has(keys(current), lastPart)) {
-                current[lastPart] := null 
+                current[lastPart] := null
             }
         }
     }
     i := i + 1
 }
-
-return returnEvent
-
-"""
+return returnEvent"""
 
 HOG_GRAMMAR_MESSAGE = """
 Here is the grammar for Hog:
-
 parser grammar HogQLParser;
-
 options {
     tokenVocab = HogQLLexer;
 }
-
-
 program: declaration* EOF;
-
 declaration: varDecl | statement ;
-
 expression: columnExpr;
-
 varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)* COMMA?;
-
 statement      : returnStmt
                | throwStmt
                | tryCatchStmt
@@ -750,7 +702,6 @@ statement      : returnStmt
                | exprStmt
                | emptyStmt
                ;
-
 returnStmt     : RETURN expression? SEMICOLON?;
 throwStmt      : THROW expression? SEMICOLON?;
 catchBlock     : CATCH (LPAREN catchVar=identifier (COLON catchType=identifier)? RPAREN)? catchStmt=block;
@@ -768,19 +719,13 @@ varAssignment  : expression COLON EQ_SINGLE expression ;
 exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
-
 kvPair: expression ':' expression ;
 kvPairList: kvPair (COMMA kvPair)* COMMA?;
-
-
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
-
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-
 subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
-
 selectStmt:
     with=withClause?
     SELECT DISTINCT? topClause?
@@ -797,7 +742,6 @@ selectStmt:
     (limitAndOffsetClause | offsetOnlyClause)?
     settingsClause?
     ;
-
 withClause: WITH withExprList;
 topClause: TOP DECIMAL_LITERAL (WITH TIES)?;
 fromClause: FROM joinExpr;
@@ -816,7 +760,6 @@ limitAndOffsetClause
     ;
 offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
-
 joinExpr
     : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
@@ -839,7 +782,6 @@ joinConstraintClause
     | USING LPAREN columnExprList RPAREN
     | USING columnExprList
     ;
-
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
@@ -847,7 +789,6 @@ orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
-
 windowExpr: winPartitionByClause? winOrderByClause? winFrameClause?;
 winPartitionByClause: PARTITION BY columnExprList;
 winOrderByClause: ORDER BY orderExprList;
@@ -858,7 +799,6 @@ winFrameExtend
     ;
 winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | numberLiteral PRECEDING | numberLiteral FOLLOWING);
 //rangeClause: RANGE LPAREN (MIN identifier MAX identifier | MAX identifier MIN identifier) RPAREN;
-
 // Columns
 expr: columnExpr EOF;
 columnTypeExpr
@@ -887,7 +827,6 @@ columnExpr
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
-
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
@@ -938,7 +877,6 @@ columnExpr
     | columnLambdaExpr                                                                    # ColumnExprLambda
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
-
 columnLambdaExpr:
     ( LPAREN identifier (COMMA identifier)* COMMA? RPAREN
     |        identifier (COMMA identifier)* COMMA?
@@ -946,8 +884,6 @@ columnLambdaExpr:
     )
     ARROW (columnExpr | block)
     ;
-
-
 hogqlxChildElement: hogqlxTagElement | (LBRACE columnExpr RBRACE);
 hogqlxTagElement
     : LT identifier hogqlxTagAttribute* SLASH GT                                          # HogqlxTagElementClosed
@@ -958,15 +894,12 @@ hogqlxTagAttribute
     |   identifier '=' LBRACE columnExpr RBRACE
     |   identifier
     ;
-
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
     : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                       # WithExprColumn
     ;
-
-
 // This is slightly different in HogQL compared to ClickHouse SQL
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
@@ -984,13 +917,9 @@ tableExpr
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
 tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
-
 // Databases
-
 databaseIdentifier: identifier;
-
 // Basics
-
 floatingLiteral
     : FLOATING_LITERAL
     | DOT (DECIMAL_LITERAL | OCTAL_LITERAL)
@@ -1028,14 +957,14 @@ placeholder: LBRACE columnExpr RBRACE;
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;
 stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
-
 // These are magic "full template strings", which are used to parse "full text field" templates without the surrounding SQL.
 // We will need to add F' to the start of the string to change the lexer's mode.
 fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
 stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;
-
 Leave out all comment string and return the hog code nicely formatted.
-
+These functions are not available in the current version of HogQL (NEVER USE THEM):
+- break
+- continue
+- left
+- right
 """
-
-
