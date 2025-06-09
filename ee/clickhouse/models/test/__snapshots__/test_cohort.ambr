@@ -184,19 +184,8 @@
                       FROM cohortpeople
                       WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
                    WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-                   LIMIT 1000000000))) as person
-  UNION ALL
-  SELECT person_id,
-         cohort_id,
-         team_id,
-         -1,
-         version
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version < 2
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
-                          join_algorithm = 'auto'
+                   LIMIT 1000000000))) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.3
@@ -242,19 +231,8 @@
                       FROM cohortpeople
                       WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
                    WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-                   LIMIT 1000000000))) as person
-  UNION ALL
-  SELECT person_id,
-         cohort_id,
-         team_id,
-         -1,
-         version
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version < 3
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
-                          join_algorithm = 'auto'
+                   LIMIT 1000000000))) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation
@@ -547,19 +525,8 @@
                       FROM cohortpeople
                       WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
                    WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-                   LIMIT 1000000000))) as person
-  UNION ALL
-  SELECT person_id,
-         cohort_id,
-         team_id,
-         -1,
-         version
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version < 2
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
-                          join_algorithm = 'auto'
+                   LIMIT 1000000000))) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.3
@@ -605,19 +572,8 @@
                       FROM cohortpeople
                       WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
                    WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-                   LIMIT 1000000000))) as person
-  UNION ALL
-  SELECT person_id,
-         cohort_id,
-         team_id,
-         -1,
-         version
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version < 3
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
-                          join_algorithm = 'auto'
+                   LIMIT 1000000000))) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_static_cohort_precalculated
