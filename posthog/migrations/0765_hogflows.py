@@ -7,7 +7,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0752_organization_members_can_invite")]
+    dependencies = [("posthog", "0764_teammarketinganalyticsconfig")]
 
     operations = [
         migrations.CreateModel(
