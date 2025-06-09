@@ -38,9 +38,9 @@ export function CodeEditorResizeable({
     useEffect(() => {
         const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
         const lineCount = (value?.split('\n').length ?? 1) + 2
-        const lineHeight = 20
+        const lineHeight = 15
         const calculatedHeight = value
-            ? Math.max(lineHeight * lineCount + 40, 200) // Add padding and minimum height when there's content
+            ? Math.max(lineHeight * lineCount) // Add padding and minimum height when there's content
             : lineHeight * lineCount // Just basic line height calculation when no content
         setHeight(calculatedHeight)
     }, [props.value])
