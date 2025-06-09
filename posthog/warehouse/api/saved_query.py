@@ -62,6 +62,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    progress = serializers.CharField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
     soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
 
@@ -82,6 +83,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "progress",
         ]
         read_only_fields = [
             "id",
@@ -92,6 +94,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "last_run_at",
             "latest_error",
             "latest_history_id",
+            "progress",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},

@@ -41,6 +41,7 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
+from posthog.warehouse.api.lineage import get_upstream_dag
 
 logger = structlog.get_logger()
 
@@ -300,6 +301,28 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+
+            # Process upstream materialized views first
+            upstream_dag = await database_sync_to_async(get_upstream_dag)(team_id, model.label)
+            upstream_nodes = [
+                node
+                for node in upstream_dag["nodes"]
+                if node["type"] == "view" and node["id"] != model.label and node["sync_frequency"]
+            ]
+
+            i = 0
+            for upstream_node in upstream_nodes:
+                upstream_saved_query = await get_saved_query(team, upstream_node["id"])
+                saved_query.progress = (
+                    f"Updating upstream {i + 1} view of {len(upstream_nodes)}: {upstream_saved_query.name}..."
+                )
+                await database_sync_to_async(lambda: saved_query.save())()
+                await materialize_model(upstream_node["id"], team, upstream_saved_query, job)
+                i += 1
+
+            # Update progress for current node
+            saved_query.progress = f"Updating current view..."
+            await database_sync_to_async(saved_query.save)()
 
             key, delta_table, _ = await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:

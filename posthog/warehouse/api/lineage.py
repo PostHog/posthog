@@ -115,3 +115,73 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         dag["edges"].append(edge)
 
         return Response(dag)
+
+
+def get_upstream_dag(team_id, model_id):
+    query = Q(team_id=team_id, saved_query_id=model_id)
+    paths = DataWarehouseModelPath.objects.filter(query)
+
+    dag = {"nodes": [], "edges": []}
+    seen_nodes = set()
+    uuid_nodes = set()
+
+    def join_components_greedily(components):
+        new_components = []
+        current_group = []
+        for component in components:
+            try:
+                uuid.UUID(component)
+                if current_group:
+                    new_components.append(".".join(current_group))
+                    current_group = []
+                new_components.append(component)
+            except ValueError:
+                current_group.append(component)
+        if current_group:
+            new_components.append(".".join(current_group))
+        return new_components
+
+    for path in paths:
+        components = path.path if isinstance(path.path, list) else path.path.split(".")
+        components = join_components_greedily(components)
+        for component in components:
+            try:
+                component_uuid = uuid.UUID(component)
+                uuid_nodes.add(component_uuid)
+            except ValueError:
+                continue
+
+    saved_queries = {str(q.id): q for q in DataWarehouseSavedQuery.objects.filter(id__in=uuid_nodes)}
+
+    for path in paths:
+        components = path.path if isinstance(path.path, list) else path.path.split(".")
+        components = join_components_greedily(components)
+        for i, component in enumerate(components):
+            node_id = component
+            if node_id not in seen_nodes:
+                seen_nodes.add(node_id)
+                node_uuid = None
+                saved_query = None
+                try:
+                    node_uuid = uuid.UUID(component)
+                    saved_query = saved_queries.get(str(node_uuid))
+                    name = saved_query.name if saved_query else component
+                except ValueError:
+                    name = component
+                dag["nodes"].append(
+                    {
+                        "id": node_id,
+                        "type": "view" if node_uuid else "table",
+                        "name": name,
+                        "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
+                        "last_run_at": saved_query.last_run_at if saved_query else None,
+                        "status": saved_query.status if saved_query else None,
+                    }
+                )
+            if i > 0:
+                source = components[i - 1]
+                target = component
+                edge = {"source": source, "target": target}
+                if edge not in dag["edges"]:
+                    dag["edges"].append(edge)
+    return dag

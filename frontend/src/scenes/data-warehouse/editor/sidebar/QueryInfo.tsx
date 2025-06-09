@@ -1,4 +1,4 @@
-import { IconBolt, IconLightBulb, IconRevert, IconX } from '@posthog/icons'
+import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -117,10 +117,11 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 )}
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
+                                        tooltip={savedQuery?.status === 'Running' ? savedQuery?.progress : undefined}
                                         className="whitespace-nowrap"
                                         loading={savedQuery?.status === 'Running'}
                                         disabledReason={
-                                            savedQuery?.status === 'Running' && 'Materialization is already running'
+                                            savedQuery?.status === 'Running' ? savedQuery?.progress : undefined
                                         }
                                         onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
                                         type="secondary"
@@ -415,16 +416,11 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     key: 'name',
                                     title: 'Name',
-                                    render: (_, { name, last_run_at }) => (
+                                    render: (_, { name }) => (
                                         <div className="flex items-center gap-1">
                                             {name === editingView?.name && (
                                                 <Tooltip placement="right" title="This is the currently viewed query">
-                                                    <IconLightBulb className="text-warning" />
-                                                </Tooltip>
-                                            )}
-                                            {last_run_at && (
-                                                <Tooltip placement="right" title="This view is materialized">
-                                                    <IconBolt className="text-warning" />
+                                                    <IconTarget className="text-warning" />
                                                 </Tooltip>
                                             )}
                                             {name}
@@ -489,7 +485,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     },
                                 },
                             ]}
-                            dataSource={upstream.nodes}
+                            // Sort by distance from current view
+                            dataSource={upstream.nodes.sort((a, b) => {
+                                const aDistance = upstream.edges.filter((e) => e.target === a.id).length
+                                const bDistance = upstream.edges.filter((e) => e.target === b.id).length
+                                return aDistance - bDistance
+                            })}
                         />
                     </>
                 )}

@@ -72,6 +72,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
+    progress = models.CharField(max_length=255, null=True, blank=True)
 
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     # The name of the view at the time of soft deletion
