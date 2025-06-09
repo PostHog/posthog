@@ -61,15 +61,15 @@ function FullScreen(): JSX.Element {
 }
 
 function AnnotateRecording(): JSX.Element {
-    const { setIsAnnotating } = useActions(sessionRecordingPlayerLogic)
-    const { isAnnotating } = useValues(sessionRecordingPlayerLogic)
+    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
+    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <LemonButton
             size="xsmall"
-            onClick={() => setIsAnnotating(!isAnnotating)}
+            onClick={() => setIsCommenting(!isCommenting)}
             tooltip={
-                isAnnotating ? (
+                isCommenting ? (
                     <>
                         Stop commenting <KeyboardShortcut c />
                     </>
@@ -79,8 +79,8 @@ function AnnotateRecording(): JSX.Element {
                     </>
                 )
             }
-            data-attr={isAnnotating ? 'stop-annotating-recording' : 'annotate-recording'}
-            active={isAnnotating}
+            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
+            active={isCommenting}
             icon={<IconComment className="text-xl" />}
         >
             Comment

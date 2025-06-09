@@ -104,10 +104,11 @@ export const MiniFilters: SharedListMiniFilter[] = [
             'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
     },
     {
-        type: FilterableInspectorListItemTypes.ANNOTATIONS,
-        key: 'comments',
+        type: FilterableInspectorListItemTypes.COMMENT,
+        key: 'comment',
         name: 'Comments',
-        tooltip: 'Comments made on the session, or project and org level annotations that are within this session.',
+        tooltip:
+            'Comments can be made using annotations or notebooks. Includes project and org level annotations that are within this session.',
     },
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
@@ -121,7 +122,7 @@ const defaultMinifilters = [
     'console-info',
     'console-warn',
     'console-error',
-    'comments',
+    'comment',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([

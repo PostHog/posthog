@@ -1151,8 +1151,8 @@ export enum FilterableInspectorListItemTypes {
     CONSOLE = 'console',
     NETWORK = 'network',
     // we have comments in notebooks,
-    // and annotations outside of them
-    ANNOTATIONS = 'annotations',
+    // and annotations outside them
+    COMMENT = 'comment',
     DOCTOR = 'doctor',
 }
 

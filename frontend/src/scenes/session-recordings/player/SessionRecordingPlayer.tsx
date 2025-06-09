@@ -3,6 +3,7 @@ import './SessionRecordingPlayer.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -11,6 +12,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/PlayerFrameCommentOverlay'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -31,8 +33,6 @@ import {
     SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
-import { PlayerFrameAnnotationOverlay } from 'scenes/session-recordings/player/PlayerFrameAnnotationOverlay'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -92,8 +92,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isAnnotating } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted, setIsAnnotating } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, isCommenting } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
 
@@ -129,7 +129,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 action: () => setIsFullScreen(!isFullScreen),
             },
             c: {
-                action: () => setIsAnnotating(!isAnnotating),
+                action: () => setIsCommenting(!isCommenting),
             },
             space: {
                 action: () => togglePlayPause(),
@@ -261,8 +261,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                 <PlayerFrame />
                                                 <PlayerFrameOverlay />
                                                 <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                                                <PlayerFrameAnnotationOverlay />
-                                                    </FlaggedFeature>
+                                                    <PlayerFrameCommentOverlay />
+                                                </FlaggedFeature>
                                             </div>
                                             <PlayerController />
                                         </div>

@@ -8,23 +8,23 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { AnnotationScope } from '~/types'
 
-import { playerAnnotationOverlayLogic } from './playerFrameAnnotationOverlayLogic'
+import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 
-const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
+const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const {
-        isAnnotating,
+        isCommenting,
         sessionPlayerData: { sessionRecordingId },
         logicProps,
     } = useValues(sessionRecordingPlayerLogic)
     const { submitRecordingAnnotation } = useActions(
-        playerAnnotationOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
+        playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     )
 
-    return isAnnotating ? (
+    return isCommenting ? (
         <div className="absolute bottom-4 left-4 z-20 w-60">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
-                    logic={playerAnnotationOverlayLogic}
+                    logic={playerCommentOverlayLogic}
                     formKey="recordingAnnotation"
                     id="recording-annotation-form"
                     enableFormOnSubmit
@@ -78,7 +78,7 @@ const PlayerFrameAnnotationOverlayContent = (): JSX.Element | null => {
     ) : null
 }
 
-export function PlayerFrameAnnotationOverlay(): JSX.Element {
-    const { isAnnotating } = useValues(sessionRecordingPlayerLogic)
-    return <div className="absolute inset-0 z-11">{isAnnotating ? <PlayerFrameAnnotationOverlayContent /> : null}</div>
+export function PlayerFrameCommentOverlay(): JSX.Element | null {
+    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+    return isCommenting ? <PlayerFrameCommentOverlayContent /> : null
 }

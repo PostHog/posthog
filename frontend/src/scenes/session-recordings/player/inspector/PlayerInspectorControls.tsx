@@ -16,11 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
-import {
-    MiniFilters,
-    miniFiltersLogic,
-    SharedListMiniFilter,
-} from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     InspectorListItem,
     playerInspectorLogic,
@@ -95,34 +91,32 @@ function FilterSettingsButton({
     type,
     icon,
     disabledReason,
-    hasFilterableItems,
     upsellSideAction,
 }: {
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
-    hasFilterableItems?: boolean
     upsellSideAction?: SideAction
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByMiniFilterKey } = useValues(playerInspectorLogic(logicProps))
+    const { allItemsByMiniFilterKey, allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { miniFiltersForType } = useValues(miniFiltersLogic)
     const { setMiniFilter, setMiniFilters } = useActions(miniFiltersLogic)
 
-    const networkFilters = miniFiltersForType(type)?.filter((x) => x.name !== 'All')
-    const filterKeys = networkFilters.map((x) => x.key)
-    const isEnabled = networkFilters.some((x) => !!x.enabled)
+    const filteredMiniFiltersForType = miniFiltersForType(type)?.filter((x) => x.name !== 'All')
+    const filterKeys = filteredMiniFiltersForType.map((x) => x.key)
+    const isEnabled = filteredMiniFiltersForType.some((x) => !!x.enabled)
 
     return (
         <SettingsButton
             sideAction={
                 upsellSideAction
                     ? upsellSideAction
-                    : hasFilterableItems
+                    : allItemsByItemType[type]?.length > 1
                     ? sideActionForType({
                           setMiniFilter,
                           allItemsByMiniFilterKey,
-                          miniFilters: networkFilters,
+                          miniFilters: filteredMiniFiltersForType,
                       })
                     : undefined
             }
@@ -132,7 +126,7 @@ function FilterSettingsButton({
                 setMiniFilters(filterKeys, !isEnabled)
             }}
             disabledReason={disabledReason}
-            active={!hasFilterableItems ? false : isEnabled}
+            active={isEnabled}
         />
     )
 }
@@ -152,7 +146,6 @@ function NetworkFilterSettingsButton(): JSX.Element {
             icon={<IconDashboard />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
-            hasFilterableItems={hasNetworkItems}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
                 !hasNetworkItems && !currentTeam?.capture_performance_opt_in
@@ -200,7 +193,6 @@ function ConsoleFilterSettingsButton(): JSX.Element {
             icon={<IconTerminal />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
-            hasFilterableItems={hasConsoleItems}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
                 !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
@@ -246,7 +238,24 @@ function EventsFilterSettingsButton(): JSX.Element {
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}
-            hasFilterableItems={hasEventItems}
+            // there is no event upsell currently
+            upsellSideAction={undefined}
+        />
+    )
+}
+
+function CommentsFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
+
+    const hasCommentItems = allItemsByItemType[FilterableInspectorListItemTypes.COMMENT]?.length > 0
+
+    return (
+        <FilterSettingsButton
+            data-attr="player-inspector-comments-toggle"
+            type={FilterableInspectorListItemTypes.COMMENT}
+            icon={<IconComment />}
+            disabledReason={!hasCommentItems ? 'There are no comments in this recording' : undefined}
             // there is no event upsell currently
             upsellSideAction={undefined}
         />
@@ -277,6 +286,8 @@ export function PlayerInspectorControls(): JSX.Element {
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
+                {featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE] &&
+                    mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle
@@ -286,17 +297,6 @@ export function PlayerInspectorControls(): JSX.Element {
                             label="Doctor"
                             active={!!miniFiltersByKey['doctor']?.enabled}
                             onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
-                        />
-                    )}
-                {featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE] &&
-                    mode !== SessionRecordingPlayerMode.Sharing && (
-                        <SettingsToggle
-                            data-attr="player-inspector-comments-toggle"
-                            title={MiniFilters.find((x) => x.key === 'comment')?.tooltip}
-                            icon={<IconComment />}
-                            label="Comments"
-                            active={!!miniFiltersByKey['comments']?.enabled}
-                            onClick={() => setMiniFilter('commnts', !miniFiltersByKey['comments']?.enabled)}
                         />
                     )}
                 <LemonButton

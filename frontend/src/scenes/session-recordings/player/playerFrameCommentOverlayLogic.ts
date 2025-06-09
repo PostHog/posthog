@@ -4,11 +4,11 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { colonDelimitedDuration } from 'lib/utils'
+import { playerCommentOverlayLogicType } from 'scenes/session-recordings/player/playerFrameCommentOverlayLogicType'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope } from '~/types'
 
-import type { playerAnnotationOverlayLogicType } from './playerFrameAnnotationOverlayLogicType'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 
 export interface RecordingAnnotationForm {
@@ -24,14 +24,14 @@ export interface RecordingAnnotationForm {
     recordingId: number | null
 }
 
-export interface PlayerAnnotationOverlayLogicProps extends SessionRecordingPlayerLogicProps {
+export interface PlayerCommentOverlayLogicProps extends SessionRecordingPlayerLogicProps {
     recordingId: string
 }
 
-export const playerAnnotationOverlayLogic = kea<playerAnnotationOverlayLogicType>([
+export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     path(['scenes', 'session-recordings', 'player', 'PlayerFrameAnnotationOverlay']),
-    props({} as PlayerAnnotationOverlayLogicProps),
-    connect((props: PlayerAnnotationOverlayLogicProps) => ({
+    props({} as PlayerCommentOverlayLogicProps),
+    connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
         actions: [annotationsModel, ['appendAnnotations', 'replaceAnnotation']],
     })),

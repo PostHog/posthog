@@ -35,7 +35,6 @@ import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/p
 import { IconWindow } from '../../icons'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
-import { ItemAnnotation, ItemAnnotationDetail } from './ItemAnnotation'
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
@@ -107,7 +106,7 @@ export function eventToIcon(event: string | undefined | null) {
         return IconLogomark
     }
 
-    // technically we should have the select all icon for "All events" completeness,
+    // technically, we should have the select all icon for "All events" completeness,
     // but we never actually display it, and it messes up the type signatures for the icons
     if (event === null) {
         return BaseIcon
@@ -151,8 +150,6 @@ function RowItemTitle({
                 <ItemSummary item={item} />
             ) : item.type === 'inactivity' ? (
                 <ItemInactivity item={item} />
-            ) : item.type === 'annotations' ? (
-                <ItemAnnotation item={item} />
             ) : null}
         </div>
     )
@@ -180,8 +177,6 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
-            ) : item.type === 'annotations' ? (
-                <ItemAnnotationDetail item={item} />
             ) : null}
         </div>
     )

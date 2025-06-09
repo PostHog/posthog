@@ -34,7 +34,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
-            "recording",
+            "recording_id",
         ]
         read_only_fields = [
             "id",
