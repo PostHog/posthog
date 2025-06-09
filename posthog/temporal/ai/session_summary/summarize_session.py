@@ -56,13 +56,11 @@ def _get_input_data_from_redis(redis_client: Redis, redis_input_key: str) -> tup
         raise ValueError(
             f"Input data not found in Redis for key {redis_input_key} when generating single session summary"
         )
-    if not isinstance(raw_redis_data, str):
-        raise ValueError(
-            f"Input data is not a string in Redis for key {redis_input_key} when generating single session summary, but {type(raw_redis_data)}: {raw_redis_data}"
-        )
     try:
-        redis_data = json.loads(raw_redis_data)
-    except json.JSONDecodeError as e:
+        # Expecting both bytes and string (based on the client's configuration)
+        redis_data_str = raw_redis_data.decode("utf-8") if isinstance(raw_redis_data, bytes) else raw_redis_data
+        redis_data = json.loads(redis_data_str)
+    except Exception as e:
         raise ValueError(f"Failed to parse input data ({raw_redis_data}): {e}")
     redis_output_key = redis_data.get("output_key")
     if not redis_output_key:
@@ -247,10 +245,11 @@ def execute_summarize_session(
         if not redis_data_raw:
             continue
         try:
-            redis_data = json.loads(redis_data_raw)
-        except json.JSONDecodeError:
+            redis_data_str = redis_data_raw.decode("utf-8") if isinstance(redis_data_raw, bytes) else redis_data_raw
+            redis_data = json.loads(redis_data_str)
+        except Exception as e:
             raise ValueError(
-                f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary"
+                f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
             )
         last_summary_state = redis_data.get("last_summary_state")
         if not isinstance(last_summary_state, str):
