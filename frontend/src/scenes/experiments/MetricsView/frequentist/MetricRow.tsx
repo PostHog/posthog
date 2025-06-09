@@ -3,10 +3,10 @@ import { ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
-import { COLORS } from '../colors'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { MetricHeader } from '../MetricHeader'
 import { getNiceTickValues } from '../utils'
+import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { VariantBar } from './VariantBar'
 
 export function MetricRow({
@@ -24,8 +24,6 @@ export function MetricRow({
     metricType: InsightType
     isSecondary: boolean
 }): JSX.Element {
-    const colors = COLORS
-
     // Extract all confidence intervals from this result to calculate bounds
     const variants = result?.variant_results || []
     const maxAbsValue = Math.max(
@@ -43,14 +41,8 @@ export function MetricRow({
     // Generate tick values
     const tickValues = getNiceTickValues(chartRadius)
 
-    // Chart constants
-    const viewBoxWidth = 800
-    const svgEdgeMargin = 20
-    const barHeight = 16
-    const barSpacing = 12
-
     // Calculate chart height with symmetric padding
-    const chartHeight = barSpacing + (barHeight + barSpacing) * variants.length
+    const chartHeight = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variants.length
 
     const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
     const metricTitlePanelHeight = Math.max(chartSvgHeight, 60)
@@ -86,7 +78,7 @@ export function MetricRow({
                         <div className="flex justify-center">
                             <svg
                                 ref={chartSvgRef}
-                                viewBox={`0 0 ${viewBoxWidth} ${chartHeight}`}
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                                 preserveAspectRatio="xMidYMid meet"
                                 className="ml-12 max-w-[1000px]"
                             >
@@ -97,11 +89,6 @@ export function MetricRow({
                                         variant={variant}
                                         index={index}
                                         chartRadius={chartRadius}
-                                        viewBoxWidth={viewBoxWidth}
-                                        svgEdgeMargin={svgEdgeMargin}
-                                        barHeight={barHeight}
-                                        barPadding={barSpacing}
-                                        colors={colors}
                                         metricIndex={metricIndex}
                                         isSecondary={isSecondary}
                                     />

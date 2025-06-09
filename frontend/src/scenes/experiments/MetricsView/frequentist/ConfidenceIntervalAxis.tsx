@@ -1,6 +1,7 @@
 import { COLORS } from '../colors'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
-import { valueToXCoordinate, getNiceTickValues, formatTickValue } from '../utils'
+import { formatTickValue, getNiceTickValues, valueToXCoordinate } from '../utils'
+import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
 
 /**
  * ConfidenceIntervalAxis renders the horizontal axis for experiment confidence interval charts, rendered at the top of the metrics results view.
@@ -36,14 +37,7 @@ export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Ele
     // Generate appropriate tick values
     const tickValues = getNiceTickValues(chartBound)
 
-    // Chart constants
-    const viewBoxWidth = 800
-    const horizontalPadding = 20
-    const tickPanelHeight = 20
-    const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
-
-    const TICK_FONT_SIZE = 9
-    const colors = COLORS
+    const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartBound])
     return (
@@ -60,11 +54,11 @@ export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Ele
                 <div className="flex justify-center">
                     <svg
                         ref={ticksSvgRef}
-                        viewBox={`0 0 ${viewBoxWidth} ${tickPanelHeight}`}
+                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                         preserveAspectRatio="xMidYMid meet"
                         className="ml-12 max-w-[1000px]"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ minHeight: `${tickPanelHeight}px` }}
+                        style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
                     >
                         {tickValues.map((value) => {
                             const x = valueToX(value)
@@ -72,11 +66,11 @@ export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Ele
                                 <g key={value}>
                                     <text
                                         x={x}
-                                        y={tickPanelHeight / 2}
+                                        y={TICK_PANEL_HEIGHT / 2}
                                         textAnchor="middle"
                                         dominantBaseline="middle"
                                         fontSize={TICK_FONT_SIZE}
-                                        fill={colors.TICK_TEXT_COLOR}
+                                        fill={COLORS.TICK_TEXT_COLOR}
                                         fontWeight="600"
                                     >
                                         {formatTickValue(value)}

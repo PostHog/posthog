@@ -1,25 +1,17 @@
+import { useChartColors } from '../colors'
 import { valueToXCoordinate } from '../utils'
+import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
 export function VariantBar({
     variant,
     index,
     chartRadius,
-    viewBoxWidth,
-    svgEdgeMargin,
-    barHeight,
-    barPadding,
-    colors,
     metricIndex,
     isSecondary,
 }: {
     variant: any
     index: number
     chartRadius: number
-    viewBoxWidth: number
-    svgEdgeMargin: number
-    barHeight: number
-    barPadding: number
-    colors: any
     metricIndex: number
     isSecondary: boolean
 }): JSX.Element {
@@ -33,6 +25,15 @@ export function VariantBar({
 
     // Basic data check - assume we have enough data if confidence interval exists
     const hasEnoughData = !!interval
+
+    // Use constants instead of props
+    const viewBoxWidth = VIEW_BOX_WIDTH
+    const svgEdgeMargin = SVG_EDGE_MARGIN
+    const barHeight = BAR_HEIGHT
+    const barPadding = BAR_SPACING
+
+    // Colors
+    const colors = useChartColors()
 
     // Calculate positioning
     const y = barPadding + (barHeight + barPadding) * index

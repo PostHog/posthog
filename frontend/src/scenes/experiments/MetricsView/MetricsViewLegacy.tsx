@@ -9,7 +9,6 @@ import { credibleIntervalForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { MetricResultsBayesian } from './bayesian/MetricResultsBayesian'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
-import { MetricResultsFrequentist } from './frequentist/MetricResultsFrequentist'
 import { getNiceTickValues } from './utils'
 
 function AddPrimaryMetric(): JSX.Element {
@@ -57,13 +56,14 @@ export function AddSecondaryMetric(): JSX.Element {
     )
 }
 
-export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
         getInsightType,
         legacyMetricResults,
         metricResults,
         legacySecondaryMetricResults,
+        secondaryMetricResultsNew,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
         statsMethod,
@@ -73,7 +73,16 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     if (!variants) {
         return <></>
     }
-    const results = isSecondary ? legacySecondaryMetricResults : legacyMetricResults
+
+    const results =
+        statsMethod === ExperimentStatsMethod.Frequentist
+            ? isSecondary
+                ? secondaryMetricResultsNew
+                : metricResults
+            : isSecondary
+            ? legacySecondaryMetricResults
+            : legacyMetricResults
+
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
 
@@ -190,25 +199,16 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                 </div>
             </div>
             {metrics.length > 0 ? (
-                statsMethod === ExperimentStatsMethod.Frequentist ? (
-                    <MetricResultsFrequentist
-                        results={metricResults}
-                        metrics={metrics}
-                        metricType={getInsightType(metrics[0])}
-                        isSecondary={!!isSecondary}
-                    />
-                ) : (
-                    <MetricResultsBayesian
-                        metrics={metrics}
-                        results={results}
-                        errors={errors}
-                        variants={variants}
-                        metricType={getInsightType(metrics[0])}
-                        isSecondary={!!isSecondary}
-                        commonTickValues={commonTickValues}
-                        chartBound={chartBound}
-                    />
-                )
+                <MetricResultsBayesian
+                    metrics={metrics}
+                    results={results}
+                    errors={errors}
+                    variants={variants}
+                    metricType={getInsightType(metrics[0])}
+                    isSecondary={!!isSecondary}
+                    commonTickValues={commonTickValues}
+                    chartBound={chartBound}
+                />
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
