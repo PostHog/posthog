@@ -12719,7 +12719,7 @@
             "additionalProperties": false,
             "properties": {
                 "attributes": {
-                    "type": "string"
+                    "type": "object"
                 },
                 "body": {
                     "type": "string"
