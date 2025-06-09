@@ -15,12 +15,13 @@ from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
     prepare_data_for_single_session_summary,
 )
+from posthog.temporal.common.codec import EncryptionCodec
+from temporalio.api.common.v1 import Payload
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from temporalio.client import Client as TemporalClient, WorkflowHandle, WorkflowExecutionDescription
-from temporalio.activity import info as workflow_info
 
 
 async def _connect_to_temporal_client() -> TemporalClient:
@@ -62,14 +63,19 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
         session_start_time_str=inputs.session_start_time_str,
         session_duration=inputs.session_duration,
     )
-    info = workflow_info()
-    client = await _connect_to_temporal_client()
-    handle = client.get_workflow_handle(workflow_id=info.workflow_id, run_id=info.workflow_run_id)
+
+    # info = workflow_info()
+    # client = await _connect_to_temporal_client()
+    # handle = client.get_workflow_handle(workflow_id=info.workflow_id, run_id=info.workflow_run_id)
+
     # Iterate the async generator, store chunks, and return the combined result
     async for state in session_summary_generator:
         latest_summary_state = state
-        # Send update to workflow instead of heartbeat
-        await handle.execute_update(SummarizeSessionWorkflow.update_latest_summary_state, latest_summary_state)
+        temporalio.activity.heartbeat({"latest_summary_state": latest_summary_state})
+
+        # # Send update to workflow instead of heartbeat
+        # await handle.execute_update(SummarizeSessionWorkflow.update_latest_summary_state, latest_summary_state)
+
     return latest_summary_state
 
 
@@ -83,10 +89,10 @@ class SummarizeSessionWorkflow(PostHogWorkflow):
         """Query to get the current accumulated summary."""
         return self.summary_state
 
-    @temporalio.workflow.update
-    async def update_latest_summary_state(self, latest_summary_state: str) -> None:
-        """Update handler to set current accumulated summary as the latest summary state"""
-        self.summary_state = latest_summary_state
+    # @temporalio.workflow.update
+    # async def update_latest_summary_state(self, latest_summary_state: str) -> None:
+    #     """Update handler to set current accumulated summary as the latest summary state"""
+    #     self.summary_state = latest_summary_state
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionSummaryInputs:
@@ -177,19 +183,55 @@ def execute_summarize_session(
     str_inputs = [json.dumps(dataclasses.asdict(inputs))]
     # Start streaming the workflow
     handle = asyncio.run(_start_workflow(str_inputs=str_inputs, workflow_id=random_id))
-    last_summary = ""
+
+    # last_summary = ""
+
     while True:
-        # Query the workflow for the current summary
-        current_summary, desc = asyncio.run(_query_workflow_state(handle))
-        # Yield only if there's new content
-        if current_summary != last_summary:
-            yield current_summary
-            last_summary = current_summary
-        # Check if workflow is complete
+        desc = asyncio.run(handle.describe())
+        # Access heartbeat details from activity
+        if not desc.raw_description.pending_activities:
+            continue
+        for activity in desc.raw_description.pending_activities:
+            if not activity.heartbeat_details:
+                continue
+            heartbeat_payloads = activity.heartbeat_details.payloads
+            for payload in heartbeat_payloads:
+                # Decode payloads
+                decrypted_payload = Payload.FromString(EncryptionCodec(settings).decrypt(payload.data))
+                # Get chunk
+                data = decrypted_payload.data
+                json_data = json.loads(data)
+                latest_summary_state = json_data.get("latest_summary_state")
+                if not latest_summary_state:
+                    continue
+                # Yield latest summary state
+                yield latest_summary_state
         if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
             break
-        # Small delay between queries to let new chunks come in
-        time.sleep(0.1)
+        # Wait till next heartbeat
+        time.sleep(0.25)
+
+    # Get the final result after workflow completes
+    if desc.status.name == "COMPLETED":
+        try:
+            final_result = asyncio.run(handle.result())
+            yield final_result
+        except Exception:
+            # Handle any errors in getting the result
+            pass
+
+    # while True:
+    #     # Query the workflow for the current summary
+    #     current_summary, desc = asyncio.run(_query_workflow_state(handle))
+    #     # Yield only if there's new content
+    #     if current_summary != last_summary:
+    #         yield current_summary
+    #         last_summary = current_summary
+    #     # Check if workflow is complete
+    #     if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+    #         break
+    #     # Small delay between queries to let new chunks come in
+    #     time.sleep(0.1)
 
 
 def stream_recording_summary(
