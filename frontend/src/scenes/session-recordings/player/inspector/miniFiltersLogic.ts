@@ -2,9 +2,8 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FilterableInspectorListItemTypes } from '~/types'
-
 import type { miniFiltersLogicType } from './miniFiltersLogicType'
+import { FilterableInspectorListItemTypes } from './playerInspectorLogic'
 
 export type SharedListMiniFilter = {
     type: FilterableInspectorListItemTypes
@@ -61,37 +60,37 @@ export const MiniFilters: SharedListMiniFilter[] = [
         name: 'Error',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-fetch',
         name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-document',
         name: 'Doc',
         tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-assets-js',
         name: 'JS',
         tooltip: 'Scripts loaded during the session.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-assets-css',
         name: 'CSS',
         tooltip: 'CSS loaded during the session.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-assets-img',
         name: 'Img',
         tooltip: 'Images loaded during the session.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
@@ -104,7 +103,7 @@ export const MiniFilters: SharedListMiniFilter[] = [
             'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
     },
     {
-        type: FilterableInspectorListItemTypes.COMMENT,
+        type: 'comment',
         key: 'comment',
         name: 'Comments',
         tooltip:

@@ -8,8 +8,6 @@ import {
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { FilterableInspectorListItemTypes } from '~/types'
-
 const PostHogMobileEvents = [
     'Deep Link Opened',
     'Application Opened',
@@ -154,10 +152,10 @@ export function itemToMiniFilter(
             return eventsMatch(item, miniFiltersByKey)
         case 'console':
             return consoleMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.NETWORK:
+        case 'network':
             return networkMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.COMMENT:
-            return item.type === 'comment' ? miniFiltersByKey[FilterableInspectorListItemTypes.COMMENT] : null
+        case 'comment':
+            return item.type === 'comment' ? miniFiltersByKey['comment'] : null
         case 'doctor':
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']

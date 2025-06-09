@@ -29,7 +29,6 @@ import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { FilterableInspectorListItemTypes } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
@@ -50,7 +49,7 @@ const typeToIconAndDescription = {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
-    [FilterableInspectorListItemTypes.NETWORK]: {
+    ['network']: {
         Icon: IconDashboard,
         tooltip: 'Network event',
     },
@@ -128,7 +127,7 @@ function RowItemTitle({
 }): JSX.Element {
     return (
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
-            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
+            {item.type === 'network' ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLog item={item} />
@@ -166,7 +165,7 @@ function RowItemDetail({
 }): JSX.Element | null {
     return (
         <div onClick={onClick}>
-            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
+            {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLogDetail item={item} />

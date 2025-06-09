@@ -9,7 +9,7 @@ import {
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { FilterableInspectorListItemTypes, PerformanceEvent } from '~/types'
+import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
     it('hides context events when no other events', () => {
@@ -181,7 +181,7 @@ describe('filtering inspector list items', () => {
                         highlightColor: 'primary',
                     } as unknown as InspectorListItemEvent,
                     {
-                        type: FilterableInspectorListItemTypes.NETWORK,
+                        type: 'network',
                         data: { event: '$pageview' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemPerformance,
                     {

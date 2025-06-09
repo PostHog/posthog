@@ -30,7 +30,6 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AnnotationType,
-    FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
     PerformanceEvent,
     RecordingConsoleLogV2,
@@ -73,7 +72,14 @@ export type RecordingComment = {
 }
 
 const _filterableItemTypes = ['events', 'console', 'network', 'comment', 'doctor'] as const
-const _itemTypes = [..._filterableItemTypes, 'performance', 'offline-status', 'browser-visibility'] as const
+const _itemTypes = [
+    ..._filterableItemTypes,
+    'performance',
+    'offline-status',
+    'browser-visibility',
+    'inactivity',
+    'inspector-summary',
+] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
 export type FilterableInspectorListItemTypes = (typeof _filterableItemTypes)[number]
@@ -712,7 +718,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
-                        type: FilterableInspectorListItemTypes.NETWORK,
+                        type: 'network',
                         timestamp,
                         timeInRecording,
                         search: event.name || '',
@@ -871,11 +877,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
                     miniFiltersByKey: Object.entries(miniFiltersByKey).reduce((acc, [key, value]) => {
-                        if (
-                            ['events', FilterableInspectorListItemTypes.COMMENT].includes(
-                                key as FilterableInspectorListItemTypes
-                            )
-                        ) {
+                        if (['events', 'comment'].includes(key as FilterableInspectorListItemTypes)) {
                             acc[key] = value
                         }
                         return acc
@@ -970,8 +972,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return {
                     ['events']: dataForEventsState,
                     ['console']: dataForConsoleState,
-                    [FilterableInspectorListItemTypes.NETWORK]: dataForNetworkState,
-                    [FilterableInspectorListItemTypes.COMMENT]: dataForCommentState,
+                    ['network']: dataForNetworkState,
+                    ['comment']: dataForCommentState,
                     ['doctor']: dataForDoctorState,
                 }
             },
@@ -1063,21 +1065,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]> = {
                     ['events']: [],
                     ['console']: [],
-                    [FilterableInspectorListItemTypes.NETWORK]: [],
+                    ['network']: [],
                     ['doctor']: [],
-                    [FilterableInspectorListItemTypes.COMMENT]: [],
+                    ['comment']: [],
                     context: [],
                 }
 
                 for (const item of allItems) {
                     itemsByType[
-                        [
-                            'events',
-                            'console',
-                            FilterableInspectorListItemTypes.NETWORK,
-                            'doctor',
-                            FilterableInspectorListItemTypes.COMMENT,
-                        ].includes(item.type as FilterableInspectorListItemTypes)
+                        ['events', 'console', 'network', 'doctor', 'comment'].includes(
+                            item.type as FilterableInspectorListItemTypes
+                        )
                             ? (item.type as FilterableInspectorListItemTypes | 'context')
                             : 'context'
                     ].push(item)

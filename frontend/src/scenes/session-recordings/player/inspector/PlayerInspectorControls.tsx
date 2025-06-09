@@ -137,12 +137,12 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const hasNetworkItems = allItemsByItemType[FilterableInspectorListItemTypes.NETWORK]?.length > 0
+    const hasNetworkItems = allItemsByItemType['network']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-network-toggle-all"
-            type={FilterableInspectorListItemTypes.NETWORK}
+            type="network"
             icon={<IconDashboard />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
@@ -248,12 +248,12 @@ function CommentsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
 
-    const hasCommentItems = allItemsByItemType[FilterableInspectorListItemTypes.COMMENT]?.length > 0
+    const hasCommentItems = allItemsByItemType['comment']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-comments-toggle"
-            type={FilterableInspectorListItemTypes.COMMENT}
+            type="comment"
             icon={<IconComment />}
             disabledReason={!hasCommentItems ? 'There are no comments in this recording' : undefined}
             // there is no event upsell currently
