@@ -59,8 +59,8 @@ export type HogFlow = {
         // Maybe v1?
         on_error: 'continue' | 'abort' | 'complete' | 'branch'
 
-        created: number
-        updated: Date
+        created_at: number
+        updated_at: number
         position: number
     }[]
 
