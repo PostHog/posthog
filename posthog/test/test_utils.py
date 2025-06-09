@@ -1,7 +1,7 @@
 import base64
 from datetime import datetime
 import json
-from unittest.mock import patch
+from unittest.mock import patch, call
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -304,8 +304,8 @@ class TestLoadDataFromRequest(TestCase):
         post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
         return post_request
 
-    @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_scope):
+    @patch("posthoganalytics.tag")
+    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
 
@@ -314,10 +314,17 @@ class TestLoadDataFromRequest(TestCase):
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_scope.assert_called_once()
+        patched_tag.assert_called_once()
+        patched_tag.assert_has_calls(
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library.version", "1.20.0"),
+            ]
+        )
 
-    @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_scope):
+    @patch("posthoganalytics.tag")
+    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
 
@@ -326,17 +333,31 @@ class TestLoadDataFromRequest(TestCase):
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_scope.assert_called_once()
+        patched_tag.assert_called_once()
+        patched_tag.assert_has_calls(
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library.version", "1.20.0"),
+            ]
+        )
 
-    @patch("posthog.utils.configure_scope")
-    def test_still_tags_sentry_scope_even_when_debug_signal_is_not_available(self, patched_scope):
+    @patch("posthoganalytics.tag")
+    def test_still_tags_sentry_scope_even_when_debug_signal_is_not_available(self, patched_tag):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_scope.assert_called_once()
+        patched_tag.assert_called_once()
+        patched_tag.assert_has_calls(
+            [
+                call("origin", "unknown"),
+                call("referer", "unknown"),
+                call("library.version", "unknown"),
+            ]
+        )
 
     def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
         """

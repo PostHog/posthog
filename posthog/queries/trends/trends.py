@@ -1,5 +1,6 @@
 import copy
 import threading
+import posthoganalytics
 from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import Any, Optional, cast
@@ -129,25 +130,29 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> list[dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-        query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
-        query_params = {**params, **adjusted_filter.hogql_context.values}
-        result = insight_sync_execute(
-            sql,
-            query_params,
-            settings={"timeout_before_checking_execution_speed": 60},
-            query_type=query_type,
-            filter=adjusted_filter,
-            team_id=team.pk,
-        )
-        result = parse_function(result)
-        serialized_data = self._format_serialized(entity, result)
-        merged_results, cached_result = self.merge_results(
-            serialized_data,
-            cached_result,
-            entity.order or entity.index,
-            filter,
-            team,
-        )
+        with posthoganalytics.new_context():
+            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
+            posthoganalytics.tag("filter", filter.to_dict())
+            posthoganalytics.tag("team_id", str(team.pk))
+            query_params = {**params, **adjusted_filter.hogql_context.values}
+            posthoganalytics.tag("query", {"sql": sql, "params": query_params})
+            result = insight_sync_execute(
+                sql,
+                query_params,
+                settings={"timeout_before_checking_execution_speed": 60},
+                query_type=query_type,
+                filter=adjusted_filter,
+                team_id=team.pk,
+            )
+            result = parse_function(result)
+            serialized_data = self._format_serialized(entity, result)
+            merged_results, cached_result = self.merge_results(
+                serialized_data,
+                cached_result,
+                entity.order or entity.index,
+                filter,
+                team,
+            )
 
         if cached_result:
             for value in cached_result.values():
@@ -167,7 +172,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         team_id: int,
     ):
         tag_queries(**query_tags)
-        result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("query", {"sql": sql, "params": params})
+            result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> list[dict[str, Any]]:
         result: list[Optional[list[dict[str, Any]]]] = [None] * len(filter.entities)
@@ -206,17 +213,20 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             j.join()
 
         # Parse results for each thread
-        for entity in filter.entities:
-            serialized_data = cast(list[Callable], parse_functions)[entity.index](result[entity.index])
-            serialized_data = self._format_serialized(entity, serialized_data)
-            merged_results, cached_result = self.merge_results(
-                serialized_data,
-                cached_result,
-                entity.order or entity.index,
-                filter,
-                team,
-            )
-            result[entity.index] = merged_results
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("filter", filter.to_dict())
+            posthoganalytics.tag("team_id", str(team.pk))
+            for entity in filter.entities:
+                serialized_data = cast(list[Callable], parse_functions)[entity.index](result[entity.index])
+                serialized_data = self._format_serialized(entity, serialized_data)
+                merged_results, cached_result = self.merge_results(
+                    serialized_data,
+                    cached_result,
+                    entity.order or entity.index,
+                    filter,
+                    team,
+                )
+                result[entity.index] = merged_results
 
         # flatten results
         flat_results: list[dict[str, Any]] = []

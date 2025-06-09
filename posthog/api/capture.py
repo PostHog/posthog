@@ -601,68 +601,72 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
 
     futures: list[FutureRecordMetadata] = []
 
-    for event, event_uuid, distinct_id in processed_events:
-        if f"{token}:{distinct_id}" in get_tokens_to_drop():
-            logger.warning("Dropping event", token=token, distinct_id=distinct_id)
-            continue
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("event.count", len(processed_events))
+        for event, event_uuid, distinct_id in processed_events:
+            if f"{token}:{distinct_id}" in get_tokens_to_drop():
+                logger.warning("Dropping event", token=token, distinct_id=distinct_id)
+                continue
 
-        try:
-            futures.append(
-                capture_internal(
-                    event,
-                    distinct_id,
-                    ip,
-                    site_url,
-                    now,
-                    sent_at,
-                    event_uuid,
-                    token,
-                    historical=historical,
+            try:
+                futures.append(
+                    capture_internal(
+                        event,
+                        distinct_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
+                        historical=historical,
+                    )
                 )
-            )
-        except Exception as exc:
-            capture_exception(exc, {"data": data, "event.count": len(processed_events)})
-            statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
-            logger.exception("kafka_produce_failure", exc_info=exc)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
-                    code="server_error",
-                    type="server_error",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
+            except Exception as exc:
+                capture_exception(exc, {"data": data})
+                statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
+                logger.exception("kafka_produce_failure", exc_info=exc)
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
 
-    start_time = time.monotonic()
-    for future in futures:
-        try:
-            future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
-        except KafkaError as exc:
-            # TODO: distinguish between retriable errors and non-retriable
-            # errors, and set Retry-After header accordingly.
-            # TODO: return 400 error for non-retriable errors that require the
-            # client to change their request.
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("future.count", len(futures))
+        start_time = time.monotonic()
+        for future in futures:
+            try:
+                future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+            except KafkaError as exc:
+                # TODO: distinguish between retriable errors and non-retriable
+                # errors, and set Retry-After header accordingly.
+                # TODO: return 400 error for non-retriable errors that require the
+                # client to change their request.
 
-            logger.exception(
-                "kafka_produce_failure",
-                exc_info=exc,
-                name=exc.__class__.__name__,
-                # data could be large, so we don't always want to include it,
-                # but we do want to include it for some errors to aid debugging
-                data=data if isinstance(exc, MessageSizeTooLargeError) else None,
-            )
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
-                    code="server_error",
-                    type="server_error",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
+                logger.exception(
+                    "kafka_produce_failure",
+                    exc_info=exc,
+                    name=exc.__class__.__name__,
+                    # data could be large, so we don't always want to include it,
+                    # but we do want to include it for some errors to aid debugging
+                    data=data if isinstance(exc, MessageSizeTooLargeError) else None,
+                )
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
 
     try:
         if replay_events:
@@ -714,9 +718,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                                     warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
-        capture_exception(
-            e, {"capture-pathway": "replay", "ph-team-token": token, "event.count": len(processed_events)}
-        )
+        capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
         return cors_response(
@@ -738,7 +740,6 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                     "capture-pathway": "replay",
                     "ph-team-token": token,
                     "retry_count": retry_count,
-                    "event.count": len(processed_events),
                 },
             )
 
@@ -755,7 +756,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
     except Exception as exc:
         capture_exception(
             exc,
-            {"data": data, "capture-pathway": "replay", "ph-team-token": token, "event.count": len(processed_events)},
+            {"data": data, "capture-pathway": "replay", "ph-team-token": token},
         )
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
         return cors_response(

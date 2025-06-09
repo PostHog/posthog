@@ -777,22 +777,25 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    ).lower()
+    # add the data in sentry's scope in case there's an exception
+    with posthoganalytics.new_context():
+        if isinstance(data, dict):
+            posthoganalytics.tag("data", data)
+        posthoganalytics.tag(
+            "origin",
+            request.headers.get("origin", request.headers.get("remote_host", "unknown")),
+        )
+        posthoganalytics.tag("referer", request.headers.get("referer", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        posthoganalytics.tag("library.version", request.GET.get("ver", "unknown"))
 
-    try:
+        compression = (
+            request.GET.get("compression")
+            or request.POST.get("compression")
+            or request.headers.get("content-encoding", "")
+        ).lower()
+
         return decompress(data, compression)
-    except Exception as e:
-        # TODO: raise a new type of Exception with properties that the exceptions_capture.py will parse
-        e.properties = {
-            "origin": request.headers.get("origin", request.headers.get("remote_host", "unknown")),
-            "referer": request.headers.get("referer", "unknown"),
-            # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-            "library.version": request.GET.get("ver", "unknown"),
-        }
-
-        raise
 
 
 class SingletonDecorator:

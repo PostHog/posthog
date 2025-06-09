@@ -1488,7 +1488,7 @@ def send_all_org_usage_reports(
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
-        capture_exception(f"Usage reports are disabled for {at}")
+        posthoganalytics.capture_exception(f"Usage reports are disabled for {at}")
         return
 
     at_date = parser.parse(at) if at else None

@@ -102,7 +102,7 @@ def on_worker_start(**kwargs) -> None:
     from prometheus_client import start_http_server
     from posthoganalytics import setup
 
-    setup()
+    setup()  # makes sure things like exception autocapture are initialised
     start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
 
