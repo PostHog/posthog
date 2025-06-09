@@ -6,13 +6,15 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
+import { FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
 import { clickhouseTabs, Tab, TabGroup } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
-import { BarStatus, GroupResult, PersonResult, SearchResult } from './types'
+import { BarStatus, GroupResult, PersonResult, SearchResult, TreeItemResult } from './types'
 
 const DEBOUNCE_MS = 300
 
@@ -41,6 +43,24 @@ function rankGroups(groups: Group[], query: string): GroupResult[] {
         extra_fields: { ...group },
         rank,
     }))
+}
+
+function rankProductTreeItems(treeItems: FileSystemImport[], query: string): TreeItemResult[] {
+    const rank = calculateRank(query)
+    return treeItems
+        .filter((item) => item.path.toLowerCase().includes(query.toLowerCase()))
+        .map((item) => {
+            return {
+                type: 'tree_item' as const,
+                result_id: item.href || item.path,
+                extra_fields: {
+                    ...item,
+                    icon: item.iconType ? iconForType(item.iconType) : iconForType(item.type),
+                    description: `Category: ${item.category}`,
+                },
+                rank,
+            }
+        })
 }
 
 export const searchBarLogic = kea<searchBarLogicType>([
@@ -80,6 +100,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                         response = values.rawSearchResponse
                     } else if (values.activeTab === Tab.All) {
                         response = await api.search.list({ q: values.searchQuery })
+                    } else if (values.activeTab === Tab.Products) {
+                        return null // Products are handled separately in combinedSearchResults
                     } else {
                         response = await api.search.list({
                             q: values.searchQuery,
@@ -262,6 +284,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup3Response,
                 s.rawGroup4Response,
                 s.searchQuery,
+                s.activeTab,
             ],
             (
                 searchResponse,
@@ -271,7 +294,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group2Response,
                 group3Response,
                 group4Response,
-                query
+                query,
+                activeTab
             ) => {
                 if (
                     !searchResponse &&
@@ -280,20 +304,51 @@ export const searchBarLogic = kea<searchBarLogicType>([
                     !group1Response &&
                     !group2Response &&
                     !group3Response &&
-                    !group4Response
+                    !group4Response &&
+                    activeTab !== Tab.Products &&
+                    activeTab !== Tab.All
                 ) {
                     return null
                 }
 
-                return [
-                    ...(searchResponse ? searchResponse.results : []),
-                    ...(personsResponse ? rankPersons(personsResponse.results, query) : []),
-                    ...(group0Response ? rankGroups(group0Response.results, query) : []),
-                    ...(group1Response ? rankGroups(group1Response.results, query) : []),
-                    ...(group2Response ? rankGroups(group2Response.results, query) : []),
-                    ...(group3Response ? rankGroups(group3Response.results, query) : []),
-                    ...(group4Response ? rankGroups(group4Response.results, query) : []),
-                ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
+                const results = []
+
+                // Add regular search results (not for Products tab)
+                if (activeTab !== Tab.Products && searchResponse) {
+                    results.push(...searchResponse.results)
+                }
+
+                // Add persons results
+                if (personsResponse) {
+                    results.push(...rankPersons(personsResponse.results, query))
+                }
+
+                // Add group results
+                if (group0Response) {
+                    results.push(...rankGroups(group0Response.results, query))
+                }
+                if (group1Response) {
+                    results.push(...rankGroups(group1Response.results, query))
+                }
+                if (group2Response) {
+                    results.push(...rankGroups(group2Response.results, query))
+                }
+                if (group3Response) {
+                    results.push(...rankGroups(group3Response.results, query))
+                }
+                if (group4Response) {
+                    results.push(...rankGroups(group4Response.results, query))
+                }
+
+                if (activeTab === Tab.All || activeTab === Tab.Products) {
+                    const productTreeItems = getDefaultTreeProducts()
+                    const treeResults = query
+                        ? rankProductTreeItems(productTreeItems, query)
+                        : rankProductTreeItems(productTreeItems, '')
+                    results.push(...treeResults)
+                }
+
+                return results.sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
             },
         ],
         combinedSearchLoading: [
@@ -334,6 +389,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             (tabsForGroups): Record<TabGroup, Tab[]> => {
                 return {
                     all: [Tab.All],
+                    products: [Tab.Products],
                     event_data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
                     posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag, Tab.Survey],
                 }
@@ -356,6 +412,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup3Response,
                 s.rawGroup4Response,
                 s.searchQuery,
+                s.activeTab,
             ],
             (
                 searchResponse,
@@ -365,15 +422,25 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group2Response,
                 group3Response,
                 group4Response,
-                searchQuery
+                searchQuery,
+                activeTab
             ): [Record<Tab, string | null>, string] => {
                 /** :TRICKY: We need to pull in the searchQuery to memoize the counts. */
 
-                const counts = {}
+                const counts: Record<string, string | null> = {}
 
                 Object.values(Tab).forEach((tab) => {
-                    counts[tab] = searchResponse?.counts[tab]?.toString() || null
+                    counts[tab] = searchResponse?.counts[tab as SearchableEntity]?.toString() || null
                 })
+
+                // Handle Products tab count
+                if (activeTab === Tab.Products || activeTab === Tab.All) {
+                    const treeItems = getDefaultTreeProducts()
+                    const filteredItems = searchQuery
+                        ? treeItems.filter((item) => item.path.toLowerCase().includes(searchQuery.toLowerCase()))
+                        : treeItems
+                    counts[Tab.Products] = filteredItems.length.toString()
+                }
 
                 const clickhouseTabsResults: [string, unknown[] | undefined][] = [
                     [Tab.Person, personsResponse?.results],
@@ -552,6 +619,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.personByDistinctId(result.result_id)
         case 'survey':
             return urls.survey(result.result_id)
+        case 'tree_item':
+            return result.extra_fields.href || result.result_id
         default:
             // @ts-expect-error
             throw new Error(`No action for type '${result?.type}' defined.`)

@@ -163,7 +163,7 @@ export function iconForType(type?: string): JSX.Element {
     if (!type) {
         return (
             <ProductIconWrapper type={type}>
-                <IconBook />
+                xx <IconBook />
             </ProductIconWrapper>
         )
     }
