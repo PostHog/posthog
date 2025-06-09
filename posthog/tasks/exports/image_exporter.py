@@ -1,4 +1,3 @@
-import json
 import os
 import tempfile
 import time
@@ -6,6 +5,7 @@ import uuid
 from datetime import timedelta
 from typing import Literal, Optional
 import structlog
+import posthoganalytics
 from django.conf import settings
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
@@ -13,7 +13,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
@@ -169,11 +168,11 @@ def _screenshot_asset(
                 wait_for_css_selector=wait_for_css_selector,
                 image_path=image_path,
             )
-            with push_scope() as scope:
-                scope.set_extra("url_to_render", url_to_render)
+            with posthoganalytics.new_context():
+                posthoganalytics.tag("url_to_render", url_to_render)
                 try:
                     driver.save_screenshot(image_path)
-                    scope.add_attachment(None, None, image_path)
+                    posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
                 capture_exception()
@@ -227,18 +226,13 @@ def _screenshot_asset(
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
-        with configure_scope() as scope:
-            scope.set_extra("url_to_render", url_to_render)
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("url_to_render", url_to_render)
             if driver:
                 # If we encounter issues getting extra info we should silently fail rather than creating a new exception
                 try:
-                    all_logs = list(driver.get_log("browser"))
-                    scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
-                except Exception:
-                    pass
-                try:
                     driver.save_screenshot(image_path)
-                    scope.add_attachment(None, None, image_path)
+                    posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
         capture_exception(e)
@@ -250,9 +244,9 @@ def _screenshot_asset(
 
 
 def export_image(exported_asset: ExportedAsset) -> None:
-    with push_scope() as scope:
-        scope.set_tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
-        scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
+        posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
             if exported_asset.insight:

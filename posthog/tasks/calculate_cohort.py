@@ -5,12 +5,12 @@ from django.conf import settings
 
 from posthog.models.team.team import Team
 import structlog
+import posthoganalytics
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
-from sentry_sdk import set_tag
 
 from datetime import timedelta
 
@@ -89,13 +89,14 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
+@posthoganalytics.scoped()
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-    set_tag("feature", Feature.COHORT.value)
-    set_tag("cohort_id", cohort.id)
-    set_tag("team_id", cohort.team.id)
+    posthoganalytics.tag("feature", Feature.COHORT.value)
+    posthoganalytics.tag("cohort_id", cohort.id)
+    posthoganalytics.tag("team_id", cohort.team.id)
 
     staleness_hours = 0.0
     if cohort.last_calculation is not None:
