@@ -261,7 +261,9 @@ export class IngestionConsumer {
             return this.resolveTeams(parsedMessages)
         })
 
-        const groupedMessages = this.groupEventsByDistinctId(eventsWithTeams)
+        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
+
+        const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
