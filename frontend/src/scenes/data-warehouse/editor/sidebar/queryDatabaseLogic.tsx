@@ -102,6 +102,7 @@ const createTableNode = (
         record: {
             type: 'table',
             table: table,
+            row_count: table.row_count,
             ...(matches && { searchMatches: matches }),
         },
         children: tableChildren,

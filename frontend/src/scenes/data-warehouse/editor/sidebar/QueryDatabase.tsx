@@ -23,7 +23,7 @@ import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { editorSceneLogic } from '../editorSceneLogic'
+import { editorSceneLogic, renderTableCount } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { DatabaseSearchField } from './DatabaseSearchField'
@@ -91,7 +91,10 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                         className="font-mono text-xs"
                                     />
                                 ) : (
-                                    <span className="truncate font-mono text-xs">{item.name}</span>
+                                    <div className="flex flex-row justify-between gap-1">
+                                        <span className="truncate font-mono text-xs">{item.name}</span>
+                                        {renderTableCount(item.record?.row_count)}
+                                    </div>
                                 )}
                             </span>
                         )
