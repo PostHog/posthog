@@ -1,8 +1,8 @@
 import { ReactNode } from 'react'
 
-import { useSvgResizeObserver } from './hooks/useSvgResizeObserver'
+import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
+import { valueToXCoordinate } from '../shared/utils'
 import { TickPanel } from './TickPanel'
-import { valueToXCoordinate } from './utils'
 
 interface MetricsChartLayoutProps {
     isFirstMetric: boolean

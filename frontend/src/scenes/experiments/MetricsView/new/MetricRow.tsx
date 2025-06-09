@@ -4,8 +4,8 @@ import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
-import { MetricHeader } from '../MetricHeader'
-import { getNiceTickValues } from '../utils'
+import { MetricHeader } from '../shared/MetricHeader'
+import { getNiceTickValues } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { VariantBar } from './VariantBar'
 
@@ -24,7 +24,6 @@ export function MetricRow({
     metricType: InsightType
     isSecondary: boolean
 }): JSX.Element {
-    // Extract all confidence intervals from this result to calculate bounds
     const variants = result?.variant_results || []
     const maxAbsValue = Math.max(
         ...variants.flatMap((variant: any) => {
@@ -33,15 +32,10 @@ export function MetricRow({
         })
     )
 
-    // Add padding and calculate chart bound
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    // Distance from center (0) to either edge of the symmetric chart (e.g., if chartRadius=0.5, chart shows -0.5 to +0.5)
     const chartRadius = maxAbsValue + axisMargin
-
-    // Generate tick values
     const tickValues = getNiceTickValues(chartRadius)
 
-    // Calculate chart height with symmetric padding
     const chartHeight = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variants.length
 
     const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])

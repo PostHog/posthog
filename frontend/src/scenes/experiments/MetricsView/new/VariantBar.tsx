@@ -1,5 +1,5 @@
-import { useChartColors } from '../colors'
-import { valueToXCoordinate } from '../utils'
+import { useChartColors } from '../shared/colors'
+import { valueToXCoordinate } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
 export function VariantBar({
@@ -15,27 +15,23 @@ export function VariantBar({
     metricIndex: number
     isSecondary: boolean
 }): JSX.Element {
-    // Extract confidence interval directly from variant_results structure
     const interval = variant.confidence_interval
 
-    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0] // Remove /100
+    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
 
-    // For now, use the midpoint as delta (we can improve this later)
-    const delta = interval ? (interval[0] + interval[1]) / 2 : 0 // Remove /100
+    // For now, use the midpoint as delta (todo: check if this is correct)
+    const delta = interval ? (interval[0] + interval[1]) / 2 : 0
 
-    // Basic data check - assume we have enough data if confidence interval exists
     const hasEnoughData = !!interval
 
-    // Use constants instead of props
     const viewBoxWidth = VIEW_BOX_WIDTH
     const svgEdgeMargin = SVG_EDGE_MARGIN
     const barHeight = BAR_HEIGHT
     const barPadding = BAR_SPACING
 
-    // Colors
     const colors = useChartColors()
 
-    // Calculate positioning
+    // Positioning
     const y = barPadding + (barHeight + barPadding) * index
     const x1 = valueToXCoordinate(lower, chartRadius, viewBoxWidth, svgEdgeMargin)
     const x2 = valueToXCoordinate(upper, chartRadius, viewBoxWidth, svgEdgeMargin)

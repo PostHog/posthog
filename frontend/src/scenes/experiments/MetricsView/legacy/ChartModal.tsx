@@ -8,9 +8,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
-import { ExploreButton, ResultsQuery } from '../ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
-import { SummaryTable } from '../ExperimentView/SummaryTable'
+import { ExploreButton, ResultsQuery } from '../../ExperimentView/components'
+import { SignificanceText, WinningVariantText } from '../../ExperimentView/Overview'
+import { SummaryTable } from '../../ExperimentView/SummaryTable'
 
 interface ChartModalProps {
     isOpen: boolean

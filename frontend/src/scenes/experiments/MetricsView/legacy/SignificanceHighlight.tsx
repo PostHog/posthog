@@ -3,7 +3,7 @@ import { LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic } from '../../experimentLogic'
 
 interface SignificanceHighlightProps {
     metricIndex?: number

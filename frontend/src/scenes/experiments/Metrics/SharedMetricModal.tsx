@@ -12,7 +12,7 @@ import { AvailableFeature, Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/const'
+import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/shared/const'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
 export function SharedMetricModal({

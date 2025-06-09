@@ -10,9 +10,9 @@ import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { Metrics } from '../MetricsView/frequentist/Metrics'
-import { MetricsViewLegacy } from '../MetricsView/MetricsViewLegacy'
-import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
+import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
+import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import {
     EditConclusionModal,

@@ -1,6 +1,6 @@
-import { COLORS } from '../colors'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
-import { formatTickValue, getNiceTickValues, valueToXCoordinate } from '../utils'
+import { COLORS } from '../shared/colors'
+import { formatTickValue, getNiceTickValues, valueToXCoordinate } from '../shared/utils'
 import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
 
 /**
@@ -30,16 +30,13 @@ export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Ele
         })
     )
 
-    // Add padding and calculate chart bound
-    const padding = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartBound = maxAbsValue + padding
+    const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
+    const chartRadius = maxAbsValue + axisMargin
+    const tickValues = getNiceTickValues(chartRadius)
 
-    // Generate appropriate tick values
-    const tickValues = getNiceTickValues(chartBound)
+    const valueToX = (value: number): number => valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-
-    const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartBound])
+    const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
     return (
         <div className="flex border-t border-l border-r rounded-t">
             {/* Left column - padding space above the metric panel */}

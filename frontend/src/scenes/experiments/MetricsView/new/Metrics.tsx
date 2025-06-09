@@ -1,57 +1,13 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { experimentLogic } from '../../experimentLogic'
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../const'
+import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
+import { MAX_PRIMARY_METRICS } from '../shared/const'
 import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
-
-function AddPrimaryMetric(): JSX.Element {
-    const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
-
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="xsmall"
-            onClick={() => {
-                openPrimaryMetricSourceModal()
-            }}
-            disabledReason={
-                primaryMetricsLengthWithSharedMetrics >= MAX_PRIMARY_METRICS
-                    ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
-                    : undefined
-            }
-        >
-            Add primary metric
-        </LemonButton>
-    )
-}
-
-export function AddSecondaryMetric(): JSX.Element {
-    const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="xsmall"
-            onClick={() => {
-                openSecondaryMetricSourceModal()
-            }}
-            disabledReason={
-                secondaryMetricsLengthWithSharedMetrics >= MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
-                    : undefined
-            }
-        >
-            Add secondary metric
-        </LemonButton>
-    )
-}
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, getInsightType, metricResults, secondaryMetricResultsNew } = useValues(experimentLogic)

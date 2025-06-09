@@ -1,72 +1,23 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { IconInfo } from '@posthog/icons'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { ExperimentStatsMethod } from '~/types'
-
-import { credibleIntervalForVariant } from '../experimentCalculations'
-import { experimentLogic } from '../experimentLogic'
-import { MetricResultsBayesian } from './bayesian/MetricResultsBayesian'
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
-import { getNiceTickValues } from './utils'
-
-function AddPrimaryMetric(): JSX.Element {
-    const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
-
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="xsmall"
-            onClick={() => {
-                openPrimaryMetricSourceModal()
-            }}
-            disabledReason={
-                primaryMetricsLengthWithSharedMetrics >= MAX_PRIMARY_METRICS
-                    ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
-                    : undefined
-            }
-        >
-            Add primary metric
-        </LemonButton>
-    )
-}
-
-export function AddSecondaryMetric(): JSX.Element {
-    const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="xsmall"
-            onClick={() => {
-                openSecondaryMetricSourceModal()
-            }}
-            disabledReason={
-                secondaryMetricsLengthWithSharedMetrics >= MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
-                    : undefined
-            }
-        >
-            Add secondary metric
-        </LemonButton>
-    )
-}
+import { credibleIntervalForVariant } from '../../experimentCalculations'
+import { experimentLogic } from '../../experimentLogic'
+import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
+import { MAX_PRIMARY_METRICS } from '../shared/const'
+import { getNiceTickValues } from '../shared/utils'
+import { DeltaChart } from './DeltaChart'
 
 export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
         getInsightType,
         legacyMetricResults,
-        metricResults,
         legacySecondaryMetricResults,
-        secondaryMetricResultsNew,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
-        statsMethod,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -74,14 +25,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
         return <></>
     }
 
-    const results =
-        statsMethod === ExperimentStatsMethod.Frequentist
-            ? isSecondary
-                ? secondaryMetricResultsNew
-                : metricResults
-            : isSecondary
-            ? legacySecondaryMetricResults
-            : legacyMetricResults
+    const results = isSecondary ? legacySecondaryMetricResults : legacyMetricResults
 
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
@@ -199,16 +143,42 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                 </div>
             </div>
             {metrics.length > 0 ? (
-                <MetricResultsBayesian
-                    metrics={metrics}
-                    results={results}
-                    errors={errors}
-                    variants={variants}
-                    metricType={getInsightType(metrics[0])}
-                    isSecondary={!!isSecondary}
-                    commonTickValues={commonTickValues}
-                    chartBound={chartBound}
-                />
+                <div className="w-full overflow-x-auto">
+                    <div className="min-w-[1000px]">
+                        {metrics.map((metric, metricIndex) => {
+                            const result = results?.[metricIndex]
+                            const isFirstMetric = metricIndex === 0
+
+                            return (
+                                <div
+                                    key={metricIndex}
+                                    className={`w-full border border-primary bg-light ${
+                                        metrics.length === 1
+                                            ? 'rounded'
+                                            : isFirstMetric
+                                            ? 'rounded-t'
+                                            : metricIndex === metrics.length - 1
+                                            ? 'rounded-b'
+                                            : ''
+                                    }`}
+                                >
+                                    <DeltaChart
+                                        isSecondary={!!isSecondary}
+                                        result={result}
+                                        error={errors?.[metricIndex]}
+                                        variants={variants}
+                                        metricType={getInsightType(metric)}
+                                        metricIndex={metricIndex}
+                                        isFirstMetric={isFirstMetric}
+                                        metric={metric}
+                                        tickValues={commonTickValues}
+                                        chartBound={chartBound}
+                                    />
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
