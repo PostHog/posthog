@@ -647,6 +647,9 @@ importers:
       '@posthog/rrweb-types':
         specifier: 0.0.14
         version: 0.0.14
+      '@posthog/shared-types':
+        specifier: workspace:*
+        version: link:../common/shared-types
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -1976,6 +1979,9 @@ importers:
       '@posthog/icons':
         specifier: 0.21.0
         version: 0.21.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/shared-types':
+        specifier: workspace:*
+        version: link:../../common/shared-types
       '@types/react':
         specifier: '*'
         version: 17.0.52
