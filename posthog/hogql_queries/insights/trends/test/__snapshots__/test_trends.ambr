@@ -65,7 +65,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.3
@@ -232,7 +233,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
@@ -892,7 +894,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.2
