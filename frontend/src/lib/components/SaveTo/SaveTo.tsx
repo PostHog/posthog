@@ -27,7 +27,7 @@ export function SaveToModal(): JSX.Element {
             title="Select a folder to save to"
             description={
                 <>
-                    Saving to: <LemonSnack>{destinationFolder}</LemonSnack>`
+                    Saving to: <LemonSnack>{destinationFolder}</LemonSnack>
                 </>
             }
             // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->

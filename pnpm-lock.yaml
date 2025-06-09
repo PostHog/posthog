@@ -888,11 +888,11 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.249.4
-        version: 1.249.4(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.249.5
+        version: 1.249.5(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
-        specifier: 3.0.0
-        version: 3.0.0
+        specifier: 3.6.0
+        version: 3.6.0
       prettier:
         specifier: ^2.8.8
         version: 2.8.8
@@ -14124,8 +14124,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@3.0.0:
-    resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
+  posthog-js-lite@3.6.0:
+    resolution: {integrity: sha512-4NrnGwBna7UZ0KARVdHE7Udm/os9HoYRJDHWC55xj1UebBkFRDM+fIxCRovVCmEtuF27oNoDH+pTc81iWAyK7g==}
 
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
@@ -14152,8 +14152,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.249.4:
-    resolution: {integrity: sha512-Qq4cxDZ1P9BkwguuoVNTiLGQiET9vrzwjYWLS3DduKhRXqEzERLl9tOq2X8ZNPbo+D207+FILdWg/dTKUItfDg==}
+  posthog-js@1.249.5:
+    resolution: {integrity: sha512-ynB2bcSZz91xF36Aun2OgAvJ37WPjp8hrUHplZJTdJKhaX7j63CePR+Ved6NVO4YqwhCOVqepxwGGJXG4ROBeA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -32723,7 +32723,7 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@3.0.0: {}
+  posthog-js-lite@3.6.0: {}
 
   posthog-js@1.217.2:
     dependencies:
@@ -32750,7 +32750,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.249.4(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.249.5(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8

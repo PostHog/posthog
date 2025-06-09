@@ -496,6 +496,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     # Support both given schemas and inferred schemas
     if schema is None:
         try:
+            # Gather all unique keys from all items, not just the first
+            all_keys = set().union(*(d.keys() for d in table_data))
+            first_item = table_data[0]
+            first_item = {key: first_item.get(key, None) for key in all_keys}
+            table_data[0] = first_item
             arrow_schema = pa.Table.from_pylist(table_data).schema
         except:
             arrow_schema = None
