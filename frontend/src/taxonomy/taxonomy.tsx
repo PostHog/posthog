@@ -6,10 +6,16 @@ import { transformFilterDefinitions } from './transformations'
 type CoreFilterDefinitionsGroup = keyof typeof coreFilterDefinitionsByGroup
 
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinitionsByGroup).reduce(
-    (acc, [key, group]) => ({
-        ...acc,
-        [key]: transformFilterDefinitions(group),
-    }),
+    (acc, [key, group]) => {
+        if (key === '//' || typeof group === 'string') {
+            // ignore the comment
+            return acc
+        }
+        return {
+            ...acc,
+            [key]: transformFilterDefinitions(group),
+        }
+    },
     {} as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
 )
 
