@@ -175,7 +175,7 @@ const PureTaxonomicFilter = ({ fullWidth = true }: { fullWidth?: boolean }): JSX
 
     return (
         <TaxonomicFilter
-            {...(isWide ? { width: '100%' } : {})}
+            {...(fullWidth ? { width: '100%' } : {})}
             onChange={(taxonomicGroup, value, item, originalQuery) => {
                 addGroupFilter(taxonomicGroup, value, item, originalQuery)
             }}
