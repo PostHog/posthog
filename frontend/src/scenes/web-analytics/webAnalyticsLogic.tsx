@@ -814,7 +814,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         }
                         return returning
                     })
-                    .filter((node) => node !== null)
+                    // necessary so that the type checker doesn't complain about the nulls even though we filter them out
+                    .filter((node) => node !== null) as DataWarehouseNode[]
 
                 return nodeList
             },
