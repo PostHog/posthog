@@ -1,5 +1,3 @@
-import { getYCBatchOptions } from './utils'
-
 export const PUBLIC_EMAIL_DOMAINS = [
     'gmail.com',
     'yahoo.com',
@@ -133,5 +131,3 @@ export const YC_BATCHES = [
         end_date: '2021-03-23',
     },
 ]
-
-export const YC_BATCH_OPTIONS = getYCBatchOptions()

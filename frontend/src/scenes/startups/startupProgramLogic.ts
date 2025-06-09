@@ -14,6 +14,7 @@ import { BillingType } from '~/types'
 
 import { PUBLIC_EMAIL_DOMAINS } from './constants'
 import type { startupProgramLogicType } from './startupProgramLogicType'
+import { getYCBatchOptions } from './utils'
 
 export enum StartupProgramType {
     YC = 'YC',
@@ -114,6 +115,12 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 return domain
+            },
+        ],
+        ycBatchOptions: [
+            () => [],
+            () => {
+                return getYCBatchOptions()
             },
         ],
     }),

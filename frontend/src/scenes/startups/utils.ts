@@ -12,6 +12,8 @@ import { YC_BATCHES } from './constants'
  * - Adds placeholder at the top and "Earlier batches" at the bottom
  * - If all batches are in the future: returns first 2 batches only
  * - If current batch is among the first 2: starts from index 0 to avoid negative indices
+ *
+ * This logic should be kept in sync with the validation login in billing
  */
 export function getYCBatchOptions(): { label: string; value: string }[] {
     // Sort batches by start date descending
@@ -27,7 +29,7 @@ export function getYCBatchOptions(): { label: string; value: string }[] {
     // Take current + all previous + 2 upcoming batches
     const relevantBatches =
         currentBatchIndex === -1
-            ? sortedBatches.slice(0, 2) // If all future, take first 2
+            ? sortedBatches.slice(-2) // If all future, take last 2 (earliest batches but it's sorted newest-first)
             : sortedBatches.slice(startIndex) // From 2 upcoming through all previous
 
     const batchOptions = relevantBatches.map((batch) => ({
