@@ -230,11 +230,18 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
+        isVirtual: [
+            (s) => [s.definition],
+            (definition) => {
+                return 'virtual' in definition && definition.virtual
+            },
+        ],
         hasSentAs: [
-            (s) => [s.type, s.isProperty, s.isEvent],
-            (type, isProperty, isEvent) =>
+            (s) => [s.type, s.isProperty, s.isEvent, s.isVirtual],
+            (type, isProperty, isEvent, isVirtual) =>
                 isEvent ||
                 (isProperty &&
+                    !isVirtual &&
                     type !== TaxonomicFilterGroupType.SessionProperties &&
                     type !== TaxonomicFilterGroupType.RevenueAnalyticsProperties),
         ],
