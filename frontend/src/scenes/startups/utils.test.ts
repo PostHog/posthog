@@ -47,19 +47,7 @@ describe('getYCBatchOptions()', () => {
         expect(batchNames).not.toContain('Winter 2025') // Future (Current + 3)
     })
 
-    it('handles case when all batches are in future', () => {
-        mockedToday = '2020-01-01' // Before any batch starts
-        const result = getYCBatchOptions()
-
-        const batchNames = result.slice(1, -1).map((option) => option.label) // Exclude placeholder and footer
-
-        // Should only show first 2 batches (earliest ones when all are future)
-        expect(batchNames).toHaveLength(2)
-        expect(batchNames).toContain('Winter 2021') // Earliest batch
-        expect(batchNames).toContain('Summer 2021') // Second earliest batch
-    })
-
-    it('handles edge case when current batch is the newest batch', () => {
+    it('handles when current batch is the newest batch', () => {
         mockedToday = '2027-10-01' // During Fall 2027 (newest batch)
         const result = getYCBatchOptions()
 
@@ -75,15 +63,15 @@ describe('getYCBatchOptions()', () => {
         mockedToday = '2024-01-08' // Exact start of Winter 2024
         const result1 = getYCBatchOptions()
         const batchNames1 = result1.slice(1, -1).map((option) => option.label)
-        expect(batchNames1).toContain('Winter 2024')
-        expect(batchNames1).toContain('Summer 2024')
-        expect(batchNames1).toContain('Fall 2024')
+        expect(batchNames1).toContain('Winter 2024') // Current batch
+        expect(batchNames1).toContain('Summer 2024') // Future batch (Current + 1)
+        expect(batchNames1).toContain('Fall 2024') // Future batch (Current + 2)
 
-        mockedToday = '2024-01-07' // Day before Winter 2024 starts, so Summer 2023
+        mockedToday = '2024-01-07' // Day before Winter 2024 starts, so Summer 2023 is current
         const result2 = getYCBatchOptions()
         const batchNames2 = result2.slice(1, -1).map((option) => option.label)
-        expect(batchNames2).toContain('Winter 2024')
-        expect(batchNames2).toContain('Summer 2024')
-        expect(batchNames2).not.toContain('Fall 2024')
+        expect(batchNames2).toContain('Winter 2024') // Future batch (Current + 1)
+        expect(batchNames2).toContain('Summer 2024') // Future batch (Current + 2)
+        expect(batchNames2).toContain('Summer 2023') // Current batch
     })
 })

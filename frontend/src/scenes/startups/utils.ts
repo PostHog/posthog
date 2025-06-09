@@ -10,8 +10,6 @@ import { YC_BATCHES } from './constants'
  * - Finds the current batch (most recent batch that has started)
  * - Returns current batch + all previous batches + 2 upcoming batches
  * - Adds placeholder at the top and "Earlier batches" at the bottom
- * - If all batches are in the future: returns first 2 batches only
- * - If current batch is among the first 2: starts from index 0 to avoid negative indices
  *
  * This logic should be kept in sync with the validation login in billing
  */
@@ -23,14 +21,11 @@ export function getYCBatchOptions(): { label: string; value: string }[] {
     const today = dayjs()
     const currentBatchIndex = sortedBatches.findIndex((batch) => dayjs(batch.start_date).isSameOrBefore(today))
 
-    // If no current batch found (all batches are in future), start from first batch
-    const startIndex = currentBatchIndex === -1 ? 0 : Math.max(0, currentBatchIndex - 2)
+    // Start from 2 batches before current (or from beginning if current is early)
+    const startIndex = Math.max(0, currentBatchIndex - 2)
 
-    // Take current + all previous + 2 upcoming batches
-    const relevantBatches =
-        currentBatchIndex === -1
-            ? sortedBatches.slice(-2) // If all future, take last 2 (earliest batches but it's sorted newest-first)
-            : sortedBatches.slice(startIndex) // From 2 upcoming through all previous
+    // Take from 2 upcoming through all previous batches
+    const relevantBatches = sortedBatches.slice(startIndex)
 
     const batchOptions = relevantBatches.map((batch) => ({
         label: batch.batch_name,
