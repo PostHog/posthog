@@ -170,6 +170,8 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         "ad_stats",
         "keyword",
         "keyword_stats",
+        "video",
+        "video_stats",
     ):
         cfg.resource_name = resource
         source = google_ads_source(cfg)
