@@ -67,7 +67,7 @@ export type RecordingComment = {
     timeInRecording: number
 }
 
-const _filterableItemTypes = ['events', 'console', 'network', 'comment', 'doctor'] as const
+const _filterableItemTypes = ['events', 'console', 'network', 'doctor'] as const
 const _itemTypes = [
     ..._filterableItemTypes,
     'performance',
