@@ -1,4 +1,4 @@
-import { IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonButtonProps, LemonInput, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
@@ -12,16 +12,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { maxLogic } from 'scenes/max/maxLogic'
+import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/types'
+import { RecordingUniversalFilters, ReplayTabs, SidePanelTab, UniversalFiltersGroup } from '~/types'
 
 import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
 import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable'
@@ -163,9 +166,13 @@ export const RecordingsUniversalFiltersEmbed = ({
     allowReplayHogQLFilters?: boolean
     allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
+    const { threadLogicKey, conversation } = useValues(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: threadLogicKey, conversation }))
+    const { openSidePanel } = useActions(sidePanelSettingsLogic)
+
     const [savedFilterName, setSavedFilterName] = useState('')
     const { featureFlags } = useValues(featureFlagLogic)
-    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
+    const [searchQuery, setSearchQuery] = useState('')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -208,12 +215,51 @@ export const RecordingsUniversalFiltersEmbed = ({
         setSavedFilterName('')
     }
 
+    const handleMaxOpen = (): void => {
+        openSidePanel(SidePanelTab.Max)
+        askMax(searchQuery)
+        setSearchQuery('')
+    }
+
     const tabs = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
             content: (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                    {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST_MAX_AI] && (
+                        <>
+                            <div className="px-2 py-2 text-center mt-4">
+                                <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">
+                                    Ask Max AI
+                                </h2>
+                                <p className="text-secondary text-sm">
+                                    Ask Max AI to help you find recordings that match your criteria.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 px-2 max-w-2xl mx-auto">
+                                <LemonInput
+                                    placeholder="Show me recordings of people who ..."
+                                    size="small"
+                                    fullWidth
+                                    onChange={setSearchQuery}
+                                    onPressEnter={handleMaxOpen}
+                                />
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    disabledReason={searchQuery.length === 0 ? 'Enter a search query' : undefined}
+                                    icon={<IconArrowRight />}
+                                    onClick={handleMaxOpen}
+                                />
+                            </div>
+                            <div className="px-2 py-2 font-medium flex items-center justify-center gap-2 text-secondary text-xs my-4">
+                                <div className="h-px bg-border flex-1" />
+                                <span>Or set filters manually</span>
+                                <div className="h-px bg-border flex-1" />
+                            </div>
+                        </>
+                    )}
                     <div className="flex items-center py-2 justify-between">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}
@@ -250,6 +296,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                             />
                         </div>
                     </div>
+                    <div className="px-2 py-2 font-medium">Applied filters:</div>
                     <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
                         <div className="flex flex-wrap gap-2 items-center">
                             <DateFilter
@@ -292,30 +339,14 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 pageKey="session-recordings"
                                 size="small"
                             />
-                            <Popover
-                                overlay={
-                                    <UniversalFilters
-                                        rootKey="session-recordings"
-                                        group={filters.filter_group}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                                    >
-                                        <UniversalFilters.PureTaxonomicFilter isWide={false} />
-                                    </UniversalFilters>
-                                }
-                                placement="bottom"
-                                visible={isPopoverVisible}
-                                onClickOutside={() => setIsPopoverVisible(false)}
+                            <UniversalFilters
+                                rootKey="session-recordings"
+                                group={filters.filter_group}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                             >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconPlus />}
-                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                >
-                                    Add filter
-                                </LemonButton>
-                            </Popover>
+                                <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
+                            </UniversalFilters>
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -329,17 +360,6 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 Reset filters
                             </LemonButton>
                         </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 p-2">
-                        <UniversalFilters
-                            rootKey="session-recordings"
-                            group={filters.filter_group}
-                            taxonomicGroupTypes={taxonomicGroupTypes}
-                            onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                        >
-                            <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
-                        </UniversalFilters>
                     </div>
                     {(totalFiltersCount ?? 0) > 0 && (
                         <div className="flex gap-2 p-2 justify-start">
@@ -423,16 +443,14 @@ export const RecordingsUniversalFiltersEmbed = ({
 const RecordingsUniversalFilterGroup = ({
     size = 'small',
     totalFiltersCount,
-    showAddFilter = true,
 }: {
     size?: LemonButtonProps['size']
     totalFiltersCount?: number
-    showAddFilter?: boolean
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
-
+    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
     useEffect(() => {
         setAllowInitiallyOpen(true)
     }, [])
@@ -441,26 +459,25 @@ const RecordingsUniversalFilterGroup = ({
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <div className="w-full">
-                        <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <div
-                                className={
-                                    showAddFilter
-                                        ? 'flex flex-wrap items-center gap-2 border-t py-4'
-                                        : 'flex flex-wrap gap-2 pt-2'
-                                }
+                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                        <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+
+                        <Popover
+                            overlay={<UniversalFilters.PureTaxonomicFilter isWide={false} />}
+                            placement="bottom"
+                            visible={isPopoverVisible}
+                            onClickOutside={() => setIsPopoverVisible(false)}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlus />}
+                                onClick={() => setIsPopoverVisible(!isPopoverVisible)}
                             >
-                                {(totalFiltersCount ?? 0) > 0 && (
-                                    <span className="font-semibold">Applied filters:</span>
-                                )}
-                                <RecordingsUniversalFilterGroup
-                                    size={size}
-                                    totalFiltersCount={totalFiltersCount}
-                                    showAddFilter={showAddFilter}
-                                />
-                            </div>
-                        </UniversalFilters.Group>
-                    </div>
+                                Add filter
+                            </LemonButton>
+                        </Popover>
+                    </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
                         key={index}
