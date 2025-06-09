@@ -99,7 +99,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 //     actions.replaceAnnotation(updatedAnnotation)
                 // } else {
                 const createdAnnotation = await api.annotations.create(apiPayload)
-                console.log('createdAnnotation', createdAnnotation)
+
                 actions.appendAnnotations([createdAnnotation])
                 // }
 
