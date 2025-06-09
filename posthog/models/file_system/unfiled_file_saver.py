@@ -20,6 +20,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from products.early_access_features.backend.models import EarlyAccessFeature
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 MIXIN_MODELS = {
     "action": Action,
@@ -34,6 +35,7 @@ MIXIN_MODELS = {
     "cohort": Cohort,
     "hog_function": HogFunction,
     "survey": Survey,
+    "saved_query": DataWarehouseSavedQuery,
 }
 
 
