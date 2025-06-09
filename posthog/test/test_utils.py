@@ -305,7 +305,7 @@ class TestLoadDataFromRequest(TestCase):
         return post_request
 
     @patch("posthoganalytics.tag")
-    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_tag):
+    def test_pushes_debug_information_into_context_from_origin_header(self, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
 
@@ -324,7 +324,7 @@ class TestLoadDataFromRequest(TestCase):
         )
 
     @patch("posthoganalytics.tag")
-    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_tag):
+    def test_pushes_debug_information_into_context_when_origin_header_not_present(self, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
 
@@ -343,7 +343,7 @@ class TestLoadDataFromRequest(TestCase):
         )
 
     @patch("posthoganalytics.tag")
-    def test_still_tags_sentry_scope_even_when_debug_signal_is_not_available(self, patched_tag):
+    def test_still_tags_context_even_when_debug_signal_is_not_available(self, patched_tag):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
@@ -391,10 +391,9 @@ class TestLoadDataFromRequest(TestCase):
 
     @patch("posthog.utils.gzip")
     def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):
-        # see https://sentry.io/organizations/posthog2/issues/3136510367
         # one organization is causing a request parsing error by sending an encoded body
         # but the empty string for the compression value
-        # this accounts for a large majority of our Sentry errors
+        # this accounts for a large majority of our error tracking errors
 
         patched_gzip.decompress.return_value = '{"what is it": "the decompressed value"}'
 
@@ -443,9 +442,6 @@ class TestShouldRefresh(TestCase):
         assert refresh_requested_by_client(drf_request) == "async"
 
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
-        """
-        regression test see https://sentry.io/organizations/posthog/issues/3719740579/events/latest/?project=1899813&referrer=latest-event
-        """
         assert get_compare_period_dates(
             date_from=datetime(2022, 1, 1, 0, 0),
             date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
@@ -481,7 +477,6 @@ class TestUtilities(TestCase):
         self.assertEqual(base64_decode(no_padding), simple_string)
 
         # Tests with real URL encoded data
-        # from: https://posthog.sentry.io/issues/5680826999/events/ee804fe6ffd148559180c61d7c822766/
         encoded_data = b"data=eyJ0b2tlbiI6InBoY19HNEFGZkNtRWJXSXZXS05GWlVLaWhpNXRIaGNJU1FYd2xVYXpLMm5MdkE0IiwiZGlzdGluY3RfaWQiOiIwMTkxMmJjMS1iY2ZkLTcwNDYtOTQ0My0wNjVjZjhjYzUyYzUiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)
@@ -490,7 +485,6 @@ class TestUtilities(TestCase):
         self.assertEqual(decoded_json["distinct_id"], "01912bc1-bcfd-7046-9443-065cf8cc52c5")
         self.assertEqual(decoded_json["groups"], {})
 
-        # from: https://posthog.sentry.io/issues/5680826999/events/2ec7bfd975594873a84ce8153388c6e2/
         encoded_data = b"eyJ0b2tlbiI6InBoY19JN3hJY09idHNrcDFWc2FFY0pPdEhycThrWGxrdVg3bGpwdnFWaDNJQ0Z6IiwiZGlzdGluY3RfaWQiOiIwMTkxMmU3Ny1hMjYwLTc5NWMtYjBmYy1lOWE4NzI5MWViNzAiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)
