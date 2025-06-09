@@ -49,7 +49,7 @@ const defaultFunnelsFilter: FunnelsFilter = {
 /**
  * returns the default date range
  */
-const getDefultDateRange = (): DateRange => ({
+const getDefaultDateRange = (): DateRange => ({
     date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
     explicitDate: true,
@@ -59,7 +59,7 @@ const getDefultDateRange = (): DateRange => ({
  * returns a date range using an experiment's start and end date, or the default duration if not set.
  */
 export const getExperimentDateRange = (experiment: Experiment): DateRange => {
-    const defaultRange = getDefultDateRange()
+    const defaultRange = getDefaultDateRange()
     return {
         date_from: experiment.start_date ?? defaultRange.date_from,
         date_to: experiment.end_date ?? defaultRange.date_to,
@@ -111,7 +111,7 @@ export const getQuery =
             trendsFilter = defaultTrendsFilter,
             trendsInterval = 'day',
             funnelsFilter = defaultFunnelsFilter,
-            dateRange = getDefultDateRange(),
+            dateRange = getDefaultDateRange(),
         } = options || {}
 
         return match(metric)
@@ -313,7 +313,7 @@ export const getExposureConfigEventsNode = (
 }
 
 export const addExposureToMetric =
-    (expposureEvent: EventsNode) =>
+    (exposureEvent: EventsNode) =>
     (metric: ExperimentMetric): ExperimentMetric =>
         match(metric)
             .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
@@ -322,7 +322,7 @@ export const addExposureToMetric =
                  */
                 return {
                     ...funnelMetric,
-                    series: [expposureEvent, ...funnelMetric.series],
+                    series: [exposureEvent, ...funnelMetric.series],
                 }
             })
             .otherwise(() => metric)
