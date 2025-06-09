@@ -4,7 +4,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
-import posthoganalytics
+from ..ph_client import get_regional_ph_client
 
 
 logger = structlog.get_logger(__name__)
@@ -13,7 +13,7 @@ POSTHOG_TEAM_ID = 2
 
 
 # Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
-@shared_task(ignore_result=True, max_retries=1)
+@shared_task(ignore_result=True, max_retries=3)
 def send_events_for_early_access_feature_stage_change(feature_id: str, from_stage: str, to_stage: str) -> None:
     print(  # noqa: T201
         f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {feature_id} from {from_stage} to {to_stage}"
@@ -71,13 +71,19 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     print(f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature {feature_id}")  # noqa: T201
 
+    posthog_client = get_regional_ph_client()
+
+    if not posthog_client:
+        print(f"[CELERY][EARLY ACCESS FEATURE] No PostHog client found")  # noqa: T201
+        return
+
     for id, email, distinct_id in enrolled_persons:
         print(f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {id} with distinct_id {distinct_id}")  # noqa: T201
 
-        posthoganalytics.capture(
+        posthog_client.capture(
             distinct_id,
             "user moved feature preview stage",
-            {
+            properties={
                 "from": from_stage,
                 "to": to_stage,
                 "feature_flag_key": feature_flag.key,
@@ -88,3 +94,5 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         )
 
         print(f"[CELERY][EARLY ACCESS FEATURE] Sent event for person {id} with distinct_id {distinct_id}")  # noqa: T201
+
+    posthog_client.shutdown()

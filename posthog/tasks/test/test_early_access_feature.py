@@ -8,8 +8,11 @@ from posthog.test.base import APIBaseTest
 
 
 class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
-    @patch("posthoganalytics.capture")
-    def test_sends_event_for_enrolled_users(self, mock_capture: MagicMock) -> None:
+    @patch("posthog.tasks.early_access_feature.get_regional_ph_client")
+    def test_sends_event_for_enrolled_users(self, mock_get_client: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         team = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team, key="my-flag", filters={})
         feature = EarlyAccessFeature.objects.create(
@@ -28,10 +31,10 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
-        mock_capture.assert_called_once_with(
+        mock_client.capture.assert_called_once_with(
             "abc123",
             "user moved feature preview stage",
-            {
+            properties={
                 "from": "concept",
                 "to": "beta",
                 "feature_flag_key": feature_flag.key,
@@ -40,9 +43,13 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
                 "user_email": "test@example.com",
             },
         )
+        mock_client.shutdown.assert_called_once()
 
-    @patch("posthoganalytics.capture")
-    def test_no_event_for_enrolled_users_on_different_team(self, mock_capture: MagicMock) -> None:
+    @patch("posthog.tasks.early_access_feature.get_regional_ph_client")
+    def test_no_event_for_enrolled_users_on_different_team(self, mock_get_client: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         team1 = Team.objects.create(organization=self.organization)
         team2 = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team1, key="my-flag", filters={})
@@ -63,4 +70,4 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
-        mock_capture.assert_not_called()
+        mock_client.capture.assert_not_called()
