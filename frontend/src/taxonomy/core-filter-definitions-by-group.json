@@ -3618,6 +3618,10 @@
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
             "label": "Distinct ID"
         },
+        "email": {
+            "description": "The email address of the user.",
+            "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"]
+        },
         "epik": {
             "description": "Pinterest Click ID Data from the last time this user was seen.",
             "label": "Latest epik"
