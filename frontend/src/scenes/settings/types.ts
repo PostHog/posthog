@@ -144,6 +144,7 @@ export type SettingId =
     | 'marketing-analytics-external-data-sources'
     | 'base-currency'
     | 'marketing-analytics-self-managed-external-data-sources'
+    | 'marketing-analytics-native-data-sources'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
