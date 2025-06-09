@@ -75,6 +75,7 @@ const _itemTypes = [
     'browser-visibility',
     'inactivity',
     'inspector-summary',
+    'comment',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
