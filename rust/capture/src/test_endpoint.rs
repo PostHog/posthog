@@ -15,6 +15,7 @@ use tracing::error;
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router,
+    utils::extract_and_verify_token,
     v0_request::{Compression, EventFormData, EventQuery, RawRequest, GZIP_MAGIC_NUMBERS},
 };
 
@@ -41,9 +42,9 @@ pub async fn test_black_hole(
 ) -> Result<Json<CaptureResponse>, CaptureError> {
     metrics::counter!(REQUEST_SEEN).increment(1);
     let comp = match meta.compression {
-        None => String::from("unknown"),
         Some(Compression::Gzip) => String::from("gzip"),
         Some(Compression::Unsupported) => String::from("unsupported"),
+        _ => String::from("unknown"),
     };
 
     metrics::counter!(COMPRESSION_TYPE, "type" => comp.clone()).increment(1);
@@ -66,7 +67,14 @@ pub async fn test_black_hole(
                     )));
                 }
             };
-            let payload = match base64::engine::general_purpose::STANDARD.decode(input.data) {
+            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
+                error!("unexpected missing EventFormData payload");
+                return Err(CaptureError::EmptyPayload);
+            }
+
+            let payload = match base64::engine::general_purpose::STANDARD
+                .decode(input.data.unwrap())
+            {
                 Ok(payload) => payload,
                 Err(e) => {
                     error!("failed to decode form data: {}", e);
@@ -116,7 +124,9 @@ pub async fn test_black_hole(
     };
 
     // Now, token handling
-    let t = match request.extract_and_verify_token() {
+    let maybe_batch_token = request.get_batch_token();
+    let events = request.events("/i/v0/e").unwrap();
+    let t = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(t) => Ok(t),
         Err(CaptureError::NoTokenError) => {
             metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => "no_token")
@@ -143,8 +153,6 @@ pub async fn test_black_hole(
     // We can just bail out at this point, since we track if t is an error above.
     t?;
 
-    // Next, we check if this is an empty batch
-    let events = request.events();
     if events.is_empty() {
         metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => "empty_batch")
             .increment(1);

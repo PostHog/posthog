@@ -1,5 +1,4 @@
 use crate::{
-    client::database::{get_pool, Client, CustomDatabaseError},
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
@@ -9,6 +8,7 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
+use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
@@ -230,8 +230,8 @@ pub async fn insert_new_team_in_pg(
     // Insert a team with the correct team-project relationship
     let res = sqlx::query(
         r#"INSERT INTO posthog_team 
-        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode) VALUES
-        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7)"#
+        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency) VALUES
+        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD')"#
     ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
@@ -541,4 +541,40 @@ pub fn create_test_flag(
         ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
         version: Some(1),
     }
+}
+
+/// Insert a suppression rule for error tracking into the database
+pub async fn insert_suppression_rule_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    filters: serde_json::Value,
+) -> Result<uuid::Uuid, Error> {
+    let mut conn = client.get_connection().await?;
+    let rule_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        r#"INSERT INTO posthog_errortrackingsuppressionrule 
+           (id, team_id, filters, created_at, updated_at, order_key)
+           VALUES ($1, $2, $3, NOW(), NOW(), 0)"#,
+    )
+    .bind(rule_id)
+    .bind(team_id)
+    .bind(filters)
+    .execute(&mut *conn)
+    .await?;
+    Ok(rule_id)
+}
+
+/// Update autocapture exceptions setting for a team in the database
+pub async fn update_team_autocapture_exceptions(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    enabled: bool,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query("UPDATE posthog_team SET autocapture_exceptions_opt_in = $1 WHERE id = $2")
+        .bind(enabled)
+        .bind(team_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }

@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_database::get_pool;
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
@@ -76,11 +77,7 @@ impl ServerHandle {
 
         tokio::spawn(async move {
             let redis_client = Arc::new(mock_client);
-            let reader = match feature_flags::client::database::get_pool(
-                &config.read_database_url,
-                config.max_pg_connections,
-            )
-            .await
+            let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
             {
                 Ok(client) => Arc::new(client),
                 Err(e) => {
@@ -88,11 +85,7 @@ impl ServerHandle {
                     return;
                 }
             };
-            let writer = match feature_flags::client::database::get_pool(
-                &config.write_database_url,
-                config.max_pg_connections,
-            )
-            .await
+            let writer = match get_pool(&config.write_database_url, config.max_pg_connections).await
             {
                 Ok(client) => Arc::new(client),
                 Err(e) => {
@@ -166,12 +159,21 @@ impl ServerHandle {
         &self,
         body: T,
         version: Option<&str>,
+        config: Option<&str>,
     ) -> reqwest::Response {
         let client = reqwest::Client::new();
-        let url = match version {
-            Some(v) => format!("http://{:?}/flags?v={}", self.addr, v),
-            None => format!("http://{:?}/flags", self.addr),
-        };
+        let mut url = format!("http://{}/flags", self.addr);
+        let mut params = vec![];
+        if let Some(v) = version {
+            params.push(format!("v={}", v));
+        }
+        if let Some(c) = config {
+            params.push(format!("config={}", c));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
         client
             .post(url)
             .body(body)

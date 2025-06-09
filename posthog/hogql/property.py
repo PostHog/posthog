@@ -28,6 +28,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
     EventMetadataPropertyFilter,
+    RevenueAnalyticsPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -47,7 +48,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
-    ErrorTrackingIssuePropertyFilter,
+    LogPropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -56,6 +57,11 @@ from django.db import models
 
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsInvoiceItemView,
+    RevenueAnalyticsProductView,
+)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -292,6 +298,7 @@ def property_to_expr(
         | ElementPropertyFilter
         | SessionPropertyFilter
         | EventMetadataPropertyFilter
+        | RevenueAnalyticsPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -302,10 +309,10 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
-        | ErrorTrackingIssuePropertyFilter
+        | LogPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
@@ -386,12 +393,15 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
-        or property.type == "error_tracking_issue_property"
+        or property.type == "log"
+        or property.type == "revenue_analytics"
     ):
         if (
             (scope == "person" and property.type != "person")
             or (scope == "session" and property.type != "session")
             or (scope != "event" and property.type == "event_metadata")
+            or (scope == "revenue_analytics" and property.type != "revenue_analytics")
+            or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -446,6 +456,8 @@ def property_to_expr(
             chain = ["sessions"]
         elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
+        elif property.type == "log":
+            chain = ["attributes"]
         else:
             chain = ["properties"]
 
@@ -459,6 +471,26 @@ def property_to_expr(
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
+
+        if property.type == "revenue_analytics":
+            expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
+
+        is_string_array_property = property.type == "event" and property.key in [
+            "$exception_types",
+            "$exception_values",
+            "$exception_sources",
+            "$exception_functions",
+        ]
+
+        if is_string_array_property:
+            # if materialized these columns will be strings so we need to extract them
+            extracted_field = ast.Call(
+                name="JSONExtract",
+                args=[
+                    ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                    ast.Constant(value="Array(String)"),
+                ],
+            )
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -478,17 +510,17 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else field
+                    left = ast.Field(chain=["v"]) if is_string_array_property else field
                     expr = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
 
-                    if property.type == "error_tracking_issue_property":
+                    if is_string_array_property:
                         return parse_expr(
                             "arrayExists(v -> {expr}, {key})",
                             {
                                 "expr": expr,
-                                "key": field,
+                                "key": extracted_field,
                             },
                         )
                     else:
@@ -518,7 +550,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else expr,
+            expr=ast.Field(chain=["v"]) if is_string_array_property else expr,
             value=value,
             operator=operator,
             team=team,
@@ -526,10 +558,10 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
-        if property.type == "error_tracking_issue_property":
+        if is_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
-                {"expr": expr, "key": field},
+                {"expr": expr, "key": extracted_field},
             )
         else:
             return expr
@@ -621,6 +653,17 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
+
+
+def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
+    if property.key == "product":
+        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
+    elif property.key == "amount":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+    elif property.key == "cohort":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
+    else:
+        raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 
 
 def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:

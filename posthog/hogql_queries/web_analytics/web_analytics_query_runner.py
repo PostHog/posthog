@@ -23,7 +23,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionConversionGoal,
     CustomEventConversionGoal,
-    EventsHeatMapQuery,
     EventPropertyFilter,
     WebOverviewQuery,
     WebPageURLSearchQuery,
@@ -44,7 +43,6 @@ WebQueryNode = Union[
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
-    EventsHeatMapQuery,
 ]
 
 
@@ -240,7 +238,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_where_expr_for_events(self.team.revenue_analytics_config))
+            exprs.append(revenue_where_expr_for_events(self.team))
 
         return ast.Or(exprs=exprs)
 

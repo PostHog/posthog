@@ -46,6 +46,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -127,7 +129,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
     revenue_analytics_config: {
-        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
@@ -142,6 +143,18 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 currencyAwareDecimal: true,
             },
         ],
+        goals: [
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+            },
+            {
+                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                name: '2035 Q4',
+                goal: 1_500_000,
+            },
+        ],
     },
     flags_persistence_default: false,
     access_control_version: 'v1',
@@ -152,6 +165,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

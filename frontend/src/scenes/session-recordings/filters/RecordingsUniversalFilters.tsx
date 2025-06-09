@@ -8,7 +8,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -17,6 +16,7 @@ import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/types'
@@ -24,7 +24,9 @@ import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist } from '../playlist/playlistUtils'
+import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
 
@@ -69,27 +71,29 @@ export const RecordingsUniversalFilters = ({
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
-    allowReplayFlagsFilters = false,
+    allowReplayGroupsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     resetFilters?: () => void
     totalFiltersCount?: number
     className?: string
-    allowReplayFlagsFilters?: boolean
     allowReplayHogQLFilters?: boolean
+    allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [savedFilterName, setSavedFilterName] = useState('')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
+    useMountedLogic(groupsModel)
 
-    const durationFilter = filters.duration[0]
+    const durationFilter = filters.duration?.[0] ?? defaultRecordingDurationFilter
 
     const { isFiltersExpanded, activeFilterTab } = useValues(playlistLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -105,18 +109,18 @@ export const RecordingsUniversalFilters = ({
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
     }
 
-    if (allowReplayFlagsFilters) {
-        taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
+    if (allowReplayGroupsFilters) {
+        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     const { savedFilters } = useValues(savedFiltersLogic)
     const { loadSavedFilters } = useActions(savedFiltersLogic)
 
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
     const newPlaylistHandler = async (): Promise<void> => {
-        await createPlaylist({ name: savedFilterName, filters }, false)
+        await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setSavedFilterName('')
@@ -199,6 +203,10 @@ export const RecordingsUniversalFilters = ({
                                 ]}
                                 dropdownPlacement="bottom-start"
                                 size="small"
+                                // we always want to include the time in the date when setting it
+                                allowTimePrecision={true}
+                                // we always want to present the time control
+                                forceGranularity="minute"
                             />
                             <DurationFilter
                                 onChange={(newRecordingDurationFilter, newDurationType) => {
@@ -271,10 +279,7 @@ export const RecordingsUniversalFilters = ({
                 </div>
             ),
         },
-    ]
-
-    if (savedFilters.results?.length > 0) {
-        tabs.push({
+        {
             key: 'saved',
             label: (
                 <div className="px-2 flex">
@@ -287,8 +292,8 @@ export const RecordingsUniversalFilters = ({
                 </div>
             ),
             content: <SavedFilters setFilters={setFilters} />,
-        })
-    }
+        },
+    ]
 
     return (
         <>
@@ -321,10 +326,7 @@ export const RecordingsUniversalFilters = ({
                         }}
                         fullWidth
                     >
-                        Filters{' '}
-                        {totalFiltersCount && totalFiltersCount > 0 ? (
-                            <LemonBadge.Number count={totalFiltersCount} />
-                        ) : null}
+                        Filters
                     </LemonButton>
                     <LemonModal
                         isOpen={isFiltersExpanded}
@@ -378,9 +380,11 @@ export const RecordingsUniversalFilters = ({
 const RecordingsUniversalFilterGroup = ({
     size = 'small',
     totalFiltersCount,
+    showAddFilter = true,
 }: {
     size?: LemonButtonProps['size']
     totalFiltersCount?: number
+    showAddFilter?: boolean
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -396,14 +400,28 @@ const RecordingsUniversalFilterGroup = ({
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <div className="w-full">
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <div className="flex items-center gap-2 border-t py-4">
-                                {(totalFiltersCount ?? 0) > 0 && (
+                            <div
+                                className={
+                                    showAddFilter
+                                        ? 'flex flex-wrap items-center gap-2 border-t py-4'
+                                        : 'flex flex-wrap gap-2 pt-2'
+                                }
+                            >
+                                {(totalFiltersCount ?? 0) > 0 && showAddFilter && (
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
-                                <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                                <RecordingsUniversalFilterGroup
+                                    size={size}
+                                    totalFiltersCount={totalFiltersCount}
+                                    showAddFilter={showAddFilter}
+                                />
                             </div>
-                            <div className="font-semibold mb-1">Add filter:</div>
-                            <UniversalFilters.PureTaxonomicFilter />
+                            {showAddFilter && (
+                                <>
+                                    <div className="font-semibold mb-1">Add filter:</div>
+                                    <UniversalFilters.PureTaxonomicFilter />
+                                </>
+                            )}
                         </UniversalFilters.Group>
                     </div>
                 ) : (

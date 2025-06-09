@@ -16,7 +16,6 @@ dependencies = [
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
-    "cohere==5.14.0",
     "conditional-cache==1.2",
     "cryptography==39.0.2",
     "dagster==1.10.1",
@@ -49,6 +48,7 @@ dependencies = [
     "drf-extensions==0.7.0",
     "drf-spectacular==0.27.2",
     "geoip2==4.6.0",
+    "google-ads==26.1.0",
     "google-cloud-bigquery==3.26",
     "google-genai==1.10.0",
     "gunicorn==20.1.0",
@@ -57,10 +57,10 @@ dependencies = [
     "jsonref==1.1.0",
     "kafka-python==2.0.2",
     "kombu==5.3.2",
-    "langchain==0.3.9",
-    "langchain-community==0.3.2",
-    "langchain-openai==0.2.11",
-    "langgraph==0.2.56",
+    "langchain==0.3.25",
+    "langchain-community==0.3.23",
+    "langchain-openai==0.3.16",
+    "langgraph==0.4.1",
     "lxml==5.2.1",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
@@ -71,7 +71,7 @@ dependencies = [
     "natsort==8.4.0",
     "nh3==0.2.14",
     "numpy==1.26.4",
-    "openai==1.66.3",
+    "openai==1.77.0",
     "openpyxl==3.1.2",
     "orjson==3.10.15",
     "pandas==2.2.0",
@@ -79,7 +79,7 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics>=3.24.1",
+    "posthoganalytics>=4.6.0",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
     "psycopg[binary]==3.2.4",
@@ -102,7 +102,7 @@ dependencies = [
     "semantic-version==2.8.5",
     "simple-salesforce>=1.12.6",
     "slack-sdk==3.17.1",
-    "snowflake-connector-python==3.13.2",
+    "snowflake-connector-python==3.15.0",
     "snowflake-sqlalchemy==1.7.3",
     "social-auth-app-django==5.0.0",
     "social-auth-core==4.3.0",
@@ -134,18 +134,30 @@ dependencies = [
     "pyyaml==6.0.1",
     "tenacity>=8.4.2",
     "chdb>=3.1.2",
+    "elevenlabs>=1.58.1",
+    "django-oauth-toolkit>=3.0.1",
+    "langchain-perplexity>=0.1.1",
+    "azure-ai-projects>=1.0.0b11",
+    "azure-ai-inference>=1.0.0b9",
+    "opentelemetry-sdk==1.33.1",
+    "opentelemetry-instrumentation-django==0.54b1",
+    "opentelemetry-instrumentation-asgi==0.54b1",
+    "opentelemetry-instrumentation-redis==0.54b1",
+    "opentelemetry-instrumentation-psycopg==0.54b1",
+    "opentelemetry-instrumentation-aiokafka==0.54b1",
+    "opentelemetry-instrumentation-kafka-python==0.54b1",
+    "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
 ]
 
 [dependency-groups]
 dev = [
     "aioresponses==0.7.6",
-    "autoevals>=0.0.127",
+    "autoevals==0.0.129",
     "black~=23.9.1",
     "boto3-stubs[s3]>=1.34.84",
-    "braintrust>=0.0.200",
-    "braintrust-langchain>=0.0.2",
+    "braintrust==0.1.1",
+    "braintrust-langchain==0.0.2",
     "datamodel-code-generator==0.28.5",
-    "deepeval==2.6.*",
     "django-linear-migrations==2.16.*",
     "django-stubs==5.0.4",
     "djangorestframework-stubs~=3.14.5",
@@ -157,8 +169,6 @@ dev = [
     "mypy~=1.11.1",
     "mypy-baseline~=0.7.2",
     "mypy-extensions==1.0.0",
-    # ollama version constrained so that deepeval can be installed in dev
-    "ollama==0.4.7",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
@@ -185,6 +195,7 @@ dev = [
     "stpyv8==13.1.201.22",
     "syrupy~=4.6.0",
     "tach~=0.20.0",
+    "types-aioboto3[s3]>=14.3.0",
     "types-boto3[essential]==1.37.6",
     "types-freezegun==1.1.10",
     "types-markdown==3.3.9",
@@ -202,7 +213,7 @@ dev = [
 ]
 
 [tool.uv]
-required-version = ">=0.6.0"
+required-version = ">=0.7.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }

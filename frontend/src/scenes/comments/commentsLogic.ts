@@ -11,6 +11,7 @@ import type { commentsLogicType } from './commentsLogicType'
 export type CommentsLogicProps = {
     scope: CommentType['scope']
     item_id?: CommentType['item_id']
+    disabled?: boolean
 }
 
 export type CommentWithRepliesType = {

@@ -11,7 +11,14 @@ import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
+import {
+    EditConclusionModal,
+    ExploreButton,
+    LoadingState,
+    PageHeaderCustom,
+    ResultsQuery,
+    StopExperimentModal,
+} from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -24,13 +31,13 @@ import { SummaryTable } from './SummaryTable'
 const ResultsTab = (): JSX.Element => {
     const {
         experiment,
-        metricResults,
+        legacyMetricResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         metricResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
-    const hasSomeResults = metricResults?.some((result) => result?.insight)
+    const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
@@ -59,15 +66,15 @@ const ResultsTab = (): JSX.Element => {
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                     </div>
                     {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                    {metricResults?.[0] &&
-                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                    {legacyMetricResults?.[0] &&
+                        (legacyMetricResults[0].kind === 'ExperimentTrendsQuery' ||
+                            legacyMetricResults[0].kind === 'ExperimentFunnelsQuery') && (
                             <>
                                 <div className="flex justify-end">
-                                    <ExploreButton result={metricResults[0]} size="xsmall" />
+                                    <ExploreButton result={legacyMetricResults[0]} size="xsmall" />
                                 </div>
                                 <div className="pb-4">
-                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                                    <ResultsQuery result={legacyMetricResults?.[0] || null} showTable={true} />
                                 </div>
                             </>
                         )}
@@ -88,7 +95,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -101,7 +108,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}
@@ -122,7 +129,7 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {shouldUseExperimentMetrics ? (
+                        {usesNewQueryRunner ? (
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
@@ -141,6 +148,9 @@ export function ExperimentView(): JSX.Element {
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <StopExperimentModal experimentId={experimentId} />
+                        <EditConclusionModal experimentId={experimentId} />
 
                         <VariantDeltaTimeseries />
                     </>

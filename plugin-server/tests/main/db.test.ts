@@ -267,7 +267,7 @@ describe('DB', () => {
 
     async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
             'fetchPersonByPersonId'
@@ -284,7 +284,7 @@ describe('DB', () => {
         await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
 
         const result = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
             [team.id, 'addPersonlessDistinctId'],
             'addPersonlessDistinctId'
@@ -554,8 +554,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
@@ -571,8 +570,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
@@ -596,8 +594,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             await expect(
@@ -608,8 +605,7 @@ describe('DB', () => {
                     { prop: 'newval' },
                     TIMESTAMP,
                     { prop: ISO_TIMESTAMP },
-                    { prop: PropertyUpdateOperation.Set },
-                    1
+                    { prop: PropertyUpdateOperation.Set }
                 )
             ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
         })
@@ -622,8 +618,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             const originalGroup = await db.fetchGroup(2, 0, 'group_key')
@@ -637,7 +632,7 @@ describe('DB', () => {
                 TIMESTAMP,
                 { prop: timestamp2.toISO()!, prop2: timestamp2.toISO()! },
                 { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                2
+                'upsertGroup'
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({

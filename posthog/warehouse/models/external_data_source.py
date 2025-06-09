@@ -32,6 +32,9 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         VITALLY = "Vitally", "Vitally"
         BIGQUERY = "BigQuery", "BigQuery"
         CHARGEBEE = "Chargebee", "Chargebee"
+        GOOGLEADS = "GoogleAds", "GoogleAds"
+        TEMPORALIO = "TemporalIO", "TemporalIO"
+        DOIT = "DoIt", "DoIt"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -88,7 +91,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 trigger_external_data_workflow(schema)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                    sync_external_data_job_workflow(schema, create=True)
+                    sync_external_data_job_workflow(schema, create=True, should_sync=True)
 
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)

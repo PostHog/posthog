@@ -8,6 +8,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import (
+    WebOverviewPreAggregatedQueryBuilder,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
@@ -15,24 +18,68 @@ from posthog.schema import (
     WebOverviewQuery,
 )
 from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
+    preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
         return self.outer_select
 
-    def calculate(self):
-        response = execute_hogql_query(
-            query_type="overview_stats_pages_query",
-            query=self.to_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
+    def get_pre_aggregated_response(self):
+        should_use_preaggregated = (
+            self.modifiers
+            and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.preaggregated_query_builder.can_use_preaggregated_tables()
+        )
+
+        if not should_use_preaggregated:
+            return None
+
+        try:
+            response = execute_hogql_query(
+                query_type="web_overview_preaggregated_query",
+                query=self.preaggregated_query_builder.get_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+            # We could have a empty result in normal conditions but also when we're recreating the tables.
+            # While we're testing, if it is a empty result, let's  fallback on using the
+            # regular queries to be extra careful.
+            assert response.results
+
+            return response
+        except Exception as e:
+            logger.exception("Error getting pre-aggregated web_overview", error=e)
+            return None
+
+    def calculate(self) -> WebOverviewQueryResponse:
+        pre_aggregated_response = self.get_pre_aggregated_response()
+
+        response = (
+            execute_hogql_query(
+                query_type="web_overview_query",
+                query=self.to_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            if not pre_aggregated_response
+            else pre_aggregated_response
         )
 
         assert response.results
@@ -73,6 +120,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
+            usedPreAggregatedTables=response == pre_aggregated_response,
         )
 
     def all_properties(self) -> ast.Expr:
@@ -154,7 +202,7 @@ HAVING {inside_start_timestamp_period}
                 parsed_select.select.append(
                     ast.Alias(
                         alias="session_revenue",
-                        expr=revenue_sum_expression_for_events(self.team.revenue_analytics_config),
+                        expr=revenue_sum_expression_for_events(self.team),
                     )
                 )
 

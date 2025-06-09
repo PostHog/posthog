@@ -1,30 +1,41 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
 
-common_inputs = [
-    {
-        "key": "eventProperties",
-        "type": "dictionary",
-        "description": "Map of Snapchat event attributes and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
-        "label": "Event parameters",
-        "default": {
-            "price": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
-            "currency": "{event.properties.currency}",
-            "item_ids": "{event.properties.item_ids}",
-            "item_category": "{event.properties.category}",
-            "description": "{event.properties.description}",
-            "search_string": "{event.properties.search_string}",
-            "number_items": "{toInt(event.properties.number_items ?? event.properties.quantity)}",
-            "payment_info_available": "{toInt(event.properties.payment_info_available)}",
-            "sign_up_method": "{event.properties.sign_up_method}",
-            "brands": "{event.properties.brands}",
-            "success": "{toInt(event.properties.success) in (0, 1) ? toInt(event.properties.success) : null}",
-            "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
-            "client_dedup_id": "{event.uuid}",
+
+def build_inputs(multiProductEvent=False):
+    return [
+        {
+            "key": "eventProperties",
+            "type": "dictionary",
+            "description": "Map of Snapchat event attributes and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+            "label": "Event parameters",
+            "default": {
+                "price": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
+                "currency": "{event.properties.currency}",
+                "item_ids": "{arrayMap(x -> x.sku, event.properties.products ?? [])}"
+                if multiProductEvent
+                else "{event.properties.sku}",
+                "item_category": "{arrayMap(x -> x.category, event.properties.products ?? [])}"
+                if multiProductEvent
+                else "{event.properties.category}",
+                "description": "{event.properties.description}",
+                "search_string": "{event.properties.search_string}",
+                "number_items": "{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}"
+                if multiProductEvent
+                else "{event.properties.quantity}",
+                "payment_info_available": "{toInt(event.properties.payment_info_available)}",
+                "sign_up_method": "{event.properties.sign_up_method}",
+                "brands": "{arrayMap(x -> x.brands, event.properties.products ?? [])}"
+                if multiProductEvent
+                else "{event.properties.brands}",
+                "success": "{toInt(event.properties.success) in (0, 1) ? toInt(event.properties.success) : null}",
+                "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
+                "client_dedup_id": "{event.uuid}",
+            },
+            "secret": False,
+            "required": False,
         },
-        "secret": False,
-        "required": False,
-    },
-]
+    ]
+
 
 template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
@@ -32,7 +43,7 @@ template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
     type="site_destination",
     id="template-snapchat-pixel",
     name="Snapchat Pixel",
-    description="Track how many Snapchat users interact with your website.",
+    description="Track how many Snapchat users interact with your website. Note that this destination will set third-party cookies.",
     icon_url="/static/services/snapchat.png",
     category=["Advertisement"],
     hog="""
@@ -109,7 +120,7 @@ export function onEvent({ inputs }) {
                     "default": "PAGE_VIEW",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -125,7 +136,7 @@ export function onEvent({ inputs }) {
                     "default": "PURCHASE",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(True),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -141,7 +152,7 @@ export function onEvent({ inputs }) {
                     "default": "START_CHECKOUT",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(True),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -157,7 +168,7 @@ export function onEvent({ inputs }) {
                     "default": "ADD_CART",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -173,7 +184,7 @@ export function onEvent({ inputs }) {
                     "default": "ADD_BILLING",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -189,7 +200,7 @@ export function onEvent({ inputs }) {
                     "default": "AD_CLICK",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -205,7 +216,7 @@ export function onEvent({ inputs }) {
                     "default": "AD_VIEW",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -221,7 +232,7 @@ export function onEvent({ inputs }) {
                     "default": "ADD_TO_WISHLIST",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -237,7 +248,7 @@ export function onEvent({ inputs }) {
                     "default": "VIEW_CONTENT",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -253,7 +264,7 @@ export function onEvent({ inputs }) {
                     "default": "VIEW_CONTENT",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -269,7 +280,7 @@ export function onEvent({ inputs }) {
                     "default": "SEARCH",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(),
             ],
         ),
     ],

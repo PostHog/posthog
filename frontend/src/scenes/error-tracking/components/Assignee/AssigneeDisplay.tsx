@@ -58,6 +58,15 @@ export const AssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps
                 className={getIconClassname(size)}
             />
         ))
+        .with({ type: 'role' }, ({ role }) => (
+            // The ideal way would be to use a Lettermark component here
+            // but there is no way to make it consistent with ProfilePicture at the moment
+            // TODO: Make sure the size prop are the same between ProfilePicture and Lettermark
+            <ProfilePicture
+                user={{ first_name: role.name, last_name: undefined, email: undefined }}
+                className={getIconClassname(size)}
+            />
+        ))
         .with({ type: 'user' }, ({ user }) => <ProfilePicture user={user} className={getIconClassname(size)} />)
         .otherwise(() => (
             <IconPerson
@@ -91,6 +100,7 @@ export const AssigneeLabelDisplay = ({
         >
             {match(assignee)
                 .with({ type: 'group' }, ({ group }) => group.name)
+                .with({ type: 'role' }, ({ role }) => role.name)
                 .with({ type: 'user' }, ({ user }) => fullName(user))
                 .otherwise(() => placeholder || 'Unassigned')}
         </span>

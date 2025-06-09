@@ -1,6 +1,5 @@
 use crate::{
     api::errors::FlagError,
-    client::database::Client as DatabaseClient,
     flags::flag_models::FeatureFlagList,
     metrics::consts::{
         DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
@@ -9,6 +8,7 @@ use crate::{
     },
     team::team_models::Team,
 };
+use common_database::Client as DatabaseClient;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ impl FlagService {
         }
     }
 
-    /// Verifies the token against the cache or the database.
+    /// Verifies the Project API token against the cache or the database.
     /// If the token is not found in the cache, it will be verified against the database,
     /// and the result will be cached in redis.
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
@@ -164,11 +164,46 @@ mod tests {
         flags::flag_models::{
             FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
         },
-        properties::property_models::{OperatorType, PropertyFilter},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_verify_token() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_reader_client(None).await;
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("Failed to insert new team in Redis");
+
+        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+
+        // Test valid token in Redis
+        let result = flag_service.verify_token(&team.api_token).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), team.api_token);
+
+        // Test valid token in PostgreSQL (simulate Redis miss)
+        // First, remove the team from Redis
+        redis_client
+            .del(format!("team:{}", team.api_token))
+            .await
+            .expect("Failed to remove team from Redis");
+
+        let result = flag_service.verify_token(&team.api_token).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), team.api_token);
+
+        // Test invalid token
+        let result = flag_service.verify_token("invalid_token").await;
+        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+
+        // Verify that the team was re-added to Redis after PostgreSQL hit
+        let redis_team = Team::from_redis(redis_client.clone(), &team.api_token).await;
+        assert!(redis_team.is_ok());
+    }
 
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
@@ -229,7 +264,7 @@ mod tests {
                                 key: "country".to_string(),
                                 value: Some(json!("US")),
                                 operator: Some(OperatorType::Exact),
-                                prop_type: "person".to_string(),
+                                prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
                             }]),
@@ -276,7 +311,7 @@ mod tests {
                                 key: "is_premium".to_string(),
                                 value: Some(json!(true)),
                                 operator: Some(OperatorType::Exact),
-                                prop_type: "person".to_string(),
+                                prop_type: PropertyType::Person,
                                 group_type_index: None,
                                 negation: None,
                             }]),

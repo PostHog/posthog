@@ -1,13 +1,12 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
-import { ProjectTree } from './ProjectTree/ProjectTree'
+import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
@@ -116,12 +115,13 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
-        projectTreeMode,
+        panelWidth,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
-        useActions(panelLayoutLogic)
-    useMountedLogic(projectTreeLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef } = useActions(panelLayoutLogic)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     useEffect(() => {
         if (mainRef.current) {
@@ -141,13 +141,33 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         isLayoutPanelVisible,
                         isMobileLayout,
                         isLayoutNavCollapsed,
-                        projectTreeMode: projectTreeMode as TreeMode,
+                        projectTreeMode: projectTreeMode,
                     })
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--project-panel-width': `${panelWidth}px` } as React.CSSProperties}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'Project' && <ProjectTree />}
-                    {/* {activePanelIdentifier === 'persons' && <PersonsTree />} */}
+                    {activePanelIdentifier === 'Project' && (
+                        <ProjectTree
+                            root="project://"
+                            logicKey={PROJECT_TREE_KEY}
+                            searchPlaceholder="Search by user, type, or name"
+                            showRecents
+                        />
+                    )}
+                    {activePanelIdentifier === 'Products' && (
+                        <ProjectTree root="products://" searchPlaceholder="Search products" />
+                    )}
+                    {activePanelIdentifier === 'Shortcuts' && (
+                        <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
+                    )}
+                    {activePanelIdentifier === 'Data' && (
+                        <ProjectTree root="data://" searchPlaceholder="Search data tools" />
+                    )}
+                    {activePanelIdentifier === 'People' && (
+                        <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
+                    )}
                 </PanelLayoutNavBar>
             </div>
 
@@ -157,7 +177,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
                 />
             )}
 
@@ -167,7 +187,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         // Return to tree mode when clicking outside the table view
                         setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
                 />
             )}
         </>

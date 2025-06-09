@@ -26,6 +26,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
+    title: String,
     path: String,
     method: String,
     content_encoding: String,
@@ -85,7 +86,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
     let reader = BufReader::new(file);
     let liveness = HealthRegistry::new("dummy");
 
-    let mut mismatches = 0;
+    let mut mismatches = vec![];
 
     for (line_number, line_contents) in reader.lines().enumerate() {
         let line_contents = line_contents?;
@@ -99,8 +100,8 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let raw_body = general_purpose::STANDARD.decode(&case.body)?;
         assert_eq!(
             case.method, "POST",
-            "update code to handle method {}",
-            case.method
+            "update code to handle method {} in test {}",
+            case.method, case.title,
         );
 
         let sink = MemorySink::default();
@@ -122,7 +123,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let enable_historical_rerouting = false;
         let historical_rerouting_threshold_days = 1_i64;
         let historical_tokens_keys = None;
-        let is_mirror_deploy = false;
+        let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
 
         let app = router(
             timesource,
@@ -157,7 +158,8 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         assert_eq!(
             res.status(),
             StatusCode::OK,
-            "line {} rejected: {}",
+            "test {} (line {}) rejected: {}",
+            case.title,
             line_number,
             res.text().await
         );
@@ -219,11 +221,10 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                 if let Err(e) =
                     assert_json_matches_no_panic(&expected_props, &found_props, match_config)
                 {
-                    println!(
-                        "data field mismatch at line {}, event {}: {}",
-                        line_number, event_number, e
-                    );
-                    mismatches += 1;
+                    mismatches.push(format!(
+                        "data field mismatch at test {} (line {}) event {}: {}",
+                        case.title, line_number, event_number, e
+                    ));
                 } else {
                     *expected_data = json!(&message.event.data)
                 }
@@ -243,16 +244,21 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             if let Err(e) =
                 assert_json_matches_no_panic(&json!(expected), &json!(message.event), match_config)
             {
-                println!(
-                    "record mismatch at line {}, event {}: {}",
+                mismatches.push(format!(
+                    "record mismatch in test {} at line {}, event {}: {}",
+                    case.title,
                     line_number + 1,
                     event_number,
                     e
-                );
-                mismatches += 1;
+                ));
             }
         }
     }
-    assert_eq!(0, mismatches, "some events didn't match");
+    assert_eq!(
+        0,
+        mismatches.len(),
+        "some events didn't match: {:?}",
+        mismatches
+    );
     Ok(())
 }

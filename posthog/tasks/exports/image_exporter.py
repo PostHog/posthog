@@ -1,9 +1,10 @@
 import json
 import os
+import tempfile
+import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
-
 import structlog
 from django.conf import settings
 from selenium import webdriver
@@ -56,6 +57,18 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
+
+    # Create a unique prefix for the temporary directory
+    pid = os.getpid()
+    timestamp = int(time.time() * 1000)
+    unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
+
+    # Use TemporaryDirectory which will automatically clean up when the context manager exits
+    temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
+    options.add_argument(f"--user-data-dir={temp_dir.name}")
+
+    # Necessary to let the nobody user run chromium
+    os.environ["HOME"] = temp_dir.name
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])

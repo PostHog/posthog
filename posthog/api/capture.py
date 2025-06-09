@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
@@ -20,9 +20,11 @@ from rest_framework import status
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
+import posthoganalytics
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
+from posthog.api.csp import process_csp_report
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
@@ -191,16 +193,21 @@ def build_kafka_event_data(
     token: str,
 ) -> dict:
     logger.debug("build_kafka_event_data", token=token)
-    return {
+    res = {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
         "ip": safe_clickhouse_string(ip) if ip else ip,
         "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
         "token": token,
     }
+
+    # Equivalent to rust captures "skip_serialising_if = Option::is_none"
+    if sent_at:
+        res["sent_at"] = sent_at.isoformat()
+
+    return res
 
 
 def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = False) -> str:
@@ -344,6 +351,16 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def enforce_numeric_offset(properties: dict[str, Any]):
+    try:
+        raw_offset = properties["offset"]
+    except KeyError:
+        return
+
+    if not isinstance(raw_offset, int):
+        raise ValueError(f'Event field "offset" must be numeric, received {type(properties["offset"]).__name__}!')
+
+
 def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
@@ -418,8 +435,38 @@ def lib_version_from_query_params(request) -> str:
 
 
 @csrf_exempt
+@timed("posthog_cloud_csp_event_endpoint")
+def get_csp_event(request):
+    # we want to handle this as early as possible and avoid any processing
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
+    debug_enabled = request.GET.get("debug", "").lower() == "true"
+    if debug_enabled:
+        logger.exception(
+            "CSP debug request",
+            error=ValueError("CSP debug request"),
+            method=request.method,
+            url=request.build_absolute_uri(),
+            content_type=request.content_type,
+            headers=dict(request.headers),
+            query_params=dict(request.GET),
+            body_size=len(request.body) if request.body else 0,
+            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
+        )
+
+    csp_report, error_response = process_csp_report(request)
+
+    if error_response:
+        return error_response
+
+    # Explicit mark for get_event pipeline to handle CSP reports on this flow
+    return get_event(request, csp_report=csp_report)
+
+
+@csrf_exempt
 @timed("posthog_cloud_event_endpoint")
-def get_event(request):
+def get_event(request, csp_report: dict[str, Any] | None = None):
     structlog.contextvars.unbind_contextvars("team_id")
 
     # handle cors request
@@ -428,7 +475,12 @@ def get_event(request):
 
     now = timezone.now()
 
-    data, error_response = get_data(request)
+    error_response = None
+    data: Any | None = None
+    if csp_report:
+        data = csp_report
+    else:
+        data, error_response = get_data(request)
 
     if error_response:
         return error_response
@@ -727,6 +779,11 @@ def get_event(request):
         EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
 
+    # If we have a csp_report parsed, we should return a 204 since that's the standard
+    # https://github.com/PostHog/posthog/pull/32174
+    if csp_report:
+        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
     return cors_response(request, JsonResponse(response_body))
 
 
@@ -852,6 +909,12 @@ def parse_event(event):
 
     if not event.get("properties"):
         event["properties"] = {}
+
+    enforce_numeric_offset(event["properties"])
+
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("library", event["properties"].get("$lib", "unknown"))
+        posthoganalytics.tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
     return event
 

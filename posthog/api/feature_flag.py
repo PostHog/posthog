@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import logging
 from typing import Any, Optional, cast
@@ -21,6 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
+from posthog.models.experiment import Experiment
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -31,8 +33,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import FlagRequestType
+from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.dashboard_templates import (
@@ -66,6 +68,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
+from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -81,7 +84,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 )
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 MAX_PROPERTY_VALUES = 1000
 
@@ -100,6 +102,7 @@ class CanEditFeatureFlag(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         else:
+            # TODO(@zach): Add new access control support
             return can_user_edit_feature_flag(request, feature_flag)
 
 
@@ -119,7 +122,7 @@ class FeatureFlagSerializer(
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
 
-    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    experiment_set = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -239,6 +242,11 @@ class FeatureFlagSerializer(
             .exists()
         ):
             raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) & underscores (_) are allowed.", code="invalid_key"
+            )
 
         return value
 
@@ -439,7 +447,13 @@ class FeatureFlagSerializer(
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
+        old_key = instance.key
         self._update_filters(validated_data)
+
+        # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
+        if validated_key and validated_key != old_key:
+            filters = validated_data.get("filters", instance.filters) or {}
+            validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
         if validated_data.get("has_encrypted_payloads", False):
             if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
@@ -599,6 +613,34 @@ class FeatureFlagSerializer(
         representation["filters"] = filters
         return representation
 
+    def get_experiment_set(self, obj):
+        # Use the prefetched active experiments
+        if hasattr(obj, "_active_experiments"):
+            return [exp.id for exp in obj._active_experiments]
+        return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+
+    def _update_super_groups_for_key_change(self, validated_key: str, old_key: str, filters: dict) -> dict:
+        if not (validated_key and validated_key != old_key and "super_groups" in filters):
+            return filters
+
+        updated_filters = filters.copy()
+        updated_filters["super_groups"] = [
+            {
+                **group,
+                "properties": [
+                    {
+                        **prop,
+                        "key": f"$feature_enrollment/{validated_key}"
+                        if prop.get("key", "").startswith("$feature_enrollment/")
+                        else prop["key"],
+                    }
+                    for prop in group.get("properties", [])
+                ],
+            }
+            for group in filters["super_groups"]
+        ]
+        return updated_filters
+
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
@@ -698,10 +740,14 @@ class FeatureFlagViewSet(
         return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        # Always prefetch experiment_set since it's used in both list and retrieve
+        queryset = queryset.prefetch_related(
+            Prefetch("experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments")
+        )
+
         if self.action == "list":
             queryset = (
                 queryset.filter(deleted=False)
-                .prefetch_related("experiment_set")
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related("surveys_linked_flag")
@@ -889,7 +935,12 @@ class FeatureFlagViewSet(
         )
 
     @action(
-        methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
+        methods=["GET"],
+        detail=False,
+        throttle_classes=[FeatureFlagThrottle],
+        required_scopes=["feature_flag:read"],
+        authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
+        permission_classes=[ProjectSecretAPITokenPermission],
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         logger = logging.getLogger(__name__)
@@ -1190,6 +1241,8 @@ class FeatureFlagViewSet(
         methods=["GET"],
         detail=True,
         required_scopes=["feature_flag:read"],
+        authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
+        permission_classes=[ProjectSecretAPITokenPermission],
     )
     def remote_config(self, request: request.Request, **kwargs):
         is_flag_id_provided = kwargs["pk"].isdigit()
@@ -1201,10 +1254,10 @@ class FeatureFlagViewSet(
                 else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
             )
         except FeatureFlag.DoesNotExist:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.is_remote_configuration:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
@@ -1227,7 +1280,7 @@ class FeatureFlagViewSet(
 
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="FeatureFlag",

@@ -14,7 +14,6 @@ import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
-from django.db.models import F
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -27,7 +26,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionMode,
     SourceResponse,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -44,6 +42,14 @@ DLT_TO_PA_TYPE_MAP = {
 DEFAULT_NUMERIC_PRECISION = 76
 DEFAULT_NUMERIC_SCALE = 32
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+class DuplicatePrimaryKeysException(Exception):
+    pass
+
+
+class QueryTimeout(Exception):
+    pass
 
 
 def normalize_column_name(column_name: str) -> str:
@@ -263,28 +269,6 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
-def should_partition_table(
-    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
-) -> bool:
-    if not schema.is_incremental:
-        return False
-
-    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
-        return True
-
-    if source.partition_count is None:
-        return False
-
-    if delta_table is None:
-        return True
-
-    delta_schema = delta_table.schema().to_pyarrow()
-    if PARTITION_KEY in delta_schema.names:
-        return True
-
-    return False
-
-
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
 
@@ -304,6 +288,9 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
             used_names.add(temp_name)
 
     return table
+
+
+PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at"]
 
 
 def append_partition_key_to_table(
@@ -328,14 +315,17 @@ def append_partition_key_to_table(
         and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
     ):
         mode = "numerical"
-    elif (
-        partition_mode is None
-        and "created_at" in table.column_names
-        and pa.types.is_timestamp(table.field("created_at").type)
-        and table.column("created_at").null_count != table.num_rows
+    elif partition_mode is None and any(
+        column_name in table.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES
     ):
-        mode = "datetime"
-        normalized_partition_keys = ["created_at"]
+        for column_name in PARTITION_DATETIME_COLUMN_NAMES:
+            if (
+                column_name in table.column_names
+                and pa.types.is_timestamp(table.field(column_name).type)
+                and table.column(column_name).null_count != table.num_rows
+            ):
+                mode = "datetime"
+                normalized_partition_keys = [column_name]
 
     for batch in table.to_batches():
         for row in batch.to_pylist():
@@ -375,32 +365,6 @@ def append_partition_key_to_table(
     logger.debug(f"Partition key added with mode={mode}")
 
     return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
-
-
-def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
-    if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
-        return
-
-    incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
-    if incremental_field_name is None:
-        return
-
-    column = table[normalize_column_name(incremental_field_name)]
-    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
-
-    # TODO(@Gilbert09): support different operations here (e.g. min)
-    last_value = numpy_arr.max()
-    return last_value
-
-
-def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
-    schema.last_synced_at = job.created_at
-    schema.save()
-
-
-def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
-    logger.debug(f"Updating rows_synced with +{count}")
-    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
 def _convert_uuid_to_string(row: dict) -> dict:
@@ -531,6 +495,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     # Support both given schemas and inferred schemas
     if schema is None:
         try:
+            # Gather all unique keys from all items, not just the first
+            all_keys = set().union(*(d.keys() for d in table_data))
+            first_item = table_data[0]
+            first_item = {key: first_item.get(key, None) for key in all_keys}
+            table_data[0] = first_item
             arrow_schema = pa.Table.from_pylist(table_data).schema
         except:
             arrow_schema = None
@@ -591,6 +560,28 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
 
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Upscale second timestamps to microsecond
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "s":
+                timestamp_array = pa.array(
+                    [(s * 1_000_000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    type=pa.timestamp("us"),
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+                adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Upscale millisecond timestamps to microsecond
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "ms":
+                timestamp_array = pa.array(
+                    [(s * 1000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    type=pa.timestamp("us"),
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+                adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
             # Remove any binary columns

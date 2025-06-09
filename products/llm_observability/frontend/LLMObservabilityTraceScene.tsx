@@ -1,11 +1,23 @@
-import { IconAIText, IconMessage, IconReceipt } from '@posthog/icons'
-import { LemonDivider, LemonTable, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { IconAIText, IconChat, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    LemonTag,
+    LemonTagProps,
+    Link,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef, useState } from 'react'
@@ -22,6 +34,7 @@ import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationM
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
+import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
 import { llmObservabilityTraceDataLogic, TraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import {
@@ -160,9 +173,10 @@ function TraceSidebar({
     tree: TraceTreeNode[]
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
+    const { searchQuery, mostRelevantEvent } = useValues(llmObservabilityTraceDataLogic)
+    const { setSearchQuery, setEventId } = useActions(llmObservabilityTraceLogic)
 
     useEffect(() => {
-        // On first render, let's focus the selected tree node in the center
         if (eventId && ref.current) {
             const selectedNode = ref.current.querySelector(`[aria-current=true]`)
             if (selectedNode) {
@@ -171,6 +185,12 @@ function TraceSidebar({
         }
     }, [eventId])
 
+    useEffect(() => {
+        if (mostRelevantEvent && searchQuery.trim()) {
+            setEventId(mostRelevantEvent.id)
+        }
+    }, [mostRelevantEvent, searchQuery, setEventId])
+
     return (
         <aside
             className="border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
@@ -178,6 +198,15 @@ function TraceSidebar({
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
+            <div className="p-2">
+                <LemonInput
+                    placeholder="Search trace..."
+                    prefix={<IconSearch />}
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                />
+            </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
@@ -373,6 +402,32 @@ function EventContentDisplay({
 }
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
+    const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showPlaygroundButton =
+        event &&
+        isLLMTraceEvent(event) &&
+        event.event === '$ai_generation' &&
+        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+
+    const handleTryInPlayground = (): void => {
+        if (!event) {
+            return
+        }
+
+        let model: string | undefined = undefined
+        let input: any = undefined
+
+        if (isLLMTraceEvent(event)) {
+            model = event.properties.$ai_model
+            // Prefer $ai_input if available, otherwise fallback to $ai_input_state
+            input = event.properties.$ai_input ?? event.properties.$ai_input_state
+        }
+
+        setupPlaygroundFromEvent({ model, input })
+    }
+
     return (
         <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
             {!event ? (
@@ -391,6 +446,8 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                                 isError={event.properties.$ai_is_error}
                                 inputTokens={event.properties.$ai_input_tokens}
                                 outputTokens={event.properties.$ai_output_tokens}
+                                cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
+                                cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
                                 totalCostUsd={event.properties.$ai_total_cost_usd}
                                 model={event.properties.$ai_model}
                                 latency={event.properties.$ai_latency}
@@ -404,17 +461,30 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                             />
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                        {hasSessionID(event) && (
-                            <div className="flex flex-row items-center gap-2">
-                                <Link
-                                    to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
-                                    className="flex flex-row gap-1 items-center"
+                        <div className="flex flex-row items-center gap-2">
+                            {showPlaygroundButton && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconChat />}
+                                    onClick={handleTryInPlayground}
+                                    tooltip="Try this prompt in the playground"
                                 >
-                                    <IconOpenInNew />
-                                    <span>View session recording</span>
-                                </Link>
-                            </div>
-                        )}
+                                    Try in Playground
+                                </LemonButton>
+                            )}
+                            {hasSessionID(event) && (
+                                <div className="flex flex-row items-center gap-2">
+                                    <Link
+                                        to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
+                                        className="flex flex-row gap-1 items-center"
+                                    >
+                                        <IconOpenInNew />
+                                        <span>View session recording</span>
+                                    </Link>
+                                </div>
+                            )}
+                        </div>
                     </header>
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (

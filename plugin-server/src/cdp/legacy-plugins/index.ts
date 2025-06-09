@@ -57,6 +57,7 @@ export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
     salesforcePlugin,
     sendgridPlugin,
 ]
+
 export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     currencyNormalizationPlugin,
     downsamplingPlugin,

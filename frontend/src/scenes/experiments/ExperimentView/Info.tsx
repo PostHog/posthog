@@ -1,6 +1,7 @@
-import { IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,21 +11,24 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ProgressStatus } from '~/types'
+import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
+import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
+import { StatsMethodModal } from './StatsMethodModal'
 
 export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        metricResults,
+        legacyMetricResults,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         isDescriptionModalOpen,
+        statsMethod,
     } = useValues(experimentLogic)
     const {
         updateExperiment,
@@ -32,6 +36,8 @@ export function Info(): JSX.Element {
         refreshExperimentResults,
         openDescriptionModal,
         closeDescriptionModal,
+        openEditConclusionModal,
+        openStatsEngineModal,
     } = useActions(experimentLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -48,7 +54,7 @@ export function Info(): JSX.Element {
 
     const currentStatsVersion = experiment.stats_config?.version || 1
 
-    const lastRefresh = metricResults?.[0]?.last_refresh
+    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -96,7 +102,23 @@ export function Info(): JSX.Element {
                         <div className="text-xs font-semibold uppercase tracking-wide">
                             <span>Stats Engine</span>
                         </div>
-                        <div className="flex gap-1">Bayesian</div>
+                        <div className="inline-flex deprecated-space-x-2">
+                            <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
+                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREQUENTIST] && (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            openStatsEngineModal()
+                                        }}
+                                        icon={<IconGear />}
+                                        tooltip="Change stats engine"
+                                    />
+                                    <StatsMethodModal />
+                                </>
+                            )}
+                        </div>
                     </div>
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
                         <div className="block">
@@ -167,46 +189,83 @@ export function Info(): JSX.Element {
                 </div>
             </div>
             <div className="block mt-4">
-                <div className="flex items-center gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide">Hypothesis</div>
-                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openDescriptionModal} />
-                </div>
-                {experiment.description ? (
-                    <p className="py-2 m-0">{experiment.description}</p>
-                ) : (
-                    <p className="py-2 m-0 text-muted">Add your hypothesis for this test</p>
-                )}
-
-                <LemonModal
-                    isOpen={isDescriptionModalOpen}
-                    onClose={closeDescriptionModal}
-                    title="Edit hypothesis"
-                    footer={
-                        <div className="flex items-center gap-2 justify-end">
-                            <LemonButton type="secondary" onClick={closeDescriptionModal}>
-                                Cancel
-                            </LemonButton>
+                <div className="flex gap-6">
+                    <div className="w-[500px]">
+                        <div className="flex items-center gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-wide">Hypothesis</div>
                             <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    updateExperiment({ description: tempDescription })
-                                    closeDescriptionModal()
-                                }}
-                            >
-                                Save
-                            </LemonButton>
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                onClick={openDescriptionModal}
+                            />
                         </div>
-                    }
-                >
-                    <LemonTextArea
-                        className="w-full"
-                        value={tempDescription}
-                        onChange={(value) => setTempDescription(value)}
-                        placeholder="Add your hypothesis for this test (optional)"
-                        minRows={6}
-                        maxLength={400}
-                    />
-                </LemonModal>
+                        {experiment.description ? (
+                            <p className="py-2 m-0">{experiment.description}</p>
+                        ) : (
+                            <p className="py-2 m-0 text-muted">Add your hypothesis for this test</p>
+                        )}
+
+                        <LemonModal
+                            isOpen={isDescriptionModalOpen}
+                            onClose={closeDescriptionModal}
+                            title="Edit hypothesis"
+                            footer={
+                                <div className="flex items-center gap-2 justify-end">
+                                    <LemonButton type="secondary" onClick={closeDescriptionModal}>
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => {
+                                            updateExperiment({ description: tempDescription })
+                                            closeDescriptionModal()
+                                        }}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            }
+                        >
+                            <LemonTextArea
+                                className="w-full"
+                                value={tempDescription}
+                                onChange={(value) => setTempDescription(value)}
+                                placeholder="Add your hypothesis for this test (optional)"
+                                minRows={6}
+                                maxLength={400}
+                            />
+                        </LemonModal>
+                    </div>
+                    {experiment.conclusion && experiment.end_date && (
+                        <div className="w-[500px]">
+                            <div className="flex items-center gap-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide">Conclusion</div>
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconPencil />}
+                                    onClick={openEditConclusionModal}
+                                />
+                            </div>
+                            <div className="py-2">
+                                <div className="font-semibold flex items-center gap-2">
+                                    <div
+                                        className={clsx(
+                                            'w-2 h-2 rounded-full',
+                                            CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
+                                        )}
+                                    />
+                                    <span>
+                                        {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title ||
+                                            experiment.conclusion}
+                                    </span>
+                                </div>
+                                <div>{experiment.conclusion_comment}</div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )

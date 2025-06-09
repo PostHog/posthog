@@ -269,21 +269,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 6
+            baseline = 8
 
-            with self.assertNumQueries(baseline + 10):
+            with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 11):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 11):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 11):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -602,7 +602,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
         dashboard_data = DashboardSerializer(
-            dashboard, context={"view": mock_view, "request": mock_request, "get_team": lambda: self.team}
+            dashboard,
+            context={
+                "view": mock_view,
+                "request": mock_request,
+                "get_team": lambda: self.team,
+                "insight_variables": [],
+            },
         ).data
         assert len(dashboard_data["tiles"]) == 1
 
@@ -1377,14 +1383,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"template": invalid_template},
         )
         assert response.status_code == 400, response.json()
-        error_message = {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "'template_name' is a required property\n\nFailed validating 'required' in schema:\n    {'properties': {'created_at': {'description': 'When the dashboard '\n                                                  'template was created',\n                                   'type': 'string'},\n                    'dashboard_description': {'description': 'The '\n                                                             'description '\n                                                             'of the '\n                                                             'dashboard '\n                                                             'template',\n                                              'type': 'string'},\n                    'dashboard_filters': {'description': 'The filters of '\n                                                         'the dashboard '\n                                                         'template',\n                                          'type': 'object'},\n                    'id': {'description': 'The id of the dashboard '\n                                          'template',\n                           'type': 'string'},\n                    'image_url': {'description': 'The image of the '\n                                                 'dashboard template',\n                                  'type': ['string', 'null']},\n                    'tags': {'description': 'The tags of the dashboard '\n                                            'template',\n                             'items': {'type': 'string'},\n                             'type': 'array'},\n                    'team_id': {'description': 'The team this dashboard '\n                                               'template belongs to',\n                                'type': ['number', 'null']},\n                    'template_name': {'description': 'The name of the '\n                                                     'dashboard template',\n                                      'type': 'string'},\n                    'tiles': {'description': 'The tiles of the dashboard '\n                                             'template',\n                              'items': {'type': 'object'},\n                              'minItems': 1,\n                              'type': 'array'},\n                    'variables': {'anyOf': [{'items': {'properties': {'default': {'description': 'The '\n                                                                                                 'default '\n                                                                                                 'value '\n                                                                                                 'of '\n                                                                                                 'the '\n                                                                                                 'variable',\n                                                                                  'type': 'object'},\n                                                                      'description': {'description': 'The '\n                                                                                                     'description '\n                                                                                                     'of '\n                                                                                                     'the '\n                                                                                                     'variable',\n                                                                                      'type': 'string'},\n                                                                      'id': {'description': 'The '\n                                                                                            'id '\n                                                                                            'of '\n                                                                                            'the '\n                                                                                            'variable',\n                                                                             'type': 'string'},\n                                                                      'name': {'description': 'The '\n                                                                                              'name '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'type': 'string'},\n                                                                      'required': {'description': 'Whether '\n                                                                                                  'the '\n                                                                                                  'variable '\n                                                                                                  'is '\n                                                                                                  'required',\n                                                                                   'type': 'boolean'},\n                                                                      'type': {'description': 'The '\n                                                                                              'type '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'enum': ['event']}},\n                                                       'required': ['id',\n                                                                    'name',\n                                                                    'type',\n                                                                    'default',\n                                                                    'description',\n                                                                    'required'],\n                                                       'type': 'object'},\n                                             'type': 'array'},\n                                            {'type': 'null'}],\n                                  'description': 'The variables of the '\n                                                 'dashboard template'}},\n     'required': ['template_name',\n                  'dashboard_description',\n                  'dashboard_filters',\n                  'tiles'],\n     'type': 'object'}\n\nOn instance:\n    {'not a': 'template'}",
-            "attr": None,
-        }
 
-        assert response.json() == error_message
+        response_data = response.json()
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "invalid_input"
+        assert response_data["attr"] is None
+
+        # Check that the error message contains the key validation error information
+        detail = response_data["detail"]
+        assert "'template_name' is a required property" in detail
+        assert "Failed validating 'required' in schema" in detail
+        assert "{'not a': 'template'}" in detail
 
     def test_dashboard_duplication_breakdown_histogram_bin_count_none(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -1461,6 +1470,91 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_dashboard_variables_stale(self):
+        # if a variable is deleted/updated, the dashboard should not show the stale variable
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variable.id): {
+                "code_name": variable.code_name,
+                "variableId": str(variable.id),
+            }
+        }
+
+        variable.delete()
+
+        # recreate the variable
+        variabl2 = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variabl2.id)
+            assert value["code_name"] == variabl2.code_name
+            assert value["variableId"] == str(variabl2.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variabl2.id): {
+                "code_name": variabl2.code_name,
+                "variableId": str(variabl2.id),
+            }
+        }
 
     def test_dashboard_access_control_filtering(self) -> None:
         """Test that dashboards are properly filtered based on access control."""

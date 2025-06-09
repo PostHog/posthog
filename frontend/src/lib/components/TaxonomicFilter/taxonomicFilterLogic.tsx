@@ -3,6 +3,7 @@ import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducer
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
     ListStorage,
@@ -19,6 +20,7 @@ import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPropertyDefinitionIcon,
+    getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -48,6 +50,7 @@ import {
     PersonProperty,
     PersonType,
     PropertyDefinition,
+    PropertyDefinitionType,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -111,6 +114,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
+            taxonomicFilterPreferencesLogic,
+            ['eventOrdering'],
         ],
     })),
     actions(() => ({
@@ -185,6 +190,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
         ],
+        allowNonCapturedEvents: [
+            () => [(_, props) => props.allowNonCapturedEvents],
+            (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeamId,
@@ -197,6 +206,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.excludedProperties,
                 s.propertyAllowList,
                 s.eventMetadataPropertyDefinitions,
+                s.eventOrdering,
             ],
             (
                 teamId,
@@ -208,7 +218,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource,
                 excludedProperties,
                 propertyAllowList,
-                eventMetadataPropertyDefinitions
+                eventMetadataPropertyDefinitions,
+                eventOrdering
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -218,9 +229,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
+                        // the default ordering for the API is "both"
+                        // so we don't need to add an ordering param in that case
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
+                            ordering: eventOrdering ?? undefined,
                         }).url,
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
@@ -381,27 +395,74 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.ErrorTrackingIssues,
                         options: Object.entries(
                             CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssues]
-                        ).map(([key, { label }]) => ({
-                            value: key,
-                            name: label,
-                        })),
+                        )
+                            .map(([key, { label }]) => ({
+                                value: key,
+                                name: label,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.ErrorTrackingIssues]?.includes(o.value)
+                            ),
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
+                        valuesEndpoint: (key) =>
+                            `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
                         getPopoverHeader: () => 'Issues',
                     },
                     {
-                        name: 'Issue properties',
-                        searchPlaceholder: 'issue properties',
-                        type: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
+                        name: 'Revenue analytics properties',
+                        searchPlaceholder: 'revenue analytics properties',
+                        type: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                         options: Object.entries(
-                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]
-                        ).map(([key, { label }]) => ({
-                            value: key,
-                            name: label,
-                        })),
-                        getName: (option) => option.name,
-                        getValue: (option) => option.value,
-                        getPopoverHeader: () => 'Issue properties',
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.RevenueAnalyticsProperties]
+                        )
+                            .map(([key, { type: property_type }]) => ({
+                                id: key,
+                                name: key,
+                                value: key,
+                                property_type,
+                                type: PropertyDefinitionType.RevenueAnalytics,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(
+                                        o.value
+                                    )
+                            ),
+                        getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.RevenueAnalyticsProperties
+                            )
+
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/environments/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(
+                                key
+                            )}`
+                        },
+                        getPopoverHeader: () => 'Revenue analytics properties',
+                    },
+                    {
+                        name: 'Log attributes',
+                        searchPlaceholder: 'logs',
+                        type: TaxonomicFilterGroupType.Logs,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            is_feature_flag: false,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                : undefined,
+                            exclude_hidden: true,
+                        }).url,
+                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Log attributes',
                     },
                     {
                         name: 'Numerical event properties',
@@ -561,11 +622,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Session properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.SessionProperties,
-                        options: undefined,
+                        ...(propertyAllowList
+                            ? {
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
+                                      (property) => ({
+                                          name: property,
+                                          value: property,
+                                      })
+                                  ),
+                              }
+                            : {
+                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                              }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
-                        endpoint: `api/environments/${teamId}/sessions/property_definitions`,
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {

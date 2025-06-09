@@ -240,8 +240,7 @@ class TestCapture(BaseTest):
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
         args = patch_process_event_with_plugins.call_args[1]["data"]
-
-        return {
+        res = {
             "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
@@ -249,8 +248,12 @@ class TestCapture(BaseTest):
             "data": json.loads(args["data"]),
             "token": args["token"],
             "now": args["now"],
-            "sent_at": args["sent_at"],
         }
+
+        if "sent_at" in args:
+            res["sent_at"] = args["sent_at"]
+
+        return res
 
     def _send_original_version_session_recording_event(
         self,
@@ -430,12 +433,31 @@ class TestCapture(BaseTest):
                     assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_non_numeric_offset(self, kafka_produce):
+        data = {
+            "event": "$exception",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "offset": "should_blow_up",  # only integer values may pass!
+            },
+        }
+        with self.assertNumQueries(0):  # Capture does not hit PG anymore
+            response = self.client.get(
+                "/e/?data={}".format(quote(self._to_json(data))),
+                HTTP_ORIGIN="https://localhost",
+            )
+
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
             "properties": {
                 "distinct_id": 2,
                 "token": self.team.api_token,
+                "offset": 1234,
                 "$elements": [
                     {
                         "tag_name": "a",
@@ -539,7 +561,6 @@ class TestCapture(BaseTest):
             "data": expected_data,
             "token": self.team.api_token,
             "uuid": ANY,
-            "sent_at": "",
             "now": ANY,
         } == self._to_arguments(kafka_produce)
 
@@ -1052,7 +1073,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1146,7 +1166,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1177,7 +1196,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1207,7 +1225,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1342,7 +1359,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
@@ -2295,3 +2311,348 @@ class TestCapture(BaseTest):
 
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_csp_violation(self, kafka_produce):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "referrer": "https://www.google.com/",
+                "violated-directive": "default-src self",
+                "effective-directive": "img-src",
+                "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "disposition": "enforce",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+                "line-number": 10,
+                "source-file": "https://example.com/foo/bar.html",
+                "status-code": 0,
+                "script-sample": "",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert kafka_produce.call_count == 1
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+
+        # Verify data
+        event_data = json.loads(kafka_produce_call["data"]["data"])
+
+        assert event_data["event"] == "$csp_violation"
+        assert event_data["properties"]["$csp_document_url"] == "https://example.com/foo/bar"
+        # copied from $csp_document_url
+        assert event_data["properties"]["$current_url"] == "https://example.com/foo/bar"
+        assert event_data["properties"]["$csp_violated_directive"] == "default-src self"
+        assert event_data["properties"]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
+
+    def test_capture_csp_no_trailing_slash(self):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "referrer": "https://www.google.com/",
+                "violated-directive": "default-src self",
+                "effective-directive": "img-src",
+                "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "disposition": "enforce",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+                "line-number": 10,
+                "source-file": "https://example.com/foo/bar.html",
+                "status-code": 0,
+                "script-sample": "",
+            }
+        }
+
+        response = self.client.post(
+            f"/report?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+    def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data="this is not valid json",
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report format" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
+
+    def test_capture_csp_invalid_report_format_gives_invalid_csp_payload(self):
+        invalid_csp_report = {"not-a-csp-report": "invalid format"}
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(invalid_csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report properties provided" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
+
+    def test_integration_csp_report_invalid_json_gives_invalid_csp_payload(self):
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data="this is not valid json}",
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report format" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
+
+    def test_integration_csp_report_invalid_format(self):
+        invalid_format = {
+            "not-a-csp-report-field": {
+                "document-uri": "https://example.com/foo/bar",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(invalid_format),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report properties provided" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
+
+    def test_integration_csp_report_sent_as_json_without_content_type_is_handled_as_regular_event(self):
+        valid_csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(valid_csp_report),
+            content_type="application/json",  # Not application/csp-report
+        )
+
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert response.json()["code"] == "invalid_payload"
+        assert "All events must have the event name field" in response.json()["detail"]
+
+    def test_integration_csp_report_with_report_to_format_returns_204(self):
+        report_to_format = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/foo/bar",
+                    "referrer": "https://www.google.com/",
+                    "effectiveDirective": "img-src",
+                    "originalPolicy": "default-src 'self'; img-src 'self' https://img.example.com",
+                    "disposition": "enforce",
+                    "blockedURL": "https://evil.com/malicious-image.png",
+                    "lineNumber": 10,
+                    "sourceFile": "https://example.com/foo/bar.html",
+                    "statusCode": 0,
+                    "sample": "",
+                },
+            }
+        ]
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(report_to_format),
+            content_type="application/reports+json",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert response.content == b""
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_csp_report_to_violation(self, kafka_produce):
+        report_to_format = [
+            {
+                "age": 53531,
+                "body": {
+                    "blockedURL": "inline",
+                    "columnNumber": 39,
+                    "disposition": "enforce",
+                    "documentURL": "https://example.com/csp-report-1",
+                    "effectiveDirective": "script-src-elem",
+                    "lineNumber": 121,
+                    "originalPolicy": "default-src 'self'; report-to csp-endpoint-name",
+                    "referrer": "https://www.google.com/",
+                    "sample": 'console.log("lo")',
+                    "sourceFile": "https://example.com/csp-report-1",
+                    "statusCode": 200,
+                },
+                "type": "csp-violation",
+                "url": "https://example.com/csp-report-1",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+            },
+            {
+                "age": 12345,
+                "body": {
+                    "blockedURL": "https://malicious-site.com/script.js",
+                    "columnNumber": 15,
+                    "disposition": "enforce",
+                    "documentURL": "https://example.com/csp-report-2",
+                    "effectiveDirective": "script-src",
+                    "lineNumber": 42,
+                    "originalPolicy": "default-src 'self'; script-src 'self'; report-to csp-endpoint-name",
+                    "referrer": "https://another-site.com/",
+                    "sample": "",
+                    "sourceFile": "https://example.com/csp-report-2",
+                    "statusCode": 200,
+                },
+                "type": "csp-violation",
+                "url": "https://example.com/csp-report-2",
+                "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            },
+        ]
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(report_to_format),
+            content_type="application/reports+json",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        # Verify we processed both events
+        assert kafka_produce.call_count == 2
+
+        # Verify first event data
+        first_event_call = kafka_produce.call_args_list[0].kwargs
+        first_event_data = json.loads(first_event_call["data"]["data"])
+
+        assert first_event_data["properties"]["$csp_source_file"] == "https://example.com/csp-report-1"
+        assert first_event_data["properties"]["$csp_line_number"] == 121
+        assert first_event_data["properties"]["$csp_column_number"] == 39
+
+        # Verify second event data
+        second_event_call = kafka_produce.call_args_list[1].kwargs
+        second_event_data = json.loads(second_event_call["data"]["data"])
+
+        assert second_event_data["properties"]["$csp_source_file"] == "https://example.com/csp-report-2"
+        assert second_event_data["properties"]["$csp_line_number"] == 42
+        assert second_event_data["properties"]["$csp_column_number"] == 15
+
+    def test_regular_event_endpoint_with_invalid_json(self):
+        """
+        Test that the regular event endpoint (/e/) properly handles invalid JSON
+        without crashing due to CSP report handling code.
+        """
+        # Send invalid JSON to the regular event endpoint
+        response = self.client.post(
+            f"/e/?token={self.team.api_token}",
+            data="this is not valid json",
+            content_type="application/json",
+        )
+
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert response.json()["code"] == "invalid_payload"  # instead of invalid_csp_payload
+
+    def test_regular_event_endpoint_with_csp_content_type(self):
+        """
+        Test that sending data with a CSP content type to the regular event endpoint
+        doesn't crash but returns an error because the event endpoint expects JSON payloads.
+        """
+        # Valid CSP report but sent to regular event endpoint
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+            }
+        }
+
+        response = self.client.post(
+            f"/e/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        # Should return 400 as usual - the /e/ endpoint doesn't handle CSP content types
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert response.json()["code"] == "no_data"
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_enabled(self, mock_logger):
+        """Test that debug logging is enabled when debug=true parameter is present"""
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=true",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "CSP debug request"
+        assert call_args[1]["method"] == "POST"
+        assert "debug=true" in call_args[1]["url"]
+        assert call_args[1]["content_type"] == "application/csp-report"
+        assert "body" in call_args[1]
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_disabled(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_not_called()
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_case_insensitive(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=TRUE",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
+
+        mock_logger.reset_mock()
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=True",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
