@@ -2,12 +2,14 @@ import pytest
 from freezegun import freeze_time
 from datetime import datetime, timedelta
 from django.db.utils import IntegrityError
+from unittest.mock import patch
 
 from posthog.test.base import BaseTest
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingSymbolSet,
 )
 
 
@@ -112,3 +114,17 @@ class TestErrorTracking(BaseTest):
 
         issue = ErrorTrackingIssue.objects.with_first_seen().get(id=issue.id)
         assert issue.first_seen == fingerprint.first_seen  # type: ignore[attr-defined]
+
+    def test_symbol_set_delete_calls_object_storage_delete(self):
+        # Create a symbol set with a storage pointer
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref="test-ref", storage_ptr="test-storage-path"
+        )
+
+        # Test that delete method calls object_storage.delete
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            with patch("posthog.storage.object_storage.delete") as mock_delete:
+                symbol_set.delete()
+
+                # Verify object storage delete was called with correct path
+                mock_delete.assert_called_once_with(file_name="test-storage-path")

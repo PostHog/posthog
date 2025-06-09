@@ -1,4 +1,4 @@
-import { IconBuilding, IconPerson } from '@posthog/icons'
+import { IconBuilding, IconPerson, IconPiggyBank } from '@posthog/icons'
 import { IconCohort, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -28,6 +28,12 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
             return (
                 <Tooltip title="Group filter">
                     <IconBuilding />
+                </Tooltip>
+            )
+        case 'revenue_analytics':
+            return (
+                <Tooltip title="Revenue analytics filter">
+                    <IconPiggyBank />
                 </Tooltip>
             )
         default:
