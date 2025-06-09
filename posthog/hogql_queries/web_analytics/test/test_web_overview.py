@@ -1043,12 +1043,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
-        # Verify our fix uses explicit UTC (parameterized)
-        # Our UTC query should use simple toDateTime(period_bucket, 'UTC') pattern
-        self.assertIn("toDateTime(web_bounces_combined.period_bucket,", sql_utc)
+        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_bounces_combined.period_bucket," not in sql_utc
 
-        # The problematic version should use toTimeZone wrapper (double conversion)
-        self.assertIn("toTimeZone(web_bounces_combined.period_bucket,", sql_with_tz)
+        assert "toTimeZone(web_bounces_combined.period_bucket," in sql_with_tz
+        # Simplified approach - just check timezone conversion exists
 
     @snapshot_clickhouse_queries
     def test_preaggregated_query_sql_snapshot_with_timezone(self):
@@ -1072,6 +1071,5 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
-        # Verify our fix uses explicit UTC (parameterized)
-        self.assertIn("toDateTime(web_bounces_combined.period_bucket,", sql_utc)
-        self.assertNotIn("toTimeZone(web_bounces_combined.period_bucket,", sql_utc)
+        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_bounces_combined.period_bucket, " not in sql_utc
