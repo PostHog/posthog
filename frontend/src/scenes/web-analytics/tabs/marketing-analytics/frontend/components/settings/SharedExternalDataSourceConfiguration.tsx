@@ -9,6 +9,7 @@ import { ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED, OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED } from './utils'
 
 export type SimpleDataWarehouseTable = {
     name: string
@@ -59,22 +60,30 @@ export function SharedExternalDataSourceConfiguration({
         const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
         const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
 
-        const columnOptions: LemonSelectSection<string | null>[] = [
-            {
-                options: [
-                    {
-                        label: 'None',
-                        value: null,
-                    },
-                ],
-            },
-            {
-                options: compatibleColumns.map((col) => ({
-                    label: `${col.name} (${col.type})`,
-                    value: col.name,
-                })),
-            },
-        ]
+        let columnOptions: LemonSelectSection<string | null>[]
+        if (fieldName === 'base_currency') {
+            columnOptions = [
+                { options: OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED, title: 'Most Popular' },
+                { options: OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED, title: 'Other currencies' },
+            ]
+        } else {
+            columnOptions = [
+                {
+                    options: [
+                        {
+                            label: 'None',
+                            value: null,
+                        },
+                    ],
+                },
+                {
+                    options: compatibleColumns.map((col) => ({
+                        label: `${col.name} (${col.type})`,
+                        value: col.name,
+                    })),
+                },
+            ]
+        }
 
         return (
             <LemonSelect

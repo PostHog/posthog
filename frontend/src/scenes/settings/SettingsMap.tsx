@@ -276,6 +276,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'WEB_ANALYTICS_MARKETING',
         settings: [
             {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'marketing-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <NonNativeExternalDataSourceConfiguration />,

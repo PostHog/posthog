@@ -4503,11 +4503,6 @@ export interface QueryTabState {
     state: Record<string, any>
 }
 
-export enum DataWarehouseSettingsTab {
-    Managed = 'managed',
-    SelfManaged = 'self-managed',
-}
-
 export const externalDataSources = [
     'Stripe',
     'Hubspot',

@@ -12,6 +12,7 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -416,7 +417,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'baseCurrency'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
@@ -821,11 +822,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
 
         createDynamicCampaignQuery: [
-            (s) => [s.sources_map, s.dataWarehouseTables, s.selfManagedTables],
+            (s) => [s.sources_map, s.dataWarehouseTables, s.selfManagedTables, s.baseCurrency],
             (
                 sources_map: { [key: string]: SourceMap },
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                selfManagedTables: DatabaseSchemaDataWarehouseTable[]
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                baseCurrency: string
             ): string | null => {
                 if (
                     !sources_map ||
@@ -866,7 +868,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return `
                         SELECT 
                             ${fieldMapping.campaign_name} as campaignname,
-                            toFloat(coalesce(${fieldMapping.total_cost}, 0)) as cost,
+                            convertCurrency('${
+                                fieldMapping.base_currency || DEFAULT_CURRENCY
+                            }', '${baseCurrency}', toFloat(coalesce(${fieldMapping.total_cost}, 0))) as cost,
                             toFloat(coalesce(${fieldMapping.clicks || '0'}, 0)) as clicks,
                             toFloat(coalesce(${fieldMapping.impressions || '0'}, 0)) as impressions,
                             ${fieldMapping.source_name || `'${schemaName}'`} as source_name
