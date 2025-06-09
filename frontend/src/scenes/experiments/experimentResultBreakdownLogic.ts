@@ -28,9 +28,9 @@ import {
     compose,
     getExperimentDateRange,
     getExposureConfigEventsNode,
+    getInsight,
     getQuery,
 } from './metricQueryUtils'
-import { getInsight } from './metricQueryUtils'
 
 export type ExperimentResultBreakdownLogicProps = {
     experiment: Experiment
@@ -89,8 +89,8 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                         const queryBuilder = compose<
                             ExperimentMetric,
                             ExperimentMetric,
-                            FunnelsQuery | TrendsQuery,
-                            InsightVizNode
+                            FunnelsQuery | TrendsQuery | undefined,
+                            InsightVizNode | undefined
                         >(
                             addExposureToMetric(exposureEventNode),
                             getQuery({
@@ -128,6 +128,10 @@ export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogic
                          * we need the experiment for exposure configuration.
                          */
                         const query = queryBuilder(metric)
+
+                        if (!query) {
+                            throw new Error('No query returned from queryBuilder')
+                        }
 
                         /**
                          * perform the query

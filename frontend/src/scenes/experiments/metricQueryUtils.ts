@@ -79,7 +79,7 @@ const getMathProperties = (
             math_property,
         }))
         .with({ math: ExperimentMetricMathType.UniqueSessions }, ({ math }) => ({ math }))
-        .otherwise(() => ({ math: ExperimentMetricMathType.Sum, math_property: undefined }))
+        .otherwise(() => ({ math: ExperimentMetricMathType.TotalCount, math_property: undefined }))
 
 type MetricToQueryOptions = {
     breakdownFilter: BreakdownFilter
@@ -100,7 +100,7 @@ type MetricToQueryOptions = {
  */
 export const getQuery =
     (options?: Partial<MetricToQueryOptions>) =>
-    (metric: ExperimentMetric): FunnelsQuery | TrendsQuery => {
+    (metric: ExperimentMetric): FunnelsQuery | TrendsQuery | undefined => {
         /**
          * we get all the options or their defaults. There's no overrides that could
          * cause unexpected effects.
@@ -165,7 +165,7 @@ export const getQuery =
                     series: getFunnelSeries(funnelMetric),
                 } as FunnelsQuery
             })
-            .exhaustive()
+            .otherwise(() => undefined)
     }
 
 /**
@@ -339,9 +339,12 @@ type InsightVizNodeOptions = {
  */
 export const getInsight =
     (options: Partial<InsightVizNodeOptions>) =>
-    (query: FunnelsQuery | TrendsQuery): InsightVizNode => {
-        const { showTable = false, showLastComputation = false, showLastComputationRefresh = false } = options || {}
+    (query: FunnelsQuery | TrendsQuery | undefined): InsightVizNode | undefined => {
+        if (!query) {
+            return undefined
+        }
 
+        const { showTable = false, showLastComputation = false, showLastComputationRefresh = false } = options || {}
         return {
             kind: NodeKind.InsightVizNode,
             source: query,
