@@ -43,6 +43,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
                 "user_email": "test@example.com",
             },
         )
+
         mock_client.shutdown.assert_called_once()
 
     @patch("posthog.tasks.early_access_feature.get_regional_ph_client")

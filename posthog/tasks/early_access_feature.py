@@ -4,7 +4,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
-from ..ph_client import get_regional_ph_client
+from posthog.ph_client import get_regional_ph_client
 
 
 logger = structlog.get_logger(__name__)
