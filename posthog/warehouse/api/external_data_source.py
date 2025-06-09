@@ -1145,7 +1145,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in incremental_fields[name]
                     ],
                     "incremental_available": True,
-                    "incremental_field": None,
+                    "incremental_field": incremental_fields[name][0]
+                    if len(incremental_fields.get(name, [])) > 0
+                    else None,
                     "sync_type": None,
                 }
                 for name, _ in google_ads_schemas.items()
