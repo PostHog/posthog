@@ -15,6 +15,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
+    SingleSessionSummaryData,
     prepare_data_for_single_session_summary,
 )
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
@@ -160,32 +161,11 @@ def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key:
         )
 
 
-def execute_summarize_session(
+def _prepare_single_session_summary_input(
     session_id: str,
     user_pk: int,
-    team: Team,
-    extra_summary_context: ExtraSummaryContext | None = None,
-    local_reads_prod: bool = False,
-) -> Generator[str, None, None]:
-    """
-    Start the workflow and yield chunks as they become available, polling the get_chunks query.
-    This is a sync generator.
-    """
-    # Collect data required for the workflow to generate the summary for a single session
-    summary_data = prepare_data_for_single_session_summary(
-        session_id=session_id,
-        user_pk=user_pk,
-        team=team,
-        extra_summary_context=extra_summary_context,
-        local_reads_prod=local_reads_prod,
-    )
-    if summary_data.sse_error_msg is not None or summary_data.prompt_data is None or summary_data.prompt is None:
-        # If we weren't able to collect the required data, return the error message right away
-        yield summary_data.sse_error_msg or serialize_to_sse_event(
-            event_label="session-summary-error",
-            event_data="Failed to prepare summary data",
-        )
-        return
+    summary_data: SingleSessionSummaryData,
+) -> SessionSummaryInputs:
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data.prompt_data.metadata.start_time is None:
         raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
@@ -203,6 +183,40 @@ def execute_summarize_session(
         window_mapping_reversed=summary_data.prompt_data.window_mapping_reversed,
         session_start_time_str=summary_data.prompt_data.prompt_data.metadata.start_time.isoformat(),
         session_duration=summary_data.prompt_data.prompt_data.metadata.duration,
+    )
+    return input_data
+
+
+def execute_summarize_session(
+    session_id: str,
+    user_pk: int,
+    team: Team,
+    extra_summary_context: ExtraSummaryContext | None = None,
+    local_reads_prod: bool = False,
+) -> Generator[str, None, None]:
+    """
+    Start the workflow and yield summary state from the stream as it becomes available.
+    """
+    # Collect data required for the workflow to generate the summary for a single session
+    # Querying the DB outside of workflow as it doesn't need retries and simplifies the flow
+    summary_data = prepare_data_for_single_session_summary(
+        session_id=session_id,
+        user_pk=user_pk,
+        team=team,
+        extra_summary_context=extra_summary_context,
+        local_reads_prod=local_reads_prod,
+    )
+    if summary_data.sse_error_msg is not None or summary_data.prompt_data is None or summary_data.prompt is None:
+        # If we weren't able to collect the required data, return the error message right away
+        yield summary_data.sse_error_msg or serialize_to_sse_event(
+            event_label="session-summary-error",
+            event_data="Failed to prepare summary data",
+        )
+        return
+    input_data = _prepare_single_session_summary_input(
+        session_id=session_id,
+        user_pk=user_pk,
+        summary_data=summary_data,
     )
     # Connect to Redis and prepare the input
     redis_client = get_client()
@@ -224,6 +238,7 @@ def execute_summarize_session(
     last_summary_state = ""
     while True:
         desc = asyncio.run(handle.describe())
+        # If the workflow is completed
         if desc.status.name == "COMPLETED":
             final_result = asyncio.run(handle.result())
             # Yield final result if it's different from the last state OR if we haven't yielded anything yet
@@ -231,19 +246,18 @@ def execute_summarize_session(
                 yield final_result
             _clean_up_redis(redis_client, redis_input_key, redis_output_key)
             return
-        # Check if workflow is completed unsuccessfully
+        # Check if the workflow is completed unsuccessfully
         if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
-            # Handle failure - yield an error message
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
                 event_data=f"Failed to generate summary: {desc.status.name}",
             )
             _clean_up_redis(redis_client, redis_input_key, redis_output_key)
             return
-        # If the workflow is still running, get current summary state from Redis
+        # If the workflow is still running
         redis_data_raw = redis_client.get(redis_output_key)
         if not redis_data_raw:
-            continue
+            continue  # No data stored yet
         try:
             redis_data_str = redis_data_raw.decode("utf-8") if isinstance(redis_data_raw, bytes) else redis_data_raw
             redis_data = json.loads(redis_data_str)
@@ -253,9 +267,9 @@ def execute_summarize_session(
             )
         last_summary_state = redis_data.get("last_summary_state")
         if not isinstance(last_summary_state, str):
-            continue
+            continue  # No data stored yet
         yield last_summary_state
-        # Wait a bit to let new chunks come in from the stream
+        # Wait a bit (50ms) to let new chunks come in from the stream
         time.sleep(0.05)
 
 
