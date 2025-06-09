@@ -4,18 +4,20 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { memo, MutableRefObject } from 'react'
 import {
+    InspectorListItem,
     InspectorListItemComment,
     InspectorListItemEvent,
+    InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { UserActivity } from './UserActivity'
 
-export interface SeekBarItem {
-    timeInRecording: number
-    highlightColor?: string
-    label: string | JSX.Element
-    title?: string
-    key: string
+function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
+    return 'data' in x && !!x.data && 'event' in x.data
+}
+
+function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
+    return x.type === 'comment' && x.source === 'notebook'
 }
 
 function PlayerSeekbarTick({
@@ -29,8 +31,6 @@ function PlayerSeekbarTick({
     zIndex: number
     onClick: (e: React.MouseEvent) => void
 }): JSX.Element | null {
-    const data = item.data
-    const isEventItem = 'event' in data
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
@@ -40,7 +40,13 @@ function PlayerSeekbarTick({
     return (
         <div
             className={clsx('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
-            title={isEventItem ? data.event : data.comment}
+            title={
+                isEventItem(item)
+                    ? item.data.event
+                    : isNotebookComment(item)
+                    ? item.data.comment
+                    : item.data.content ?? undefined
+            }
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 left: `${position}%`,
@@ -49,10 +55,10 @@ function PlayerSeekbarTick({
             onClick={onClick}
         >
             <div className="PlayerSeekbarTick__info">
-                {isEventItem ? (
+                {isEventItem(item) ? (
                     <>
-                        {data.event === '$autocapture' ? (
-                            <>{autoCaptureEventToDescription(data)}</>
+                        {item.data.event === '$autocapture' ? (
+                            <>{autoCaptureEventToDescription(item.data)}</>
                         ) : (
                             <PropertyKeyInfo
                                 className="font-medium"
@@ -60,17 +66,20 @@ function PlayerSeekbarTick({
                                 disablePopover
                                 ellipsis={true}
                                 type={TaxonomicFilterGroupType.Events}
-                                value={data.event}
+                                value={item.data.event}
                             />
                         )}
-                        {data.event === '$pageview' && (data.properties.$pathname || data.properties.$current_url) ? (
+                        {item.data.event === '$pageview' &&
+                        (item.data.properties.$pathname || item.data.properties.$current_url) ? (
                             <span className="ml-2 opacity-75">
-                                {data.properties.$pathname || data.properties.$current_url}
+                                {item.data.properties.$pathname || item.data.properties.$current_url}
                             </span>
                         ) : null}
                     </>
+                ) : isNotebookComment(item) ? (
+                    item.data.comment
                 ) : (
-                    data.comment
+                    item.data.content
                 )}
             </div>
             <div className="PlayerSeekbarTick__line" />

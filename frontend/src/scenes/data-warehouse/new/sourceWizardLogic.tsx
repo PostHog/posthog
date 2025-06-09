@@ -1436,8 +1436,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setStep(2)
                 return
             }
-
-            lemonToast.error(`Something went wrong.`)
         },
     })),
     forms(({ actions, values }) => ({
