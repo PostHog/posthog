@@ -1,4 +1,5 @@
 import { VMState } from '@posthog/hogvm'
+import { HogFlow } from '@posthog/shared-types'
 import { DateTime } from 'luxon'
 
 import {
@@ -293,73 +294,6 @@ export type HogFlowInvocationContext = {
     event?: any // TODO: Type better
     variables: Record<string, any>
     currentActionId?: string
-}
-
-export type HogFlow = {
-    // Primary key is id + version
-    id: string
-    name: string
-    description: string
-    team_id: number
-    version: number
-    status: 'active' | 'draft' | 'archived'
-
-    trigger:
-        | {
-              type: 'event'
-              filters: HogFunctionFilters
-          }
-        | {
-              type: 'schedule'
-              cron: string
-          }
-        | {
-              type: 'webhook'
-              hog_function_id: string
-          }
-
-    trigger_masking: {
-        ttl: number
-        hash: string
-        // bytecode: HogBytecode
-        threshold: number
-    }
-
-    conversion: {
-        window: number
-        // cohort_id: number
-        filters: any // HogFunctionFilters
-    }
-    exit_condition:
-        | 'exit_on_conversion'
-        | 'exit_on_trigger_not_matched'
-        | 'exit_on_trigger_not_matched_or_conversion'
-        | 'exit_only_at_end'
-
-    // workflow graph
-    edges: {
-        from: string
-        to: string
-        type: 'continue' | 'branch'
-        index: number
-    }[]
-
-    actions: {
-        id: string
-        name: string
-        description: string
-        type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
-        config: any // HogFunctionInputSchemaType[] // Try to type this strongly to the "type"
-
-        // Maybe v1?
-        on_error: 'continue' | 'abort' | 'complete' | 'branch'
-
-        created: number
-        updated: Date
-        position: number
-    }[]
-
-    abort_action?: string
 }
 
 // Mostly copied from frontend types

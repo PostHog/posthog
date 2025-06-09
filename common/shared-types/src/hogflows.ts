@@ -31,7 +31,7 @@ export type HogFlow = {
     }
 
     conversion: {
-        window: number
+        window_minutes: number
         // cohort_id: number
         filters: any // HogFunctionFilters
     }
