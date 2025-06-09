@@ -32,6 +32,7 @@ import {
     CustomEventConversionGoal,
     DatabaseSchemaDataWarehouseTable,
     DataTableNode,
+    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -762,7 +763,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 sources_map: { [key: string]: SourceMap },
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 selfManagedTables: DatabaseSchemaDataWarehouseTable[]
-            ): AnyEntityNode[] => {
+            ): DataWarehouseNode[] => {
                 if (
                     !sources_map ||
                     Object.keys(sources_map).length === 0 ||
@@ -788,7 +789,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
-                const nodeList: AnyEntityNode[] = Object.entries(validSourcesMap)
+                const nodeList: DataWarehouseNode[] = Object.entries(validSourcesMap)
                     .map(([tableId, fieldMapping]: [string, any]) => {
                         const dataWarehouseTable = dataWarehouseTables.find((table) => table.schema?.id === tableId)
                         const selfManagedTable = selfManagedTables.find((table) => table.id === tableId)
@@ -799,7 +800,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             return null
                         }
 
-                        const returning: AnyEntityNode = {
+                        const returning: DataWarehouseNode = {
                             kind: NodeKind.DataWarehouseNode,
                             id: tableId,
                             name: schema,
@@ -1415,7 +1416,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 if (productTab === ProductTab.MARKETING) {
                     // Generate dynamic series from sources_map
-                    const createDynamicMarketingSeries = (): AnyEntityNode[] => {
+                    const createDynamicMarketingSeries = (): DataWarehouseNode[] => {
                         const dynamicNodes = values.createMarketingDataWarehouseNodes
 
                         if (!dynamicNodes || dynamicNodes.length === 0) {
