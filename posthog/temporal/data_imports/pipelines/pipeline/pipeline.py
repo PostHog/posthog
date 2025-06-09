@@ -411,7 +411,7 @@ def _get_incremental_field_value(
     else:
         raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
 
-    return last_value
+    return last_value.as_py()
 
 
 def should_partition_table(
