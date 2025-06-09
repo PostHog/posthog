@@ -4,6 +4,7 @@ packages:
     - common/eslint_rules
     - common/hogvm/typescript
     - common/plugin_transpiler
+    - common/shared-types
     - common/storybook
     - common/tailwind
     - cypress

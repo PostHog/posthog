@@ -50,6 +50,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    MarketingAnalyticsConfig,
     Node,
     NodeKind,
     QuerySchema,
@@ -642,6 +643,7 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
 }
 
@@ -1144,13 +1146,6 @@ export enum SessionRecordingSidebarTab {
 export enum SessionRecordingSidebarStacking {
     Vertical = 'vertical',
     Horizontal = 'horizontal',
-}
-
-export enum FilterableInspectorListItemTypes {
-    EVENTS = 'events',
-    CONSOLE = 'console',
-    NETWORK = 'network',
-    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
@@ -3578,6 +3573,7 @@ export interface PropertyDefinition {
     verified_at?: string
     verified_by?: string
     hidden?: boolean
+    virtual?: boolean
 }
 
 export enum PropertyDefinitionState {
@@ -3758,6 +3754,8 @@ export interface CoreFilterDefinition {
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
+    /** Virtual properties are not "sent as", because they are calculated from other properties or SQL expressions **/
+    virtual?: boolean
 }
 
 export interface TileParams {

@@ -55,6 +55,7 @@
         "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
+        "@posthog/shared-types": "workspace:*",
         "@segment/action-destinations": "^3.383.0",
         "@types/lru-cache": "^5.1.0",
         "@types/node": "^18.11.9",

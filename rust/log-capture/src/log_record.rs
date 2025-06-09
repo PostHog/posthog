@@ -95,8 +95,8 @@ impl LogRow {
             None => "".to_string(),
         };
 
-        let event_name = extract(&attributes, "event.name");
-        let service_name = extract(&attributes, "service.name");
+        let event_name = extract_string(&attributes, "event.name");
+        let service_name = extract_string(&attributes, "service.name");
 
         // Trace/span IDs
         let trace_id = extract_trace_id(&record.trace_id);
@@ -129,10 +129,15 @@ impl LogRow {
     }
 }
 
-fn extract(attributes: &[(String, String)], key: &str) -> String {
+// extract a JSON value as a string. If it's a string, strip the surrounding "quotes"
+fn extract_string(attributes: &[(String, String)], key: &str) -> String {
     for (k, val) in attributes.iter() {
         if k == key {
-            return val.to_string();
+            if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(val) {
+                return value.to_string();
+            } else {
+                return val.to_string();
+            }
         }
     }
     "".to_string()
