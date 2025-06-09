@@ -318,6 +318,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIHogTransformationAccepted: true,
         reportAIHogTransformationRejected: true,
         reportAIHogTransformationPromptOpen: true,
+        setOldInputsSchema: (oldInputsSchema: HogFunctionInputSchemaType[]) => ({ oldInputsSchema }),
+        setNewInputsSchema: (newInputsSchema: HogFunctionInputSchemaType[]) => ({ newInputsSchema }),
+        clearInputsSchemaDiff: true,
+        reportAIInputsConfigurationPrompted: true,
+        reportAIInputsConfigurationAccepted: true,
+        reportAIInputsConfigurationRejected: true,
+        reportAIInputsConfigurationPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -375,6 +382,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             {
                 setNewHogCode: (_, { newHogCode }) => newHogCode,
                 clearHogCodeDiff: () => null,
+            },
+        ],
+        oldInputsSchema: [
+            null as HogFunctionInputSchemaType[] | null,
+            {
+                setOldInputsSchema: (_, { oldInputsSchema }) => oldInputsSchema,
+                clearInputsSchemaDiff: () => null,
+            },
+        ],
+        newInputsSchema: [
+            null as HogFunctionInputSchemaType[] | null,
+            {
+                setNewInputsSchema: (_, { newInputsSchema }) => newInputsSchema,
+                clearInputsSchemaDiff: () => null,
             },
         ],
     })),
@@ -1168,6 +1189,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIHogTransformationPromptOpen: () => {
             posthog.capture('ai_hog_transformation_prompt_open')
+        },
+        reportAIInputsConfigurationPrompted: () => {
+            posthog.capture('ai_inputs_configuration_prompted')
+        },
+        reportAIInputsConfigurationAccepted: () => {
+            posthog.capture('ai_inputs_configuration_accepted')
+        },
+        reportAIInputsConfigurationRejected: () => {
+            posthog.capture('ai_inputs_configuration_rejected')
+        },
+        reportAIInputsConfigurationPromptOpen: () => {
+            posthog.capture('ai_inputs_configuration_prompt_open')
         },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {

@@ -34,7 +34,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, HogFunctionInputSchemaType, HogFunctionFiltersType } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
@@ -432,10 +432,45 @@ export function HogFunctionConfiguration({
                                         </LemonBanner>
                                     ) : null}
 
-                                    <HogFunctionInputs
-                                        configuration={configuration}
-                                        setConfigurationValue={setConfigurationValue}
-                                    />
+                                    <MaxTool
+                                        name="create_hog_function_inputs"
+                                        displayName="Configure input variables"
+                                        context={{
+                                            current_inputs_schema: configuration.inputs_schema ?? [],
+                                        }}
+                                        callback={(toolOutput: HogFunctionInputSchemaType[]) => {
+                                            // First set the input schema
+                                            setConfigurationValue('inputs_schema', toolOutput)
+                                            
+                                            // Then set up default values for each input
+                                            const newInputs = { ...(configuration.inputs ?? {}) }
+                                            toolOutput.forEach((input) => {
+                                                if (input.key && !newInputs[input.key]) {
+                                                    newInputs[input.key] = {
+                                                        value: input.default ?? null,
+                                                        secret: input.secret ?? false,
+                                                    }
+                                                }
+                                            })
+                                            setConfigurationValue('inputs', newInputs)
+                                        }}
+                                        suggestions={[
+                                            'Add an API key input',
+                                            'Add inputs for webhook configuration',
+                                            'Add inputs for email settings',
+                                            'Add inputs for filtering options',
+                                        ]}
+                                        introOverride={{
+                                            headline: 'What inputs do you want to configure?',
+                                            description: 'Let me help you design the input schema for your function.',
+                                        }}
+                                    >
+                                        <HogFunctionInputs
+                                            configuration={configuration}
+                                            setConfigurationValue={setConfigurationValue}
+                                        />
+                                    </MaxTool>
+                                   
                                     {showSource && canEditSource ? (
                                         <LemonButton
                                             icon={<IconPlus />}
