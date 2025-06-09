@@ -1,5 +1,5 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconPlus, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonDropdown, Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -10,12 +10,44 @@ import { urls } from 'scenes/urls'
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['GoogleAds', 'MetaAds']
+const NEEDED_FIELDS_FOR_MARKETING_ANALYTICS: string[] = [
+    'ad',
+    'campaign',
+    'ad_group_ad',
+    'ad_group_criterion',
+    'customer',
+]
 
 export function NativeExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
 
     const marketingSources =
         dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
+
+    const getSourceStatus = (source: ExternalDataSource): { isConfigured: boolean; message: string } => {
+        if (!source.schemas || source.schemas.length === 0) {
+            return { isConfigured: false, message: 'No schemas configured' }
+        }
+
+        const neededFieldsWithSync = NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.filter((field) => {
+            const schema = source.schemas.find((schema) => schema.name === field)
+            return schema && schema.should_sync
+        })
+
+        if (neededFieldsWithSync.length === NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.length) {
+            return { isConfigured: true, message: 'Ready to use! All required fields are syncing.' }
+        }
+
+        const missingCount = NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.length - neededFieldsWithSync.length
+        return {
+            isConfigured: false,
+            message: `${missingCount} field${
+                missingCount > 1 ? 's' : ''
+            } need to be synced: ${NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.filter(
+                (field) => !neededFieldsWithSync.includes(field)
+            ).join(', ')}`,
+        }
+    }
 
     return (
         <div>
@@ -51,6 +83,36 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                 >
                                     {item.prefix || item.source_type}
                                 </Link>
+                            )
+                        },
+                    },
+                    {
+                        key: 'status',
+                        title: 'Status',
+                        width: 80,
+                        render: (_, item: ExternalDataSource) => {
+                            const { isConfigured, message } = getSourceStatus(item)
+
+                            if (isConfigured) {
+                                return (
+                                    <Tooltip title={message}>
+                                        <div className="flex justify-center">
+                                            <IconCheck className="text-success text-lg" />
+                                        </div>
+                                    </Tooltip>
+                                )
+                            }
+                            const hasAnySchemas = item.schemas && item.schemas.length > 0
+                            return (
+                                <Tooltip title={message}>
+                                    <div className="flex justify-center">
+                                        {hasAnySchemas ? (
+                                            <IconWarning className="text-warning text-lg" />
+                                        ) : (
+                                            <IconX className="text-muted text-lg" />
+                                        )}
+                                    </div>
+                                </Tooltip>
                             )
                         },
                     },
