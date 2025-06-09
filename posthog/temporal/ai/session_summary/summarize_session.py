@@ -15,13 +15,14 @@ from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
     prepare_data_for_single_session_summary,
 )
+from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog.temporal.common.codec import EncryptionCodec
 from temporalio.api.common.v1 import Payload
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-from temporalio.client import Client as TemporalClient, WorkflowHandle, WorkflowExecutionDescription
+from temporalio.client import Client as TemporalClient, WorkflowHandle
 
 
 async def _connect_to_temporal_client() -> TemporalClient:
@@ -49,7 +50,7 @@ class SessionSummaryInputs:
 
 @temporalio.activity.defn
 async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
-    latest_summary_state = ""
+    last_summary_state = ""
     session_summary_generator = stream_llm_session_summary(
         session_id=inputs.session_id,
         user_pk=inputs.user_pk,
@@ -63,37 +64,17 @@ async def stream_llm_summary_activity(inputs: SessionSummaryInputs) -> str:
         session_start_time_str=inputs.session_start_time_str,
         session_duration=inputs.session_duration,
     )
-
-    # info = workflow_info()
-    # client = await _connect_to_temporal_client()
-    # handle = client.get_workflow_handle(workflow_id=info.workflow_id, run_id=info.workflow_run_id)
-
-    # Iterate the async generator, store chunks, and return the combined result
-    async for state in session_summary_generator:
-        latest_summary_state = state
-        temporalio.activity.heartbeat({"latest_summary_state": latest_summary_state})
-
-        # # Send update to workflow instead of heartbeat
-        # await handle.execute_update(SummarizeSessionWorkflow.update_latest_summary_state, latest_summary_state)
-
-    return latest_summary_state
+    async for current_summary_state in session_summary_generator:
+        if current_summary_state == last_summary_state:
+            # Skip cases where no updates happened or the same state was sent again
+            continue
+        last_summary_state = current_summary_state
+        temporalio.activity.heartbeat({"last_summary_state": last_summary_state})
+    return last_summary_state
 
 
 @temporalio.workflow.defn(name="summarize-session")
 class SummarizeSessionWorkflow(PostHogWorkflow):
-    def __init__(self):
-        self.summary_state: str = ""
-
-    @temporalio.workflow.query
-    def get_latest_summary_state(self) -> str:
-        """Query to get the current accumulated summary."""
-        return self.summary_state
-
-    # @temporalio.workflow.update
-    # async def update_latest_summary_state(self, latest_summary_state: str) -> None:
-    #     """Update handler to set current accumulated summary as the latest summary state"""
-    #     self.summary_state = latest_summary_state
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionSummaryInputs:
         try:
@@ -130,12 +111,6 @@ async def _start_workflow(str_inputs: list[str], workflow_id: str) -> WorkflowHa
     return handle
 
 
-async def _query_workflow_state(handle: WorkflowHandle) -> tuple[str, WorkflowExecutionDescription]:
-    current_summary = await handle.query(SummarizeSessionWorkflow.get_latest_summary_state)
-    desc = await handle.describe()
-    return current_summary, desc
-
-
 def execute_summarize_session(
     session_id: str,
     user_pk: int,
@@ -157,17 +132,19 @@ def execute_summarize_session(
     )
     if summary_data.sse_error_msg is not None or summary_data.prompt_data is None or summary_data.prompt is None:
         # If we weren't able to collect the required data, return the error message right away
-        return summary_data.sse_error_msg
+        yield summary_data.sse_error_msg or serialize_to_sse_event(
+            event_label="session-summary-error",
+            event_data="Failed to prepare summary data",
+        )
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data.prompt_data.metadata.start_time is None:
         raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
     if summary_data.prompt_data.prompt_data.metadata.duration is None:
         raise ValueError(f"Session duration is missing in the session metadata for session_id {session_id}")
     # Connect to the client and prepare the input
-    # TODO: Generate a proper id
-    random_id = str(uuid.uuid4())
+    random_id = str(uuid.uuid4())  # TODO: Generate a proper id
     session_start_time_str = summary_data.prompt_data.prompt_data.metadata.start_time.isoformat()
-    # TODO: Store in Redis and send a key instead
+    # TODO: Store in Redis and send a key instead?
     inputs = SessionSummaryInputs(
         session_id=session_id,
         user_pk=user_pk,
@@ -183,9 +160,7 @@ def execute_summarize_session(
     str_inputs = [json.dumps(dataclasses.asdict(inputs))]
     # Start streaming the workflow
     handle = asyncio.run(_start_workflow(str_inputs=str_inputs, workflow_id=random_id))
-
-    # last_summary = ""
-
+    last_summary_state = ""
     while True:
         desc = asyncio.run(handle.describe())
         # Access heartbeat details from activity
@@ -201,37 +176,29 @@ def execute_summarize_session(
                 # Get chunk
                 data = decrypted_payload.data
                 json_data = json.loads(data)
-                latest_summary_state = json_data.get("latest_summary_state")
-                if not latest_summary_state:
+                current_summary_state = json_data.get("last_summary_state")
+                if not current_summary_state or current_summary_state == last_summary_state:
+                    # Skip cases where no updates happened or the same state was sent again
                     continue
                 # Yield latest summary state
-                yield latest_summary_state
-        if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+                last_summary_state = current_summary_state
+                yield last_summary_state
+            # Get the final result after workflow completes
+        if desc.status.name == "COMPLETED":
+            try:
+                final_result = asyncio.run(handle.result())
+                # Yield final result if it's different from the last state OR if we haven't yielded anything yet
+                if final_result != last_summary_state or not last_summary_state:
+                    yield final_result
+            except Exception:
+                # Handle any errors in getting the result
+                pass
+        # Check if workflow is completed unsuccessfully
+        if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+            # TODO: Handle errors
             break
-        # Wait till next heartbeat
-        time.sleep(0.25)
-
-    # Get the final result after workflow completes
-    if desc.status.name == "COMPLETED":
-        try:
-            final_result = asyncio.run(handle.result())
-            yield final_result
-        except Exception:
-            # Handle any errors in getting the result
-            pass
-
-    # while True:
-    #     # Query the workflow for the current summary
-    #     current_summary, desc = asyncio.run(_query_workflow_state(handle))
-    #     # Yield only if there's new content
-    #     if current_summary != last_summary:
-    #         yield current_summary
-    #         last_summary = current_summary
-    #     # Check if workflow is complete
-    #     if desc.status.name in ("COMPLETED", "FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
-    #         break
-    #     # Small delay between queries to let new chunks come in
-    #     time.sleep(0.1)
+        # Wait till next heartbeat to let new chunks come in from the stream
+        time.sleep(0.1)
 
 
 def stream_recording_summary(
