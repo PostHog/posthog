@@ -371,6 +371,35 @@ class UserAccessControl:
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
         return self.check_access_level_for_object(self._team or obj, required_level="admin", explicit=True)
 
+    # Object level (specific) - checking conditions for specific items with a member or role
+    def specific_access_level_for_object(self, obj: Model) -> Optional[AccessControlLevel]:
+        """
+        This is different than access_level_for_object, it's only looking at access levels that have
+        a role or member for the object. It will fallback to access_level_for_object if none is found.
+        """
+
+        resource = model_to_resource(obj)
+        org_membership = self._organization_membership
+
+        if not resource or not org_membership:
+            return None
+
+        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        access_controls = self._get_access_controls(filters)
+
+        # These are already pre-loaded so filter what's in memory
+        access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
+
+        # If there is no specified controls on the resource then we return the default access level
+        if not access_controls:
+            return None
+
+        # If there are access controls we pick the highest level the user has
+        return max(
+            access_controls,
+            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
+        ).access_level
+
     # Resource level - checking conditions for the resource type
     def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
@@ -530,6 +559,30 @@ class UserAccessControl:
 
         return queryset
 
+    def get_user_access_level(self, obj: Model) -> Optional[str]:
+        resource = model_to_resource(obj)
+        specific_access_level_for_object = None
+        access_level_for_resource = None
+
+        # Check object specific access levels
+        specific_access_level_for_object = self.specific_access_level_for_object(obj)
+
+        if specific_access_level_for_object:
+            return specific_access_level_for_object
+
+        # Should we return specific_access_level_for_object or max(specific_access_level_for_object, access_level_for_resource)
+
+        # Check resource access levels
+        if resource and self.has_access_levels_for_resource(resource):
+            access_level_for_resource = self.access_level_for_resource(resource)
+
+        if access_level_for_resource:
+            return access_level_for_resource
+
+        # Check object general access levels
+        access_level_for_object = self.access_level_for_object(obj)
+        return access_level_for_object
+
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
     """
@@ -577,13 +630,4 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True
 
-        resource = model_to_resource(obj)
-        access_level_for_resource = None
-        if resource and self.user_access_control.has_access_levels_for_resource(resource):
-            access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
-
-        if access_level_for_resource:
-            return access_level_for_resource
-
-        access_level_for_object = self.user_access_control.access_level_for_object(obj)
-        return access_level_for_object
+        return self.user_access_control.get_user_access_level(obj)
