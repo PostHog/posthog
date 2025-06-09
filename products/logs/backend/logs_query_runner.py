@@ -17,6 +17,7 @@ from posthog.schema import (
     LogsQueryResponse,
     IntervalType,
     PropertyGroupsMode,
+    PropertyOperator,
     LogPropertyFilter,
 )
 
@@ -46,6 +47,7 @@ class LogsQueryRunner(QueryRunner):
             return "str"
 
         if len(self.query.filterGroup.values) > 0:
+            filter_keys = []
             # dynamically detect type of the given property values
             # if they all convert cleanly to float, use the __float property mapping instead
             # we keep multiple attribute maps for different types:
@@ -66,6 +68,20 @@ class LogsQueryRunner(QueryRunner):
                     else:
                         property_type = get_property_type(property_filter.value)
                     property_filter.key += f"__{property_type}"
+                    # for all operators except SET and NOT_SET we add an IS_SET operator to force
+                    # the property key bloom filter index to be used.
+                    if property_filter.operator not in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
+                        filter_keys.append(property_filter.key)
+
+            for filter_key in filter_keys:
+                self.query.filterGroup.values[0].values.insert(
+                    0,
+                    LogPropertyFilter(
+                        key=filter_key,
+                        operator=PropertyOperator.IS_SET,
+                        type="log",
+                    ),
+                )
 
     def calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
@@ -171,7 +187,11 @@ class LogsQueryRunner(QueryRunner):
 
     @cached_property
     def settings(self):
-        return HogQLGlobalSettings(allow_experimental_object_type=False, allow_experimental_join_condition=False)
+        return HogQLGlobalSettings(
+            allow_experimental_object_type=False,
+            allow_experimental_join_condition=False,
+            transform_null_in=False,
+        )
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
