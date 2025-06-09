@@ -40,7 +40,7 @@ describe('getYCBatchOptions()', () => {
         expect(batchNames).toContain('Winter 2024') // Current
         expect(batchNames).toContain('Summer 2024') // Future (Current + 1)
         expect(batchNames).toContain('Fall 2024') // Future (Current + 2)
-        expect(batchNames).toContain('Winter 2024') // Past batch (Current - 1)
+        expect(batchNames).toContain('Winter 2023') // Past batch (Current - 1)
         expect(batchNames).toContain('Summer 2023') // Past batch (Current - 2)
 
         // Should not include far future batches
