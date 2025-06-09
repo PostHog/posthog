@@ -13,12 +13,13 @@ from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
+from posthog.temporal.data_imports.pipelines.google_ads.schemas import RESOURCE_SCHEMAS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableSchemas
 
 
-def clean_customer_id(s: str | None) -> str | None:
+def _clean_customer_id(s: str | None) -> str | None:
     """Clean customer IDs from Google Ads.
 
     Customer IDs can contain dashes, but we need the ID without them.
@@ -34,7 +35,7 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
     """Google Ads source config using service account for authentication."""
 
     resource_name: str
-    customer_id: str = config.value(converter=clean_customer_id)
+    customer_id: str = config.value(converter=_clean_customer_id)
 
     private_key: str = config.value(
         default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
@@ -91,7 +92,7 @@ class GoogleAdsColumn(Column):
         is_repeatable: bool,
         type_url: str,
     ):
-        self.name = qualified_name.split(".", 1)[1]
+        self.name = qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
         self.data_type = data_type
         self.type_url = type_url
@@ -193,28 +194,37 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas[GoogleAdsColumn]:
     """
     client = google_ads_client(config)
     gaf_service = client.get_service("GoogleAdsFieldService")
-    resources_query = gaf_service.search_google_ads_fields(query="select name where category = 'RESOURCE'")
-
+    fields_query = gaf_service.search_google_ads_fields(
+        query=f"select name, data_type, is_repeated, type_url where selectable = true"
+    )
+    fields_map = {field.name: field for field in fields_query.results}
     table_schemas = {}
 
-    for resource in resources_query.results:
-        fields_query = gaf_service.search_google_ads_fields(
-            query=f"select name, data_type, is_repeated, type_url where category = 'ATTRIBUTE' and selectable = true and name like '{resource.name}.%'"
-        )
+    for table_alias, resource_contents in RESOURCE_SCHEMAS.items():
+        resource_name = resource_contents["resource_name"]
+        assert isinstance(resource_name, str)
+
+        field_names = resource_contents["field_names"]
 
         columns = []
-        for field in fields_query.results:
+
+        for field_name in field_names:
+            try:
+                field = fields_map[field_name]
+            except KeyError:
+                field = fields_map[field_name.removeprefix(f"{resource_name}.")]
+
             columns.append(
                 GoogleAdsColumn(
-                    qualified_name=field.name,
+                    qualified_name=field_name,
                     data_type=field.data_type,
                     is_repeatable=field.is_repeated,
                     type_url=field.type_url,
                 )
             )
 
-        table = Table(name=resource.name, columns=columns, parents=None)
-        table_schemas[table.name] = table
+        table = Table(name=resource_name, alias=table_alias, columns=columns, parents=None)
+        table_schemas[table.alias] = table
 
     return table_schemas
 
@@ -229,13 +239,13 @@ def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
     table = get_schemas(config)[config.resource_name]
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        query = f"SELECT {','.join(f'{table.name}.{field.name}' for field in table)} FROM {table.name}"
+        query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
 
         client = google_ads_client(config)
         service = client.get_service("GoogleAdsService", version="v19")
         stream = service.search_stream(query=query, customer_id=config.customer_id)
 
-        yield from stream_as_arrow_table(stream, table)
+        yield from _stream_as_arrow_table(stream, table)
 
     return SourceResponse(
         name=name,
@@ -244,7 +254,7 @@ def google_ads_source(config: GoogleAdsSourceConfig) -> SourceResponse:
     )
 
 
-def stream_as_arrow_table(
+def _stream_as_arrow_table(
     stream: collections.abc.Iterable[ga_services.SearchGoogleAdsStreamResponse],
     table: Table[GoogleAdsColumn],
     table_size: int | None = None,
@@ -253,7 +263,7 @@ def stream_as_arrow_table(
     rows = []
 
     for batch in stream:
-        for dict_row in stream_response_as_dicts(batch, table):
+        for dict_row in _stream_response_as_dicts(batch, table):
             rows.append(dict_row)
 
             if table_size is not None and len(rows) >= table_size:
@@ -268,7 +278,7 @@ def stream_as_arrow_table(
         yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
 
 
-def stream_response_as_dicts(
+def _stream_response_as_dicts(
     response: ga_services.SearchGoogleAdsStreamResponse,
     table: Table[GoogleAdsColumn],
 ) -> collections.abc.Iterable[dict[str, typing.Any]]:
@@ -285,9 +295,8 @@ def stream_response_as_dicts(
         row_dict = {}
 
         for path in field_paths:
-            key = path.split(".", 1)[1]
             value = _traverse_attributes(row, *path.split("."))
-            column = table[key]
+            column = table[path.replace(".", "_")]
 
             # TODO: Special type handling moved somewhere else.
             if column.is_enum:
@@ -309,6 +318,6 @@ def stream_response_as_dicts(
                 else:
                     value = dt.date.fromisoformat(value)
 
-            row_dict[key] = value
+            row_dict[path] = value
 
         yield row_dict
