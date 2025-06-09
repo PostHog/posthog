@@ -27,28 +27,18 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=[table_name, "period_bucket"]),
-                right=ast.Call(
-                    name="toDate",
-                    args=[
-                        ast.Constant(
-                            value=(
-                                self.runner.query_compare_to_date_range.date_from()
-                                if self.runner.query_compare_to_date_range
-                                else self.runner.query_date_range.date_from()
-                            ).strftime("%Y-%m-%d")
-                        ),
-                    ],
+                right=ast.Constant(
+                    value=(
+                        self.runner.query_compare_to_date_range.date_from()
+                        if self.runner.query_compare_to_date_range
+                        else self.runner.query_date_range.date_from()
+                    )
                 ),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=[table_name, "period_bucket"]),
-                right=ast.Call(
-                    name="toDate",
-                    args=[
-                        ast.Constant(value=self.runner.query_date_range.date_to().strftime("%Y-%m-%d")),
-                    ],
-                ),
+                right=ast.Constant(value=self.runner.query_date_range.date_to()),
             ),
         ]
 
@@ -90,22 +80,12 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=period_bucket_field,
-                    right=ast.Call(
-                        name="toDate",
-                        args=[
-                            ast.Constant(value=current_date_from.strftime("%Y-%m-%d")),
-                        ],
-                    ),
+                    right=ast.Constant(value=current_date_from),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=period_bucket_field,
-                    right=ast.Call(
-                        name="toDate",
-                        args=[
-                            ast.Constant(value=current_date_to.strftime("%Y-%m-%d")),
-                        ],
-                    ),
+                    right=ast.Constant(value=current_date_to),
                 ),
             ]
         )
@@ -115,22 +95,12 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=period_bucket_field,
-                    right=ast.Call(
-                        name="toDate",
-                        args=[
-                            ast.Constant(value=previous_date_from.strftime("%Y-%m-%d")),
-                        ],
-                    ),
+                    right=ast.Constant(value=previous_date_from),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=period_bucket_field,
-                    right=ast.Call(
-                        name="toDate",
-                        args=[
-                            ast.Constant(value=previous_date_to.strftime("%Y-%m-%d")),
-                        ],
-                    ),
+                    right=ast.Constant(value=previous_date_to),
                 ),
             ]
         )
