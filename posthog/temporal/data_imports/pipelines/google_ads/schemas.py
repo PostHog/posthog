@@ -213,7 +213,6 @@ RESOURCE_SCHEMAS = {
         "field_names": [
             "campaign.id",
             "customer.id",
-            "campaign.bidding_strategy",
             "campaign.advertising_channel_sub_type",
             "campaign.advertising_channel_type",
             "campaign.bidding_strategy",
