@@ -18,13 +18,13 @@ import { useEffect, useState } from 'react'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
+    FilterableInspectorListItemTypes,
     InspectorListItem,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { FilterableInspectorListItemTypes } from '~/types'
 
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
@@ -139,12 +139,12 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const hasNetworkItems = allItemsByItemType[FilterableInspectorListItemTypes.NETWORK]?.length > 0
+    const hasNetworkItems = allItemsByItemType['network']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-network-toggle-all"
-            type={FilterableInspectorListItemTypes.NETWORK}
+            type="network"
             icon={<IconDashboard />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
@@ -187,12 +187,12 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const hasConsoleItems = allItemsByItemType[FilterableInspectorListItemTypes.CONSOLE]?.length > 0
+    const hasConsoleItems = allItemsByItemType['console']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-console-toggle-all"
-            type={FilterableInspectorListItemTypes.CONSOLE}
+            type="console"
             icon={<IconTerminal />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
@@ -233,12 +233,12 @@ function EventsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
 
-    const hasEventItems = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
+    const hasEventItems = allItemsByItemType['events']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-events-toggle-all"
-            type={FilterableInspectorListItemTypes.EVENTS}
+            type="events"
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}

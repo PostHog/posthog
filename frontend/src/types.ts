@@ -1146,13 +1146,6 @@ export enum SessionRecordingSidebarStacking {
     Horizontal = 'horizontal',
 }
 
-export enum FilterableInspectorListItemTypes {
-    EVENTS = 'events',
-    CONSOLE = 'console',
-    NETWORK = 'network',
-    DOCTOR = 'doctor',
-}
-
 export enum SessionPlayerState {
     READY = 'ready',
     BUFFER = 'buffer',

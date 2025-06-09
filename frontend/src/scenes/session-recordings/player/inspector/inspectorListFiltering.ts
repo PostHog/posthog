@@ -8,8 +8,6 @@ import {
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { FilterableInspectorListItemTypes } from '~/types'
-
 const PostHogMobileEvents = [
     'Deep Link Opened',
     'Application Opened',
@@ -28,7 +26,7 @@ function isPostHogEvent(item: InspectorListItem): boolean {
 }
 
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
-    return item.type === FilterableInspectorListItemTypes.NETWORK
+    return item.type === 'network'
 }
 
 function isNavigationEvent(item: InspectorListItem): boolean {
@@ -36,7 +34,7 @@ function isNavigationEvent(item: InspectorListItem): boolean {
 }
 
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
-    return item.type === FilterableInspectorListItemTypes.EVENTS
+    return item.type === 'events'
 }
 
 function isPageviewOrScreen(item: InspectorListItem): boolean {
@@ -48,7 +46,7 @@ function isAutocapture(item: InspectorListItem): boolean {
 }
 
 function isConsoleEvent(item: InspectorListItem): item is InspectorListItemConsole {
-    return item.type === FilterableInspectorListItemTypes.CONSOLE
+    return item.type === 'console'
 }
 
 function isConsoleError(item: InspectorListItem): boolean {
@@ -150,13 +148,13 @@ export function itemToMiniFilter(
     miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
 ): SharedListMiniFilter | null {
     switch (item.type) {
-        case FilterableInspectorListItemTypes.EVENTS:
+        case 'events':
             return eventsMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.CONSOLE:
+        case 'console':
             return consoleMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.NETWORK:
+        case 'network':
             return networkMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.DOCTOR:
+        case 'doctor':
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']
             }
