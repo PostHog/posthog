@@ -3,13 +3,20 @@ import { actions, afterMount, beforeUnmount, connect, kea, path, reducers } from
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import type { universalKeyboardShortcutsLogicType } from './universalKeyboardShortcutsLogicType'
 
-// export const PanelLayoutNavItemShortcuts: Record<string, string> = {
-
-type keyboardShortcutItem = {
-    name: string
-    category: 'nav' | 'product'
-    keybind: string
+export type UniversalKeyboardShortcutCategory = 'nav' | 'product'
+export interface UniversalKeyboardShortcutItem {
+    // The ref to the element to focus on
     ref: React.RefObject<HTMLElement>
+    // The name of the shortcut used for reference
+    name: string
+    // The category of the shortcut, used to group shortcuts in the UI
+    category: UniversalKeyboardShortcutCategory
+    // The keybind to use for the shortcut
+    keybind: string
+    // Describe what the shortcut does
+    intent: string
+    // The type of interaction to trigger
+    interaction: 'click' | 'focus'
 }
 
 export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLogicType>([
@@ -18,7 +25,7 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
         values: [panelLayoutLogic, ['panelTreeRef']],
     }),
     actions({
-        registerKeyboardShortcut: (keyboardShortcut: keyboardShortcutItem) => ({ keyboardShortcut }),
+        registerKeyboardShortcut: (keyboardShortcut: UniversalKeyboardShortcutItem) => ({ keyboardShortcut }),
         unregisterKeyboardShortcut: (name: string) => ({ name }),
         showKeyboardShortcuts: (show: boolean) => ({ show }),
         handleKeyboardShortcut: (keybind: string) => ({ keybind }),
@@ -31,7 +38,7 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
             },
         ],
         registeredKeyboardShortcuts: [
-            [] as keyboardShortcutItem[],
+            [] as UniversalKeyboardShortcutItem[],
             {
                 registerKeyboardShortcut: (state, { keyboardShortcut }) => [...state, keyboardShortcut],
                 unregisterKeyboardShortcut: (state, { name }) => state.filter((shortcut) => shortcut.name !== name),
@@ -45,10 +52,16 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
                 event.preventDefault()
                 actions.showKeyboardShortcuts(true)
                 const keybind = `command shift ${event.key}`
-                const thisRegisteredKeyboardShortcut = values.registeredKeyboardShortcuts.find((shortcut) => shortcut.keybind === keybind)
+                const thisRegisteredKeyboardShortcut = values.registeredKeyboardShortcuts.find(
+                    (shortcut) => shortcut.keybind === keybind
+                )
 
                 if (thisRegisteredKeyboardShortcut) {
-                    thisRegisteredKeyboardShortcut.ref.current?.click()
+                    if (thisRegisteredKeyboardShortcut.interaction === 'click') {
+                        thisRegisteredKeyboardShortcut.ref.current?.click()
+                    } else if (thisRegisteredKeyboardShortcut.interaction === 'focus') {
+                        thisRegisteredKeyboardShortcut.ref.current?.focus()
+                    }
                 }
             }
         }

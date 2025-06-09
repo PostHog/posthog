@@ -11,6 +11,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { forwardRef } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -22,7 +23,7 @@ import { AvailableFeature } from '~/types'
 
 import { panelLayoutLogic } from './panelLayoutLogic'
 
-export function OrganizationDropdownMenu(): JSX.Element {
+export const OrganizationDropdownMenu = forwardRef<HTMLButtonElement>((props, ref): JSX.Element => {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
@@ -39,6 +40,8 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     className="max-w-[210px]"
                     iconOnly={isLayoutNavCollapsed ? true : false}
                     data-attr="tree-navbar-organization-dropdown-button"
+                    ref={ref}
+                    {...props}
                 >
                     {currentOrganization ? (
                         <UploadedLogo
@@ -147,4 +150,6 @@ export function OrganizationDropdownMenu(): JSX.Element {
             </DropdownMenuContent>
         </DropdownMenu>
     )
-}
+})
+
+OrganizationDropdownMenu.displayName = 'OrganizationDropdownMenu'
