@@ -25,6 +25,8 @@ import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsL
 import { viewLinkLogic } from '../../viewLinkLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
+export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
+
 const isDataWarehouseTable = (
     table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
 ): table is DatabaseSchemaDataWarehouseTable => {
@@ -195,7 +197,7 @@ const createTopLevelFolderNode = (
     type: 'sources' | 'views',
     children: TreeDataItem[],
     isSearch = false,
-    icon?: React.ReactNode
+    icon?: JSX.Element
 ): TreeDataItem => ({
     id: isSearch ? `search-${type}` : type,
     name: type === 'sources' ? 'Sources' : 'Views',
@@ -216,7 +218,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
         setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
-        setTreeRef: (ref: React.RefObject<LemonTreeRef> | null) => ({ ref }),
+        setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         selectSourceTable: (tableName: string) => ({ tableName }),
@@ -267,7 +269,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         treeRef: [
-            null as React.RefObject<LemonTreeRef> | null,
+            null as EditorSidebarTreeRef,
             {
                 setTreeRef: (_, { ref }) => ref,
             },
