@@ -217,6 +217,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
+                        actions.setCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
                     } catch (error: any) {

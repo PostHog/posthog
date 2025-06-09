@@ -16,6 +16,7 @@ export type ConfigurationSceneTabType =
     | 'error-tracking-suppression-rules'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-custom-grouping'
     | 'error-tracking-alerting'
 
 export interface ErrorTrackingConfigurationSceneLogicProps {

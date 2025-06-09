@@ -45,7 +45,9 @@ class Conflict(APIException):
 
 class ClickhouseAtCapacity(APIException):
     status_code = 500
-    default_detail = "Clickhouse cluster is at capacity. Please try this query again later."
+    default_detail = (
+        "Queries are a little too busy right now. We're working to free up resources. Please try again later."
+    )
 
 
 class EstimatedQueryExecutionTimeTooLong(APIException):

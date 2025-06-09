@@ -244,6 +244,7 @@ export const ELEMENTS = {
         'IconPlusSmall',
         'IconPlusSquare',
         'IconPercentage',
+        'IconSquareRoot',
     ],
 }
 

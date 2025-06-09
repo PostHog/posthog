@@ -52,10 +52,6 @@ JS_DATA_TYPE_SOURCE_AND_MAP = 2
 logger = structlog.get_logger(__name__)
 
 
-class ObjectStorageUnavailable(Exception):
-    pass
-
-
 class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
     id = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
@@ -459,7 +455,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def destroy(self, request, *args, **kwargs):
         symbol_set = self.get_object()
         symbol_set.delete()
-        # TODO: delete file from s3
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def update(self, request, *args, **kwargs) -> Response:
@@ -710,20 +705,17 @@ def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple
 def upload_content(content: bytearray) -> tuple[str, str]:
     content_hash = hashlib.sha512(content).hexdigest()
 
-    try:
-        if settings.OBJECT_STORAGE_ENABLED:
-            # TODO - maybe a gigabyte is too much?
-            if len(content) > ONE_GIGABYTE:
-                raise ValidationError(
-                    code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
-                )
+    if settings.OBJECT_STORAGE_ENABLED:
+        # TODO - maybe a gigabyte is too much?
+        if len(content) > ONE_GIGABYTE:
+            raise ValidationError(
+                code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
+            )
 
-            upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
-            object_storage.write(upload_path, bytes(content))
-            return (upload_path, content_hash)
-        else:
-            raise ObjectStorageUnavailable()
-    except ObjectStorageUnavailable:
+        upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
+        object_storage.write(upload_path, bytes(content))
+        return (upload_path, content_hash)
+    else:
         raise ValidationError(
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
@@ -765,3 +757,7 @@ def validate_bytecode(bytecode: list[Any]) -> None:
                 raise ValidationError(f"Expected string for global function name, got {type(name)}")
             if name not in RUST_HOGVM_STL:
                 raise ValidationError(f"Unknown global function: {name}")
+
+
+def get_suppression_rules(team: Team):
+    return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))

@@ -11,6 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/src/utils/posthog'
+import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import {
@@ -120,7 +121,8 @@ async function processEvent(
     } as any as PluginEvent
 
     const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
-    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
 
     await delayUntilEventIngested(async () => {
@@ -187,7 +189,8 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         String(team.id),
         event.distinct_id
     )
-    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -537,6 +540,7 @@ test('capture new person', async () => {
 })
 
 test('capture bad team', async () => {
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
@@ -547,7 +551,8 @@ test('capture bad team', async () => {
             1337,
             now,
             new UUIDT().toString(),
-            false
+            false,
+            groupStoreForBatch
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })

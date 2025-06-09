@@ -8,10 +8,10 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { GroupStoreForBatch } from '../groups/group-store-for-batch'
 import { PersonsStoreForDistinctIdBatch } from '../persons/persons-store-for-distinct-id-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
-import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
@@ -58,13 +58,15 @@ export class EventPipelineRunner {
     hogTransformer: HogTransformerService | null
     breadcrumbs: KafkaConsumerBreadcrumb[]
     personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+    groupStoreForBatch: GroupStoreForBatch
 
     constructor(
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
-        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch,
+        groupStoreForBatch: GroupStoreForBatch
     ) {
         this.hub = hub
         this.originalEvent = event
@@ -72,6 +74,7 @@ export class EventPipelineRunner {
         this.hogTransformer = hogTransformer
         this.breadcrumbs = breadcrumbs
         this.personsStoreForDistinctId = personsStoreForDistinctId
+        this.groupStoreForBatch = groupStoreForBatch
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -235,16 +238,11 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
-        if (postCookielessEvent == null) {
-            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
-        }
-
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
 
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
         const { event: transformedEvent } = await this.runStep(

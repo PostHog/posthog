@@ -10,6 +10,7 @@ from django.test import TransactionTestCase
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 from freezegun.api import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
@@ -124,6 +125,56 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "type": "validation_error",
                 "code": "unique",
                 "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("foo?bar=baz",),
+            ("foo/bar",),
+            ("foo\\bar",),
+            ("foo.bar",),
+            ("foo bar",),
+        ]
+    )
+    def test_cant_create_flag_with_key_with_invalid_characters(self, key):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        count = FeatureFlag.objects.count()
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {"name": "Beta feature", "key": key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_key",
+                "detail": "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
+                "attr": "key",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    def test_cant_create_flag_with_key_too_long(self):
+        key = "a" * 400 + "b"
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        count = FeatureFlag.objects.count()
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {"name": "Beta feature", "key": key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "max_length",
+                "detail": "Ensure this field has no more than 400 characters.",
                 "attr": "key",
             },
         )

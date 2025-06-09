@@ -10,6 +10,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'
@@ -62,11 +63,14 @@ export function Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
     const { deleteInvite, showInviteModal } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+
+    const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -128,7 +132,12 @@ export function Invites(): JSX.Element {
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
-            <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
+            <LemonButton
+                type="primary"
+                onClick={showInviteModal}
+                data-attr="invite-teammate-button"
+                disabledReason={userCannotInvite && "You don't have permissions to invite others."}
+            >
                 Invite team member
             </LemonButton>
         </div>

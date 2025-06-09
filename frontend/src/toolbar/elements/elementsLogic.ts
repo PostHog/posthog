@@ -469,15 +469,15 @@ export const elementsLogic = kea<elementsLogicType>([
             }
 
             toolbarPosthogJS.capture('toolbar selected HTML element', {
-                element_tag: element?.tagName.toLowerCase(),
-                element_type: (element as HTMLInputElement)?.type,
+                element_tag: element?.tagName.toLowerCase() ?? null,
+                element_type: (element as HTMLInputElement)?.type ?? null,
                 has_href: !!(element as HTMLAnchorElement)?.href,
                 has_class: !!element?.className,
                 has_id: !!element?.id,
                 has_name: !!(element as HTMLInputElement)?.name,
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
-                attribute_length: element?.attributes.length,
+                attribute_length: element?.attributes.length ?? null,
             })
         },
         createAction: ({ element }) => {

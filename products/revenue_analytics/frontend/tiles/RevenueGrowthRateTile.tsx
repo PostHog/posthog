@@ -7,6 +7,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useMemo } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode, InsightVizNode } from '~/queries/schema/schema-general'
@@ -19,7 +20,6 @@ import {
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
-import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.REVENUE_GROWTH_RATE
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -29,7 +29,7 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 }
 
 export const RevenueGrowthRateTile = (): JSX.Element => {
-    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
 
     const { queries, growthRateDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
     const { setGrowthRateDisplayMode } = useActions(revenueAnalyticsLogic)

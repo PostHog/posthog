@@ -7,7 +7,7 @@ import {
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -149,10 +149,19 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             </AnimatedBackButton>
                             {chatTitle ? (
                                 <h3
-                                    className="font-semibold mb-0 line-clamp-1 text-sm ml-1"
-                                    title={chatTitle !== 'Max' ? chatTitle : undefined}
+                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    title={chatTitle !== 'Max AI' ? chatTitle : undefined}
                                 >
-                                    {chatTitle}
+                                    {chatTitle !== 'Max AI' ? (
+                                        chatTitle
+                                    ) : (
+                                        <>
+                                            Max AI
+                                            <LemonTag size="small" type="warning" className="ml-2">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    )}
                                 </h3>
                             ) : (
                                 <LemonSkeleton className="h-5 w-48 ml-1" />

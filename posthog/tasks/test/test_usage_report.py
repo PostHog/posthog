@@ -2613,13 +2613,13 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # Verify the calls
         self.assertEqual(mock_execute_split_query.call_count, 2)
 
-        # First call (get_teams_with_billable_event_count_in_period) should use 2 splits
+        # First call (get_teams_with_billable_event_count_in_period) should use 3 splits
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 2)
+        self.assertEqual(first_call_kwargs["num_splits"], 3)
 
-        # Second call (get_all_event_metrics_in_period) should use 2 splits
+        # Second call (get_all_event_metrics_in_period) should use 3 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 2)
+        self.assertEqual(second_call_kwargs["num_splits"], 3)
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""

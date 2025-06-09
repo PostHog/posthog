@@ -80,6 +80,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             type="tertiary"
             size="xsmall"
             id="sql-editor-query-window-add-variables"
+            data-attr="sql-editor-query-window-add-variables-button"
         >
             Add SQL variables
         </LemonButton>
@@ -92,6 +93,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             type="tertiary"
             size="xsmall"
             id="sql-editor-query-window-materialize"
+            data-attr="sql-editor-query-window-materialize-button"
         >
             Materialize
         </LemonButton>
@@ -197,6 +199,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             icon={<IconDownload />}
                             type="tertiary"
                             size="xsmall"
+                            data-attr="sql-editor-save-view-button"
                             id="sql-editor-query-window-save-as-view"
                         >
                             Save as view
@@ -273,6 +276,7 @@ function RunButton(): JSX.Element {
 
     return (
         <LemonButton
+            data-attr="sql-editor-run-button"
             onClick={() => {
                 if (responseLoading) {
                     cancelQuery()

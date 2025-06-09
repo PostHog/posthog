@@ -36,7 +36,7 @@ export const SIDE_PANEL_TABS: Record<
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
     [SidePanelTab.Max]: {
-        label: 'Max',
+        label: 'Max AI',
         Icon: function IconMaxFromHedgehogConfig() {
             const { user } = useValues(userLogic)
             return (

@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
@@ -19,6 +20,11 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 logger = structlog.get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class ExtraSummaryContext:
+    focus_area: str | None = None
+
+
 class ReplaySummarizer:
     def __init__(self, session_id: str, user: User, team: Team, local_reads_prod: bool = False):
         self.session_id = session_id
@@ -31,12 +37,19 @@ class ReplaySummarizer:
         prompt_data: SessionSummaryPromptData,
         url_mapping_reversed: dict[str, str],
         window_mapping_reversed: dict[str, str],
+        extra_summary_context: ExtraSummaryContext | None,
     ) -> tuple[str, str]:
         # Keep shortened URLs for the prompt to reduce the number of tokens
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
         template_dir = Path(__file__).parent / "templates" / "identify-objectives"
-        system_prompt = load_custom_template(template_dir, f"system-prompt.djt")
+        system_prompt = load_custom_template(
+            template_dir,
+            f"system-prompt.djt",
+            {
+                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
+            },
+        )
         summary_example = load_custom_template(template_dir, f"example.yml")
         summary_prompt = load_custom_template(
             template_dir,
@@ -47,11 +60,12 @@ class ReplaySummarizer:
                 "URL_MAPPING": json.dumps(short_url_mapping_reversed),
                 "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
                 "SUMMARY_EXAMPLE": summary_example,
+                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
             },
         )
         return summary_prompt, system_prompt
 
-    def summarize_recording(self) -> Generator[str, None, None]:
+    def summarize_recording(self, extra_summary_context: ExtraSummaryContext | None) -> Generator[str, None, None]:
         timer = ServerTimingsGathered()
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
@@ -111,7 +125,7 @@ class ReplaySummarizer:
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
             summary_prompt, system_prompt = self._generate_prompt(
-                prompt_data, url_mapping_reversed, window_mapping_reversed
+                prompt_data, url_mapping_reversed, window_mapping_reversed, extra_summary_context
             )
 
         # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
@@ -132,10 +146,12 @@ class ReplaySummarizer:
         )
         return session_summary_generator
 
-    def stream_recording_summary(self):
+    def stream_recording_summary(
+        self, extra_summary_context: ExtraSummaryContext | None = None
+    ) -> SyncIterableToAsync | Generator[str, None, None]:
         if SERVER_GATEWAY_INTERFACE == "ASGI":
-            return self._astream()
-        return self.summarize_recording()
+            return self._astream(extra_summary_context)
+        return self.summarize_recording(extra_summary_context)
 
-    def _astream(self):
-        return SyncIterableToAsync(self.summarize_recording())
+    def _astream(self, extra_summary_context: ExtraSummaryContext | None) -> SyncIterableToAsync:
+        return SyncIterableToAsync(self.summarize_recording(extra_summary_context))
