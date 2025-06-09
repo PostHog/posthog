@@ -19,7 +19,7 @@ export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'
 
 export function CodeEditorResizeable({
     height: defaultHeight,
-    minHeight = '5rem',
+    minHeight = '12rem',
     maxHeight = '90vh',
     className,
     editorClassName,
@@ -37,9 +37,10 @@ export function CodeEditorResizeable({
 
     useEffect(() => {
         const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
-        const lineCount = (value?.split('\n').length ?? 1) + 1
-        const lineHeight = 18
-        setHeight(lineHeight * lineCount)
+        const lineCount = (value?.split('\n').length ?? 1) + 2
+        const lineHeight = 20
+        const calculatedHeight = Math.max(lineHeight * lineCount + 40, 200) // Add padding and minimum height
+        setHeight(calculatedHeight)
     }, [props.value])
 
     return (
@@ -67,15 +68,6 @@ export function CodeEditorResizeable({
             {showDiffActions && (
                 <div className="absolute top-2 right-2 z-20 flex gap-1 p-1 bg-white rounded-lg border shadow-sm">
                     <LemonButton
-                        type="tertiary"
-                        icon={<IconCheck color="var(--success)" />}
-                        onClick={onAcceptChanges}
-                        tooltipPlacement="top"
-                        size="small"
-                    >
-                        Accept
-                    </LemonButton>
-                    <LemonButton
                         status="danger"
                         icon={<IconX />}
                         onClick={onRejectChanges}
@@ -83,6 +75,15 @@ export function CodeEditorResizeable({
                         size="small"
                     >
                         Reject
+                    </LemonButton>
+                    <LemonButton
+                        type="tertiary"
+                        icon={<IconCheck color="var(--success)" />}
+                        onClick={onAcceptChanges}
+                        tooltipPlacement="top"
+                        size="small"
+                    >
+                        Accept
                     </LemonButton>
                 </div>
             )}
