@@ -128,7 +128,9 @@ export function SharedExternalDataSourceConfiguration({
         if (isTableFullyConfigured(tableId)) {
             return { isConfigured: true, message: 'Ready to use! All fields mapped correctly.' }
         }
-        const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA)
+        const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
+            (field) => MARKETING_ANALYTICS_SCHEMA[field].required
+        )
         const mappedFields = requiredFields.filter((fieldName) => {
             const mapping = sourceMapping[fieldName]
             return mapping && mapping.trim() !== ''
