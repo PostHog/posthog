@@ -17,6 +17,7 @@ CLICKHOUSE_SETTINGS = {
     "max_bytes_before_external_group_by": "51474836480",
     "max_memory_usage": "107374182400",
     "distributed_aggregation_memory_efficient": "1",
+    "s3_truncate_on_insert": "1",
 }
 
 # Lighter settings for hourly processing (more frequent, smaller time windows)
