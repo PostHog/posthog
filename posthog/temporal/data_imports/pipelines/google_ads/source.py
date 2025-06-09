@@ -199,8 +199,9 @@ def get_incremental_fields():
 
 
 class BigQueryTable(Table[GoogleAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, **kwargs):
+    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
         self.requires_filter = requires_filter
+        self.primary_key = primary_key
         super().__init__(*args, **kwargs)
 
 
@@ -233,6 +234,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
         field_names = resource_contents["field_names"]
 
         requires_filter = resource_contents.get("filter_field_names", None) is not None
+        primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
 
         columns = []
 
@@ -254,7 +256,12 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
             )
 
         table = BigQueryTable(
-            name=resource_name, alias=table_alias, requires_filter=requires_filter, columns=columns, parents=None
+            name=resource_name,
+            alias=table_alias,
+            requires_filter=requires_filter,
+            primary_key=primary_key,
+            columns=columns,
+            parents=None,
         )
         table_schemas[table_alias] = table
 
@@ -314,7 +321,7 @@ def google_ads_source(
     return SourceResponse(
         name=name,
         items=get_rows(),
-        primary_keys=["id"] if "id" in table else None,
+        primary_keys=table.primary_key,
     )
 
 

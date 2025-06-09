@@ -3,6 +3,7 @@ from posthog.warehouse.types import IncrementalFieldType
 RESOURCE_SCHEMAS = {
     "ad": {
         "resource_name": "ad_group_ad",
+        "primary_key": ["ad_group_ad.ad.id", "ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group_ad.ad.id",
             "ad_group.id",
@@ -85,6 +86,7 @@ RESOURCE_SCHEMAS = {
     },
     "ad_stats": {
         "resource_name": "ad_group_ad",
+        "primary_key": ["ad_group_ad.ad.id", "ad_group.id", "campaign.id", "customer.id"],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
         "field_names": [
             "ad_group_ad.ad.id",
@@ -135,6 +137,7 @@ RESOURCE_SCHEMAS = {
     },
     "ad_group": {
         "resource_name": "ad_group",
+        "primary_key": ["ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group.id",
             "campaign.id",
@@ -162,6 +165,7 @@ RESOURCE_SCHEMAS = {
     "ad_group_stats": {
         "resource_name": "ad_group",
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "primary_key": ["ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group.id",
             "campaign.id",
@@ -210,6 +214,7 @@ RESOURCE_SCHEMAS = {
     },
     "campaign": {
         "resource_name": "campaign",
+        "primary_key": ["campaign.id", "customer.id"],
         "field_names": [
             "campaign.id",
             "customer.id",
@@ -239,6 +244,7 @@ RESOURCE_SCHEMAS = {
     },
     "campaign_stats": {
         "resource_name": "campaign",
+        "primary_key": ["campaign.id", "customer.id"],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
         "field_names": [
             "campaign.id",
@@ -284,6 +290,7 @@ RESOURCE_SCHEMAS = {
     },
     "keyword": {
         "resource_name": "keyword_view",
+        "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group_criterion.criterion_id",
             "ad_group.id",
@@ -322,6 +329,7 @@ RESOURCE_SCHEMAS = {
     "keyword_stats": {
         "resource_name": "keyword_view",
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group_criterion.criterion_id",
             "ad_group.id",
