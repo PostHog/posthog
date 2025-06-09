@@ -19,7 +19,7 @@ export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'
 
 export function CodeEditorResizeable({
     height: defaultHeight,
-    minHeight = '12rem',
+    minHeight = '5rem',
     maxHeight = '90vh',
     className,
     editorClassName,
@@ -39,7 +39,9 @@ export function CodeEditorResizeable({
         const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
         const lineCount = (value?.split('\n').length ?? 1) + 2
         const lineHeight = 20
-        const calculatedHeight = Math.max(lineHeight * lineCount + 40, 200) // Add padding and minimum height
+        const calculatedHeight = value
+            ? Math.max(lineHeight * lineCount + 40, 200) // Add padding and minimum height when there's content
+            : lineHeight * lineCount // Just basic line height calculation when no content
         setHeight(calculatedHeight)
     }, [props.value])
 
