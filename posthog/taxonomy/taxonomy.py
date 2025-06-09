@@ -1919,6 +1919,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "numerical_event_properties": {},
     "person_properties": {
         "email": {
+            "label": "Email address",
             "description": "The email address of the user.",
             "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
         },
