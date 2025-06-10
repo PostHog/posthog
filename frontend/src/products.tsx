@@ -535,6 +535,13 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
     { path: 'Actions', category: 'Definitions', iconType: 'cursor', href: urls.actions() },
     {
+        path: 'Marketing settings',
+        category: 'Definitions',
+        iconType: 'definitions',
+        href: urls.marketingAnalytics(),
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    },
+    {
         path: 'Revenue settings',
         category: 'Definitions',
         iconType: 'handMoney',

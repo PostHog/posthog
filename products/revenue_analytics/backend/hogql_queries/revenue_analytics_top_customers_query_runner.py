@@ -64,7 +64,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
             select_from.next_join = ast.JoinExpr(
                 table=customer_subquery,
                 alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
-                join_type="INNER JOIN",
+                join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     constraint_type="ON",
                     expr=ast.CompareOperation(

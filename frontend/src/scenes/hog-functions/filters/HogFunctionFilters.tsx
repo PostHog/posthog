@@ -11,16 +11,16 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
-function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
+function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
     }
-    const sanitized: HogFunctionFiltersType = {}
+    const sanitized: CyclotronJobFiltersType = {}
 
     if (filters.events) {
         sanitized.events = filters.events.map((f) => ({
@@ -105,7 +105,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 }
             >
                 {({ value, onChange }) => {
-                    const filters = (value ?? {}) as HogFunctionFiltersType
+                    const filters = (value ?? {}) as CyclotronJobFiltersType
                     return (
                         <>
                             {useMapping && (

@@ -26,6 +26,7 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+pub mod update_cache;
 pub mod v2_batch_ingestion;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
@@ -282,14 +283,13 @@ pub async fn update_producer_loop(
                     continue;
                 }
 
-                // for v1 processing pipeline, we cache before we know the batch is
-                // persisted safely. for v2, we do this downstream. The bonus: this
-                // avoids the internal queue backups that can occur when batch writes
-                // fail and the entire contents must be manually removed from the cache
-                if !config.enable_v2 {
-                    metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                    shared_cache.insert(update.clone(), ());
-                }
+                // TEMPORARY: both old (v1) and new (v2) write paths will utilize the old
+                // not-great caching strategy for now: optimistically add entries before
+                // they are safely persisted to Postgres, and painfully extract them
+                // when batch writes fail. This may be a fine trade for now, since
+                // v2 batch writes fail much less often than v1
+                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
+                shared_cache.insert(update.clone(), ());
 
                 match channel.try_send(update) {
                     Ok(_) => {}

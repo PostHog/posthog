@@ -4,7 +4,7 @@ import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
-import { HogFunctionFiltersType } from '~/types'
+import { CyclotronJobFiltersType } from '~/types'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
@@ -15,7 +15,7 @@ export function ActionHogFunctions(): JSX.Element | null {
         return null
     }
 
-    const filters: HogFunctionFiltersType = {
+    const filters: CyclotronJobFiltersType = {
         actions: [
             {
                 id: `${action?.id}`,
