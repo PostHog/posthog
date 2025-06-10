@@ -33,7 +33,6 @@ COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
-COPY common/shared-types/ common/shared-types/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
@@ -71,7 +70,6 @@ COPY ./patches ./patches
 COPY ./rust ./rust
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-COPY ./common/shared-types/ ./common/shared-types/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
