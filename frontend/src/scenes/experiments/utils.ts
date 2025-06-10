@@ -704,8 +704,8 @@ export function metricToQuery(
                         ...(source.kind === NodeKind.EventsNode
                             ? { event: source.event, name: source.name }
                             : { id: source.id, name: source.name }),
-                        ...(metric.source.math === ExperimentMetricMathType.Sum && {
-                            math: ExperimentMetricMathType.Sum,
+                        ...(metric.source.math_property != null && {
+                            math: metric.source.math,
                             math_property: source.math_property,
                         }),
                         ...(metric.source.math === ExperimentMetricMathType.UniqueSessions && {
@@ -784,6 +784,9 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.Avg,
+                ExperimentMetricMathType.Min,
+                ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
             ]
         default:

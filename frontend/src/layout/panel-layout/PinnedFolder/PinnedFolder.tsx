@@ -76,7 +76,7 @@ export function PinnedFolder(): JSX.Element {
                         ) : (
                             <IconBlank />
                         )}
-                        Custom...
+                        Custom project folder...
                     </ButtonPrimitive>
                 </DropdownMenuItem>
             </DropdownMenuContent>
@@ -126,6 +126,7 @@ export function PinnedFolder(): JSX.Element {
                             value={selectedFolder}
                             onChange={setSelectedFolder}
                             includeProtocol
+                            root="project://"
                             className="h-[60vh] min-h-[200px]"
                         />
                     </div>

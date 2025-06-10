@@ -15,7 +15,6 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
-import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -30,7 +29,7 @@ export function Navigation({
 }): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { activeNavbarItem, mode } = useValues(navigation3000Logic)
+    const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
 
     if (mode !== 'full') {
@@ -64,9 +63,6 @@ export function Navigation({
                 }
             >
                 <PanelLayout mainRef={mainRef} />
-            </FlaggedFeature>
-            <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
-                {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
