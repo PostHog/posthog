@@ -201,7 +201,7 @@ def get_incremental_fields():
 class BigQueryTable(Table[GoogleAdsColumn]):
     def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
         self.requires_filter = requires_filter
-        self.primary_key = primary_key
+        self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
         super().__init__(*args, **kwargs)
 
 
@@ -389,6 +389,6 @@ def _stream_response_as_dicts(
                 else:
                     value = dt.date.fromisoformat(value)
 
-            row_dict[path] = value
+            row_dict[column.name] = value
 
         yield row_dict

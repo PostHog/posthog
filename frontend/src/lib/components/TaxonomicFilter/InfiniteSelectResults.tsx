@@ -99,6 +99,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     onClick: () => {
                                         setEventOrdering('name')
                                     },
+                                    'data-attr': 'taxonomic-event-sorting-by-name',
                                 },
                                 {
                                     label: (
@@ -111,6 +112,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     onClick: () => {
                                         setEventOrdering('-last_seen_at')
                                     },
+                                    'data-attr': 'taxonomic-event-sorting-by-recency',
                                 },
                                 {
                                     label: (
@@ -124,6 +126,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     onClick: () => {
                                         setEventOrdering(null)
                                     },
+                                    'data-attr': 'taxonomic-event-sorting-by-both',
                                 },
                             ]}
                         >
