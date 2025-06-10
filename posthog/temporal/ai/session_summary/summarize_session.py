@@ -168,10 +168,14 @@ def _prepare_single_session_summary_input(
     summary_data: SingleSessionSummaryData,
 ) -> SessionSummaryInputs:
     # Checking here instead of in the preparation function to keep mypy happy
+    if summary_data.prompt_data is None:
+        raise ValueError(f"Prompt data is missing for session_id {session_id}")
     if summary_data.prompt_data.prompt_data.metadata.start_time is None:
         raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
     if summary_data.prompt_data.prompt_data.metadata.duration is None:
         raise ValueError(f"Session duration is missing in the session metadata for session_id {session_id}")
+    if summary_data.prompt is None:
+        raise ValueError(f"Prompt is missing for session_id {session_id}")
     # Prepare the input
     input_data = SessionSummaryInputs(
         session_id=session_id,
@@ -238,40 +242,48 @@ def execute_summarize_session(
     handle = asyncio.run(_start_workflow(redis_input_key=redis_input_key, workflow_id=workflow_id))
     last_summary_state = ""
     while True:
-        desc = asyncio.run(handle.describe())
-        # If the workflow is completed
-        if desc.status.name == "COMPLETED":
-            final_result = asyncio.run(handle.result())
-            # Yield final result if it's different from the last state OR if we haven't yielded anything yet
-            if final_result != last_summary_state or not last_summary_state:
-                yield final_result
-            _clean_up_redis(redis_client, redis_input_key, redis_output_key)
-            return
-        # Check if the workflow is completed unsuccessfully
-        if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
-            yield serialize_to_sse_event(
-                event_label="session-summary-error",
-                event_data=f"Failed to generate summary: {desc.status.name}",
-            )
-            _clean_up_redis(redis_client, redis_input_key, redis_output_key)
-            return
-        # If the workflow is still running
-        redis_data_raw = redis_client.get(redis_output_key)
-        if not redis_data_raw:
-            continue  # No data stored yet
         try:
-            redis_data_str = redis_data_raw.decode("utf-8") if isinstance(redis_data_raw, bytes) else redis_data_raw
-            redis_data = json.loads(redis_data_str)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
-            )
-        last_summary_state = redis_data.get("last_summary_state")
-        if not isinstance(last_summary_state, str):
-            continue  # No data stored yet
-        yield last_summary_state
-        # Wait a bit (50ms) to let new chunks come in from the stream
-        time.sleep(0.05)
+            desc = asyncio.run(handle.describe())
+            # If no status yet, wait a bit
+            if not desc.status:
+                continue
+            # If the workflow is completed
+            if desc.status.name == "COMPLETED":
+                final_result = asyncio.run(handle.result())
+                # Yield final result if it's different from the last state OR if we haven't yielded anything yet
+                if final_result != last_summary_state or not last_summary_state:
+                    yield final_result
+                _clean_up_redis(redis_client, redis_input_key, redis_output_key)
+                return
+            # Check if the workflow is completed unsuccessfully
+            if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+                yield serialize_to_sse_event(
+                    event_label="session-summary-error",
+                    event_data=f"Failed to generate summary: {desc.status.name}",
+                )
+                _clean_up_redis(redis_client, redis_input_key, redis_output_key)
+                return
+            # If the workflow is still running
+            redis_data_raw = redis_client.get(redis_output_key)
+            if not redis_data_raw:
+                continue  # No data stored yet
+            try:
+                redis_data_str = redis_data_raw.decode("utf-8") if isinstance(redis_data_raw, bytes) else redis_data_raw
+                redis_data = json.loads(redis_data_str)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
+                )
+            last_summary_state = redis_data.get("last_summary_state")
+            if not last_summary_state:
+                continue  # No data stored yet
+            yield last_summary_state
+        except Exception:
+            raise
+        # Pause at finally to avoid querying instantly if no data stored yet or the state haven't changed
+        finally:
+            # Wait a bit (50ms) to let new chunks come in from the stream
+            time.sleep(0.05)
 
 
 def stream_recording_summary(

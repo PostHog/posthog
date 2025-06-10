@@ -33,7 +33,7 @@ class _SessionSummaryDBData:
 @dataclass(frozen=True)
 class _SessionSummaryPromptData:
     prompt_data: SessionSummaryPromptData
-    simplified_events_mapping: dict[str, list[str | datetime.datetime | int | None]]
+    simplified_events_mapping: dict[str, list[str | int | list[str] | None]]
     url_mapping_reversed: dict[str, str]
     window_mapping_reversed: dict[str, str]
 
@@ -109,8 +109,7 @@ def prepare_prompt_data(
         prompt_data = SessionSummaryPromptData()
         simplified_events_mapping = prompt_data.load_session_data(
             raw_session_events=session_events,
-            # Convert to a dict, so that we can amend its values freely
-            raw_session_metadata=dict(session_metadata),
+            raw_session_metadata=session_metadata,
             raw_session_columns=session_events_columns,
             session_id=session_id,
         )
@@ -188,7 +187,8 @@ def prepare_data_for_single_session_summary(
         )
     prompt_data = prepare_prompt_data(
         session_id=session_id,
-        session_metadata=db_data.session_metadata,
+        # Convert to a dict, so that we can amend its values freely
+        session_metadata=dict(db_data.session_metadata),  # type: ignore[arg-type]
         session_events_columns=db_data.session_events_columns,
         session_events=db_data.session_events,
         timer=timer,
