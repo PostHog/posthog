@@ -19,12 +19,13 @@ use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
 
-use crate::metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT;
+use crate::{measuring_channel::MeasuringChannel, metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT};
 
 pub mod api;
 pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
+pub mod measuring_channel;
 pub mod types;
 pub mod v2_batch_ingestion;
 
@@ -35,7 +36,7 @@ pub async fn update_consumer_loop(
     config: Config,
     cache: Arc<Cache<Update, ()>>,
     context: Arc<AppContext>,
-    mut channel: mpsc::Receiver<Update>,
+    mut channel: MeasuringChannel<Update>,
 ) {
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
