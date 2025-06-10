@@ -28,6 +28,7 @@ from posthog.models import (
     Survey,
     Experiment,
     Cohort,
+    FileSystemSyncMixin,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -336,6 +337,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         organization = Organization.objects.get(id=kwargs["id"])
         environment_mappings = request.data
+        user = cast(User, request.user)
+        membership = user.organization_memberships.get(organization=organization)
 
         if not environment_mappings:
             raise exceptions.ValidationError("Environment mappings are required")
@@ -349,7 +352,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if missing_team_ids:
             raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
 
-        models_to_update = [
+        models_to_update: list[FileSystemSyncMixin] = [
             Insight,
             Dashboard,
             FeatureFlag,
@@ -382,13 +385,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     source_team.save()
 
             posthoganalytics.capture(
-                str(request.user.distinct_id),
+                str(user.distinct_id),
                 "organization environments rollback triggered",
                 properties={
                     "environment_mappings": json.dumps(environment_mappings),
                     "organization_id": str(organization.id),
                     "organization_name": organization.name,
-                    "user_role": request.user.organization_memberships.get(organization=organization).level,
+                    "user_role": membership.level,
                 },
                 groups=groups(organization),
             )
