@@ -351,7 +351,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div
                                     className={cn(
-                                        'flex flex-col gap-px h-full',
+                                        'relative flex flex-col gap-px h-full',
                                         !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
                                     )}
                                 >

@@ -24,7 +24,7 @@ export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        metricResults,
+        legacyMetricResults,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         isDescriptionModalOpen,
@@ -54,7 +54,7 @@ export function Info(): JSX.Element {
 
     const currentStatsVersion = experiment.stats_config?.version || 1
 
-    const lastRefresh = metricResults?.[0]?.last_refresh
+    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
 
     return (
         <div>

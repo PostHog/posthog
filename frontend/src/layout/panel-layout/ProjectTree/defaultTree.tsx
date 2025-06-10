@@ -294,19 +294,19 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: `SQL editor`,
-            category: 'Tools',
+            category: 'Analytics',
             type: 'sql',
             href: urls.sqlEditor(),
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            category: 'Behaviour',
+            category: 'Behavior',
             iconType: 'errorTracking',
             href: urls.errorTracking(),
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            category: 'Behaviour',
+            category: 'Behavior',
             iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,

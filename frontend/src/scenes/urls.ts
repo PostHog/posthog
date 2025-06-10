@@ -3,7 +3,16 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
+import {
+    ActivityTab,
+    AnnotationType,
+    ExternalDataSourceType,
+    PipelineNodeTab,
+    PipelineStage,
+    PipelineTab,
+    ProductKey,
+    SDKKey,
+} from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -39,17 +48,20 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    marketingAnalytics: (): string => '/data-management/marketing-analytics',
 
     pipelineNodeNew: (
         stage: PipelineStage | ':stage',
-        { id, kind }: { id?: string | number; kind?: string } = {}
+        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
     ): string => {
         let base = `/pipeline/new/${stage}`
         if (id) {
             base += `/${id}`
         }
 
-        if (kind) {
+        if (source) {
+            // we need to lowercase the source to match the kind in the sourceWizardLogic
+            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
             return `${base}?kind=${kind}`
         }
 
@@ -135,10 +147,13 @@ export const urls = {
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
+                // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
                     (acc, [key, val]) => ({
                         ...acc,
+                        // just sends the key and not a value
+                        // e.g., &showInspector not &showInspector=true
                         [key]: val === true ? null : val,
                     }),
                     {}

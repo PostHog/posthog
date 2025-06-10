@@ -64,10 +64,10 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
 
             comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-                revenue_config, event, do_currency_conversion=False
+                team, event, do_currency_conversion=False
             )
             _, currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
-                revenue_config,
+                team,
                 event,
                 amount_expr=ast.Field(chain=["currency_aware_amount"]),
             )
@@ -85,7 +85,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
                     ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
-                    ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
+                    ast.Alias(alias="original_currency", expr=currency_expression_for_events(team, event)),
                     ast.Alias(alias="original_amount", expr=value_expr),
                     # Being zero-decimal implies we will NOT divide the original amount by 100
                     # We should only do that if we've tagged the event with `currencyAwareDecimal`
@@ -98,7 +98,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                     ),
                     currency_aware_divider(),
                     currency_aware_amount(),
-                    ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                    ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                     ast.Alias(alias="amount", expr=currency_aware_amount_expr),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -147,7 +147,6 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
         table = cast(DataWarehouseTable, charge_schema.table)
         team = table.team
-        revenue_config = team.revenue_analytics_config
 
         prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
 
@@ -196,7 +195,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",

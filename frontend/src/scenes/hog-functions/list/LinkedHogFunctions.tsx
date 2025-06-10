@@ -8,7 +8,7 @@ import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
     type: HogFunctionTypeType
-    filters: HogFunctionFiltersType
+    filters?: HogFunctionFiltersType
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean

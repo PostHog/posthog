@@ -34,6 +34,19 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 select_from=ast.JoinExpr(table=product_selects_union),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["name"]), order="ASC")],
             )
+        elif key == "cohort":  # All cohorts available from revenue analytics
+            revenue_selects = revenue_selects_from_database(database)
+            customer_selects = [
+                select["customer"] for select in revenue_selects.values() if select["customer"] is not None
+            ]
+            customer_selects_union = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
+
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=["cohort"])],
+                distinct=True,
+                select_from=ast.JoinExpr(table=customer_selects_union),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["cohort"]), order="ASC")],
+            )
 
         values = []
         if query is not None:

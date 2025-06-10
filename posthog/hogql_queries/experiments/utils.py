@@ -2,7 +2,6 @@ from typing import TypeVar
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentMetricResult,
     ExperimentVariantResultFrequentist,
     ExperimentQueryResponse,
     ExperimentStatsBase,
@@ -174,7 +173,7 @@ def get_frequentist_experiment_result_new_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
-) -> ExperimentMetricResult:
+) -> ExperimentQueryResponse:
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
     method = FrequentistMethod(config)
 
@@ -197,7 +196,7 @@ def get_frequentist_experiment_result_new_format(
             )
         )
 
-    return ExperimentMetricResult(
+    return ExperimentQueryResponse(
         baseline=control_variant,
-        variants=variants,
+        variant_results=variants,
     )

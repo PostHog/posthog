@@ -163,6 +163,17 @@ pub struct ConfigResponse {
     /// Whether to capture dead clicks
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_dead_clicks: Option<bool>,
+
+    /// Error tracking configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_tracking: Option<ErrorTrackingConfig>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorTrackingConfig {
+    pub autocapture_exceptions: bool,
+    pub suppression_rules: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]

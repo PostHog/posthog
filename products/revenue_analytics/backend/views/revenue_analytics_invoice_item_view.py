@@ -72,10 +72,10 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
         queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
             comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-                revenue_config, event, do_currency_conversion=False
+                team, event, do_currency_conversion=False
             )
             _, currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
-                revenue_config,
+                team,
                 event,
                 amount_expr=ast.Field(chain=["currency_aware_amount"]),
             )
@@ -109,7 +109,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ),
                     currency_aware_divider(),
                     currency_aware_amount(),
-                    ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                    ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                     ast.Alias(alias="amount", expr=currency_aware_amount_expr),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -158,7 +158,6 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
         invoice_table = cast(DataWarehouseTable, invoice_schema.table)
         team = invoice_table.team
-        revenue_config = team.revenue_analytics_config
 
         prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
 
@@ -206,7 +205,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",

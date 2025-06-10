@@ -1,4 +1,4 @@
-import { IconPin, IconPinFilled } from '@posthog/icons'
+import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -87,6 +87,7 @@ export function PanelLayoutPanel({
         panelWidth: computedPanelWidth,
         panelWillHide,
     } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -116,13 +117,26 @@ export function PanelLayoutPanel({
                             data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-3 text-tertiary" />
+                                <IconPinFilled className="size-[14px] text-tertiary" />
                             ) : (
-                                <IconPin className="size-3 text-tertiary" />
+                                <IconPin className="size-[14px] text-tertiary" />
                             )}
                         </ButtonPrimitive>
                     )}
+
                     {panelActions ?? null}
+
+                    <ButtonPrimitive
+                        onClick={() => {
+                            showLayoutPanel(false)
+                            clearActivePanelIdentifier()
+                        }}
+                        tooltip="Close panel"
+                        iconOnly
+                        data-attr="tree-panel-close-panel-button"
+                    >
+                        <IconX className="text-tertiary size-4" />
+                    </ButtonPrimitive>
                 </div>
             </div>
             <div className="border-b border-primary h-px" />
@@ -164,7 +178,6 @@ export function PanelLayoutPanel({
             }}
             aria-label="Resize handle for panel layout panel"
             borderPosition="right"
-            innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
             data-attr="tree-panel-resizer"

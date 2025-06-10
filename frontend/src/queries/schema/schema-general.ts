@@ -1,5 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -2032,7 +2033,7 @@ export interface LogMessage {
     trace_id: string
     span_id: string
     body: string
-    attributes: string
+    attributes: Record<string, any>
     /**  @format date-time */
     timestamp: string
     /**  @format date-time */
@@ -2284,6 +2285,25 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
+    // Legacy fields
+    kind?: NodeKind.ExperimentQuery
+    insight?: Record<string, any>[]
+    metric?: ExperimentMetric
+    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
+    probability?: Record<string, number>
+    significant?: boolean
+    significance_code?: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value?: number
+    credible_intervals?: Record<string, [number, number]>
+
+    // New fields
+    baseline?: ExperimentStatsBase
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+// Strongly typed variants of ExperimentQueryResponse for better type safety
+export interface LegacyExperimentQueryResponse {
     kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
     metric: ExperimentMetric
@@ -2294,6 +2314,11 @@ export interface ExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+}
+
+export interface NewExperimentQueryResponse {
+    baseline: ExperimentStatsBase
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentStatsBase {
@@ -2336,6 +2361,8 @@ export interface ExperimentExposureQueryResponse {
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
+export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
@@ -3107,11 +3134,6 @@ export interface RevenueAnalyticsGoal {
 
 export interface RevenueAnalyticsConfig {
     /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
-
-    /**
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
@@ -3164,4 +3186,10 @@ export interface EventsHeatMapStructuredResult {
     rowAggregations: EventsHeatMapRowAggregationResult[]
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
+}
+
+export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
+
+export interface MarketingAnalyticsConfig {
+    sources_map?: Record<string, SourceMap>
 }

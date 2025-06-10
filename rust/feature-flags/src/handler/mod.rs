@@ -3,6 +3,7 @@ pub mod billing;
 pub mod config_response_builder;
 pub mod cookieless;
 pub mod decoding;
+pub mod error_tracking;
 pub mod evaluation;
 pub mod flags;
 pub mod properties;
@@ -28,7 +29,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let (original_distinct_id, verified_token, request) =
         authentication::parse_and_authenticate(&context, &flag_service).await?;
 
-    // Check billing limits early
+    // Check quota limits early
     if let Some(quota_limited_response) = billing::check_limits(&context, &verified_token).await? {
         return Ok(quota_limited_response);
     }
@@ -41,8 +42,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
     let filtered_flags =
         flags::fetch_and_filter(&flag_service, team.project_id, &request, &context.meta).await?;
+
     let property_overrides = properties::prepare_overrides(&context, &request)?;
 
+    // Evaluate flags (this will return empty if disable_flags is true)
     let flags_response = flags::evaluate_for_request(
         &context.state,
         team.id,
@@ -54,12 +57,18 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         property_overrides.groups,
         property_overrides.hash_key,
         context.request_id,
+        request.is_flags_disabled(),
     )
     .await;
 
+    // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
+    // beyond just feature flags
     let response = config_response_builder::build_response(flags_response, &context, &team).await?;
 
-    billing::record_usage(&context, &filtered_flags, team.id).await;
+    // Only record billing if flags are not disabled
+    if !request.is_flags_disabled() {
+        billing::record_usage(&context, &filtered_flags, team.id).await;
+    }
 
     Ok(response)
 }

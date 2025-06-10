@@ -41,7 +41,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'User interviews',
-            category: 'Behaviour',
+            category: 'Behavior',
             href: urls.userInterviews(),
             type: 'user_interview',
             flag: FEATURE_FLAGS.USER_INTERVIEWS,

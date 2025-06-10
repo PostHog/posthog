@@ -15,6 +15,7 @@ from posthog.schema import (
 from products.revenue_analytics.backend.utils import revenue_selects_from_database
 from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -40,6 +41,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         for property in self.query.properties:
             if property.key == "product":
                 joins_set.add("products")
+            elif property.key == "customer":
+                joins_set.add("customers")
         return joins_set
 
     # This assumes there's a base select coming from the `invoice_items` view
@@ -47,14 +50,16 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     # why we'll never see a join for the `invoice_items` table - it's supposed to be there already
     @cached_property
     def joins_for_properties(self) -> list[ast.JoinExpr]:
-        _, _, _, product_subquery = self.revenue_subqueries
-        if product_subquery is None:
-            return []
+        _, customer_subquery, _, product_subquery = self.revenue_subqueries
 
         joins = []
         for join in self.joins_set_for_properties:
             if join == "products":
-                joins.append(self.create_product_join(product_subquery))
+                if product_subquery is not None:
+                    joins.append(self.create_product_join(product_subquery))
+            elif join == "customers":
+                if customer_subquery is not None:
+                    joins.append(self.create_customer_join(customer_subquery))
 
         return joins
 
@@ -78,6 +83,21 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                 expr=ast.CompareOperation(
                     left=ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "id"]),
                     right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "product_id"]),
+                    op=ast.CompareOperationOp.Eq,
+                ),
+            ),
+        )
+
+    def create_customer_join(self, customer_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+            table=customer_subquery,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                constraint_type="ON",
+                expr=ast.CompareOperation(
+                    left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                    right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "customer_id"]),
                     op=ast.CompareOperationOp.Eq,
                 ),
             ),
