@@ -17,6 +17,7 @@
 # stages, add some runtime dependencies and build the final image.
 #
 
+
 #
 # ---------------------------------------------------------
 #
@@ -32,12 +33,11 @@ COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
-COPY common/shared_types/ common/shared_types/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable && pnpm --version &&
+    corepack enable && pnpm --version && \
     pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store
 
 COPY frontend/ frontend/
@@ -52,14 +52,15 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS plugin-server-build
 
 # Compile and install system dependencies
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        "make" \
-        "g++" \
-        "gcc" \
-        "python3" \
-        "libssl-dev" \
-        "zlib1g-dev" &&
+    "make" \
+    "g++" \
+    "gcc" \
+    "python3" \
+    "libssl-dev" \
+    "zlib1g-dev" \
+    && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
@@ -76,9 +77,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable &&
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store &&
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store &&
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
@@ -97,8 +98,8 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable &&
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod &&
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
@@ -112,18 +113,19 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
 COPY pyproject.toml uv.lock ./
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        "build-essential" \
-        "git" \
-        "libpq-dev" \
-        "libxmlsec1" \
-        "libxmlsec1-dev" \
-        "libffi-dev" \
-        "zlib1g-dev" \
-        "pkg-config" &&
-    rm -rf /var/lib/apt/lists/* &&
-    pip install uv~=0.7.0 --no-cache-dir &&
+    "build-essential" \
+    "git" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libffi-dev" \
+    "zlib1g-dev" \
+    "pkg-config" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install uv~=0.7.0 --no-cache-dir && \
     UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -139,6 +141,7 @@ COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
+
 #
 # ---------------------------------------------------------
 #
@@ -147,15 +150,17 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        "ca-certificates" \
-        "curl" \
-        "brotli" &&
-    rm -rf /var/lib/apt/lists/* &&
-    mkdir share &&
-    (curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb) &&
+    "ca-certificates" \
+    "curl" \
+    "brotli" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
+
 
 #
 # ---------------------------------------------------------
@@ -168,15 +173,15 @@ ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        "chromium" \
-        "chromium-driver" \
-        "libpq-dev" \
-        "libxmlsec1" \
-        "libxmlsec1-dev" \
-        "libxml2" \
-        "gettext-base"
+    "chromium" \
+    "chromium-driver" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libxml2" \
+    "gettext-base"
 
 # Install MS SQL dependencies
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -186,21 +191,23 @@ RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
 # Install NodeJS 18.
 RUN apt-get install -y --no-install-recommends \
-    "curl" &&
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&
+    "curl" \
+    && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y --no-install-recommends \
-        "nodejs" &&
+    "nodejs" \
+    && \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user.
-RUN groupadd -g 1000 posthog &&
-    useradd -r -g posthog posthog &&
+RUN groupadd -g 1000 posthog && \
+    useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 
 # Add the commit hash
 ARG COMMIT_HASH
-RUN echo $COMMIT_HASH >/code/commit.txt
+RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
