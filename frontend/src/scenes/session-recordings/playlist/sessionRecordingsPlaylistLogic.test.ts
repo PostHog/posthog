@@ -144,8 +144,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it('starts as null', () => {
                 expectLogic(logic).toMatchValues({ activeSessionRecording: undefined })
             })
-            it('is set by setSessionRecordingId', () => {
-                expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+            it('is set by setSessionRecordingId', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
                     .toDispatchActions(['setIsFiltersExpanded'])
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
@@ -155,8 +155,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
             })
 
-            it('is partial if sessionRecordingId not in list', () => {
-                expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
+            it('is partial if sessionRecordingId not in list', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
                     .toDispatchActions(['setIsFiltersExpanded'])
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
