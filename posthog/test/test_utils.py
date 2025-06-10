@@ -305,7 +305,8 @@ class TestLoadDataFromRequest(TestCase):
         return post_request
 
     @patch("posthoganalytics.tag")
-    def test_pushes_debug_information_into_context_from_origin_header(self, patched_tag):
+    @patch("posthoganalytics.new_context")
+    def test_pushes_debug_information_into_context_from_origin_header(self, patched_context, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
 
@@ -314,7 +315,7 @@ class TestLoadDataFromRequest(TestCase):
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_tag.assert_called_once()
+        patched_context.assert_called_once()
         patched_tag.assert_has_calls(
             [
                 call("origin", origin),
@@ -324,7 +325,8 @@ class TestLoadDataFromRequest(TestCase):
         )
 
     @patch("posthoganalytics.tag")
-    def test_pushes_debug_information_into_context_when_origin_header_not_present(self, patched_tag):
+    @patch("posthoganalytics.new_context")
+    def test_pushes_debug_information_into_context_when_origin_header_not_present(self, patched_context, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
 
@@ -333,7 +335,7 @@ class TestLoadDataFromRequest(TestCase):
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_tag.assert_called_once()
+        patched_context.assert_called_once()
         patched_tag.assert_has_calls(
             [
                 call("origin", origin),
@@ -343,14 +345,15 @@ class TestLoadDataFromRequest(TestCase):
         )
 
     @patch("posthoganalytics.tag")
-    def test_still_tags_context_even_when_debug_signal_is_not_available(self, patched_tag):
+    @patch("posthoganalytics.new_context")
+    def test_still_tags_context_even_when_debug_signal_is_not_available(self, patched_context, patched_tag):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_tag.assert_called_once()
+        patched_context.assert_called_once()
         patched_tag.assert_has_calls(
             [
                 call("origin", "unknown"),
