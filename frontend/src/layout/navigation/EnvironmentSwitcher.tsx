@@ -1,4 +1,4 @@
-import { IconChevronDown, IconCornerDownRight, IconGear, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconCornerDownRight, IconGear, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -8,6 +8,7 @@ import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,13 +31,15 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
+    const { openModal } = useActions(environmentRollbackModalLogic)
+
     const { location } = useValues(router)
 
-    const [currentProjectSection, otherProjectsSection] = useMemo<
-        [LemonMenuSection | null, LemonMenuSection | null]
+    const [environmentsRollbackNotice, currentProjectSection, otherProjectsSection] = useMemo<
+        [LemonMenuSection | null, LemonMenuSection | null, LemonMenuSection | null]
     >(() => {
         if (!currentOrganization || !currentTeam?.project_id) {
-            return [null, null]
+            return [null, null, null]
         }
 
         const currentProjectItems: LemonMenuItem[] = []
@@ -134,6 +137,16 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
             })
         }
         return [
+            {
+                items: [
+                    {
+                        label: 'Consolidate project environments',
+                        onClick: openModal,
+                        status: 'danger',
+                        icon: <IconWarning />,
+                    },
+                ],
+            },
             currentProjectItems.length ? { title: 'Current project', items: currentProjectItems } : null,
             otherProjectsItems.length ? { title: 'Other projects', items: otherProjectsItems } : null,
         ]
@@ -158,6 +171,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 {
                     items: [{ label: EnvironmentSwitcherSearch }],
                 },
+                environmentsRollbackNotice,
                 currentProjectSection,
                 otherProjectsSection,
                 {
