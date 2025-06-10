@@ -194,7 +194,7 @@ export default tseslint.config(
                 forbid: [
                     { element: 'Button', message: 'use <LemonButton> instead' },
                     { element: 'Input', message: 'use <LemonInput> instead' },
-                    { element: 'Modal', message: 'use <LemonModal> or `<LemonDialog> instead' },
+                    { element: 'Modal', message: 'use <LemonModal> or <LemonDialog> instead' },
                     { element: 'Select', message: 'use <LemonSelect> instead' },
                     { element: 'LemonButtonWithDropdown', message: 'use <LemonMenu> with a <LemonButton> child instead' },
                     { element: 'Progress', message: 'use <LemonProgress> instead' }
