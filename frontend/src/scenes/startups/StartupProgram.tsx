@@ -77,7 +77,7 @@ export function StartupProgram(): JSX.Element {
                         It looks like your organization is already on our annual plan. If you have any questions, please
                         contact{' '}
                         {accountOwner?.name && accountOwner?.email
-                            ? `your PostHog human ${accountOwner.name} at ${accountOwner.email}`
+                            ? `your PostHog human ${accountOwner.name.split(' ')[0]} at ${accountOwner.email}`
                             : 'our support team'}
                     </p>
                     <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
