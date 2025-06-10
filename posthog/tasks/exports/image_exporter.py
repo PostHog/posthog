@@ -6,7 +6,7 @@ import uuid
 from datetime import timedelta
 from typing import Literal, Optional
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from django.conf import settings
 from selenium import webdriver
@@ -259,7 +259,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
-                with upgrade_query_and_replace_filters(exported_asset.insight):
+                with upgrade_query(exported_asset.insight):
                     process_query_dict(
                         exported_asset.team,
                         exported_asset.insight.query,

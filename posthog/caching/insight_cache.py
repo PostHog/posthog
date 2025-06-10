@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from django.conf import settings
 from django.core.cache import cache
@@ -123,7 +123,7 @@ def update_cache(caching_state_id: UUID):
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    with upgrade_query_and_replace_filters(insight):
+    with upgrade_query(insight):
         try:
             response = process_query_dict(
                 insight.team,

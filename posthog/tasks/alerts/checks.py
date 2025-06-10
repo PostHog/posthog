@@ -8,7 +8,7 @@ from dateutil.relativedelta import relativedelta
 from celery import shared_task
 from celery.canvas import chain
 from django.db import transaction
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from posthog.clickhouse.query_tagging import tag_queries
 
@@ -367,7 +367,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """
     insight = alert.insight
 
-    with upgrade_query_and_replace_filters(insight):
+    with upgrade_query(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 

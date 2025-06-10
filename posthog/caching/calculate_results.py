@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from pydantic import BaseModel
 
@@ -33,7 +33,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with upgrade_query_and_replace_filters(insight):
+        with upgrade_query(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:

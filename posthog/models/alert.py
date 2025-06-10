@@ -3,7 +3,7 @@ from datetime import datetime, UTC, timedelta
 
 from django.db import models
 from django.core.exceptions import ValidationError
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import pydantic
 
 from posthog.models.insight import Insight
@@ -20,7 +20,7 @@ ALERT_STATE_CHOICES = [
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
-    with upgrade_query_and_replace_filters(insight):
+    with upgrade_query(insight):
         query = insight.query
         while query.get("source"):
             query = query["source"]

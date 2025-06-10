@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def upgrade_query_and_replace_filters(insight: "Insight") -> Iterator[None]:
+def upgrade_query(insight: "Insight") -> Iterator[None]:
     """Replaces filters-based insights with query-based ones and upgrades the query to the latest version if needed."""
     with conversion_to_query_based(insight), upgrade_insight(insight):
         yield

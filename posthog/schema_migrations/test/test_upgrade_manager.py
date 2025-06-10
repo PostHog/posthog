@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import Mock
 from posthog.schema import NodeKind
 from posthog.schema_migrations import LATEST_VERSIONS, SchemaMigration, MIGRATIONS
-from posthog.schema_migrations.upgrade_manager import upgrade_insight, upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_insight, upgrade_query
 
 
 class SampleMigration(SchemaMigration):
@@ -34,12 +34,12 @@ def test_upgrade_insight_context_manager():
         assert mock_insight.query == upgraded_query
 
 
-def test_upgrade_query_and_replace_filters_manager():
+def test_upgrade_query_manager():
     mock_insight = Mock()
     mock_insight.filters = {"aggregation_group_type_index": 2}
     mock_insight.query = None
 
-    with upgrade_query_and_replace_filters(mock_insight):
+    with upgrade_query(mock_insight):
         query: Optional[dict[str, Any]] = mock_insight.query
         assert query is not None
         assert query["aggregationGroupTypeIndex"] == 2

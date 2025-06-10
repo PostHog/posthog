@@ -3,7 +3,7 @@ from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
 from typing import Optional
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from celery import shared_task
 from celery.canvas import chain
@@ -209,7 +209,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with upgrade_query_and_replace_filters(insight):
+    with upgrade_query(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:

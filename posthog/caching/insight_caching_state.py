@@ -3,7 +3,7 @@ from enum import Enum
 from functools import cached_property
 from typing import Optional, Union
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from django.core.paginator import Paginator
 from django.utils.timezone import now
@@ -141,7 +141,7 @@ def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     if insight is None:
         return None
 
-    with upgrade_query_and_replace_filters(insight):
+    with upgrade_query(insight):
         target_age = calculate_target_age(team, target, lazy_loader)
         target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
 
