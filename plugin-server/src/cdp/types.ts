@@ -1,5 +1,4 @@
 import { VMState } from '@posthog/hogvm'
-import { HogFlow } from '@posthog/shared-types'
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '../schema/hogflow'

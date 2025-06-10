@@ -1,10 +1,9 @@
-import { HogFlow } from '@posthog/shared-types'
-import { afterMount, connect, kea, key, path, props } from 'kea'
+import { afterMount, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
+import type { HogFlow } from '../../../../plugin-server/src/schema/hogflow'
 import type { campaignLogicType } from './campaignLogicType'
-import { campaignSceneLogic } from './campaignSceneLogic'
 
 export interface CampaignLogicProps {
     id?: string
@@ -13,21 +12,21 @@ export interface CampaignLogicProps {
 const DEFAULT_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'Untitled campaign',
-    description: '',
-    workflow: { nodes: [], edges: [] },
-    created_at: null,
-    updated_at: null,
-    created_by: null,
+    edges: [],
+    actions: [],
+    trigger: { type: 'event' },
+    trigger_masking: { ttl: 0, hash: '', threshold: 0 },
+    conversion: { window_minutes: 0, filters: [] },
+    exit_condition: 'exit_on_conversion',
     version: 1,
+    status: 'draft',
+    team_id: 0,
 }
 
 export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignLogic']),
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
-    connect(() => ({
-        values: [campaignSceneLogic, ['currentTab']],
-    })),
     forms(() => ({
         campaign: {
             defaults: {
@@ -57,7 +56,7 @@ export const campaignLogic = kea<campaignLogicType>([
                     }
 
                     // TODO: Add GET /hog_flows/{id} API call
-                    return { ...DEFAULT_WORKFLOW, name: 'My campaign', description: 'Lorem ipsum dolor sit amet' }
+                    return { ...DEFAULT_WORKFLOW }
                 },
             },
         ],

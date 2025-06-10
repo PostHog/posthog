@@ -1,5 +1,4 @@
 import { ExecResult } from '@posthog/hogvm'
-import { HogFlow } from '@posthog/shared-types'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
