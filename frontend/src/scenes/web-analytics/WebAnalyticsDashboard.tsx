@@ -348,7 +348,7 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
                             icon={<IconX />}
                         />
                     </div>
-                    <div className="text-sm text-gray-700">{description}</div>
+                    <div className="text-sm text-gray-700 dark:text-white">{description}</div>
                     {url && (
                         <div className="flex justify-end mt-4">
                             <LemonButton

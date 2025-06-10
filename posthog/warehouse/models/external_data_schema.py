@@ -1,4 +1,5 @@
 import uuid
+from dateutil import parser
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -262,6 +263,20 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             self.last_synced_at = None
             self.status = None
             self.save()
+
+
+def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+    if value is None or value == "None" or field_type is None:
+        return None
+
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return value
+
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return parser.parse(value)
+
+    if field_type == IncrementalFieldType.Date:
+        return parser.parse(value).date()
 
 
 @database_sync_to_async
