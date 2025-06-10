@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
@@ -142,10 +141,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 if (!referrer || referrer === 'yc') {
                     return undefined
                 }
-                return referrer
-                    .split('-')
-                    .map((word) => capitalizeFirstLetter(word))
-                    .join(' ')
+                return referrer.split('-').join(' ')
             },
         ],
         isAlreadyOnStartupPlan: [
@@ -223,7 +219,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         ? formValues.incorporation_date.format('YYYY-MM-DD')
                         : undefined
                     if (props.referrer) {
-                        valuesToSubmit.referrer = props.referrer
+                        valuesToSubmit.referrer = props.referrer.toLowerCase()
                     }
                 }
 
