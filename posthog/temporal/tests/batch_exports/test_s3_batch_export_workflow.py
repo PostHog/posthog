@@ -990,13 +990,12 @@ async def _run_s3_batch_export_workflow(
     return run
 
 
-# TODO - change back
-@pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
+@pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
-@pytest.mark.parametrize("use_internal_s3_stage", [True])
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_models(
     clickhouse_client,
     minio_client,
