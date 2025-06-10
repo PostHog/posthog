@@ -1,7 +1,6 @@
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
-use quick_cache::sync::Cache;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -22,6 +21,7 @@ use crate::{
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType, Update,
     },
+    update_cache::Cache,
 };
 
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
@@ -72,7 +72,7 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
@@ -130,7 +130,7 @@ impl EventDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
@@ -223,7 +223,7 @@ impl PropertyDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
@@ -238,7 +238,7 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch_v2(
     config: &Config,
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
@@ -340,7 +340,7 @@ pub async fn process_batch_v2(
 }
 
 async fn write_event_properties_batch(
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     mut batch: EventPropertiesBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
@@ -408,7 +408,7 @@ async fn write_event_properties_batch(
 }
 
 async fn write_property_definitions_batch(
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
@@ -487,7 +487,7 @@ async fn write_property_definitions_batch(
 }
 
 async fn write_event_definitions_batch(
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     mut batch: EventDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
