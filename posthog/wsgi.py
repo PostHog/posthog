@@ -14,9 +14,8 @@ from posthog.otel_instrumentation import initialize_otel
 
 from django.core.wsgi import get_wsgi_application
 
-initialize_otel()
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 
+initialize_otel()
 application = get_wsgi_application()
