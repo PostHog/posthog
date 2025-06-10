@@ -48,7 +48,7 @@ export const HogFlowSchema = z.object({
                 'exit',
             ]),
             config: z.any(),
-            on_error: z.enum(['continue', 'abort', 'complete', 'branch']),
+            on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
             created_at: z.number(),
             updated_at: z.number(),
         })
