@@ -1,11 +1,12 @@
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import posthog from 'posthog-js'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -20,6 +21,7 @@ import {
 
 import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
+import { lemonToast } from '@posthog/lemon-ui'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
@@ -74,6 +76,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,
+        registerInterest: (template: HogFunctionTemplateType) => ({ template }),
     }),
     reducers(({ props }) => ({
         filters: [
@@ -216,6 +219,18 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        registerInterest: ({ template }) => {
+            posthog.capture('notify_me_pipeline', {
+                name: template.name,
+                type: template.type,
+                email: values.user?.email,
+            })
+
+            lemonToast.success('Thank you for your interest! We will notify you when this feature is available.')
+        },
+    })),
 
     actionToUrl(({ props, values }) => {
         if (!props.syncFiltersWithUrl) {

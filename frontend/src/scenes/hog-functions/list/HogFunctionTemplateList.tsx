@@ -20,7 +20,9 @@ export function HogFunctionTemplateList({
     const { loading, filteredTemplates, filters, templates, canEnableHogFunction, urlForTemplate } = useValues(
         hogFunctionTemplateListLogic(props)
     )
-    const { loadHogFunctionTemplates, setFilters, resetFilters } = useActions(hogFunctionTemplateListLogic(props))
+    const { loadHogFunctionTemplates, setFilters, resetFilters, registerInterest } = useActions(
+        hogFunctionTemplateListLogic(props)
+    )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     useEffect(() => loadHogFunctionTemplates(), [props.type])
@@ -89,7 +91,7 @@ export function HogFunctionTemplateList({
                                         data-attr="request-destination"
                                         icon={<IconMegaphone />}
                                         className="whitespace-nowrap"
-                                        to={`https://posthog.com/docs/cdp/${template.type}s/${template.id}`}
+                                        onClick={() => registerInterest(template)}
                                     >
                                         Notify me
                                     </LemonButton>

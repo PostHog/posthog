@@ -5250,7 +5250,7 @@ export type HogFunctionTemplateType = Pick<
     status: HogFunctionTemplateStatus
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
-    description?: string | React.ReactNode
+    description?: string | JSX.Element
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
