@@ -71,13 +71,13 @@ export function formatTickValue(value: number): string {
  */
 export function valueToXCoordinate(
     value: number,
-    chartBound: number,
+    chartRadius: number,
     viewBoxWidth: number,
-    horizontalPadding: number = 20
+    svgEdgeMargin: number = 20
 ): number {
     // Scale the value to fit within the padded area
-    const percentage = (value / chartBound + 1) / 2
-    return horizontalPadding + percentage * (viewBoxWidth - 2 * horizontalPadding)
+    const percentage = (value / chartRadius + 1) / 2
+    return svgEdgeMargin + percentage * (viewBoxWidth - 2 * svgEdgeMargin)
 }
 
 /**
