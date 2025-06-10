@@ -30,7 +30,7 @@ import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
-import { ERROR_TRACKING_LISTING_RESOLUTION, ISSUE_STATUS_OPTIONS } from './utils'
+import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -162,7 +162,6 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 <div className="flex items-center text-secondary">
                     <IssueStatusSelect
                         status={record.status}
-                        options={ISSUE_STATUS_OPTIONS}
                         onChange={(status) => updateIssueStatus(record.id, status)}
                     />
                     <CustomGroupSeparator />

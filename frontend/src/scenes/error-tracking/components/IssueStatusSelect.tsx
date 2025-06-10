@@ -10,15 +10,16 @@ import { useState } from 'react'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
+import { ISSUE_STATUS_OPTIONS } from '../utils'
 import { StatusIndicator } from './Indicator'
 
 export const IssueStatusSelect = ({
     status,
-    options = ['active', 'resolved', 'suppressed'],
+    options = ISSUE_STATUS_OPTIONS,
     onChange,
 }: {
     status: ErrorTrackingIssue['status']
-    options: ErrorTrackingIssue['status'][]
+    options?: ErrorTrackingIssue['status'][]
     onChange: (status: ErrorTrackingIssue['status']) => void
 }): JSX.Element => {
     const [showPopover, setShowPopover] = useState(false)
