@@ -66,7 +66,7 @@ PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, service_name, time_bucket, attribute_key, attribute_value);
 
 set enable_dynamic_type=1;
-CREATE MATERIALIZED VIEW default.log_to_log_attributes TO default.log_attributes2
+CREATE MATERIALIZED VIEW default.log_to_log_attributes TO default.log_attributes
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),

@@ -12719,7 +12719,7 @@
             "additionalProperties": false,
             "properties": {
                 "attributes": {
-                    "type": "string"
+                    "type": "object"
                 },
                 "body": {
                     "type": "string"
@@ -12894,6 +12894,18 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "MarketingAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "sources_map": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/SourceMap"
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "MatchedRecording": {
@@ -18686,6 +18698,19 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SourceMap": {
+            "additionalProperties": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "not": {}
+                    }
+                ]
+            },
             "type": "object"
         },
         "StepOrderValue": {

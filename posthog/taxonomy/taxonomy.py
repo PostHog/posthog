@@ -13,6 +13,7 @@ class CoreFilterDefinition(TypedDict):
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
+    virtual: NotRequired[bool]
 
 
 """
@@ -104,7 +105,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# synced with frontend/src/lib/taxonomy.tsx and core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -1917,7 +1918,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "numerical_event_properties": {},
-    "person_properties": {},
+    "person_properties": {
+        "email": {
+            "label": "Email address",
+            "description": "The email address of the user.",
+            "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
+            "type": "String",
+        },
+        "$virt_initial_channel_type": {
+            "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
+            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "label": "Initial channel type",
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_initial_referring_domain_type": {
+            "description": "What type of referring domain this user initially came from.",
+            "examples": ["Search", "Video", "Direct"],
+            "label": "Initial referring domain type",
+            "type": "String",
+            "virtual": True,
+        },
+    },
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
