@@ -1526,3 +1526,115 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.failure_count, 0)
         self.assertEqual(test_variant.success_count, 0)
         self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_multiple_similar_steps(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User with complete funnel, should be included.
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:05:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:06:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User with only a single purchase. Should be excluded.
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.success_count, 0)
+        self.assertEqual(test_variant.failure_count, 1)

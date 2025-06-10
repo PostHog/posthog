@@ -46,9 +46,8 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     is_continuous,
 )
 from posthog.hogql_queries.experiments.funnel_query_utils import (
-    funnel_steps_to_filter,
     funnel_steps_to_aggregate_funnel_array_expr,
-    get_funnel_step_level_expr,
+    funnel_steps_to_filter,
 )
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
@@ -412,7 +411,6 @@ class ExperimentQueryRunner(QueryRunner):
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
                         ast.Field(chain=["events", "uuid"]),
-                        ast.Alias(alias="funnel_step", expr=get_funnel_step_level_expr(self.team, metric)),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
