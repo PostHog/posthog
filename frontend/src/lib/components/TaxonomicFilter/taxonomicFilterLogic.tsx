@@ -168,7 +168,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(({ values }) => ({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
@@ -210,7 +210,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.propertyAllowList,
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
-                s.logsDateRange,
             ],
             (
                 teamId,
@@ -223,8 +222,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 excludedProperties,
                 propertyAllowList,
                 eventMetadataPropertyDefinitions,
-                eventOrdering,
-                logsDateRange
+                eventOrdering
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -463,11 +461,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                 : undefined,
                             exclude_hidden: true,
-                            dateRange: logsDateRange,
+                            dateRange: values.logsDateRange,
                         }).url,
                         valuesEndpoint: (key) =>
-                            combineUrl(`api/environments/${projectId}/logs/values`, { key, dateRange: logsDateRange })
-                                .url,
+                            combineUrl(`api/environments/${projectId}/logs/values`, {
+                                key,
+                                dateRange: values.logsDateRange,
+                            }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Log attributes',
@@ -787,7 +787,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
             if (item) {
