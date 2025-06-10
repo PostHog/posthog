@@ -200,7 +200,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     type: AssistantMessageType.Human,
                     content: prompt,
                     status: 'completed',
-                })
+                    ui_context: values.compiledContext,
+                } as ThreadMessage)
             }
 
             try {

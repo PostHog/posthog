@@ -51,7 +51,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
         addOrUpdateContextDashboard: (key: string, data: DashboardType<QueryBasedInsightModel>) => ({ key, data }),
         removeContextInsight: (key: string) => ({ key }),
         removeContextDashboard: (key: string) => ({ key }),
-        addOrUpdateActiveInsight: (key: string, data: Partial<QueryBasedInsightModel>) => ({ key, data }),
+        addOrUpdateActiveInsight: (key: string, data: Partial<QueryBasedInsightModel>, autoAdd: boolean) => ({
+            key,
+            data,
+            autoAdd,
+        }),
         clearActiveInsights: true,
         setActiveDashboard: (dashboardContext: DashboardType<QueryBasedInsightModel>) => ({ dashboardContext }),
         clearActiveDashboard: true,
@@ -74,6 +78,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextInsights: [
             {} as MultiInsightContextContainer,
             {
+                addOrUpdateActiveInsight: (
+                    state: MultiInsightContextContainer,
+                    { key, data, autoAdd }: { key: string; data: Partial<QueryBasedInsightModel>; autoAdd: boolean }
+                ) => {
+                    if (autoAdd) {
+                        return { ...state, [key]: insightToMaxContext(data) }
+                    }
+                    return state
+                },
                 addOrUpdateContextInsight: (
                     state: MultiInsightContextContainer,
                     { key, data }: { key: string; data: Partial<QueryBasedInsightModel> }

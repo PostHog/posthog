@@ -60,23 +60,35 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                     isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
                 )}
             >
-                <ContextDisplay />
                 <div className="relative w-full">
-                    <LemonTextArea
-                        ref={textAreaRef}
-                        value={question}
-                        onChange={(value) => setQuestion(value)}
-                        placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
-                        onPressEnter={() => {
-                            if (question && !submissionDisabledReason && !threadLoading) {
-                                askMax(question)
-                            }
-                        }}
-                        disabled={inputDisabled}
-                        minRows={1}
-                        maxRows={10}
-                        className={clsx('p-3 pr-12', isFloating && 'border-primary')}
-                    />
+                    <div
+                        className={clsx(
+                            'flex flex-col',
+                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
+                            'bg-[var(--bg-fill-input)]',
+                            'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
+                            isFloating && 'border-primary'
+                        )}
+                    >
+                        <div className="px-3 pt-2">
+                            <ContextDisplay />
+                        </div>
+                        <LemonTextArea
+                            ref={textAreaRef}
+                            value={question}
+                            onChange={(value) => setQuestion(value)}
+                            placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
+                            onPressEnter={() => {
+                                if (question && !submissionDisabledReason && !threadLoading) {
+                                    askMax(question)
+                                }
+                            }}
+                            disabled={inputDisabled}
+                            minRows={1}
+                            maxRows={10}
+                            className={clsx('!border-none !bg-transparent p-3 pr-12')}
+                        />
+                    </div>
                     <div className="absolute flex items-center right-2 bottom-[7px]">
                         <LemonButton
                             type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
