@@ -501,7 +501,6 @@ class TestCSPModule(TestCase):
         result, error = process_csp_report(request)
 
         assert result is None
-        assert error is not None  # Should return 204 No Content response
         assert error.status_code == 204
         mock_logger.warning.assert_called_with(
             "CSP report sampled out - report-uri format",
@@ -531,7 +530,6 @@ class TestCSPModule(TestCase):
         result, error = process_csp_report(request)
 
         assert result is None
-        assert error is not None  # Should return 204 No Content response
         assert error.status_code == 204
         mock_logger.warning.assert_called_with(
             "CSP report sampled out - report-to format",
