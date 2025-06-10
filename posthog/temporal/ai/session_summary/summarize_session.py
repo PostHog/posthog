@@ -88,6 +88,7 @@ async def stream_llm_summary_activity(redis_input_key: str) -> str:
         redis_client=redis_client, redis_input_key=redis_input_key
     )
     last_summary_state = ""
+    temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
     session_summary_generator = stream_llm_session_summary(
         session_id=summary_inputs.session_id,
