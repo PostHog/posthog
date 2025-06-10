@@ -388,7 +388,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         bufferTime: state.bufferTime,
                     }
                 },
-                stopBuffer: (state) => {
+                endBuffer: (state) => {
                     return {
                         isPlaying: state.isPlaying,
                         isBuffering: false,
