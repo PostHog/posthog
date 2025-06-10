@@ -37,16 +37,18 @@ pub async fn check_limits(
     Ok(None)
 }
 
+/// Records usage metrics for feature flag requests.
+///
+/// Only increments billing counters if there are billable flags present.
+/// Survey targeting flags (prefixed with "survey-targeting-") are not billable.
 pub async fn record_usage(
     context: &RequestContext,
     filtered_flags: &FeatureFlagList,
     team_id: i32,
 ) {
-    if filtered_flags
-        .flags
-        .iter()
-        .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
-    {
+    let has_billable_flags = contains_billable_flags(filtered_flags);
+
+    if has_billable_flags {
         if let Err(e) = increment_request_count(
             context.state.redis.clone(),
             team_id,
@@ -64,13 +66,29 @@ pub async fn record_usage(
     }
 }
 
-/// Helper function to determine if usage should be recorded
-/// This function is extracted for testing purposes
-pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
+/// Checks if the flag list contains any billable flags.
+///
+/// Returns true if there are any flags that are NOT survey targeting flags.
+/// Survey targeting flags (those starting with "survey-targeting-") are free
+/// and don't count toward billing.
+fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
     filtered_flags
         .flags
         .iter()
-        .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+        .any(|flag| is_billable_flag(&flag.key))
+}
+
+/// Determines if a flag is billable based on its key.
+///
+/// Returns true for regular feature flags, false for survey targeting flags.
+fn is_billable_flag(flag_key: &str) -> bool {
+    !flag_key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+}
+
+/// Helper function to determine if usage should be recorded
+/// This function is extracted for testing purposes
+pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
+    contains_billable_flags(filtered_flags)
 }
 
 #[cfg(test)]

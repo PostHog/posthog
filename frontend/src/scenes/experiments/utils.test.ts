@@ -1179,6 +1179,44 @@ describe('metricToQuery', () => {
             ],
         })
     })
+
+    it('returns the correct query for a mean metric with an event source and max math type', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                name: 'purchase',
+                math_property: 'amount',
+                math: ExperimentMetricMathType.Max,
+            },
+        }
+
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                    math_property: 'amount',
+                    math: ExperimentMetricMathType.Max,
+                },
+            ],
+        })
+    })
 })
 
 describe('isLegacyExperimentQuery', () => {

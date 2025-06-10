@@ -48,6 +48,7 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    marketingAnalytics: (): string => '/data-management/marketing-analytics',
 
     pipelineNodeNew: (
         stage: PipelineStage | ':stage',
