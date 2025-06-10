@@ -291,6 +291,8 @@ describe('SegmentDestinationExecutorService', () => {
         })
 
         it('should handle throwHttpErrors flag', async () => {
+            // This destination is setting the throwHttpErrors flag to false, so we should return the error to the function instead.
+            // https://github.com/segmentio/action-destinations/blob/main/packages/destination-actions/src/destinations/gameball/util.ts#L68
             jest.spyOn(gameballAction as any, 'perform')
 
             const fn = createHogFunction({
