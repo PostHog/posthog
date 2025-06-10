@@ -316,6 +316,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
         sendBroadcast: true,
+        setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
+        setNewHogCode: (newHogCode: string) => ({ newHogCode }),
+        clearHogCodeDiff: true,
+        reportAIHogFunctionPrompted: true,
+        reportAIHogFunctionAccepted: true,
+        reportAIHogFunctionRejected: true,
+        reportAIHogFunctionPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -359,6 +366,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 setShowEventsList: (_, { showEventsList }) => showEventsList,
+            },
+        ],
+        oldHogCode: [
+            null as string | null,
+            {
+                setOldHogCode: (_, { oldHogCode }) => oldHogCode,
+                clearHogCodeDiff: () => null,
+            },
+        ],
+        newHogCode: [
+            null as string | null,
+            {
+                setNewHogCode: (_, { newHogCode }) => newHogCode,
+                clearHogCodeDiff: () => null,
             },
         ],
     })),
@@ -1168,6 +1189,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        currentHogCode: [
+            (s) => [s.newHogCode, s.configuration],
+            (newHogCode: string | null, configuration: HogFunctionConfigurationType) => {
+                return newHogCode ?? configuration.hog ?? ''
+            },
+        ],
+
         canLoadSampleGlobals: [
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
@@ -1177,6 +1205,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
 
     listeners(({ actions, values, cache }) => ({
+        reportAIHogFunctionPrompted: () => {
+            posthog.capture('ai_hog_function_prompted', { type: values.type })
+        },
+        reportAIHogFunctionAccepted: () => {
+            posthog.capture('ai_hog_function_accepted', { type: values.type })
+        },
+        reportAIHogFunctionRejected: () => {
+            posthog.capture('ai_hog_function_rejected', { type: values.type })
+        },
+        reportAIHogFunctionPromptOpen: () => {
+            posthog.capture('ai_hog_function_prompt_open', { type: values.type })
+        },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
