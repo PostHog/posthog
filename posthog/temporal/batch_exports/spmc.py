@@ -1159,345 +1159,10 @@ class ConsumerFromStage:
         self,
         data_interval_start: dt.datetime | str | None,
         data_interval_end: dt.datetime | str,
-        writer_format: WriterFormat,
-        max_file_size_bytes: int = 0,
     ):
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
-        self.writer_format = writer_format
         self.logger = get_internal_logger()
-        self.record_batches_count_total = 0
-        self.max_file_size_bytes = max_file_size_bytes
-        self.bytes_in_current_file = 0
-
-    @property
-    def rows_exported_counter(self) -> temporalio.common.MetricCounter:
-        """Access the rows exported metric counter."""
-        return get_rows_exported_metric()
-
-    @property
-    def bytes_exported_counter(self) -> temporalio.common.MetricCounter:
-        """Access the bytes exported metric counter."""
-        return get_bytes_exported_metric()
-
-    # def create_consumer_task(
-    #     self,
-    #     tg: asyncio.TaskGroup,
-    #     queue: RecordBatchQueue,
-    #     producer_task: asyncio.Task,
-    #     max_bytes: int,
-    #     schema: pa.Schema,
-    #     json_columns: collections.abc.Sequence[str],
-    #     multiple_files: bool = False,
-    #     include_inserted_at: bool = False,
-    #     task_name: str = "record_batch_consumer",
-    #     max_file_size_bytes: int = 0,
-    #     **kwargs,
-    # ) -> asyncio.Task:
-    #     """Create a record batch consumer task."""
-    #     consumer_task = tg.create_task(
-    #         self.start(
-    #             queue=queue,
-    #             producer_task=producer_task,
-    #             max_bytes=max_bytes,
-    #             schema=schema,
-    #             json_columns=json_columns,
-    #             multiple_files=multiple_files,
-    #             include_inserted_at=include_inserted_at,
-    #             max_file_size_bytes=max_file_size_bytes,
-    #             **kwargs,
-    #         ),
-    #         name=task_name,
-    #     )
-    #     return consumer_task
-
-    @abc.abstractmethod
-    async def flush(
-        self,
-        batch_export_file: BatchExportTemporaryFile,
-        records_since_last_flush: RecordsSinceLastFlush,
-        bytes_since_last_flush: BytesSinceLastFlush,
-        flush_counter: FlushCounter,
-        last_date_range: DateRange,
-        is_last: IsLast,
-        error: Exception | None,
-    ):
-        """Method called on reaching `max_bytes` when running the consumer.
-
-        Each batch export should override this method with their own implementation
-        of flushing, as each destination will have different requirements for
-        flushing data.
-
-        Arguments:
-            batch_export_file: The temporary file containing data to flush.
-            records_since_last_flush: How many records were written in the temporary
-                file.
-            bytes_since_last_flush: How many records were written in the temporary
-                file.
-            error: If any error occurs while writing the temporary file.
-        """
-        pass
-
-    async def start(
-        self,
-        queue: RecordBatchQueue,
-        producer_task: asyncio.Task,
-        max_bytes: int,
-        schema: pa.Schema,
-        json_columns: collections.abc.Sequence[str],
-        multiple_files: bool = False,
-        include_inserted_at: bool = False,
-        max_file_size_bytes: int = 0,
-        **kwargs,
-    ) -> int:
-        """Start consuming record batches from queue.
-
-        Record batches will be written to a temporary file defined by `writer_format`
-        and the file will be flushed upon reaching at least `max_bytes`.
-
-        Callers can control whether a new file is created for each flush or whether we
-        continue flushing to the same file by setting `multiple_files`. File data is
-        reset regardless, so this is not meant to impact total file size, but rather
-        to control whether we are exporting a single large file in multiple parts, or
-        multiple files that must each individually be valid.
-
-        Returns:
-            Total number of records in all consumed record batches.
-        """
-        schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        writer = get_batch_export_writer(
-            self.writer_format,
-            self.flush,
-            schema=schema,
-            max_bytes=max_bytes,
-            max_file_size_bytes=max_file_size_bytes,
-            **kwargs,
-        )
-
-        record_batches_count = 0
-        records_count = 0
-
-        await self.logger.adebug("Consuming record batches from producer %s", producer_task.get_name())
-
-        writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
-
-        async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
-            record_batches_count += 1
-            self.record_batches_count_total += 1
-            record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
-
-            await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
-            self.bytes_in_current_file += writer.bytes_since_last_flush
-
-            # TODO: handle max file size & multiple files
-            # if writer.should_flush() or writer.should_hard_flush():
-            if writer.should_flush():
-                await self.logger.adebug(
-                    "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
-                )
-
-                records_count += writer.records_since_last_flush
-
-                # if multiple_files or writer.should_hard_flush():
-                #     await writer.hard_flush()
-                # else:
-                await writer.flush()
-
-                for _ in range(record_batches_count):
-                    queue.task_done()
-                record_batches_count = 0
-
-            # self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-
-        records_count += writer.records_since_last_flush
-
-        # TODO
-        # await self.logger.adebug(
-        #     "Finished consuming %s records from %s record batches, will flush any pending data",
-        #     records_count,
-        #     record_batches_count_total,
-        # )
-
-        await writer.close_temporary_file()
-        # await self.close()
-
-        # self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-        return records_count
-
-    # async def should_hard_flush(self) -> bool:
-    #     return self.max_file_size_bytes > 0 and self.bytes_total >= self.max_file_size_bytes
-
-    # async def close(self):
-    #     """This method can be overridden by subclasses to perform any additional cleanup."""
-    #     pass
-
-    async def generate_record_batches_from_queue(
-        self,
-        queue: RecordBatchQueue,
-        producer_task: asyncio.Task,
-    ):
-        """Yield record batches from provided `queue` until `producer_task` is done."""
-        while True:
-            try:
-                record_batch = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                if producer_task.done():
-                    await self.logger.adebug(
-                        "Empty queue with no more events being produced, closing writer loop and flushing"
-                    )
-                    break
-                else:
-                    await asyncio.sleep(0)
-                    continue
-
-            yield record_batch
-
-
-class ConsumerGroup:
-    def __init__(
-        # TODO - see if these can be reduced
-        self,
-        queue: RecordBatchQueue,
-        consumer_cls: type[ConsumerFromStage],
-        consumer_kwargs: collections.abc.Mapping[str, typing.Any],
-        producer_task: asyncio.Task,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        schema: pa.Schema,
-        max_bytes: int,
-        json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-        multiple_files: bool = False,
-        writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
-        include_inserted_at: bool = False,
-        max_file_size_bytes: int = 0,
-        num_consumers: int = 1,
-    ):
-        self.queue = queue
-        self.consumer_cls = consumer_cls
-        self.consumer_kwargs = consumer_kwargs
-        self.producer_task = producer_task
-        self.data_interval_start = data_interval_start
-        self.data_interval_end = data_interval_end
-        self.schema = schema
-        self.max_bytes = max_bytes
-        self.json_columns = json_columns
-        self.multiple_files = multiple_files
-        self.include_inserted_at = include_inserted_at
-        self.max_file_size_bytes = max_file_size_bytes
-        self.writer_file_kwargs = writer_file_kwargs
-        self.num_consumers = num_consumers
-
-        self.logger = get_internal_logger()
-        self._consumers: list[ConsumerFromStage] = []
-        self._consumer_tasks: list[asyncio.Task] = []
-
-    consumer_tasks_pending: set[asyncio.Task] = set()
-    consumer_tasks_done = set()
-    records_completed = 0
-
-    # @staticmethod
-    # def consumer_done_callback(task: asyncio.Task):
-    #     nonlocal records_completed
-    #     nonlocal consumer_tasks_done
-    #     nonlocal consumer_tasks_pending
-
-    #     if task.cancelled():
-    #         consumer.logger.debug("Record batch consumer task cancelled")
-
-    #     try:
-    #         records_completed += task.result()
-    #     except:
-    #         pass
-
-    #     consumer_tasks_pending.remove(task)
-    #     consumer_tasks_done.add(task)
-
-    async def start(
-        self,
-        writer_format: WriterFormat,
-    ):
-        """Start a group of consumers.
-
-        # TODO
-
-        Returns:
-            Number of records exported. Not the number of record batches, but the
-            number of records in all record batches.
-
-        Raises:
-            RecordBatchConsumerRetryableExceptionGroup: When at least one consumer task
-                fails with a retryable error.
-            RecordBatchConsumerNonRetryableExceptionGroup: When all consumer tasks fail
-                with non-retryable errors.
-        """
-
-        await self.logger.adebug("Starting record batch consumer")
-
-        # We use a TaskGroup to ensure that if the activity is cancelled, this is propagated to all pending tasks.
-        # TODO: start multiple consumers
-        try:
-            async with asyncio.TaskGroup() as tg:
-                consumer = self.consumer_cls(
-                    data_interval_start=self.data_interval_start,
-                    data_interval_end=self.data_interval_end,
-                    writer_format=writer_format,
-                    **self.consumer_kwargs,
-                )
-                self._consumers.append(consumer)
-                consumer_task = tg.create_task(
-                    consumer.start(
-                        queue=self.queue,
-                        producer_task=self.producer_task,
-                        max_bytes=self.max_bytes,
-                        schema=self.schema,
-                        json_columns=self.json_columns,
-                        multiple_files=self.multiple_files,
-                        include_inserted_at=self.include_inserted_at,
-                        max_file_size_bytes=self.max_file_size_bytes,
-                        **self.writer_file_kwargs or {},
-                    ),
-                    name="record_batch_consumer",
-                )
-                self._consumer_tasks.append(consumer_task)
-                # consumer_task.add_done_callback(consumer_done_callback)
-                # consumer_tasks_pending.add(consumer_task)
-        except Exception:
-            if consumer_task.done():
-                consumer_task_exception = consumer_task.exception()
-
-                if consumer_task_exception is not None:
-                    raise consumer_task_exception
-
-        await raise_on_task_failure(self.producer_task)
-        await self.logger.adebug("Successfully finished record batch consumer")
-
-        # TODO - set this properly
-        records_completed = 0
-        return records_completed
-
-
-class ConsumerFromStage:
-    """Async consumer for batch exports.
-
-    Attributes:
-        data_interval_start: The beginning of the batch export period.
-        logger: Provided consumer logger.
-    """
-
-    def __init__(
-        self,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        writer_format: WriterFormat,
-        max_file_size_bytes: int = 0,
-    ):
-        self.data_interval_start = data_interval_start
-        self.data_interval_end = data_interval_end
-        self.writer_format = writer_format
-        self.logger = get_internal_logger()
-        self.record_batches_count_total = 0
-        self.max_file_size_bytes = max_file_size_bytes
-        self.bytes_in_current_file = 0
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -1514,12 +1179,8 @@ class ConsumerFromStage:
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
         transformer: StreamTransformer,
-        max_bytes: int,
         schema: pa.Schema,
         json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-        multiple_files: bool = False,
-        include_inserted_at: bool = False,
-        max_file_size_bytes: int = 0,
     ) -> int:
         """Start consuming record batches from queue.
 
@@ -1552,7 +1213,7 @@ class ConsumerFromStage:
                 record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
                 # Transform batch to chunks
-                async for chunk in transformer.transform_batch(record_batch):
+                for chunk in transformer.transform_batch(record_batch):
                     await self.consume_chunk(chunk)
 
                 # Log progress periodically
@@ -1574,67 +1235,68 @@ class ConsumerFromStage:
                 #         )
 
             # Finalize transformer and consume any remaining data
-            async for chunk in transformer.finalize():
-                await self.consume_chunk(chunk)
+            for chunk in transformer.finalize():
+                if chunk:
+                    await self.consume_chunk(chunk)
 
             # Finalize upload
             await self.finalize()
-            print("Upload completed successfully")
+            # print("Upload completed successfully")
 
             # Final progress report
             # final_progress = self.get_progress_info()
             # print(f"Final stats: {final_progress}")
 
-        except Exception as e:
-            print(f"Upload failed: {e}")
+        except Exception:
+            # print(f"Upload failed: {e}")
             raise
 
-        record_batches_count = 0
-        record_batches_count_total = 0
-        records_count = 0
+        # record_batches_count = 0
+        # record_batches_count_total = 0
+        # records_count = 0
 
-        await self.logger.adebug("Consuming record batches from producer %s", producer_task.get_name())
+        # await self.logger.adebug("Consuming record batches from producer %s", producer_task.get_name())
 
-        writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
+        # writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
 
-        async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
-            record_batches_count += 1
-            record_batches_count_total += 1
-            record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+        # async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
+        #     record_batches_count += 1
+        #     record_batches_count_total += 1
+        #     record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
-            await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
+        #     await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
-            if writer.should_flush() or writer.should_hard_flush():
-                await self.logger.adebug(
-                    "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
-                )
+        #     if writer.should_flush() or writer.should_hard_flush():
+        #         await self.logger.adebug(
+        #             "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
+        #         )
 
-                records_count += writer.records_since_last_flush
+        #         records_count += writer.records_since_last_flush
 
-                if multiple_files or writer.should_hard_flush():
-                    await writer.hard_flush()
-                else:
-                    await writer.flush()
+        #         if multiple_files or writer.should_hard_flush():
+        #             await writer.hard_flush()
+        #         else:
+        #             await writer.flush()
 
-                for _ in range(record_batches_count):
-                    queue.task_done()
-                record_batches_count = 0
+        #         for _ in range(record_batches_count):
+        #             queue.task_done()
+        #         record_batches_count = 0
 
-            self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
+        #     self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
 
-        records_count += writer.records_since_last_flush
+        # records_count += writer.records_since_last_flush
 
-        await self.logger.adebug(
-            "Finished consuming %s records from %s record batches, will flush any pending data",
-            records_count,
-            record_batches_count_total,
-        )
+        # await self.logger.adebug(
+        #     "Finished consuming %s records from %s record batches, will flush any pending data",
+        #     records_count,
+        #     record_batches_count_total,
+        # )
 
-        await writer.close_temporary_file()
-        await self.close()
+        # await writer.close_temporary_file()
+        # await self.close()
 
-        self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-        return records_count
+        # self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
+        # return records_count
 
     async def generate_record_batches_from_queue(
         self,
@@ -1658,33 +1320,6 @@ class ConsumerFromStage:
             yield record_batch
 
     @abc.abstractmethod
-    async def flush(
-        self,
-        batch_export_file: BatchExportTemporaryFile,
-        records_since_last_flush: RecordsSinceLastFlush,
-        bytes_since_last_flush: BytesSinceLastFlush,
-        flush_counter: FlushCounter,
-        last_date_range: DateRange,
-        is_last: IsLast,
-        error: Exception | None,
-    ):
-        """Method called on reaching `max_bytes` when running the consumer.
-
-        Each batch export should override this method with their own implementation
-        of flushing, as each destination will have different requirements for
-        flushing data.
-
-        Arguments:
-            batch_export_file: The temporary file containing data to flush.
-            records_since_last_flush: How many records were written in the temporary
-                file.
-            bytes_since_last_flush: How many records were written in the temporary
-                file.
-            error: If any error occurs while writing the temporary file.
-        """
-        pass
-
-    @abc.abstractmethod
     async def consume_chunk(self, data: bytes):
         """Consume a chunk of data."""
         pass
@@ -1697,17 +1332,11 @@ class ConsumerFromStage:
 
 async def run_consumer_from_stage(
     queue: RecordBatchQueue,
-    consumer: Consumer,
+    consumer: ConsumerFromStage,
     producer_task: asyncio.Task,
     transformer: StreamTransformer,
-    max_bytes: int,
     schema: pa.Schema,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-    multiple_files: bool = False,
-    writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
-    include_inserted_at: bool = False,
-    max_file_size_bytes: int = 0,
-    **kwargs,
 ) -> int:
     """
 
@@ -1749,16 +1378,12 @@ async def run_consumer_from_stage(
     try:
         async with asyncio.TaskGroup() as tg:
             consumer_task = tg.create_task(
-                _run_consumer_from_stage(
+                consumer.start(
                     queue=queue,
                     producer_task=producer_task,
-                    max_bytes=max_bytes,
+                    transformer=transformer,
                     schema=schema,
                     json_columns=json_columns,
-                    multiple_files=multiple_files,
-                    include_inserted_at=include_inserted_at,
-                    max_file_size_bytes=max_file_size_bytes,
-                    **writer_file_kwargs or {},
                 ),
                 name="record_batch_consumer",
             )
@@ -1774,6 +1399,6 @@ async def run_consumer_from_stage(
     await raise_on_task_failure(producer_task)
     await consumer.logger.adebug("Successfully finished record batch consumer")
 
-    consumer.complete_heartbeat()
+    # consumer.complete_heartbeat()
 
     return records_completed
