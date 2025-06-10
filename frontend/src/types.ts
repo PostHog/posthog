@@ -4008,6 +4008,9 @@ export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
     UniqueSessions = 'unique_session',
+    Min = 'min',
+    Max = 'max',
+    Avg = 'avg',
 }
 
 export enum ActorGroupType {
