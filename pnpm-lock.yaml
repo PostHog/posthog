@@ -1147,9 +1147,6 @@ importers:
       eslint-plugin-compat:
         specifier: ^4.2.0
         version: 4.2.0(eslint@8.57.0)
-      eslint-plugin-cypress:
-        specifier: ^2.15.1
-        version: 2.15.1(eslint@8.57.0)
       eslint-plugin-eslint-comments:
         specifier: ^3.2.0
         version: 3.2.0(eslint@8.57.0)
