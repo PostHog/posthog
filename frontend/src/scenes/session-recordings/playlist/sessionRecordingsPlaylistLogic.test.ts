@@ -146,6 +146,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
             it('is set by setSessionRecordingId', () => {
                 expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['setIsFiltersExpanded'])
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         selectedRecordingId: 'abc',
@@ -156,6 +157,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('is partial if sessionRecordingId not in list', () => {
                 expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
+                    .toDispatchActions(['setIsFiltersExpanded'])
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         selectedRecordingId: 'not-in-list',
