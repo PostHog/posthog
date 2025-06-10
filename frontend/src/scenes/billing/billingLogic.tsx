@@ -453,6 +453,10 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType | null): StartupProgramLabel | null =>
                 billing?.startup_program_label_previous || null,
         ],
+        isAnnualPlanCustomer: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
+        ],
         showBillingSummary: [
             (s) => [s.billing, s.isOnboarding],
             (billing: BillingType | null, isOnboarding: boolean): boolean => {
@@ -480,6 +484,10 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType): boolean => {
                 return !!(billing?.account_owner?.name || billing?.account_owner?.email)
             },
+        ],
+        accountOwner: [
+            (s) => [s.billing],
+            (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
         ],
     }),
     forms(({ actions, values }) => ({
