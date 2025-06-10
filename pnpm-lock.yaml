@@ -647,7 +647,7 @@ importers:
       '@posthog/rrweb-types':
         specifier: 0.0.14
         version: 0.0.14
-      '@posthog/shared_types':
+      '@posthog/shared-types':
         specifier: workspace:*
         version: link:../common/shared_types
       '@posthog/tailwind':
@@ -1327,7 +1327,7 @@ importers:
       '@posthog/plugin-scaffold':
         specifier: 1.4.4
         version: 1.4.4
-      '@posthog/shared_types':
+      '@posthog/shared-types':
         specifier: workspace:*
         version: link:../common/shared_types
       '@posthog/siphash':
@@ -1979,7 +1979,7 @@ importers:
       '@posthog/icons':
         specifier: 0.21.0
         version: 0.21.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      '@posthog/shared_types':
+      '@posthog/shared-types':
         specifier: workspace:*
         version: link:../../common/shared_types
       '@types/react':
