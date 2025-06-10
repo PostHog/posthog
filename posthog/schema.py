@@ -126,6 +126,11 @@ class AssistantFunnelsBreakdownType(StrEnum):
     SESSION = "session"
 
 
+class FunnelAggregateByHogQL(Enum):
+    PROPERTIES__SESSION_ID = "properties.$session_id"
+    NONE_TYPE_NONE = None
+
+
 class AssistantFunnelsMath(StrEnum):
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
@@ -2293,8 +2298,8 @@ class AssistantFunnelsFilter(BaseModel):
             " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
         ),
     )
-    funnelAggregateByHogQL: Literal["properties.$session_id"] = Field(
-        default="properties.$session_id",
+    funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
+        default=None,
         description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
     )
     funnelOrderType: Optional[StepOrderValue] = Field(

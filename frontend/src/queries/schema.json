@@ -876,9 +876,10 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "const": "properties.$session_id",
+                    "default": null,
                     "description": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-                    "type": "string"
+                    "enum": ["properties.$session_id", null],
+                    "type": ["string", "null"]
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue",
@@ -911,6 +912,7 @@
                     "description": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally."
                 }
             },
+            "required": ["funnelAggregateByHogQL"],
             "type": "object"
         },
         "AssistantFunnelsMath": {
