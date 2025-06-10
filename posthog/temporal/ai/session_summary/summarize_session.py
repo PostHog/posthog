@@ -125,6 +125,11 @@ async def stream_llm_summary_activity(redis_input_key: str) -> str:
 class SummarizeSessionWorkflow:
     @temporalio.workflow.run
     async def run(self, redis_input_key: str) -> str:
+        # Add validation to ensure the input is a string
+        if not isinstance(redis_input_key, str):
+            error_msg = f"Expected redis_input_key to be str, got {type(redis_input_key).__name__}: {redis_input_key}"
+            temporalio.workflow.logger.error(error_msg)
+            raise ValueError(error_msg)
         result = await temporalio.workflow.execute_activity(
             stream_llm_summary_activity,
             redis_input_key,

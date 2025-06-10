@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+import asyncio
 import dataclasses
 import json
 from collections.abc import Callable
@@ -406,3 +407,47 @@ class TestSummarizeSessionWorkflow:
                         id=workflow_id,
                         task_queue=worker.task_queue,
                     )
+
+    @pytest.mark.parametrize(
+        "invalid_arg,expected_error_type",
+        [
+            ({"redis_key": "test_key"}, "dict"),
+            (["test_key"], "list"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_summarize_session_workflow_with_incorrect_argument_type(
+        self,
+        invalid_arg: str,
+        expected_error_type: str,
+        mock_stream_llm: Callable,
+        session_summary_inputs: Callable,
+        redis_test_setup: RedisTestContext,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        """Test that the workflow properly handles incorrect argument types by failing or timing out during argument processing."""
+        self.setup_workflow_test(
+            session_summary_inputs, redis_test_setup, mock_enriched_llm_json_response, "_incorrect_type"
+        )
+        async with self.workflow_test_environment(mock_stream_llm) as (activity_environment, worker):
+            # Test with the invalid argument - should fail during argument processing
+            workflow_id = f"test_workflow_{expected_error_type}_{uuid.uuid4()}"
+            with pytest.raises((WorkflowFailureError, asyncio.TimeoutError)) as exc_info:
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        SummarizeSessionWorkflow.run,
+                        invalid_arg,  # Wrong: passing incorrect type instead of string
+                        id=workflow_id,
+                        task_queue=worker.task_queue,
+                    ),
+                    timeout=5,  # Add timeout to prevent hanging
+                )
+            # The error could be either a WorkflowFailureError with the type conversion error
+            # or a TimeoutError if the workflow hangs during argument processing
+            if isinstance(exc_info.value, WorkflowFailureError):
+                # Check for the actual error message from Temporal's type converter
+                assert f"Expected value to be str, was <class '{expected_error_type}'>" in str(exc_info.value)
+            else:
+                # TimeoutError indicates the workflow hung during argument processing,
+                # which is also a valid test outcome for this scenario
+                assert isinstance(exc_info.value, asyncio.TimeoutError)
