@@ -1,4 +1,6 @@
 import asyncio
+import gc
+import json
 import collections.abc
 import contextlib
 import dataclasses
@@ -878,7 +880,7 @@ class S3MultiPartUploadManager:
                 await self.start()
 
             current_file_size_bytes = self.current_file_size_bytes + body.bytes_total
-            if current_file_size_bytes > self.max_file_size_bytes:
+            if self.max_file_size_bytes > 0 and current_file_size_bytes > self.max_file_size_bytes:
                 async with self._track_upload():
                     await self._upload_part(
                         body,
@@ -894,6 +896,8 @@ class S3MultiPartUploadManager:
             await self._upload_part(
                 body, rewind, max_attempts, initial_retry_delay, max_retry_delay, exponential_backoff_coefficient
             )
+
+    async def upload_final_part(self, body: BatchExportTemporaryFile):
 
     async def complete(self):
         """Complete the multipart upload."""
@@ -1484,6 +1488,325 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             include_inserted_at=True,
             writer_file_kwargs={"compression": inputs.compression},
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+        )
 
         return details.records_completed
 
+
+
+
+class LargeFileS3Consumer:
+    """Memory-efficient S3 consumer for large files with parallel uploads and file splitting"""
+
+    def __init__(self, s3_client, bucket: str, key: str, 
+                 part_size: int = 50 * 1024 * 1024,  # 50MB parts
+                 max_concurrent_uploads: int = 10,
+                 max_memory_buffer: int = 200 * 1024 * 1024,  # 200MB total buffer
+                 max_file_size_bytes: int = 0):  # Split files if set
+        self.s3_client = s3_client
+        self.bucket = bucket
+        self.key = key
+        self.part_size = part_size
+        self.max_memory_buffer = max_memory_buffer
+        self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
+        self.max_file_size_bytes = max_file_size_bytes
+
+        # File splitting management
+        self.current_file_index = 0
+        self.current_file_size = 0
+        self.total_files_created = 0
+
+        # Memory management for current file
+        self.current_buffer = bytearray()
+        self.pending_uploads = {}  # part_number -> Future
+        self.completed_parts = {}  # part_number -> part_info
+        self.part_counter = 1
+        self.upload_id = None
+
+        # Backpressure control
+        self.memory_semaphore = asyncio.Semaphore(max_memory_buffer // part_size)
+        self._finalized = False
+
+    async def consume_chunk(self, data: bytes):
+        """Consume data with memory backpressure and file splitting"""
+        if self._finalized:
+            raise RuntimeError("Consumer already finalized")
+
+        data_remaining = data
+
+        while data_remaining:
+            # Check if we need to split the file
+            if (self.max_file_size_bytes and 
+                self.current_file_size > 0 and  # Don't split empty files
+                self.current_file_size + len(data_remaining) > self.max_file_size_bytes):
+
+                # Calculate how much data fits in current file
+                space_remaining = self.max_file_size_bytes - self.current_file_size
+
+                if space_remaining > 0:
+                    # Add partial data to current file
+                    chunk_to_add = data_remaining[:space_remaining]
+                    self.current_buffer.extend(chunk_to_add)
+                    self.current_file_size += len(chunk_to_add)
+                    data_remaining = data_remaining[space_remaining:]
+
+                # Finalize current file
+                await self._finalize_current_file()
+
+                # Start new file
+                await self._start_new_file()
+            else:
+                # Add all remaining data to current file
+                self.current_buffer.extend(data_remaining)
+                self.current_file_size += len(data_remaining)
+                data_remaining = b''
+
+            # Upload parts when buffer is full
+            while len(self.current_buffer) >= self.part_size:
+                await self._upload_next_part()
+
+    async def _upload_next_part(self):
+        """Extract a part from buffer and upload it"""
+        if not self.upload_id:
+            await self._initialize_multipart_upload()
+
+        # Extract part data
+        part_data = bytes(self.current_buffer[:self.part_size])
+        self.current_buffer = self.current_buffer[self.part_size:]
+
+        part_number = self.part_counter
+        self.part_counter += 1
+
+        # Acquire memory semaphore (blocks if too many uploads in flight)
+        await self.memory_semaphore.acquire()
+
+        # Create upload task
+        upload_task = asyncio.create_task(
+            self._upload_part_with_cleanup(part_data, part_number)
+        )
+
+        # Track the upload
+        self.pending_uploads[part_number] = upload_task
+
+        # Clean up completed uploads to free memory
+        await self._cleanup_completed_uploads()
+
+    async def _upload_part_with_cleanup(self, data: bytes, part_number: int):
+        """Upload part and handle cleanup"""
+        try:
+            async with self.upload_semaphore:
+                current_key = self._get_current_key()
+                response = await self.s3_client.upload_part(
+                    Bucket=self.bucket,
+                    Key=current_key,
+                    PartNumber=part_number,
+                    UploadId=self.upload_id,
+                    Body=data
+                )
+
+                part_info = {
+                    'ETag': response['ETag'],
+                    'PartNumber': part_number
+                }
+
+                # Store completed part info
+                self.completed_parts[part_number] = part_info
+                return part_info
+
+        except Exception as e:
+            print(f"Failed to upload part {part_number}: {e}")
+            raise
+        finally:
+            # Always release memory semaphore
+            self.memory_semaphore.release()
+            # Explicitly delete data to free memory immediately
+            del data
+            gc.collect()
+
+    def _get_current_key(self) -> str:
+        """Generate the key for the current file"""
+        if not self.max_file_size_bytes:
+            return self.key
+
+        # Split file naming: add part number before extension
+        if '.' in self.key:
+            name, ext = self.key.rsplit('.', 1)
+            return f"{name}_part_{self.current_file_index:04d}.{ext}"
+        else:
+            return f"{self.key}_part_{self.current_file_index:04d}"
+
+    async def _start_new_file(self):
+        """Start a new file (reset state for file splitting)"""
+        self.current_file_index += 1
+        self.current_file_size = 0
+        self.part_counter = 1
+        self.upload_id = None
+        self.pending_uploads.clear()
+        self.completed_parts.clear()
+        print(f"Starting new file: {self._get_current_key()}")
+
+    async def _finalize_current_file(self):
+        """Finalize the current file before starting a new one"""
+        if self.current_file_size == 0:
+            return  # Nothing to finalize
+
+        try:
+            # Upload any remaining data in buffer
+            if len(self.current_buffer) > 0:
+                if not self.upload_id:
+                    # Small file - direct upload
+                    await self._single_file_upload_current()
+                else:
+                    # Upload final part
+                    await self._upload_final_part()
+            
+            # Wait for all pending uploads for this file
+            if self.pending_uploads:
+                await asyncio.gather(*self.pending_uploads.values())
+            
+            # Complete multipart upload if needed
+            if self.upload_id:
+                await self._complete_multipart_upload()
+            
+            self.total_files_created += 1
+            print(f"Completed file {self.total_files_created}: {self._get_current_key()}")
+            
+        except Exception as e:
+            # Cleanup on error
+            if self.upload_id:
+                try:
+                    await self.s3_client.abort_multipart_upload(
+                        Bucket=self.bucket, 
+                        Key=self._get_current_key(), 
+                        UploadId=self.upload_id
+                    )
+                except:
+                    pass  # Best effort cleanup
+            raise
+    async def _cleanup_completed_uploads(self):
+        """Remove completed uploads from tracking"""
+        completed = []
+        for part_number, task in self.pending_uploads.items():
+            if task.done():
+                completed.append(part_number)
+        
+        for part_number in completed:
+            task = self.pending_uploads.pop(part_number)
+            try:
+                await task  # Ensure any exceptions are raised
+            except Exception as e:
+                # Handle upload failures
+                print(f"Upload failed for part {part_number}: {e}")
+                raise
+    
+    async def _initialize_multipart_upload(self):
+        """Initialize multipart upload with optimizations for large files"""
+        if not self.upload_id:
+            current_key = self._get_current_key()
+            response = await self.s3_client.create_multipart_upload(
+                Bucket=self.bucket, 
+                Key=current_key,
+                # Optional: Add metadata for large files
+                Metadata={'large-file': 'true'}
+            )
+            self.upload_id = response['UploadId']
+    
+    async def finalize(self):
+        """Finalize upload with proper cleanup"""
+        if self._finalized:
+            return
+        
+        try:
+            # Finalize the current/last file
+            await self._finalize_current_file()
+            
+            # If no files were created, we might have a small single file
+            if self.total_files_created == 0 and len(self.current_buffer) > 0:
+                await self._single_file_upload_current()
+                self.total_files_created = 1
+                
+        except Exception as e:
+            # Cleanup on error
+            if self.upload_id:
+                try:
+                    await self.s3_client.abort_multipart_upload(
+                        Bucket=self.bucket, 
+                        Key=self._get_current_key(), 
+                        UploadId=self.upload_id
+                    )
+                except:
+                    pass  # Best effort cleanup
+            raise
+        finally:
+            self._finalized = True
+            # Final cleanup
+            self.current_buffer.clear()
+            gc.collect()
+            
+        print(f"All uploads completed. Total files created: {self.total_files_created}")
+    
+    async def _single_file_upload_current(self):
+        """Handle small files that don't need multipart - uses current key"""
+        data = bytes(self.current_buffer)
+        current_key = self._get_current_key()
+        await self.s3_client.put_object(
+            Bucket=self.bucket,
+            Key=current_key,
+            Body=data
+        )
+        self.current_buffer.clear()
+        self.current_file_size = 0
+    
+    async def _upload_final_part(self):
+        """Upload the final part (may be smaller than part_size)"""
+        if len(self.current_buffer) > 0:
+            part_data = bytes(self.current_buffer)
+            part_number = self.part_counter
+            
+            await self.memory_semaphore.acquire()
+            
+            upload_task = asyncio.create_task(
+                self._upload_part_with_cleanup(part_data, part_number)
+            )
+            
+            self.pending_uploads[part_number] = upload_task
+            self.current_buffer.clear()
+    
+    async def _single_file_upload(self):
+        """Handle small files that don't need multipart"""
+        data = bytes(self.current_buffer)
+        await self.s3_client.put_object(
+            Bucket=self.bucket,
+            Key=self.key,
+            Body=data
+        )
+        self.current_buffer.clear()
+    
+    async def _complete_multipart_upload(self):
+        """Complete multipart upload with parts in order"""
+        # Sort parts by part number
+        sorted_parts = [
+            self.completed_parts[part_num] 
+            for part_num in sorted(self.completed_parts.keys())
+        ]
+        
+        current_key = self._get_current_key()
+        await self.s3_client.complete_multipart_upload(
+            Bucket=self.bucket,
+            Key=current_key,
+            UploadId=self.upload_id,
+            MultipartUpload={'Parts': sorted_parts}
+        )
+    
+    def get_progress_info(self):
+        """Get upload progress information"""
+        return {
+            'current_file_index': self.current_file_index,
+            'current_file_size': self.current_file_size,
+            'total_files_created': self.total_files_created,
+            'parts_completed': len(self.completed_parts),
+            'parts_pending': len(self.pending_uploads),
+            'buffer_size': len(self.current_buffer),
+            'estimated_total_parts': self.part_counter - 1,
+            'max_file_size_bytes': self.max_file_size_bytes
+        }
