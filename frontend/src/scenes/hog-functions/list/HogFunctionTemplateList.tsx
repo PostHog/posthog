@@ -6,7 +6,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
 import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
@@ -86,7 +86,7 @@ export function HogFunctionTemplateList({
                                 return (
                                     <LemonButton
                                         type="primary"
-                                        data-attr={`request-${PipelineStage.Destination}`}
+                                        data-attr="request-destination"
                                         icon={<IconMegaphone />}
                                         className="whitespace-nowrap"
                                         to={`https://posthog.com/docs/cdp/${template.type}s/${template.id}`}
@@ -98,7 +98,7 @@ export function HogFunctionTemplateList({
                             return canEnableHogFunction(template) ? (
                                 <LemonButton
                                     type="primary"
-                                    data-attr={`new-${PipelineStage.Destination}`}
+                                    data-attr="new-destination"
                                     icon={<IconPlusSmall />}
                                     to={urlForTemplate(template)}
                                     fullWidth
