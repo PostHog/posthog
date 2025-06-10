@@ -73,6 +73,7 @@
         "@posthog/products-links": "workspace:*",
         "@posthog/products-llm-observability": "workspace:*",
         "@posthog/products-logs": "workspace:*",
+        "@posthog/products-managed-migrations": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
         "@posthog/products-notebooks": "workspace:*",
         "@posthog/products-persons": "workspace:*",

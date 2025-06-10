@@ -54,7 +54,7 @@ impl Job {
             .import_config
             .source
             .construct(&model.secrets, context.clone(), is_restarting)
-            .await?;
+            .await.with_context(|| format!("Failed to construct data source for job"))?;
 
         let transform = Box::new(
             model
@@ -68,7 +68,7 @@ impl Job {
             .import_config
             .sink
             .construct(context.clone(), &model)
-            .await?;
+            .await.with_context(|| format!("Failed to construct sink for job {}", model.id))?;
 
         let mut state = model
             .state
@@ -81,9 +81,9 @@ impl Job {
             // If we have no parts, we assume this is the first time picking up the job,
             // and populate the parts list
             let mut parts = Vec::new();
-            let keys = source.keys().await?;
+            let keys = source.keys().await.with_context(|| format!("Failed to get source keys"))?;
             for key in keys {
-                let size = source.size(&key).await?;
+                let size = source.size(&key).await.with_context(|| format!("Failed to get size for part {}", key))?;
                 debug!("Got size for part {}: {}", key, size);
                 parts.push(PartState {
                     key,

@@ -1,0 +1,20 @@
+{
+    "name": "@posthog/products-managed-migrations",
+    "scripts": {},
+    "dependencies": {
+        "eslint-plugin-posthog": "workspace:*"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "jest": "*",
+        "kea-test-utils": "*",
+        "react": "*"
+    }
+}

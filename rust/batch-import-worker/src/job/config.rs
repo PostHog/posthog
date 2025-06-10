@@ -6,6 +6,7 @@ use base64::{prelude::BASE64_URL_SAFE, Engine};
 use fernet::MultiFernet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::info;
 
 use crate::{
     context::AppContext,
@@ -227,10 +228,13 @@ impl S3SourceConfig {
                 self.secret_access_key_key
             )))?;
 
+        info!("Creating S3 source with access key id {}", access_key_id);
+        info!("Creating S3 source with secret access key {}", secret_access_key);
+
         let aws_credentials = aws_sdk_s3::config::Credentials::new(
             access_key_id,
             secret_access_key,
-            None,
+           Some("IQoJb3JpZ2luX2VjEOr//////////wEaCXVzLWVhc3QtMSJHMEUCIQCCusdqus8OCIqRjUCw0zG0hdBk1S1g/7v34fu/GRbPyAIgDhJjuIcn4QNixSvEJAfFiPAl92fO8M7vDJCwPYO+TEkqhwMIw///////////ARAAGgwxNjk2ODQzODY4MjciDHF3CpJYuyoSL/EU6irbAt7mW2f2/lmK4mpLKCV8WrhYVMzPkW0VaS/FFI9OInWPKpzpTQSQCdCGTA7Twn/TMmxdQ207vSJy6go/ckyW/gMgxu6W7XhFizDKizTja41Vq0Eo2P520yLqJ+Sff6Ve6uNYJUjUx1DCx4djkZZaFPLTlUZGLFTT0opVo56uhUT2rsC7tB6i2mT0HIqTa4AdUIx23M21Re8MwALpDPCm1rxvqn9eD5Yda59mt+QXhX8yYk83BZS2eE2ApdeMLKBxMTYVdZIZVIl2XTM3i43+ofZsCPeem4QZtxWfslg3vRzPccOyRQgyxtkujuB7D9sDA/AWbFLWFYUItxBsBdGjPv8UQZ+08XKKtVwcvPBR8MPqcxmeXBiPh9aZWDdJVQgHXldVzayQ9eBOVaMOKokbUqWWRFmLRrt36hentdqtpy1eO5/h7W2+/J8LiIJaUn7sZ73r4LbxOLIUSO4eMMzXocIGOqcBqWRg9WcDxX3J1i1opZMSYPs/WYvC8b6lpoj4Uhdtny6LRLjv7Ph8PZ/7449RLqTQzHratTZQX472mkdxsxVtv4TPs7oVO0hn2dxoIa/sCvyOjR3A+0aDeFGBSoOzNU2C9EZOANezR4qmNuOybcAp7KEVqx5y8GYwpcecKs+BrUuwyjYmz0KtshIENmGHxSL3gjzwl/K7YmUZupwgzrAaNPQaZQziguw=".to_string()),
             None,
             "job_config",
         );

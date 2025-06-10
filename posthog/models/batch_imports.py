@@ -1,5 +1,6 @@
 from django.db import models
 
+from django.conf import settings
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 
@@ -12,6 +13,7 @@ from enum import Enum
 class ContentType(str, Enum):
     MIXPANEL = "mixpanel"
     CAPTURED = "captured"
+    AMPLITUDE = "amplitude"
 
     def serialize(self) -> dict:
         return {"type": self.value}
@@ -25,6 +27,7 @@ class BatchImport(UUIDModel):
         RUNNING = "running", "Running"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     lease_id = models.TextField(null=True, blank=True)

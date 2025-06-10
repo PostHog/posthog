@@ -1,5 +1,8 @@
-use anyhow::Error;
-use aws_sdk_s3::Client as S3Client;
+use anyhow::{Context, Error};
+use aws_sdk_s3::{
+    error::SdkError,
+    Client as S3Client,
+};
 use axum::async_trait;
 use tracing::debug;
 
@@ -21,6 +24,33 @@ impl S3Source {
     }
 }
 
+// SOrry for the hack here, but not didn't seem super easy to actually handle the different error types from aws sdk
+fn extract_user_friendly_error(error: &dyn std::error::Error, bucket: &str, operation: &str) -> String {
+    let error_string = format!("{:?}", error);
+    
+    if error_string.contains("InvalidAccessKeyId") {
+        "Invalid AWS Access Key ID - please check your credentials".to_string()
+    } else if error_string.contains("SignatureDoesNotMatch") {
+        "Invalid AWS Secret Access Key - please check your credentials".to_string()
+    } else if error_string.contains("AccessDenied") {
+        format!("Access denied to S3 bucket '{}' - check your permissions", bucket)
+    } else if error_string.contains("NoSuchBucket") {
+        format!("S3 bucket '{}' does not exist or you don't have access to it", bucket)
+    } else if error_string.contains("InvalidBucketName") {
+        format!("Invalid S3 bucket name '{}'", bucket)
+    } else if error_string.contains("NoSuchKey") {
+        "The specified S3 object does not exist".to_string()
+    } else if error_string.contains("timeout") || error_string.contains("Timeout") {
+        format!("S3 {} operation timed out - check your network connection and region settings", operation)
+    } else if error_string.contains("dns") || error_string.contains("DNS") {
+        "Failed to connect to S3 - check your endpoint URL and network connection".to_string()
+    } else if error_string.contains("EndpointConnectionError") {
+        "Failed to connect to S3 endpoint - check your endpoint URL and network connection".to_string()
+    } else {
+        format!("S3 {} failed - check your credentials, bucket name, and permissions", operation)
+    }
+}
+
 #[async_trait]
 impl DataSource for S3Source {
     async fn keys(&self) -> Result<Vec<String>, Error> {
@@ -39,7 +69,15 @@ impl DataSource for S3Source {
             if let Some(token) = continuation_token {
                 cmd = cmd.continuation_token(token);
             }
-            let output = cmd.send().await?;
+            let output = match cmd.send().await {
+                Ok(output) => output,
+                Err(error) => {
+                    let friendly_msg = extract_user_friendly_error(&error, &self.bucket, "list objects");
+                    return Err(Error::msg(friendly_msg)
+                        .context(format!("Failed to list S3 objects in bucket '{}' with prefix '{}'", 
+                            self.bucket, self.prefix)));
+                }
+            };
             debug!("Got response: {:?}", output);
             if let Some(contents) = output.contents {
                 keys.extend(contents.iter().filter_map(|o| o.key.clone()));
@@ -53,13 +91,22 @@ impl DataSource for S3Source {
     }
 
     async fn size(&self, key: &str) -> Result<usize, Error> {
-        let head = self
+        let head = match self
             .client
             .head_object()
             .bucket(&self.bucket)
             .key(key)
             .send()
-            .await?;
+            .await
+        {
+            Ok(head) => head,
+            Err(error) => {
+                let friendly_msg = extract_user_friendly_error(&error, &self.bucket, "get object metadata");
+                return Err(Error::msg(friendly_msg)
+                    .context(format!("Failed to get metadata for S3 object s3://{}/{}", 
+                        self.bucket, key)));
+            }
+        };
 
         let Some(size) = head.content_length else {
             return Err(Error::msg(format!("No content length for key {}", key)));
@@ -69,16 +116,30 @@ impl DataSource for S3Source {
     }
 
     async fn get_chunk(&self, key: &str, offset: usize, size: usize) -> Result<Vec<u8>, Error> {
-        let get = self
+        let range = format!("bytes={}-{}", offset, offset + size - 1);
+        let get = match self
             .client
             .get_object()
             .bucket(&self.bucket)
             .key(key)
-            .range(format!("bytes={}-{}", offset, offset + size - 1))
+            .range(&range)
             .send()
-            .await?;
+            .await
+        {
+            Ok(get) => get,
+            Err(error) => {
+                let friendly_msg = extract_user_friendly_error(&error, &self.bucket, "get object chunk");
+                return Err(Error::msg(friendly_msg)
+                    .context(format!("Failed to get S3 object chunk s3://{}/{} range {}", 
+                        self.bucket, key, range)));
+            }
+        };
 
-        let data = get.body.collect().await?;
+        let data = get.body.collect().await
+            .with_context(|| format!(
+                "Failed to read body data from S3 object s3://{}/{}", 
+                self.bucket, key
+            ))?;
 
         Ok(data.to_vec())
     }
