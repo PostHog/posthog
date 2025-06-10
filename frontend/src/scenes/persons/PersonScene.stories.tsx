@@ -140,10 +140,6 @@ export const PersonNotFound: StoryFn = () => {
     return <App />
 }
 
-PersonNotFound.parameters = {
-    testOptions: { waitForSelector: '.PageHeader' },
-}
-
 export const Person: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e'))

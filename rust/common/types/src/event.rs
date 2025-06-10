@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::ops::Not;
 
+use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
-
-use crate::util::empty_string_is_none;
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
@@ -18,9 +17,36 @@ pub struct RawEvent {
     pub token: Option<String>,
     #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
-    #[serde(default, deserialize_with = "empty_string_is_none")]
+    #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
     pub uuid: Option<Uuid>,
     pub event: String,
+    #[serde(default)]
+    pub properties: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
+    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<HashMap<String, Value>>,
+    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
+    pub set_once: Option<HashMap<String, Value>>,
+}
+
+#[derive(Default, Debug, Deserialize, Serialize)]
+pub struct RawEngageEvent {
+    #[serde(
+        alias = "$token",
+        alias = "api_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub token: Option<String>,
+    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
+    pub uuid: Option<Uuid>,
+    // NOTE: missing event name is the only difference between RawEvent and RawEngageEvent
+    // when the event name is missing, we need fill in $identify as capture.py does:
+    // https://github.com/PostHog/posthog/blob/70ce86a73f6c3d3ee6f44e1ac0acd695e2f78682/posthog/api/capture.py#L501-L502
     #[serde(default)]
     pub properties: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,9 +68,10 @@ pub struct CapturedEvent {
     pub data: String, // This should be a `RawEvent`, but we serialise twice.
     pub now: String,
     #[serde(
-        with = "time::serde::rfc3339::option",
+        serialize_with = "time::serde::rfc3339::option::serialize",
+        deserialize_with = "empty_datetime_is_none",
         skip_serializing_if = "Option::is_none",
-        default // Necessary as time::serde::rfc3339::option fails to deserialize if the key is not found
+        default
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,

@@ -410,6 +410,12 @@ class UserViewSet(
 
         return super().get_object()
 
+    def get_authenticators(self):
+        if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
+            return [SessionAuthentication()]
+
+        return super().get_authenticators()
+
     def get_queryset(self):
         queryset = super().get_queryset()
         if not self.request.user.is_staff:
@@ -481,6 +487,23 @@ class UserViewSet(
             EmailVerifier.create_token_and_send_email_verification(user)
 
         return Response({"success": True})
+
+    @action(
+        methods=["PATCH"],
+        detail=False,
+    )
+    def cancel_email_change_request(self, request, **kwargs):
+        instance = request.user
+
+        if not instance.pending_email:
+            raise serializers.ValidationError(
+                "No active email change requests found.", code="email_change_request_not_found"
+            )
+
+        instance.pending_email = None
+        instance.save()
+
+        return Response(self.get_serializer(instance=instance).data)
 
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):

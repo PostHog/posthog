@@ -8,6 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptionLeaf<DateOption>[] = [
+    { value: 'minutes', label: 'minutes' },
     { value: 'hours', label: 'hours' },
     { value: 'days', label: 'days' },
     { value: 'weeks', label: 'weeks' },

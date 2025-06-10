@@ -1,9 +1,7 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
 import type { saveToLogicType } from './saveToLogicType'
 
@@ -27,8 +25,8 @@ export const saveToLogic = kea<saveToLogicType>([
     path(['lib', 'components', 'SaveTo', 'saveToLogic']),
     props({} as SaveToLogicProps),
     connect(() => ({
-        values: [projectTreeLogic, ['lastNewFolder'], featureFlagLogic, ['featureFlags']],
-        actions: [projectTreeLogic, ['setLastNewFolder']],
+        values: [projectTreeDataLogic, ['lastNewFolder']],
+        actions: [projectTreeDataLogic, ['setLastNewFolder']],
     })),
     actions({
         openSaveToModal: (props: OpenSaveToProps) => props,
@@ -58,20 +56,13 @@ export const saveToLogic = kea<saveToLogicType>([
             },
         ],
     }),
-    selectors({
-        isFeatureEnabled: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.TREE_VIEW] ?? false],
-    }),
     listeners(({ actions, values }) => ({
         setLastNewFolder: ({ folder }) => {
             actions.setFormValue('folder', folder)
         },
         openSaveToModal: ({ folder, defaultFolder }) => {
             const realFolder = folder ?? values.lastNewFolder ?? defaultFolder ?? null
-            if (!values.isFeatureEnabled) {
-                values.callback?.(realFolder ?? '')
-            } else {
-                actions.setFormValue('folder', realFolder)
-            }
+            actions.setFormValue('folder', realFolder)
         },
         closeSaveToModal: () => {
             values.cancelCallback?.()

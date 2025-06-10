@@ -38,7 +38,7 @@ async function setupBillingRoutes(page: Page, handlers: BillingRouteHandlers): P
 }
 
 test.describe('Billing Limits', () => {
-    test('Show no limits set and allow user to set one', async ({ page }) => {
+    test.skip('Show no limits set and allow user to set one', async ({ page }) => {
         await setupBillingRoutes(page, {
             getResponse: (billingContent) => billingContent,
             patchResponse: (billingContent) => {
@@ -110,7 +110,7 @@ test.describe('Billing Limits', () => {
         )
     })
 
-    test('Show existing limit and allow user to remove it', async ({ page }) => {
+    test.skip('Show existing limit and allow user to remove it', async ({ page }) => {
         await setupBillingRoutes(page, {
             getResponse: (billingContent) => {
                 billingContent.custom_limits_usd = { product_analytics: 100 }

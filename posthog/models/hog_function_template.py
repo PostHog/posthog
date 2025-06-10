@@ -139,7 +139,7 @@ class HogFunctionTemplate(UUIDModel):
             filters["type"] = template_type
 
         if not include_deprecated:
-            filters["status__in"] = ["alpha", "beta", "stable"]
+            filters["status__in"] = ["alpha", "beta", "stable", "coming_soon", "hidden"]
 
         # Get the max created_at for each template_id
         latest_created_at = (
@@ -173,8 +173,8 @@ class HogFunctionTemplate(UUIDModel):
             for mapping_template_dict in self.mapping_templates:
                 mapping_templates_list.append(HogFunctionMappingTemplate(**mapping_template_dict))
 
-        # hog is only set if language is hog, otherwise None
-        hog_value = self.code if self.code_language == "hog" else ""
+        # hog is only set if language is hog or javascript, otherwise None
+        hog_value = self.code if self.code_language in ("hog", "javascript") else ""
 
         # Create the dataclass
         return HogFunctionTemplateDTO(
@@ -184,7 +184,7 @@ class HogFunctionTemplate(UUIDModel):
             inputs_schema=self.inputs_schema,
             free=self.free,
             type=cast(HogFunctionTemplateType, self.type),
-            status=cast(Literal["alpha", "beta", "stable", "deprecated"], self.status),
+            status=cast(Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"], self.status),
             category=self.category,
             description=self.description,
             kind=cast(HogFunctionTemplateKind, self.kind) if self.kind else None,

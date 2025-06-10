@@ -21,13 +21,13 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
             """,
             {"client_query_id": f"{team_id}_{client_query_id}%"},
         )
-        initiator_host, query_id = result[0] if result else (None, None)
+        initiator_host, query_id = result[0] if (result and len(result[0]) == 2) else (None, None)
     except Exception as e:
         logger.info("Failed to find initiator host for query %s: %s", client_query_id, e)
         statsd.incr("clickhouse.query.cancellation.no_initiator_host", tags={"team_id": team_id})
 
     if initiator_host:
-        logger.debug("Found initiator host for query %s, cancelling query on host", initiator_host, client_query_id)
+        logger.debug("Found initiator host %s for query %s, cancelling query on host", initiator_host, client_query_id)
         with default_client(host=initiator_host) as client:
             result = sync_execute(
                 "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",

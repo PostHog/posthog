@@ -25,6 +25,7 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -103,6 +104,7 @@ export function Editor(): JSX.Element {
             }),
             NotebookMarkLink,
             NotebookMarkComment,
+            NotebookNodeLatex,
             NotebookNodeBacklink,
             NotebookNodeQuery,
             NotebookNodeRecording,

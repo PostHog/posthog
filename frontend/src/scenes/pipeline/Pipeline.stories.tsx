@@ -50,6 +50,8 @@ export default {
             get: {
                 '/api/projects/:team_id/batch_exports/': batchExports,
                 '/api/projects/:team_id/batch_exports/:id': batchExportsRetrieveMock,
+                '/api/environments/:team_id/batch_exports/': batchExports,
+                '/api/environments/:team_id/batch_exports/:id': batchExportsRetrieveMock,
                 '/api/organizations/:organization_id/batch_exports/': batchExports,
                 '/api/organizations/:organization_id/plugins/': plugins,
                 '/api/organizations/:organization_id/plugins/repository': [],
@@ -70,6 +72,7 @@ export default {
                 '/api/organizations/:organization_id/pipeline_import_apps/': empty,
                 '/api/projects/:team_id/pipeline_import_apps_configs/': empty,
                 '/api/projects/:team_id/integrations/': empty,
+                '/api/environments/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },

@@ -17,6 +17,8 @@ from posthog.models import (
 )
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.schema import CacheMissResponse, DashboardFilter
+from posthog.hogql.constants import LimitContext
+
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -79,6 +81,8 @@ def calculate_for_query_based_insight(
         user=user,
         insight_id=insight.pk,
         dashboard_id=dashboard.pk if dashboard else None,
+        # QUERY_ASYNC provides extended max execution time for insight queries
+        limit_context=LimitContext.QUERY_ASYNC,
     )
 
     if isinstance(process_response, BaseModel):

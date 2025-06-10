@@ -1,4 +1,12 @@
-import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
+import {
+    IconGear,
+    IconLaptop,
+    IconLlmPromptEvaluation,
+    IconPhone,
+    IconRevert,
+    IconTabletLandscape,
+    IconTabletPortrait,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -6,14 +14,19 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSkeleton,
+    lemonToast,
     Spinner,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
+import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useEffect, useRef } from 'react'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
@@ -302,6 +315,9 @@ function EmbeddedHeatmapBrowser({
         toggleFilterPanelCollapsed,
     } = useActions(logic)
 
+    const { setHtml } = useActions(takeScreenshotLogic({ screenshotKey: 'heatmaps' }))
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const embeddedFilterPanelProps = {
         heatmapFilters,
         heatmapColorPalette,
@@ -318,6 +334,16 @@ function EmbeddedHeatmapBrowser({
     }
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
+    const handleShare = (): void => {
+        const iframe = iframeRef?.current
+        if (!iframe) {
+            lemonToast.error('Cannot take screenshot. Please try again.')
+            return
+        }
+        setHtml(iframe)
+    }
+
     useEffect(() => {
         if (widthOverride === null) {
             setIframeWidth(iframeWidth ?? null)
@@ -330,7 +356,24 @@ function EmbeddedHeatmapBrowser({
             <div className="relative flex-1 w-full h-full mt-2">
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
-                <ViewportChooser />
+                {featureFlags[FEATURE_FLAGS.SCREENSHOT_EDITOR] ? (
+                    <>
+                        <ScreenShotEditor screenshotKey="heatmaps" />
+                        <div className="flex justify-between items-center">
+                            <ViewportChooser />
+                            <LemonButton
+                                className="mb-2 mr-2"
+                                type="secondary"
+                                onClick={handleShare}
+                                icon={<IconLlmPromptEvaluation />}
+                            >
+                                Take screenshot
+                            </LemonButton>
+                        </div>
+                    </>
+                ) : (
+                    <ViewportChooser />
+                )}
                 <div className="flex relative justify-center h-full border-l border-t">
                     <iframe
                         id="heatmap-iframe"

@@ -47,7 +47,8 @@ import {
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
-import { experimentLogic } from '../experimentLogic'
+import { getIndexForVariant } from '../experimentCalculations'
+import { experimentLogic, FORM_MODES } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
 
@@ -64,7 +65,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyMetricResults, getInsightType } = useValues(experimentLogic({ experimentId }))
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -74,7 +75,7 @@ export function VariantTag({
         )
     }
 
-    if (!metricResults) {
+    if (!legacyMetricResults) {
         return <></>
     }
 
@@ -85,7 +86,13 @@ export function VariantTag({
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
+                        backgroundColor: getExperimentInsightColour(
+                            getIndexForVariant(
+                                legacyMetricResults[0],
+                                variantKey,
+                                getInsightType(experiment.metrics[0])
+                            )
+                        ),
                     }}
                 />
                 <LemonTag type="option" className="ml-2">
@@ -207,9 +214,9 @@ export function ExploreButton({
 }
 
 export function ResultsHeader(): JSX.Element {
-    const { metricResults } = useValues(experimentLogic)
+    const { legacyMetricResults } = useValues(experimentLogic)
 
-    const result = metricResults?.[0]
+    const result = legacyMetricResults?.[0]
 
     return (
         <div className="flex">
@@ -314,6 +321,12 @@ export function PageHeaderCustom(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
+                                            <LemonButton
+                                                to={urls.experiment(`${experiment.id}`, FORM_MODES.duplicate)}
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
                                             <LemonButton
                                                 onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
                                                 fullWidth

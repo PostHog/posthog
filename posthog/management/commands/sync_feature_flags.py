@@ -12,7 +12,6 @@ from posthog.models import FeatureFlag, Project, User
 INACTIVE_FLAGS = [
     "session-reset-on-load",
     "posthog-3000-nav",
-    "tree-view",
     "insight-horizontal-controls",
 ]
 

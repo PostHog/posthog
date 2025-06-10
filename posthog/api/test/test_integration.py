@@ -231,7 +231,7 @@ class TestEmailIntegration:
 
         mock_client.create_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
 
-    @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_setup_email_valid_domain_parameter_required(self):
         with pytest.raises(exceptions.ValidationError):
             EmailIntegration.integration_from_domain("foobar", self.team.id, self.user)

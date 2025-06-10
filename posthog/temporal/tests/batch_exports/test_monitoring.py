@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from freezegun import freeze_time
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -28,9 +29,8 @@ from posthog.temporal.tests.utils.models import (
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-GENERATE_TEST_DATA_END = dt.datetime.now(tz=dt.UTC).replace(
-    minute=0, second=0, microsecond=0, tzinfo=dt.UTC
-) - dt.timedelta(hours=1)
+NOW = dt.datetime.now(tz=dt.UTC)
+GENERATE_TEST_DATA_END = NOW.replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC) - dt.timedelta(hours=1)
 GENERATE_TEST_DATA_START = GENERATE_TEST_DATA_END - dt.timedelta(hours=1)
 
 
@@ -157,6 +157,7 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
     "simulate_missing_batch_export_runs",
     [True, False],
 )
+@freeze_time(NOW)
 async def test_monitoring_workflow(
     simulate_missing_batch_export_runs,
     batch_export,

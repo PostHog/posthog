@@ -1,11 +1,14 @@
 import json
 from datetime import datetime, timedelta
 from urllib.parse import quote
+from unittest.mock import patch
 
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
+from django.conf import settings
+from django.core.cache import cache
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -618,3 +621,107 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
+
+
+@override_settings(SESSION_COOKIE_AGE=100)
+class TestSessionAgeMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        # Patch time.time before login to ensure session creation time is correct
+        self.time_patcher = patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+        self.time_patcher.start()
+        self.client.force_login(self.user)
+        self.time_patcher.stop()
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+        # Ensure any remaining patches are stopped
+        self.time_patcher.stop()
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_continues_when_not_expired(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Move forward 99 seconds (before timeout)
+        mock_time.return_value = 1704110499.0  # 2024-01-01 12:01:39
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_expires_after_total_time(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Move forward past total session age (101 seconds)
+        mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_org_specific_session_timeout_from_cache(self, mock_time):
+        # Set org-specific timeout in cache
+        cache.set(f"org_session_age:{self.organization.id}", 50)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Move forward past org timeout (51 seconds)
+        mock_time.return_value = 1704110451.0  # 2024-01-01 12:00:51
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_timeout_after_switching_org_with_cache(self, mock_time):
+        # Create another org with different timeout
+        other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        self.user.organizations.add(other_org)
+
+        # Set cache for both orgs
+        cache.set(f"org_session_age:{self.organization.id}", 50)
+        cache.set(f"org_session_age:{other_org.id}", 30)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Switch to other team
+        self.user.team = other_team
+        self.user.current_team = other_team
+        self.user.current_organization = other_org
+        self.user.save()
+
+        # Move forward 29 seconds (before new org's timeout)
+        mock_time.return_value = 1704110429.0  # 2024-01-01 12:00:29
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Move forward 31 seconds (past new org's timeout)
+        mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )

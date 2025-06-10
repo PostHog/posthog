@@ -26,7 +26,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths
@@ -56,7 +57,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data
@@ -86,7 +88,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric
@@ -116,7 +119,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period
@@ -146,7 +150,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied
@@ -176,7 +181,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.1
@@ -206,7 +212,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.2
@@ -236,7 +243,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied
@@ -266,6 +274,7 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

@@ -284,6 +284,9 @@ def get_delta_mapping_for(
             delta_mapping["day"] = 1
         elif position == "End":
             delta_mapping["day"] = 31
+    elif kind == "M":
+        if number:
+            delta_mapping["minutes"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)
@@ -352,10 +355,6 @@ def render_template(
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = sentry_dsn
-    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
-        context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
 
@@ -929,7 +928,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or `EU`.
     """
     return settings.CLOUD_DEPLOYMENT
 

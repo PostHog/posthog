@@ -25,7 +25,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         rows_read = 222
         total_rows_approx = 333
         time_elapsed = 4.301284
-        memory_usage = 3321332424
+        millisecond_cpu_time = 3321332424
         mock_sync_execute.return_value = [
             ("None_None_tHrh4Ox9", 0, 0, 0, 0.002112, 0, "query_id"),
             (
@@ -34,7 +34,7 @@ class TestPollQueryPerformance(SimpleTestCase):
                 bytes_read,
                 total_rows_approx,
                 time_elapsed,
-                memory_usage,
+                millisecond_cpu_time,
                 "550e8400-e29b-41d4-a716-446655440001",
             ),
         ]
@@ -53,7 +53,7 @@ class TestPollQueryPerformance(SimpleTestCase):
                     "rows_read": rows_read,
                     "estimated_rows_total": total_rows_approx,
                     "time_elapsed": int(time_elapsed),
-                    "memory_usage": memory_usage,
+                    "active_cpu_time": millisecond_cpu_time,
                 },
             ]
         )

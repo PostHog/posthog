@@ -216,7 +216,9 @@
                       "team_id",
                       "properties",
                       "is_identified",
-                      "pdi"
+                      "pdi",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
                   "id": "person",

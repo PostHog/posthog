@@ -67,16 +67,23 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         checkForSavedFilterRedirect: true,
+        setSavedFiltersSearch: (search: string) => ({ search }),
+        setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType | null) => ({ appliedSavedFilter }),
     })),
     reducers(() => ({
+        savedFiltersSearch: [
+            '',
+            {
+                setSavedFiltersSearch: (_, { search }) => search,
+            },
+        ],
         filters: [
             DEFAULT_PLAYLIST_FILTERS as SavedSessionRecordingPlaylistsFilters | Record<string, any>,
             {
                 setSavedPlaylistsFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...Object.fromEntries(Object.entries(state || {}).filter(([key]) => key in filters)),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page that's being updated
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
@@ -89,6 +96,12 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 loadPlaylistsFailure: () => true,
             },
         ],
+        appliedSavedFilter: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                setAppliedSavedFilter: (_, { appliedSavedFilter }) => appliedSavedFilter,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         savedFilters: {
@@ -99,9 +112,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 const params = {
                     limit: PLAYLISTS_PER_PAGE,
                     offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
-                    order: filters.order ?? '-last_modified_at', // Sync with `sorting` selector
+                    order: '-last_modified_at',
                     created_by: undefined,
-                    search: filters.search || undefined,
+                    search: values.savedFiltersSearch || undefined,
                     date_from: undefined,
                     date_to: undefined,
                     pinned: undefined,
@@ -183,6 +196,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         },
     })),
     listeners(({ actions }) => ({
+        setSavedFiltersSearch: () => {
+            actions.loadSavedFilters()
+        },
         setSavedPlaylistsFilters: () => {
             actions.loadPlaylists()
         },
@@ -193,6 +209,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 const savedFilter = await api.recordings.getPlaylist(savedFilterId)
                 if (savedFilter) {
                     router.actions.push(urls.replay(ReplayTabs.Home, savedFilter.filters))
+                    actions.setAppliedSavedFilter(savedFilter)
                 }
             }
         },
@@ -239,6 +256,33 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                               actions.setSavedPlaylistsFilters({
                                   page: filters.page + 1,
                               })
+                        : undefined,
+                }
+            },
+        ],
+        paginationSavedFilters: [
+            (s) => [s.filters, s.savedFilters],
+            (filters, savedFilters): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: PLAYLISTS_PER_PAGE,
+                    currentPage: filters.page,
+                    entryCount: savedFilters.count,
+                    onBackward: savedFilters.previous
+                        ? () => {
+                              actions.setSavedPlaylistsFilters({
+                                  page: filters.page - 1,
+                              })
+                              actions.loadSavedFilters()
+                          }
+                        : undefined,
+                    onForward: savedFilters.next
+                        ? () => {
+                              actions.setSavedPlaylistsFilters({
+                                  page: filters.page + 1,
+                              })
+                              actions.loadSavedFilters()
+                          }
                         : undefined,
                 }
             },

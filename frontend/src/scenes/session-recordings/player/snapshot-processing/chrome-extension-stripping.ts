@@ -8,7 +8,7 @@ import { RecordingSnapshot } from '~/types'
 // we have seen some chrome extensions
 // that break playback of session recordings
 // let's try to strip them out
-const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
+export const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
     'dji-sru': 'snap and read',
     mloajfnmjckfjbeeofcdaecbelnblden: 'snap and read',
     aitopia: 'aitopia',
@@ -128,7 +128,7 @@ function safelyCheckIDAttribute(
     return false
 }
 
-function stripChromeExtensionDataFromNode(
+export function stripChromeExtensionDataFromNode(
     node: serializedNodeWithId,
     needles: string[],
     matchedExtensions: Set<string>

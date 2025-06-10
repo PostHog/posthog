@@ -13,7 +13,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'highlighted' | null | undefined
     columnGroups: LemonTableColumnGroup<T>[]
-    onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
+    onRow: ((record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
     rowCount: number
@@ -36,11 +36,13 @@ function TableRowRaw<T extends Record<string, any>>({
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))
     )
-    const isRowExpansionToggleShown = !!expandable && rowExpandable >= 0
     const isRowExpanded =
         !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record, recordIndex)
+
+    const isRowExpansionToggleShownLocal = !!expandable && rowExpandable >= 0
+    const isRowExpansionToggleShown = expandable?.showRowExpansionToggle ?? isRowExpansionToggleShownLocal
 
     const expandedRowClassNameDetermined =
         expandable &&
@@ -50,7 +52,7 @@ function TableRowRaw<T extends Record<string, any>>({
             ? expandable.expandedRowClassName(record, recordIndex)
             : expandable.expandedRowClassName)
 
-    const { className, style, ...extraProps } = onRow?.(record) || {}
+    const { className, style, ...extraProps } = onRow?.(record, recordIndex) || {}
 
     return (
         <>
@@ -59,9 +61,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 className={clsx(
                     rowClassNameDetermined,
                     rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
-                    extraProps?.onClick
-                        ? 'hover:underline cursor-pointer hover:bg-accent-highlight-secondary'
-                        : undefined,
+                    extraProps?.onClick ? 'cursor-pointer hover:bg-accent-highlight-secondary' : undefined,
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

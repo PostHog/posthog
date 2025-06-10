@@ -199,7 +199,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -208,7 +209,6 @@
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.1
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -218,7 +218,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -324,7 +325,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -418,7 +420,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -549,7 +552,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -562,7 +566,6 @@
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.17
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -572,7 +575,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -678,7 +682,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -800,7 +805,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -931,7 +937,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -1072,7 +1079,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1345,7 +1353,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1476,7 +1485,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -1489,7 +1499,6 @@
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.9
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1499,7 +1508,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -1584,7 +1594,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1593,7 +1604,6 @@
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.1
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1603,7 +1613,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -1745,7 +1756,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1839,7 +1851,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1970,7 +1983,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -2302,7 +2316,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2311,7 +2326,6 @@
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.1
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2321,7 +2335,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -2395,28 +2410,39 @@
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.12
   '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+  SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'::jsonb
+            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
+           OR (("posthog_person"."properties" -> 'number space') > '100.0'::jsonb
+               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('number')))
+          AND "posthog_person"."properties" ? 'number space'
+          AND NOT (("posthog_person"."properties" -> 'number space') = 'null'::jsonb)
+          AND ((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
+                AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"'::jsonb)
+               OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
+                   AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'::jsonb))
+          AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
+          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
+            AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"'::jsonb)
+           OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
+               AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'::jsonb))
+          AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
+          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null'::jsonb)) AS "flag_X_condition_1",
+         (((("posthog_person"."properties" -> 'version!!!') > '"1.05"'::jsonb
+            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('string'))
+           OR (("posthog_person"."properties" -> 'version!!!') > '1.05'::jsonb
+               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('number')))
+          AND "posthog_person"."properties" ? 'version!!!'
+          AND NOT (("posthog_person"."properties" -> 'version!!!') = 'null'::jsonb)) AS "flag_X_condition_2",
+         ((("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '"21"'::jsonb
+           OR ("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '21'::jsonb)
+          AND "posthog_person"."properties" ? 'nested_prop --random #comment //test'
+          AND NOT (("posthog_person"."properties" -> 'nested_prop --random #comment //test') = 'null'::jsonb)) AS "flag_X_condition_3"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.13
@@ -2522,7 +2548,6 @@
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.2
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2532,7 +2557,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -2638,7 +2664,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2732,7 +2759,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2863,7 +2891,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"

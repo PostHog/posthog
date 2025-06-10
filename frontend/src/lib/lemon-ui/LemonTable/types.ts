@@ -79,6 +79,8 @@ export interface ExpandableConfig<T extends Record<string, any>> {
     onRowCollapse?: (record: T, recordIndex: number) => void
     /** Disable indentation */
     noIndent?: boolean
+    /** Optionally hide the row expansion toggle */
+    showRowExpansionToggle?: boolean
     /**
      * Callback that checks if a row expandable state should be overridden
      * A positive value (like true or 1) means that the row is expanded.

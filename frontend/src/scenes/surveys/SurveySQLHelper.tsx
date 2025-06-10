@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '~/types'
 
-import { createAnswerFilterHogQLExpression } from './utils'
+import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
 
 interface SurveySQLHelperProps {
     isOpen: boolean
@@ -32,9 +32,9 @@ FROM
     events
 WHERE
     event = '${SurveyEventName.SENT}'
-    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}' ${
-            filterConditions ? '\n' + filterConditions : ''
-        }
+    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+    ${buildPartialResponsesFilter(survey as Survey)}
+    ${filterConditions ? filterConditions : ''}
 ORDER BY
     timestamp DESC
 LIMIT
@@ -58,9 +58,9 @@ FROM
     events
 WHERE
     event = '${SurveyEventName.SENT}'
-    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}' ${
-            filterConditions ? '\n' + filterConditions : ''
-        }
+    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+    ${buildPartialResponsesFilter(survey as Survey)}
+    ${filterConditions ? filterConditions : ''}
 ORDER BY
     timestamp DESC
 LIMIT

@@ -45,7 +45,7 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: str) -> list[OrganizationMembership]:
+def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
         organization_id=team.organization_id
@@ -96,11 +96,13 @@ def should_send_notification(
 
         return True
 
+    # Default to False (disabled) if not set
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
-        return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
+        return not settings.get(notification_type, True)
 
+    # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
-        return settings.get("error_tracking_issue_assigned", True)  # Default to True (enabled) if not set
+        return settings.get(notification_type, True)
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but

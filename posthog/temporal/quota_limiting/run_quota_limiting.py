@@ -59,12 +59,12 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 run_quota_limiting_all_orgs,
                 RunQuotaLimitingAllOrgsInputs(),
-                start_to_close_timeout=timedelta(minutes=20),
+                start_to_close_timeout=timedelta(minutes=30),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),
                 ),
-                heartbeat_timeout=timedelta(minutes=1),
+                heartbeat_timeout=timedelta(minutes=2),
             )
 
         except Exception as e:

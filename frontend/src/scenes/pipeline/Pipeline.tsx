@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineTab } from '~/types'
 
+import { DataPipelinesSources } from '../data-pipelines/DataPipelinesSources'
 import { AppsManagement } from './AppsManagement'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { Destinations } from './destinations/Destinations'
@@ -18,7 +19,6 @@ import { importAppsLogic } from './importAppsLogic'
 import { Overview } from './Overview'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
-import { Sources } from './sources/Sources'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
@@ -29,7 +29,7 @@ export function Pipeline(): JSX.Element {
 
     const tabs: Pick<ConcreteLemonTab<PipelineTab>, 'key' | 'content'>[] = [
         { key: PipelineTab.Overview, content: <Overview /> },
-        { key: PipelineTab.Sources, content: <Sources /> },
+        { key: PipelineTab.Sources, content: <DataPipelinesSources /> },
         { key: PipelineTab.Transformations, content: <Transformations /> },
         { key: PipelineTab.Destinations, content: <Destinations types={DESTINATION_TYPES} /> },
         {

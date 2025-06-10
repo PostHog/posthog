@@ -118,7 +118,7 @@ async fn main() {
 
         histogram!(EVENT_BATCH_SIZE).record(to_process.len() as f64);
         let handle_batch_start = common_metrics::timing_guard(HANDLE_BATCH_TIME, &[]);
-        let processed = match handle_batch(to_process, context.clone()).await {
+        let processed = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(events) => events,
             Err(failure) => {
                 let (index, err) = (failure.index, failure.error);

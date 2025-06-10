@@ -1,7 +1,7 @@
 import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -109,8 +109,15 @@ export const billingLogic = kea<billingLogicType>([
         setComputedDiscount: (discount: number) => ({ discount }),
         scrollToProduct: (productType: string) => ({ productType }),
     }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+    connect({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [
             userLogic,
             ['loadUser'],
@@ -123,7 +130,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    })),
+    }),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -218,7 +225,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -316,7 +323,7 @@ export const billingLogic = kea<billingLogicType>([
         billingError: [
             null as BillingError | null,
             {
-                getInvoices: async () => {
+                loadInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
@@ -407,22 +414,6 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        projectedTotalAmountUsdWithBillingLimits: [
-            (s) => [s.billing],
-            (billing: BillingType): number => {
-                if (!billing) {
-                    return 0
-                }
-                let projectedTotal = 0
-                for (const product of billing.products || []) {
-                    const billingLimit =
-                        billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
-                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
-                }
-                return projectedTotal
-            },
-        ],
         supportPlans: [
             (s) => [s.billing],
             (billing: BillingType): BillingPlanType[] => {
@@ -453,9 +444,18 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
         ],
-        startupProgramLabel: [
+        startupProgramLabelCurrent: [
             (s) => [s.billing],
             (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        startupProgramLabelPrevious: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null =>
+                billing?.startup_program_label_previous || null,
+        ],
+        isAnnualPlanCustomer: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
         ],
         showBillingSummary: [
             (s) => [s.billing, s.isOnboarding],
@@ -484,6 +484,10 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType): boolean => {
                 return !!(billing?.account_owner?.name || billing?.account_owner?.email)
             },
+        ],
+        accountOwner: [
+            (s) => [s.billing],
+            (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
         ],
     }),
     forms(({ actions, values }) => ({
@@ -788,10 +792,6 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBilling()
-        actions.getInvoices()
-    }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
@@ -811,6 +811,7 @@ export const billingLogic = kea<billingLogicType>([
                     message: _search.billing_error,
                 })
             }
+
             actions.setRedirectPath()
             actions.setIsOnboarding()
         },

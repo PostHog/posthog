@@ -77,6 +77,7 @@ const Value = ({
     onRemove,
     initiallyOpen = false,
     metadataSource,
+    className,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -84,6 +85,7 @@ const Value = ({
     onRemove: () => void
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
+    className?: string
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -125,7 +127,12 @@ const Value = ({
                 ) : null
             }
         >
-            <UniversalFilterButton onClick={() => setOpen(!open)} onClose={onRemove} filter={filter} />
+            <UniversalFilterButton
+                onClick={() => setOpen(!open)}
+                onClose={onRemove}
+                filter={filter}
+                className={className}
+            />
         </Popover>
     )
 }
@@ -162,13 +169,13 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
     )
 }
 
-const PureTaxonomicFilter = (): JSX.Element => {
+const PureTaxonomicFilter = ({ fullWidth = true }: { fullWidth?: boolean }): JSX.Element => {
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
         <TaxonomicFilter
-            width="100%"
+            {...(fullWidth ? { width: '100%' } : {})}
             onChange={(taxonomicGroup, value, item, originalQuery) => {
                 addGroupFilter(taxonomicGroup, value, item, originalQuery)
             }}

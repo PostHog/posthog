@@ -178,7 +178,7 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
 }
 
 export function formatAggregationValue(
-    property: string | undefined,
+    property: string | undefined | null,
     propertyValue: number | null,
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
@@ -405,6 +405,7 @@ export const INSIGHT_TYPE_URLS = {
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    CALENDAR_HEATMAP: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
