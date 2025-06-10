@@ -22,6 +22,7 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
         clickhouse.querying('TRUNCATE person'),
         clickhouse.querying('TRUNCATE person_distinct_id'),
         clickhouse.querying('TRUNCATE person_distinct_id2'),
+        clickhouse.querying('TRUNCATE person_distinct_id_overrides'),
         clickhouse.querying('TRUNCATE person_static_cohort'),
         clickhouse.querying('TRUNCATE sharded_session_recording_events'),
         clickhouse.querying('TRUNCATE plugin_log_entries'),

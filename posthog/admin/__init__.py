@@ -25,6 +25,7 @@ from posthog.admin.admins import (
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
     EventIngestionRestrictionConfigAdmin,
+    LinkAdmin,
 )
 from posthog.models import (
     Organization,
@@ -51,6 +52,7 @@ from posthog.models import (
     HogFunction,
     GroupTypeMapping,
     EventIngestionRestrictionConfig,
+    Link,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -83,3 +85,4 @@ admin.site.register(Survey, SurveyAdmin)
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 admin.site.register(HogFunction, HogFunctionAdmin)
 admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
+admin.site.register(Link, LinkAdmin)

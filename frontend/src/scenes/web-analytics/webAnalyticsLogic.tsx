@@ -12,12 +12,14 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
@@ -28,10 +30,14 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DatabaseSchemaDataWarehouseTable,
+    DataTableNode,
+    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
     QuerySchema,
+    SourceMap,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -61,10 +67,13 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     RetentionPeriod,
+    TeamPublicType,
+    TeamType,
     UniversalFiltersGroupValue,
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
+import { MARKETING_ANALYTICS_SCHEMA } from './tabs/marketing-analytics/utils'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
@@ -115,6 +124,8 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
+    MARKETING = 'MARKETING',
+    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
 }
 
 export enum ProductTab {
@@ -122,6 +133,7 @@ export enum ProductTab {
     WEB_VITALS = 'web-vitals',
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
+    MARKETING = 'marketing',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -168,7 +180,27 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
+    [TileId.MARKETING]: 16,
+
+    // Marketing Tiles
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
 }
+
+// To enable a tile here, you must update the QueryRunner to support it
+// or make sure it can load in a decent time (which event-only tiles usually do).
+// We filter them here to enable a faster experience for the user as the
+// tiles that don't support pre-aggregated tables take a longer time to load
+// and will effectively block other queries to load because of the concurrencyController
+export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
+    TileId.OVERVIEW,
+    TileId.PATHS,
+    TileId.SOURCES,
+    TileId.DEVICES,
+
+    // Not 100% supported yet but they are fast enough that we can show them
+    TileId.GRAPHS,
+    TileId.GEOGRAPHY,
+]
 
 export interface BaseTile {
     tileId: TileId
@@ -278,7 +310,8 @@ export enum GeographyTab {
 }
 
 export enum ActiveHoursTab {
-    NORMAL = 'NORMAL',
+    UNIQUE = 'UNIQUE',
+    TOTAL_EVENTS = 'TOTAL_EVENTS',
 }
 
 export enum ConversionGoalWarning {
@@ -390,6 +423,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
+            marketingAnalyticsSettingsLogic,
+            ['sources_map'],
+            databaseTableListLogic,
+            ['dataWarehouseTables'],
         ],
     })),
     actions({
@@ -719,6 +756,174 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        // Helper functions for dynamic marketing analytics
+        createMarketingDataWarehouseNodes: [
+            (s) => [s.sources_map, s.dataWarehouseTables],
+            (
+                sources_map: { [key: string]: SourceMap },
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): AnyEntityNode[] => {
+                if (
+                    !sources_map ||
+                    Object.keys(sources_map).length === 0 ||
+                    !dataWarehouseTables ||
+                    dataWarehouseTables.length === 0
+                ) {
+                    return []
+                }
+
+                const validSourcesMap = sources_map
+
+                Object.keys(MARKETING_ANALYTICS_SCHEMA)
+                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
+                    .forEach((column_name: string) => {
+                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
+                            if (!fieldMapping[column_name]) {
+                                delete validSourcesMap[tableId]
+                            }
+                        })
+                    })
+
+                if (Object.keys(validSourcesMap).length === 0) {
+                    return []
+                }
+
+                const mappedNodes = Object.entries(validSourcesMap).map(([tableId, fieldMapping]: [string, any]) => {
+                    const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                    const table_name = table?.name
+                    const schema_name = table?.schema?.name
+                    if (!table_name) {
+                        return null
+                    }
+
+                    const returning: AnyEntityNode = {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: tableId,
+                        name: schema_name,
+                        custom_name: `${schema_name} Cost`,
+                        id_field: 'id',
+                        distinct_id_field: 'id',
+                        timestamp_field: fieldMapping.date,
+                        table_name: table_name,
+                        math: PropertyMathType.Sum,
+                        math_property: fieldMapping.total_cost,
+                    }
+                    return returning
+                })
+
+                const nodeList: AnyEntityNode[] = mappedNodes.filter((node): node is DataWarehouseNode => node !== null)
+                return nodeList
+            },
+        ],
+
+        createDynamicCampaignQuery: [
+            (s) => [s.sources_map, s.dataWarehouseTables],
+            (
+                sources_map: { [key: string]: SourceMap },
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): string | null => {
+                if (
+                    !sources_map ||
+                    Object.keys(sources_map).length === 0 ||
+                    !dataWarehouseTables ||
+                    dataWarehouseTables.length === 0
+                ) {
+                    return null
+                }
+
+                const validSourcesMap = sources_map
+
+                Object.keys(MARKETING_ANALYTICS_SCHEMA)
+                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
+                    .forEach((column_name: string) => {
+                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
+                            if (!fieldMapping[column_name]) {
+                                delete validSourcesMap[tableId]
+                            }
+                        })
+                    })
+
+                if (Object.keys(validSourcesMap).length === 0) {
+                    return null
+                }
+
+                const unionQueries = Object.entries(validSourcesMap)
+                    .map(([tableId, fieldMapping]: [string, any]) => {
+                        const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                        const table_name = table?.name
+                        if (!table_name) {
+                            return null
+                        }
+
+                        return `
+                        SELECT 
+                            ${fieldMapping.campaign_name} as campaignname,
+                            ${fieldMapping.total_cost} as cost,
+                            ${fieldMapping.clicks || '0'} as clicks,
+                            ${fieldMapping.impressions || '0'} as impressions,
+                            ${fieldMapping.source_name || `'${table.schema?.name || tableId}'`} as source_name
+                        FROM ${table_name}
+                        WHERE ${fieldMapping.date} >= '2025-01-01'
+                    `.trim()
+                    })
+                    .filter(Boolean)
+
+                if (unionQueries.length === 0) {
+                    return `SELECT 'No valid sources_map configured' as message`
+                }
+
+                const query = `
+                    WITH campaign_costs AS (
+                        SELECT 
+                            campaignname,
+                            source_name,
+                            sum(cost) as total_cost,
+                            sum(clicks) as total_clicks,
+                            sum(impressions) as total_impressions
+                        FROM (
+                            ${unionQueries.join('\n                            UNION ALL\n')}
+                        )
+                        GROUP BY campaignname, source_name
+                    ),
+                    campaign_pageviews AS (
+                        SELECT 
+                            properties.utm_campaign as campaign_name,
+                            count(*) as pageviews,
+                            uniq(distinct_id) as unique_visitors
+                        FROM events 
+                        WHERE event = '$pageview' 
+                            AND properties.utm_campaign IS NOT NULL
+                            AND properties.utm_campaign != ''
+                        GROUP BY properties.utm_campaign
+                    )
+                    SELECT 
+                        cc.campaignname as "Campaign",
+                        cc.source_name as "Source",
+                        round(cc.total_cost, 2) as "Total Cost",
+                        cc.total_clicks as "Total Clicks", 
+                        cc.total_impressions as "Total Impressions",
+                        round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
+                        round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR",
+                        coalesce(cp.pageviews, 0) as "Pageviews",
+                        coalesce(cp.unique_visitors, 0) as "Unique Visitors",
+                        round(cc.total_cost / nullif(coalesce(cp.pageviews, 1), 0), 2) as "Cost per Pageview"
+                    FROM campaign_costs cc
+                    LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
+                    ORDER BY cc.total_cost DESC
+                    LIMIT 20
+                `.trim()
+                return query
+            },
+        ],
+        preAggregatedEnabled: [
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                return (
+                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.productTab],
             (productTab: ProductTab): Breadcrumb[] => {
@@ -746,6 +951,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     })
                 }
 
+                if (productTab === ProductTab.MARKETING) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsMarketing,
+                        name: `Marketing`,
+                        path: urls.webAnalyticsMarketing(),
+                    })
+                }
+
                 return breadcrumbs
             },
         ],
@@ -756,7 +969,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         activeHoursTab: [
             (s) => [s._activeHoursTab],
-            (activeHoursTab: string | null) => activeHoursTab || ActiveHoursTab.NORMAL,
+            (activeHoursTab: string | null) => activeHoursTab || ActiveHoursTab.UNIQUE,
         ],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
@@ -895,6 +1108,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.isGreaterThanMd,
                 () => values.currentTeam,
                 () => values.tileVisualizations,
+                () => values.preAggregatedEnabled,
             ],
             (
                 productTab,
@@ -913,7 +1127,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 featureFlags,
                 isGreaterThanMd,
                 currentTeam,
-                tileVisualizations
+                tileVisualizations,
+                preAggregatedEnabled
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -1189,6 +1404,92 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         },
                     ]
+                }
+
+                if (productTab === ProductTab.MARKETING) {
+                    // Generate dynamic series from sources_map
+                    const createDynamicMarketingSeries = (): AnyEntityNode[] => {
+                        const dynamicNodes = values.createMarketingDataWarehouseNodes
+
+                        if (!dynamicNodes || dynamicNodes.length === 0) {
+                            return []
+                        }
+
+                        return dynamicNodes
+                    }
+
+                    const dynamicSeries = createDynamicMarketingSeries()
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.MARKETING,
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                                orderWhenLargeClassName: 'xxl:order-1',
+                            },
+                            title: 'Marketing Costs',
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                embedded: true,
+                                hidePersonsModal: true,
+                                hideTooltipOnScroll: true,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    series:
+                                        dynamicSeries.length > 0
+                                            ? dynamicSeries
+                                            : [
+                                                  // Fallback when no sources are configured
+                                                  {
+                                                      kind: NodeKind.EventsNode,
+                                                      event: 'no_sources_configured',
+                                                      custom_name: 'No marketing sources configured',
+                                                      math: BaseMathType.TotalCount,
+                                                  },
+                                              ],
+                                    interval: 'week',
+                                    dateRange: dateRange,
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsAreaGraph,
+                                        aggregationAxisFormat: 'numeric',
+                                        aggregationAxisPrefix: '$',
+                                    },
+                                },
+                            },
+                            insightProps: createInsightProps(TileId.MARKETING),
+                            canOpenInsight: true,
+                            canOpenModal: false,
+                            docs: {
+                                title: 'Marketing Costs',
+                                description:
+                                    dynamicSeries.length > 0
+                                        ? 'Track costs from your configured marketing data sources.'
+                                        : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
+                            },
+                        },
+                        values.campaignCostsBreakdown
+                            ? {
+                                  kind: 'query',
+                                  tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                                  layout: {
+                                      colSpanClassName: 'md:col-span-2',
+                                      orderWhenLargeClassName: 'xxl:order-2',
+                                  },
+                                  title: 'Campaign Costs Breakdown',
+                                  query: values.campaignCostsBreakdown,
+                                  insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                                  canOpenModal: true,
+                                  canOpenInsight: false,
+                                  docs: {
+                                      title: 'Campaign Costs Breakdown',
+                                      description:
+                                          'Breakdown of marketing costs by individual campaign names across all ad platforms.',
+                                  },
+                              }
+                            : null,
+                    ]
+                        .filter(isNotNil)
+                        .map((tile) => tile as WebAnalyticsTile)
                 }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
@@ -1852,25 +2153,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               setTabId: actions.setActiveHoursTab,
                               tabs: [
                                   {
-                                      id: ActiveHoursTab.NORMAL,
-                                      title: 'Active hours',
-                                      linkText: 'Active hours',
+                                      id: ActiveHoursTab.UNIQUE,
+                                      title: 'Active Hours',
+                                      linkText: 'Unique users',
                                       canOpenModal: true,
                                       query: {
-                                          kind: NodeKind.EventsHeatMapQuery,
-                                          source: {
-                                              kind: NodeKind.EventsNode,
-                                              event: '$pageview',
-                                              name: '$pageview',
-                                              math: BaseMathType.UniqueUsers,
-                                          },
-                                          properties: webAnalyticsFilters,
+                                          kind: NodeKind.CalendarHeatmapQuery,
+                                          series: [
+                                              {
+                                                  kind: NodeKind.EventsNode,
+                                                  event: '$pageview',
+                                                  name: '$pageview',
+                                                  math: BaseMathType.UniqueUsers,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                          ],
                                           dateRange,
                                           conversionGoal,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
-                                          title: 'Active hours',
+                                          title: 'Active hours - Unique users',
                                           description: (
                                               <>
                                                   <div>
@@ -1890,7 +2193,52 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               </>
                                           ),
                                       },
-                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.NORMAL),
+                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.UNIQUE),
+                                  },
+                                  {
+                                      id: ActiveHoursTab.TOTAL_EVENTS,
+                                      title: 'Active Hours',
+                                      linkText: 'Total pageviews',
+                                      canOpenModal: true,
+                                      query: {
+                                          kind: NodeKind.CalendarHeatmapQuery,
+                                          series: [
+                                              {
+                                                  kind: NodeKind.EventsNode,
+                                                  event: '$pageview',
+                                                  name: '$pageview',
+                                                  math: BaseMathType.TotalCount,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                          ],
+                                          dateRange,
+                                          conversionGoal,
+                                      },
+                                      docs: {
+                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                          title: 'Active hours - Total pageviews',
+                                          description: (
+                                              <>
+                                                  <div>
+                                                      <p>
+                                                          Active hours displays a heatmap showing the total number of
+                                                          pageviews, broken down by hour of the day and day of the week.
+                                                      </p>
+                                                      <p>
+                                                          Note: It is expected that selecting a time range longer than 7
+                                                          days will include additional occurrences of weekdays and
+                                                          hours, potentially increasing the user counts in those
+                                                          buckets. The recommendation is to select 7 closed days or
+                                                          multiple of 7 closed day ranges.
+                                                      </p>
+                                                  </div>
+                                              </>
+                                          ),
+                                      },
+                                      insightProps: createInsightProps(
+                                          TileId.ACTIVE_HOURS,
+                                          ActiveHoursTab.TOTAL_EVENTS
+                                      ),
                                   },
                               ],
                           }
@@ -2060,7 +2408,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                 ]
-                return allTiles.filter(isNotNil)
+                return allTiles
+                    .filter(isNotNil)
+                    .filter((tile) =>
+                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                    )
             },
         ],
 
@@ -2207,6 +2559,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
                     return preferredUrl.origin
                 })
+            },
+        ],
+        campaignCostsBreakdown: [
+            (s) => [s.sources_map, s.dataWarehouseTables],
+            (
+                sources_map: { [key: string]: SourceMap },
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): DataTableNode | null => {
+                if (!values.createDynamicCampaignQuery) {
+                    return null
+                }
+
+                // Don't run if data isn't loaded yet
+                if (!sources_map || !dataWarehouseTables) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: values.createDynamicCampaignQuery,
+                    },
+                }
             },
         ],
     })),
@@ -2417,6 +2793,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
+            } else if (productTab === ProductTab.MARKETING) {
+                basePath = '/web/marketing'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
@@ -2476,12 +2854,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTab = ProductTab.ANALYTICS
             }
 
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
+            if (
+                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
+                    productTab
+                )
+            ) {
                 return
             }
 
-            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
-
+            const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
             if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }

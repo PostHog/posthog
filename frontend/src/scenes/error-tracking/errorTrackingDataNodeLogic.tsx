@@ -30,7 +30,8 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                     'suppressIssues',
                     'activateIssues',
                     'assignIssues',
-                    'assignIssue',
+                    'updateIssueAssignee',
+                    'updateIssueStatus',
                     'mutationSuccess',
                     'mutationFailure',
                 ],
@@ -121,13 +122,27 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             })
         },
 
-        assignIssue: ({ id, assignee }) => {
+        updateIssueAssignee: ({ id, assignee }) => {
             const response = values.response
             if (response) {
                 const results = response.results as ErrorTrackingIssue[]
                 const recordIndex = results.findIndex((r) => r.id === id)
                 if (recordIndex > -1) {
                     const issue = { ...results[recordIndex], assignee }
+                    results.splice(recordIndex, 1, issue)
+                    // optimistically update local results
+                    actions.setResponse({ ...response, results: results })
+                }
+            }
+        },
+
+        updateIssueStatus: ({ id, status }) => {
+            const response = values.response
+            if (response) {
+                const results = response.results as ErrorTrackingIssue[]
+                const recordIndex = results.findIndex((r) => r.id === id)
+                if (recordIndex > -1) {
+                    const issue = { ...results[recordIndex], status }
                     results.splice(recordIndex, 1, issue)
                     // optimistically update local results
                     actions.setResponse({ ...response, results: results })

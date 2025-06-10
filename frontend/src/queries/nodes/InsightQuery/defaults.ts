@@ -1,4 +1,5 @@
 import {
+    CalendarHeatmapQuery,
     FunnelsQuery,
     InsightNodeKind,
     InsightQueryNode,
@@ -23,6 +24,19 @@ export const trendsQueryDefault: TrendsQuery = {
         },
     ],
     trendsFilter: {},
+}
+
+export const calendarHeatmapQueryDefault: CalendarHeatmapQuery = {
+    kind: NodeKind.CalendarHeatmapQuery,
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            name: '$pageview',
+            event: '$pageview',
+            math: BaseMathType.TotalCount,
+        },
+    ],
+    calendarHeatmapFilter: {},
 }
 
 export const funnelsQueryDefault: FunnelsQuery = {
@@ -99,4 +113,5 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
     [NodeKind.PathsQuery]: pathsQueryDefault,
     [NodeKind.StickinessQuery]: stickinessQueryDefault,
     [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
+    [NodeKind.CalendarHeatmapQuery]: calendarHeatmapQueryDefault,
 }

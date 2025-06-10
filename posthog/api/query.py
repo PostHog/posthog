@@ -1,8 +1,6 @@
 import re
 import uuid
 import json
-import time
-import asyncio
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -12,10 +10,8 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
-from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
-from posthog.clickhouse.client.connection import Workload
 from posthog import settings
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -26,7 +22,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 
-from posthog.api.utils import action
+from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
@@ -34,7 +30,7 @@ from posthog.clickhouse.client.execute_async import (
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters,
     apply_dashboard_variables,
@@ -54,11 +50,8 @@ from posthog.schema import (
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
-    ClickhouseQueryProgress,
 )
 from posthog.hogql.constants import LimitContext
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.client.connection import default_client
 
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
@@ -141,6 +134,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
+            query_dict = query.model_dump()
 
             result = process_query_model(
                 self.team,
@@ -152,7 +146,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context=(
                     # QUERY_ASYNC provides extended max execution time for insight queries
                     LimitContext.QUERY_ASYNC
-                    if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
+                    if (
+                        is_insight_query(query_dict)
+                        or is_insight_actors_query(query_dict)
+                        or is_insight_actors_options_query(query_dict)
+                    )
+                    and get_query_tag_value("access_method") != "personal_api_key"
                     else None
                 ),
             )
@@ -166,6 +165,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ResolutionError as e:
+            raise ValidationError(str(e))
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
@@ -207,7 +208,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["POST"], detail=False)
     def check_auth_for_async(self, request: Request, *args, **kwargs):
         return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
 
@@ -257,101 +258,15 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         tag_queries(client_query_id=query_id)
 
 
+MAX_QUERY_TIMEOUT = 600
+
+
 async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
-    """
-    Stream query progress updates using Server-Sent Events (SSE).
-    This endpoint will continuously send progress updates until the query completes or times out.
-    """
-
-    # Call the auth check method on QueryViewSet
-    request.META["HTTP_ACCEPT"] = "application/json"
-    view = await sync_to_async(QueryViewSet.as_view)({"get": "auth_for_awaiting"}, team_id=kwargs["team_id"])
-    response = await sync_to_async(view)(request)
-
-    if response.status_code != 200:  # Non-200 means we can return immediately, likely error
-        response.render()
-        content = response.rendered_content.decode("utf-8")
-        return StreamingHttpResponse(
-            [f"data: {content}\n\n".encode()],
-            status=response.status_code,
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
-
-    async def event_stream():
-        start_time = time.time()
-
-        # For things to feel snappy we want to frequently check initially, then back off
-        POLL_INTERVAL = 1
-        QUERY_START_TIMEOUT = 10  # query needs to start within 10 seconds
-        QUERY = (
-            lambda table: f"""
-        SELECT
-            read_rows,
-            read_bytes,
-            total_rows_approx,
-            elapsed,
-            memory_usage,
-            hostname() as host
-        FROM {table}
-        WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
-        LIMIT 1
-        SETTINGS max_execution_time = 5
-        """
-        )
-        QUERY_PARAMS = {
-            "cluster": settings.CLICKHOUSE_CLUSTER,
-            "query_id": f"{request.user.id}_{kwargs['query_id']}_%",
-            "user_id": f"/* user_id:{request.user.id} %",
-        }
-        try:
-            while time.time() - start_time < QUERY_START_TIMEOUT:
-                # First query the distributed table to find the initiatorhost, then only query the host from then on
-                results = await sync_to_async(sync_execute)(
-                    QUERY("distributed_system_processes"),
-                    QUERY_PARAMS,
-                    workload=Workload.ONLINE,
-                )
-                if results and len(results) > 0:
-                    break
-                else:
-                    await asyncio.sleep(POLL_INTERVAL)
-
-            if results:
-                while time.time() - start_time < MAX_QUERY_TIMEOUT:
-                    progress = ClickhouseQueryProgress(
-                        rows_read=int(results[0][0]),
-                        bytes_read=int(results[0][1]),
-                        estimated_rows_total=int(results[0][2]),
-                        memory_usage=int(results[0][4]),
-                        time_elapsed=int(results[0][3]),
-                    )
-
-                    yield f"data: {progress.model_dump_json()}\n\n".encode()
-                    await asyncio.sleep(POLL_INTERVAL)
-
-                    with default_client(host=results[0][5]) as client:
-                        results = sync_execute(
-                            QUERY("system.processes"),
-                            QUERY_PARAMS,
-                            sync_client=client,
-                        )
-                        if not results or len(results) == 0:
-                            break
-
-            else:
-                yield f"data: {json.dumps({'error': 'No running query found with this ID'})}\n\n".encode()
-
-        except Exception as e:
-            capture_exception(e)
-            yield f"data: {json.dumps({'error': 'Error fetching query progress'})}\n\n".encode()
+    # TEMPORARY endpoint to avoid breaking changes
 
     return StreamingHttpResponse(
-        event_stream(),
+        [],
+        status=status.HTTP_200_OK,
         content_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -359,30 +274,3 @@ async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
             "Connection": "keep-alive",
         },
     )
-
-
-MAX_QUERY_TIMEOUT = 600
-
-
-def is_insight_query(query):
-    insight_kinds = {
-        "TrendsQuery",
-        "FunnelsQuery",
-        "RetentionQuery",
-        "PathsQuery",
-        "StickinessQuery",
-        "LifecycleQuery",
-    }
-    if getattr(query, "kind", None) in insight_kinds:
-        return True
-    if getattr(query, "kind", None) == "HogQLQuery":
-        return True
-    if getattr(query, "kind", None) == "DataTableNode":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_kinds:
-            return True
-    if getattr(query, "kind", None) == "DataVisualizationNode":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_kinds:
-            return True
-    return False

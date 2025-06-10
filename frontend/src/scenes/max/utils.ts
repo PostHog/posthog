@@ -1,3 +1,7 @@
+import { decodeParams, encodeParams } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils'
+
 import {
     AssistantMessage,
     AssistantMessageType,
@@ -16,6 +20,7 @@ import {
 } from '~/queries/schema/schema-assistant-queries'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { SidePanelTab } from '~/types'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -72,4 +77,69 @@ export function castAssistantQuery(
         return castAssistantHogQLQuery(query)
     }
     throw new Error(`Unsupported query type: ${query.kind}`)
+}
+
+/**
+ * Generate a URL for a conversation.
+ */
+export function getConversationUrl({
+    pathname,
+    search,
+    conversationId,
+    includeHash = true,
+}: {
+    pathname: string
+    search: string
+    conversationId: string
+    includeHash?: boolean
+}): string {
+    const params = decodeParams(search, '?')
+    const strParams = encodeParams({
+        ...params,
+        chat: conversationId,
+    })
+    return `${pathname}${strParams ? `?${strParams}` : ''}${includeHash ? `#panel=${SidePanelTab.Max}` : ''}`
+}
+
+export function formatConversationDate(updatedAt: string | null): string {
+    if (!updatedAt) {
+        return 'Some time ago'
+    }
+
+    const diff = dayjs().diff(dayjs(updatedAt), 'seconds')
+    if (diff < 60) {
+        return 'Just now'
+    }
+    return humanFriendlyDuration(diff, { maxUnits: 1 })
+}
+
+/**
+ * Checks if a suggestion requires user input.
+ * @param suggestion - The suggestion to check.
+ * @returns True if the suggestion requires input, false otherwise.
+ */
+export function checkSuggestionRequiresUserInput(suggestion: string): boolean {
+    const matches = suggestion.match(/<|>|…/g)
+    return !!matches && matches.length > 0
+}
+
+/**
+ * Strips the user input placeholder (`<`, `>`, `…`) from a suggestion.
+ * @param suggestion - The suggestion to strip.
+ * @returns The stripped suggestion.
+ */
+export function stripSuggestionPlaceholders(suggestion: string): string {
+    return `${suggestion
+        .replace(/<[^>]*>/g, '')
+        .replace(/…$/, '')
+        .trim()} `
+}
+
+/**
+ * Formats a suggestion by stripping the placeholder characters (`<`, `>`) from a suggestion.
+ * @param suggestion - The suggestion to format.
+ * @returns The formatted suggestion.
+ */
+export function formatSuggestion(suggestion: string): string {
+    return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
 }

@@ -139,6 +139,7 @@ mod test {
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 context: None,
+                release: None,
             },
             Frame {
                 raw_id: String::new(),
@@ -153,6 +154,7 @@ mod test {
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 context: None,
+                release: None,
             },
         ];
 
@@ -169,6 +171,7 @@ mod test {
             lang: "javascript".to_string(),
             junk_drawer: None,
             context: None,
+            release: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -215,6 +218,7 @@ mod test {
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 context: None,
+                release: None,
             },
             Frame {
                 raw_id: String::new(),
@@ -229,6 +233,7 @@ mod test {
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 context: None,
+                release: None,
             },
             Frame {
                 raw_id: String::new(),
@@ -243,6 +248,7 @@ mod test {
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 context: None,
+                release: None,
             },
         ];
 
@@ -283,6 +289,7 @@ mod test {
             lang: "javascript".to_string(),
             junk_drawer: None,
             context: None,
+            release: None,
         }];
 
         let non_app_frame = Frame {
@@ -298,6 +305,7 @@ mod test {
             lang: "javascript".to_string(),
             junk_drawer: None,
             context: None,
+            release: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

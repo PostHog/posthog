@@ -91,7 +91,7 @@ class AlertSerializer(serializers.ModelSerializer):
         many=True,
         required=True,
         write_only=True,
-        allow_empty=False,
+        allow_empty=True,
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 

@@ -197,7 +197,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
 
 const PLANS_DATA: PlanData[] = [
     {
-        title: 'Totally free',
+        title: 'Free',
         plan: Plan.TOTALLY_FREE,
         billingPlanKeyPrefix: 'free',
         subtitle: 'No credit card required',
@@ -212,7 +212,7 @@ const PLANS_DATA: PlanData[] = [
         ctaAction: 'next',
     },
     {
-        title: 'Ridiculously cheap',
+        title: 'Pay-as-you-go',
         plan: Plan.RIDICULOUSLY_CHEAP,
         billingPlanKeyPrefix: 'paid',
         subtitle: 'Usage-based pricing after free tier',

@@ -1,4 +1,4 @@
-import { EventType } from '~/types'
+import { EventType, PersonType } from '~/types'
 
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
@@ -103,3 +103,10 @@ export type SymbolSetStatus = 'valid' | 'invalid'
 export type SymbolSetStatusFilter = SymbolSetStatus | 'all'
 export type ErrorEventProperties = EventType['properties']
 export type ErrorEventId = NonNullable<EventType['uuid']>
+
+export type ErrorEventType = {
+    uuid: ErrorEventId
+    timestamp: string
+    properties: ErrorEventProperties
+    person: PersonType
+}

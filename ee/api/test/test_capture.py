@@ -134,9 +134,6 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(type(kafka_produce_call1["data"]["token"]), str)
         self.assertEqual(type(kafka_produce_call2["data"]["token"]), str)
 
-        self.assertEqual(type(kafka_produce_call1["data"]["sent_at"]), str)
-        self.assertEqual(type(kafka_produce_call2["data"]["sent_at"]), str)
-
         self.assertEqual(type(event1_data["properties"]), dict)
         self.assertEqual(type(event2_data["properties"]), dict)
 

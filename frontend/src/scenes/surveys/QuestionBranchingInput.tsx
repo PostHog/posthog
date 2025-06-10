@@ -6,16 +6,28 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { truncate } from 'lib/utils'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 
-import { MultipleSurveyQuestion, RatingSurveyQuestion, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
+import {
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyQuestion,
+    SurveyQuestionBranchingType,
+    SurveyQuestionType,
+} from '~/types'
 
 import { surveyLogic } from './surveyLogic'
+
+function canQuestionHaveResponseBasedBranching(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice
+}
 
 export function QuestionBranchingInput({
     questionIndex,
     question,
 }: {
     questionIndex: number
-    question: RatingSurveyQuestion | MultipleSurveyQuestion
+    question: SurveyQuestion
 }): JSX.Element {
     const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
     const { setQuestionBranchingType, setSurveyValue } = useActions(surveyLogic)
@@ -100,9 +112,10 @@ export function QuestionBranchingInput({
                     ]}
                 />
             </LemonField>
-            {branchingDropdownValue === SurveyQuestionBranchingType.ResponseBased && (
-                <QuestionResponseBasedBranchingInput question={question} questionIndex={questionIndex} />
-            )}
+            {canQuestionHaveResponseBasedBranching(question) &&
+                branchingDropdownValue === SurveyQuestionBranchingType.ResponseBased && (
+                    <QuestionResponseBasedBranchingInput question={question} questionIndex={questionIndex} />
+                )}
         </>
     )
 }

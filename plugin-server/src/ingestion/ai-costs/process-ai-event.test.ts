@@ -3,6 +3,33 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { processAiEvent } from './process-ai-event'
 import { costsByModel } from './providers'
 
+jest.mock('./providers', () => {
+    const originalProviders = jest.requireActual('./providers')
+    return {
+        ...originalProviders,
+        costsByModel: {
+            testing_model: { model: 'testing_model', cost: { prompt_token: 0.1, completion_token: 0.1 } },
+            'gpt-4': { model: 'gpt-4', cost: { prompt_token: 0.2, completion_token: 0.2 } },
+            'gpt-4-0125-preview': { model: 'gpt-4-0125-preview', cost: { prompt_token: 0.3, completion_token: 0.3 } },
+            'mistral-7b-instruct-v0.1': {
+                model: 'mistral-7b-instruct-v0.1',
+                cost: { prompt_token: 0.4, completion_token: 0.4 },
+            },
+            'gpt-4o-mini': { model: 'gpt-4o-mini', cost: { prompt_token: 0.5, completion_token: 0.5 } },
+            'claude-2': { model: 'claude-2', cost: { prompt_token: 0.6, completion_token: 0.6 } },
+            'gemini-2.5-pro-preview': {
+                model: 'gemini-2.5-pro-preview',
+                cost: { prompt_token: 0.7, completion_token: 0.7 },
+            },
+            'gemini-2.5-pro-preview:large': {
+                model: 'gemini-2.5-pro-preview:large',
+                cost: { prompt_token: 0.8, completion_token: 0.8 },
+            },
+            'gpt-4.1': { model: 'gpt-4.1', cost: { prompt_token: 0.9, completion_token: 0.9 } },
+        },
+    }
+})
+
 describe('processAiEvent()', () => {
     let event: PluginEvent
 
@@ -270,6 +297,95 @@ describe('processAiEvent()', () => {
             expect(result1.properties!.$ai_input_cost_usd).toBeGreaterThan(result2.properties!.$ai_input_cost_usd)
             expect(result1.properties!.$ai_output_cost_usd).toBeGreaterThan(result2.properties!.$ai_output_cost_usd)
             expect(result1.properties!.$ai_total_cost_usd).toBeGreaterThan(result2.properties!.$ai_total_cost_usd)
+        })
+    })
+
+    describe('advanced model matching logic specific tests', () => {
+        const inputTokens = 100
+        const outputTokens = 50
+
+        beforeEach(() => {
+            event.properties = {
+                ...event.properties,
+                $ai_provider: 'openai',
+                $ai_input_tokens: inputTokens,
+                $ai_output_tokens: outputTokens,
+                $ai_model: undefined,
+                $ai_input_cost_usd: undefined,
+                $ai_output_cost_usd: undefined,
+                $ai_total_cost_usd: undefined,
+            }
+        })
+
+        it('correctly matches a more specific input model to its known base (Rule 2)', () => {
+            event.properties!.$ai_model = 'testing_model-suffix-123'
+            const result = processAiEvent(event)
+
+            const expectedInputCost = inputTokens * 0.1 // 100 * 0.1
+            const expectedOutputCost = outputTokens * 0.1 // 50 * 0.1
+            expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
+            expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
+        })
+
+        it('matches the longest known model name that is a substring of a specific input model (Rule 2 refinement)', () => {
+            event.properties!.$ai_model = 'gpt-4-0125-preview-custom-suffix'
+            const result = processAiEvent(event)
+
+            const modelCost = costsByModel['gpt-4-0125-preview'].cost // p:0.3, c:0.3
+            const expectedInputCost = inputTokens * modelCost.prompt_token // 100 * 0.3
+            const expectedOutputCost = outputTokens * modelCost.completion_token // 50 * 0.3
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
+            expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
+        })
+
+        it('matches a general input model to a more specific known model (Rule 3, first found)', () => {
+            event.properties!.$ai_model = 'mistral-7b-instruct'
+            const result = processAiEvent(event)
+
+            const modelCost = costsByModel['mistral-7b-instruct-v0.1'].cost // p:0.4, c:0.4
+            const expectedInputCost = inputTokens * modelCost.prompt_token // 100 * 0.4
+            const expectedOutputCost = outputTokens * modelCost.completion_token // 50 * 0.4
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
+            expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
+        })
+
+        it('correctly prioritizes Rule 2 (input specific) over Rule 3 (input general) for ambiguous cases like "gpt-4o"', () => {
+            event.properties!.$ai_model = 'gpt-4o'
+            const result = processAiEvent(event)
+
+            const gpt4Cost = costsByModel['gpt-4'].cost // p:0.2, c:0.2
+            const expectedInputCost = inputTokens * gpt4Cost.prompt_token // 100 * 0.2
+            const expectedOutputCost = outputTokens * gpt4Cost.completion_token // 50 * 0.2
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
+            expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
+        })
+
+        it('correctly prioritizes 4.1 over 4 in long case', () => {
+            event.properties!.$ai_model = 'gpt-4.1-preview-0502'
+            const result = processAiEvent(event)
+
+            const gpt41Cost = costsByModel['gpt-4.1'].cost // p:0.9, c:0.9
+            const expectedInputCost = inputTokens * gpt41Cost.prompt_token // 100 * 0.9
+            const expectedOutputCost = outputTokens * gpt41Cost.completion_token // 50 * 0.9
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
+            expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
+        })
+
+        it('returns undefined costs if no matching rule applies after all checks', () => {
+            event.properties!.$ai_model = 'completely_unknown_model_structure_123_xyz_very_unique'
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
         })
     })
 })

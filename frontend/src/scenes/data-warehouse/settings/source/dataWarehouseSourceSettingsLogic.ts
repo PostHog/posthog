@@ -6,7 +6,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
@@ -135,6 +135,29 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     ...values.source?.job_inputs,
                     ...payload,
                 }
+
+                // Handle file uploads
+                const sourceFieldConfig = values.sourceFieldConfig
+                if (sourceFieldConfig?.fields) {
+                    for (const field of sourceFieldConfig.fields) {
+                        if (field.type === 'file-upload' && payload[field.name]) {
+                            try {
+                                // Assumes we're loading a JSON file
+                                const loadedFile: string = await new Promise((resolve, reject) => {
+                                    const fileReader = new FileReader()
+                                    fileReader.onload = (e) => resolve(e.target?.result as string)
+                                    fileReader.onerror = (e) => reject(e)
+                                    fileReader.readAsText(payload[field.name][0])
+                                })
+                                newJobInputs[field.name] = JSON.parse(loadedFile)
+                            } catch (e) {
+                                lemonToast.error('File is not valid')
+                                return
+                            }
+                        }
+                    }
+                }
+
                 try {
                     const updatedSource = await api.externalDataSources.update(values.sourceId, {
                         job_inputs: newJobInputs,
@@ -185,7 +208,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
-            clonedSource.schemas[schemaIndex].status = 'Running'
+            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
 
@@ -206,7 +229,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
-            clonedSource.schemas[schemaIndex].status = 'Running'
+            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
 

@@ -10,7 +10,7 @@ from rest_framework import status
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Organization, Person, Team
+from posthog.models import Cohort, Organization, Person, Team, PropertyDefinition
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
@@ -713,6 +713,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[2]["name"], "distinct_id3")
 
     def test_person_cohorts(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="number", property_type="Numeric", type=PropertyDefinition.Type.PERSON
+        )
         _create_person(
             team=self.team,
             distinct_ids=["1"],

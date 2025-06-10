@@ -115,7 +115,7 @@ const errorTrackingIssueActionsMapping: Record<
     aggregations: () => null,
     first_seen: () => null,
     last_seen: () => null,
-    earliest: () => null,
+    first_event: () => null,
     library: () => null,
 }
 

@@ -88,6 +88,11 @@ class _SharedAssistantState(BaseModel):
     The insight generation plan.
     """
 
+    onboarding_question: Optional[str] = Field(default=None)
+    """
+    A clarifying question asked during the onboarding process.
+    """
+
     memory_updated: Optional[bool] = Field(default=None)
     """
     Whether the memory was updated in the `MemoryCollectorNode`.
@@ -131,7 +136,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Sequence[AssistantMessageUnion]] = Field(default=None)
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
     """
@@ -156,9 +161,12 @@ class PartialAssistantState(_SharedAssistantState):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
-    MEMORY_ONBOARDING = "memory_onboarding"
     MEMORY_INITIALIZER = "memory_initializer"
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
+    MEMORY_ONBOARDING = "memory_onboarding"
+    MEMORY_ONBOARDING_ENQUIRY = "memory_onboarding_enquiry"
+    MEMORY_ONBOARDING_ENQUIRY_INTERRUPT = "memory_onboarding_enquiry_interrupt"
+    MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
     TRENDS_PLANNER = "trends_planner"

@@ -723,6 +723,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('set filters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('resets date_to when given a relative date_from', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    date_from: '2021-10-01',
+                    date_to: '2021-10-10',
+                })
+                logic.actions.setFilters({
+                    date_from: '-7d',
+                })
+            }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
+        })
+    })
+
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({

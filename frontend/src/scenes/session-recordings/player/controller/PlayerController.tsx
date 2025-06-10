@@ -1,5 +1,4 @@
 import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
@@ -51,12 +50,12 @@ function FullScreen(): JSX.Element {
             onClick={() => setIsFullScreen(!isFullScreen)}
             tooltip={
                 <>
-                    {!isFullScreen ? 'Go' : 'Exit'} full screen <KeyboardShortcut f />
+                    <span>{!isFullScreen ? 'Go' : 'Exit'}</span> full screen <KeyboardShortcut f />
                 </>
             }
-        >
-            <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
-        </LemonButton>
+            icon={<IconFullScreen className="text-2xl" />}
+            data-attr={isFullScreen ? 'exit-full-screen' : 'full-screen'}
+        />
     )
 }
 

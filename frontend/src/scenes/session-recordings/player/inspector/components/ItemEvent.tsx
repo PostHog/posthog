@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { IconShare } from '@posthog/icons'
+import { IconShare, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
@@ -12,8 +12,8 @@ import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/autocapture-previews'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
@@ -70,7 +70,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
-            <AutocapturePreviewImage elements={item.data.elements} />
+            <AutocapturePreviewImage elements={item.data.elements} properties={item.data.properties} />
         ) : item.data.event === '$ai_generation' ||
           item.data.event === '$ai_span' ||
           item.data.event === '$ai_trace' ? (
@@ -153,6 +153,19 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
                 <div className="flex justify-end gap-2">
+                    {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
+                        <LemonButton
+                            targetBlank
+                            sideIcon={<IconOpenInNew />}
+                            data-attr="replay-inspector-issue-link"
+                            to={urls.errorTrackingIssue(
+                                item.data.properties.$exception_issue_id,
+                                item.data.properties.$exception_fingerprint
+                            )}
+                        >
+                            View issue
+                        </LemonButton>
+                    ) : null}
                     <LemonMenu
                         items={[
                             {
@@ -167,6 +180,25 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     )
                                 },
                             },
+                            item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
+                                ? {
+                                      label: 'Copy link to issue',
+                                      icon: <IconWarning />,
+                                      onClick: () => {
+                                          void copyToClipboard(
+                                              urls.absolute(
+                                                  urls.currentProject(
+                                                      urls.errorTrackingIssue(
+                                                          item.data.properties.$exception_issue_id,
+                                                          item.data.properties.$exception_fingerprint
+                                                      )
+                                                  )
+                                              ),
+                                              'issue link'
+                                          )
+                                      },
+                                  }
+                                : null,
                             insightUrl
                                 ? {
                                       label: 'Try out in Insights',
@@ -238,7 +270,12 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     ? {
                                           key: 'image',
                                           label: 'Image',
-                                          content: <AutocaptureImageTab elements={item.data.elements} />,
+                                          content: (
+                                              <AutocaptureImageTab
+                                                  elements={item.data.elements}
+                                                  properties={item.data.properties}
+                                              />
+                                          ),
                                       }
                                     : null,
                                 // Add conversation tab for $ai_generation events

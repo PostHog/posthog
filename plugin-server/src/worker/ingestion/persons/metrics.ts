@@ -1,4 +1,4 @@
-import { Counter, Histogram, Summary } from 'prom-client'
+import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
 
 import { InternalPerson } from '~/src/types'
 
@@ -14,6 +14,13 @@ export const personDatabaseOperationsPerBatchHistogram = new Histogram({
     help: 'Number of database operations per distinct ID per batch',
     labelNames: ['operation'],
     buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, Infinity],
+})
+
+export const totalPersonUpdateLatencyPerBatchHistogram = new Histogram({
+    name: 'total_person_update_latency_per_batch_seconds',
+    help: 'Total latency of person update per distinct ID per batch',
+    labelNames: ['update_type'],
+    buckets: exponentialBuckets(0.025, 4, 7),
 })
 
 export const personCacheOperationsCounter = new Counter({

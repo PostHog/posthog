@@ -14,22 +14,26 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         survey: {
+            name: 'Survey',
             icon: <IconMessage />,
             href: (ref: string) => urls.survey(ref),
+            iconColor: ['var(--product-surveys-light)'],
+            filterKey: 'survey',
         },
     },
     treeItemsNew: [
         {
             path: `Survey`,
             type: 'survey',
-            href: () => urls.survey('new'),
+            href: urls.survey('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: 'Surveys',
-            icon: <IconMessage />,
-            href: () => urls.surveys(),
+            category: 'Behavior',
+            type: 'survey',
+            href: urls.surveys(),
         },
     ],
 }

@@ -184,11 +184,14 @@ export async function createHub(
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
+    logger.info('💤', 'Closing hub...')
     if (!isTestEnv()) {
         await hub.appMetrics?.flush()
     }
+    logger.info('💤', 'Closing kafka, redis, postgres...')
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
@@ -197,6 +200,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         ;(hub as any).eventsProcessor = undefined
         ;(hub as any).appMetrics = undefined
     }
+    logger.info('💤', 'Hub closed!')
 }
 
 export function createKafkaClient({

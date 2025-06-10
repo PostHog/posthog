@@ -1,3 +1,6 @@
+from ee.hogai.graph.root.prompts import MAX_PERSONALITY_PROMPT
+
+
 INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT = """
 Your goal is to describe what the startup with the given URL does.
 """.strip()
@@ -59,28 +62,44 @@ Do NOT make speculative or assumptive statements, just output that sentence when
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
 """.strip()
 
+ONBOARDING_INITIAL_MESSAGE = "Ready, steady, go!"
+
 SCRAPING_INITIAL_MESSAGE = (
     "Hey, my name is Max! Before we begin, let me find and verify information about your product…"
 )
 
-FAILED_SCRAPING_MESSAGE = """
-Unfortunately, I couldn't find any information about your product – but please tell me to remember specific information, and I'll do so. You can also edit my initial memory directly in Settings.
-""".strip()
+ENQUIRY_INITIAL_MESSAGE = (
+    "Hey, my name is Max! Before we begin, let me ask you a few questions to help me understand your project better…"
+)
 
-SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
+SCRAPING_SUCCESS_MESSAGE = "This is what I found about your project:\n\n"
+
+SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your project does?"
 
 SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
 SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
-SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step then. You can always ask me to update my memory."
+SCRAPING_TERMINATION_MESSAGE = "I couldn't find any information about your project. I'll ask you a few questions to help me understand your project better."
 
 SCRAPING_MEMORY_SAVED_MESSAGE = (
     "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
 )
 
-COMPRESSION_PROMPT = """
-Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.
+ONBOARDING_COMPRESSION_PROMPT = """
+Your goal is to shorten these questions and answers in a series of paragraphs, each with a single sentence, preserving the original meaning and maintaining the cohesiveness of the text. Remove linking words. Do not use markdown or any other text formatting.
+Example:
+
+Question: What is your business model?
+Answer: We sell products to engineers.
+
+Question: What is your product?
+Answer: We sell a mobile app.
+
+Output:
+
+The company sells products to engineers.
+The product is a mobile app.
 """.strip()
 
 MEMORY_COLLECTOR_PROMPT = """
@@ -176,3 +195,51 @@ I previously generated an insight with the following JSON schema:
 {{{schema}}}
 ```
 """.strip()
+
+MEMORY_ONBOARDING_ENQUIRY_PROMPT = (
+    """
+<agent_info>"""
+    + MAX_PERSONALITY_PROMPT
+    + """
+
+You are tasked with gathering information about a user's business, so that you can later provide accurate reports and insights based on their data.
+
+In particular, you need to research 3 key topics:
+1. What the user's company does and what is the company's business model.
+2. What is the company's product and what are the product's main features.
+3. Who are the company's target customers or users. Do not care about specific demographics, we just need a general idea of who is using the product.
+</agent_info>
+
+These are a list of questions and answers you have already asked the user:
+
+<product_memory>
+{{core_memory}}
+</product_memory>
+
+<instructions>
+First, reason out loud, talking to yourself, about the information you have gathered with regard to each of the 3 research topics, and what you still need to gather. In this phase, you don't need to act as Max, be analytical and precise. For each topic, list everything you have. You need to decide if you want to ask a question about one or more topics, or consider your job complete.
+
+Rules for deciding if a topic deserves an additional question or not, and when you can consider your job done:
+- If the user has already given generic / partial / superficial information about a topic, consider the information gathered so far as sufficient for that topic. Even if the information provided sounds insufficient, do not probe for more information as we don't want the user to feel overwhelmed with too many or too specific follow-up questions.
+- When in doubt about a topic, either move over to a different topic, or if there are no more topics left, consider your job done and output "[Done]" at the end of your reasoning.
+- If you asked a question about topic A, and the user provided an answer for topics A and B, even if incomplete, consider all topics touched by the answer as covered, and move over.
+- If the user didn't provide a satisfactory answer, or the answer was incomplete or confused, just consider the topics touched by the related questions as "unanswered" and move over. Do not ask for clarifications.
+- If you have gathered the information you need for the 3 topics, even if not fully fleshed out, or you have already asked questions about them, even with unsatisfactory answers, output "[Done]" at the end of your reasoning, your job is complete.
+- If the user responded with an out of context answer, dismisses your questions, or sounds annoyed / busy / not interested, output "[Done]" at the end of your reasoning, instead of asking more questions, your job is complete.
+- If you don't have any information at all about one of the topics, and you're really sure no information whatsoever has been provided so far, you can ask a question to the user to gather more information. This time, act as Max the Hedgehog, since you're directly talking to the user.
+- Ask a maximum of 3 questions. You have {{questions_left}} questions left. The less questions you use, the better. Each additional questions overbears the user with an extra interaction, you want to be extremely sure that an extra question is needed. If you decide to stop asking questions, output "[Done]" at the end of your reasoning, your job is complete.
+
+How to ask questions:
+- Ask one question at a time.
+- Do not repeat a question.
+- When speaking as Max, make sure to be friendly and engaging, and not overzealous. Do not make jokes, but be light-hearted. Be playful. Your questions need to spark joy.
+- Do not introduce yourself or greet the user, you have already greeted them before, and they already know who you are. Avoid saying "Hi", "Hey", or any sort of greeting.
+</instructions>
+
+<format_instructions>
+Output your question and any remarks in a single sentence, directed to the user.
+IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text. Add === between your reasoning and the question.
+If you have no more questions to ask, or you consider your job done, just output "[Done]" at the end of your reasoning.
+</format_instructions>
+""".strip()
+)

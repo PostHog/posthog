@@ -12,8 +12,14 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
 import { uuidFromDistinctId } from './person-uuid'
-import { PersonsStoreForDistinctIdBatch } from './persons/persons-store-for-distinct-id-batch'
+import { PersonsStoreForBatch } from './persons/persons-store-for-batch'
 import { captureIngestionWarning } from './utils'
+
+interface PropertyUpdates {
+    toSet: Properties
+    toUnset: string[]
+    hasChanges: boolean
+}
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -120,8 +126,9 @@ export class PersonState {
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
         private kafkaProducer: KafkaProducerWrapper,
-        private personStore: PersonsStoreForDistinctIdBatch,
-        private measurePersonJsonbSize: number = 0
+        private personStore: PersonsStoreForBatch,
+        private measurePersonJsonbSize: number = 0,
+        private useOptimizedJSONBUpdates: number = 0.0
     ) {
         this.eventProperties = event.properties!
 
@@ -250,7 +257,11 @@ export class PersonState {
         if (propertiesHandled) {
             return [person, Promise.resolve()]
         }
-        return await this.updatePersonProperties(person)
+        if (Math.random() < this.useOptimizedJSONBUpdates) {
+            return await this.updatePersonPropertiesOptimized(person)
+        } else {
+            return await this.updatePersonProperties(person)
+        }
     }
 
     /**
@@ -330,6 +341,36 @@ export class PersonState {
         return person
     }
 
+    private async updatePersonPropertiesOptimized(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
+        person.properties ||= {}
+
+        const propertyUpdate = this.applyEventPropertyUpdatesOptimized(person.properties)
+
+        const otherUpdates: Partial<InternalPerson> = {}
+        if (this.updateIsIdentified && !person.is_identified) {
+            otherUpdates.is_identified = true
+        }
+
+        const hasPropertyChanges =
+            propertyUpdate.hasChanges &&
+            (Object.keys(propertyUpdate.toSet).length > 0 || propertyUpdate.toUnset.length > 0)
+        const hasOtherChanges = Object.keys(otherUpdates).length > 0
+
+        if (hasPropertyChanges || hasOtherChanges) {
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                propertyUpdate.toSet,
+                propertyUpdate.toUnset,
+                otherUpdates,
+                this.distinctId
+            )
+            const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
+            return [updatedPerson, kafkaAck]
+        }
+
+        return [person, Promise.resolve()]
+    }
+
     private async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
@@ -342,7 +383,11 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonDeprecated(person, update)
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonForUpdate(
+                person,
+                update,
+                this.distinctId
+            )
             const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
@@ -383,6 +428,61 @@ export class PersonState {
         return true
     }
 
+    private applyEventPropertyUpdatesOptimized(personProperties: Properties): PropertyUpdates {
+        if (NO_PERSON_UPDATE_EVENTS.has(this.event.event)) {
+            return { toSet: {}, toUnset: [], hasChanges: false }
+        }
+
+        const properties: Properties = this.eventProperties['$set'] || {}
+        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
+        const unsetProps = this.eventProperties['$unset']
+        const unsetProperties: Array<string> = Array.isArray(unsetProps)
+            ? unsetProps
+            : Object.keys(unsetProps || {}) || []
+
+        const toSet: Properties = {}
+        const toUnset: string[] = []
+        let hasChanges = false
+        const metricsKeys = new Set<string>()
+
+        Object.entries(propertiesOnce).forEach(([key, value]) => {
+            if (typeof personProperties[key] === 'undefined') {
+                toSet[key] = value
+                personProperties[key] = value
+                hasChanges = true
+                metricsKeys.add(this.getMetricKey(key))
+            }
+        })
+
+        // note: due to the type of equality check here
+        // if there is an array or object nested as a $set property
+        // we'll always return true even if those objects/arrays contain the same values
+        // This results in a shallow merge of the properties from event into the person properties
+        Object.entries(properties).forEach(([key, value]) => {
+            if (personProperties[key] !== value) {
+                toSet[key] = value
+                personProperties[key] = value
+                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
+                    hasChanges = true
+                }
+                metricsKeys.add(this.getMetricKey(key))
+            }
+        })
+
+        unsetProperties.forEach((propertyKey) => {
+            if (propertyKey in personProperties) {
+                toUnset.push(propertyKey)
+                delete personProperties[propertyKey]
+                hasChanges = true
+                metricsKeys.add(this.getMetricKey(propertyKey))
+            }
+        })
+
+        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
+
+        return { toSet, toUnset, hasChanges }
+    }
+
     /**
      * @param personProperties Properties of the person to be updated, these are updated in place.
      * @returns true if the properties were changed, false if they were not
@@ -413,6 +513,10 @@ export class PersonState {
             }
         })
         Object.entries(properties).map(([key, value]) => {
+            // note: due to the type of equality check here
+            // if there is an array or object nested as a $set property
+            // we'll always return true even if those objects/arrays contain the same values
+            // This results in a shallow merge of the properties from event into the person properties
             if (personProperties[key] !== value) {
                 if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
                     updated = true
@@ -760,7 +864,7 @@ export class PersonState {
             .inc()
 
         const [mergedPerson, kafkaMessages] = await this.personStore.inTransaction('mergePeople', async (tx) => {
-            const [person, updatePersonMessages] = await this.personStore.updatePersonDeprecated(
+            const [person, updatePersonMessages] = await this.personStore.updatePersonForMerge(
                 mergeInto,
                 {
                     created_at: createdAt,
@@ -784,6 +888,7 @@ export class PersonState {
                     //    Person_1(version:7) will "lose" to this new Person_1.
                     version: Math.max(mergeInto.version, otherPerson.version) + 1,
                 },
+                this.distinctId,
                 tx
             )
 
@@ -793,12 +898,18 @@ export class PersonState {
                 otherPerson.team_id,
                 otherPerson.id,
                 mergeInto.id,
+                this.distinctId,
                 tx
             )
 
-            const distinctIdMessages = await this.personStore.moveDistinctIds(otherPerson, mergeInto, tx)
+            const distinctIdMessages = await this.personStore.moveDistinctIds(
+                otherPerson,
+                mergeInto,
+                this.distinctId,
+                tx
+            )
 
-            const deletePersonMessages = await this.personStore.deletePerson(otherPerson, tx)
+            const deletePersonMessages = await this.personStore.deletePerson(otherPerson, this.distinctId, tx)
 
             return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
         })

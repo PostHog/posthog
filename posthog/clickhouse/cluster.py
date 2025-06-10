@@ -15,7 +15,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar, Optional
 from collections.abc import Iterable
 
 import dagster
@@ -406,13 +406,23 @@ class Query:
     def __call__(self, client: Client):
         return client.execute(self.query, self.parameters, settings=self.settings)
 
+    def __repr__(self) -> str:
+        if self.parameters and isinstance(self.parameters, list):
+            params_repr = f"{self.parameters[:50]!r} (showing first 50 out of {len(self.parameters)} parameters)"
+        else:
+            params_repr = f"{self.parameters!r}"
+        return f"Query(query={self.query!r}, parameters={params_repr}, settings={self.settings!r})"
+
 
 @dataclass
 class ExponentialBackoff:
     delay: float
+    max_delay: Optional[float] = None
+    exp: float = 2.0
 
     def __call__(self, attempt: int) -> float:
-        return self.delay * (attempt**2)
+        delay = self.delay * (attempt**self.exp)
+        return min(delay, self.max_delay) if self.max_delay is not None else delay
 
 
 @dataclass
@@ -504,6 +514,7 @@ class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+    force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -525,7 +536,15 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
-        mutations_running = self.find_existing_mutations(client, expected_commands)
+        if self.force:
+            logger.info(
+                "Forcing mutation for %r, even if it already exists. This may cause issues if the mutation is already running.",
+                expected_commands,
+            )
+            mutations_running: Mapping[str, str] = {}
+        else:
+            logger.info("Ensuring mutation for %r is running or has completed.", expected_commands)
+            mutations_running = self.find_existing_mutations(client, expected_commands)
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
@@ -579,12 +598,15 @@ class MutationRunner(abc.ABC):
                     t.2 as position
             ) commands
             LEFT OUTER JOIN (
-                SELECT *
+                SELECT
+                    command,
+                    argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
                     database = %(__database)s
                     AND table = %(__table)s
                     AND NOT is_killed  -- ok to restart a killed mutation
+                GROUP BY command
             ) mutations USING (command)
             ORDER BY position ASC
             SETTINGS join_use_nulls = 1
@@ -629,7 +651,9 @@ class MutationRunner(abc.ABC):
 
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
-    commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    commands: Set[str] = field(
+        kw_only=True
+    )  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
     def get_all_commands(self) -> Set[str]:
         return self.commands
@@ -640,7 +664,7 @@ class AlterTableMutationRunner(MutationRunner):
 
 @dataclass
 class LightweightDeleteMutationRunner(MutationRunner):
-    predicate: str
+    predicate: str = field(kw_only=True)
 
     def get_all_commands(self) -> Set[str]:
         return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}

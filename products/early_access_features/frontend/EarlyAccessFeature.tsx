@@ -23,7 +23,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useState } from 'react'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -257,7 +257,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             ready to release to your early access users.
                         </LemonBanner>
                     )}
-                    <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {'feature_flag' in earlyAccessFeature ? (
                                 <LemonField.Pure label="Connected Feature flag">
@@ -346,7 +346,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         ) : null}
                     </div>
-                    <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="description" label="Description" showOptional>
@@ -401,17 +401,16 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <h3>Notifications</h3>
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
-                            logicKey="early-access-feature"
                             type="destination"
                             filters={destinationFilters}
-                            subTemplateId="early-access-feature-enrollment"
+                            subTemplateIds={['early-access-feature-enrollment']}
                         />
                     </>
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="flex gap-4 justify-between items-start">
                             <div>
                                 <h3>Users</h3>
                                 <p>

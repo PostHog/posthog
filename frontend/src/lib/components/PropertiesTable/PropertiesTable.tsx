@@ -237,12 +237,14 @@ export function PropertiesTable({
                 const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
                     [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
                     [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+                    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                     [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
                     [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties

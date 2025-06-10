@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -8,6 +9,7 @@ use crate::token::InvalidTokenReason;
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CaptureResponseCode {
     Ok = 1,
+    NoContent = 2,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -18,12 +20,23 @@ pub struct CaptureResponse {
     pub quota_limited: Option<Vec<String>>,
 }
 
+impl IntoResponse for CaptureResponse {
+    fn into_response(self) -> Response {
+        match self.status {
+            CaptureResponseCode::NoContent => StatusCode::NO_CONTENT.into_response(),
+            CaptureResponseCode::Ok => (StatusCode::OK, Json(self)).into_response(),
+        }
+    }
+}
+
 #[derive(Clone, Error, Debug)]
 pub enum CaptureError {
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(String),
+    #[error("failed to hydrate events from request: {0}")]
+    RequestHydrationError(String),
 
     #[error("request holds no event")]
     EmptyBatch,
@@ -76,6 +89,7 @@ impl CaptureError {
         match self {
             CaptureError::RequestDecodingError(_) => "req_decoding",
             CaptureError::RequestParsingError(_) => "req_parsing",
+            CaptureError::RequestHydrationError(_) => "req_hydration",
             CaptureError::EmptyBatch => "empty_batch",
             CaptureError::EmptyPayload => "empty_payload",
             CaptureError::MissingEventName => "no_event_name",
@@ -102,6 +116,7 @@ impl IntoResponse for CaptureError {
         match self {
             CaptureError::RequestDecodingError(_)
             | CaptureError::RequestParsingError(_)
+            | CaptureError::RequestHydrationError(_)
             | CaptureError::EmptyBatch
             | CaptureError::EmptyPayload
             | CaptureError::MissingEventName
@@ -126,5 +141,33 @@ impl IntoResponse for CaptureError {
             }
         }
         .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn test_capture_response_into_response_ok() {
+        // Test Ok response
+        let response = CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        };
+        let response = response.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_capture_response_into_response_no_content() {
+        // Test NoContent response
+        let response = CaptureResponse {
+            status: CaptureResponseCode::NoContent,
+            quota_limited: None,
+        };
+        let response = response.into_response();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 }

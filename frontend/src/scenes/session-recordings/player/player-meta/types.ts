@@ -1,6 +1,8 @@
 export interface SessionKeyAction {
     description?: string | null
-    failure?: boolean | null
+    abandonment?: boolean | null
+    confusion?: boolean | null
+    exception?: 'blocking' | 'non-blocking' | null
     event_id?: string | null
     timestamp?: string | null
     milliseconds_since_start?: number | null
@@ -23,6 +25,9 @@ export interface SegmentMeta {
     events_percentage?: number | null
     key_action_count?: number | null
     failure_count?: number | null
+    abandonment_count?: number | null
+    confusion_count?: number | null
+    exception_count?: number | null
 }
 
 export interface SessionSegment {
