@@ -49,7 +49,7 @@ function PlayerSeekbarTick({
             onClick={onClick}
         >
             <Tooltip
-                placement="top"
+                placement="top-start"
                 delayMs={50}
                 title={
                     isEventItem(item) ? (
