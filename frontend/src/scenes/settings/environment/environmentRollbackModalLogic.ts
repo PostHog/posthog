@@ -137,7 +137,10 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                 selectedEnvironments: Record<number, number | null>,
                 projectsWithEnvironments: ProjectWithEnvironments[]
             ): boolean => {
-                return projectsWithEnvironments.every((project) => selectedEnvironments[project.id] !== undefined)
+                return projectsWithEnvironments.every((project) => {
+                    const selected = selectedEnvironments[project.id]
+                    return selected !== undefined && selected !== null
+                })
             },
         ],
     })),
