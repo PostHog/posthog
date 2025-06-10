@@ -47,7 +47,6 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 )
 from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_steps_to_filter,
-    funnel_steps_to_window_funnel_expr,
     funnel_steps_to_aggregate_funnel_array_expr,
     get_funnel_step_level_expr,
 )
