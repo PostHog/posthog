@@ -60,6 +60,7 @@
         "eslint-plugin-simple-import-sort": "^10.0.0",
         "eslint-plugin-storybook": "^0.6.15",
         "eslint-plugin-unused-imports": "^3.1.0",
+        "globals": "^16.2.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.3.0",
@@ -89,31 +90,31 @@
             "prettier --write"
         ],
         "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache --cache-location .cache/.eslintcache  -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache --cache-location .cache/.eslintcache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "products/*/manifest.tsx": [
-            "eslint --cache --cache-location .cache/.eslintcache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache --cache-location .cache/.eslintcache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "common/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache --cache-location .cache/.eslintcache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "frontend/*.mjs": [
-            "eslint --cache --cache-location .cache/.eslintcache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache --cache-location .cache/.eslintcache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache -c eslint.config.mjs --fix",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [

@@ -39,7 +39,7 @@
         "prettier:check": "prettier --check \"../{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint": "pnpm lint:js && pnpm lint:css",
-        "lint:js": "eslint --cache --cache-location .cache/.eslintcache src ../products --debug --format json --output-file result.json",
+        "lint:js": "eslint --cache --cache-location .cache/.eslintcache -c ../eslint.config.mjs  --debug src ../products/**/frontend/**/*.ts*",
         "lint:css": "stylelint \"../(frontend|products)/**/*.{css,scss}\" --ignore-path=frontend/.stylelintignore",
         "format": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
