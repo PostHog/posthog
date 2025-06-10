@@ -55,3 +55,5 @@ describe('getFreshQuery', () => {
         })
     })
 })
+
+export {}
