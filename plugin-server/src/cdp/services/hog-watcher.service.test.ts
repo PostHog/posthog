@@ -79,19 +79,22 @@ describe('HogWatcher', () => {
 
     // Helper function to calculate cost based on duration and type
     const calculateCost = (durationMs: number, kind: 'hog' | 'async_function'): number => {
-        if (kind === 'hog') {
-            const lowerBound = hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS
-            const upperBound = hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS
-            const costTiming = hub.CDP_WATCHER_HOG_COST_TIMING
-            const ratio = Math.max(durationMs - lowerBound, 0) / (upperBound - lowerBound)
-            return Math.round(costTiming * ratio)
-        } else {
-            const asyncLowerBound = hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS
-            const asyncUpperBound = hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS
-            const asyncCostTiming = hub.CDP_WATCHER_ASYNC_COST_TIMING
-            const asyncRatio = Math.max(durationMs - asyncLowerBound, 0) / (asyncUpperBound - asyncLowerBound)
-            return Math.round(asyncCostTiming * asyncRatio)
+        const costsMapping = {
+            hog: {
+                lowerBound: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                upperBound: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                cost: hub.CDP_WATCHER_HOG_COST_TIMING,
+            },
+            async_function: {
+                lowerBound: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                upperBound: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                cost: hub.CDP_WATCHER_ASYNC_COST_TIMING,
+            },
         }
+
+        const costConfig = costsMapping[kind]
+        const ratio = Math.max(durationMs - costConfig.lowerBound, 0) / (costConfig.upperBound - costConfig.lowerBound)
+        return Math.round(costConfig.cost * ratio)
     }
 
     afterEach(async () => {

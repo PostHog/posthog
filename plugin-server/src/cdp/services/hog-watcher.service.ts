@@ -201,19 +201,12 @@ export class HogWatcherService {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 
-                    if (timing.kind === 'hog') {
-                        const lowerBound = this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS
-                        const upperBound = this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS
-                        const costTiming = this.hub.CDP_WATCHER_HOG_COST_TIMING
-                        const ratio = Math.max(timing.duration_ms - lowerBound, 0) / (upperBound - lowerBound)
-                        cost += Math.round(costTiming * ratio)
-                    } else if (timing.kind === 'async_function') {
-                        const asyncLowerBound = this.hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS
-                        const asyncUpperBound = this.hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS
-                        const asyncCostTiming = this.hub.CDP_WATCHER_ASYNC_COST_TIMING
-                        const asyncRatio =
-                            Math.max(timing.duration_ms - asyncLowerBound, 0) / (asyncUpperBound - asyncLowerBound)
-                        cost += Math.round(asyncCostTiming * asyncRatio)
+                    const costConfig = this.costsMapping[timing.kind]
+                    if (costConfig) {
+                        const ratio =
+                            Math.max(timing.duration_ms - costConfig.lowerBound, 0) /
+                            (costConfig.upperBound - costConfig.lowerBound)
+                        cost += Math.round(costConfig.cost * ratio)
                     }
                 }
             }
