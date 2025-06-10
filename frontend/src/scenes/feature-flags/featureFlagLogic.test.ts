@@ -42,6 +42,7 @@ describe('featureFlagLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
     })
+
     afterEach(() => {
         logic.unmount()
     })
