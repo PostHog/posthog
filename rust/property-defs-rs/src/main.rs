@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     start_server(&config, context.clone());
 
-    let channel = MeasuringChannel::new(config.update_batch_size * config.channel_slots_per_worker);
+    let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
 
     let cache = Cache::new(config.cache_capacity);
 
@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let handle = tokio::spawn(update_producer_loop(
             config.clone(),
             consumer.clone(),
-            channel.tx().clone(),
+            tx.clone(),
             cache.clone(),
         ));
 
@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.clone(),
         cache,
         context,
-        channel,
+        rx,
     )));
 
     // if any handle returns, abort the other ones, and then return an error

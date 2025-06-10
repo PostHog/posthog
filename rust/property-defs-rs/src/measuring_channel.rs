@@ -1,59 +1,96 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
-use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
+use tokio::sync::mpsc::{
+    channel,
+    error::{SendError, TrySendError},
+    Receiver, Sender,
+};
 
-pub struct MeasuringChannel<T> {
+#[derive(Clone)]
+pub struct MeasuringSender<T> {
     sender: Sender<T>,
-    receiver: Receiver<T>,
-    in_flight_message: AtomicUsize,
+    in_flight: Arc<AtomicUsize>,
 }
 
-impl<T> MeasuringChannel<T> {
-    pub fn new(capacity: usize) -> Self {
-        let (tx, rx) = channel(capacity);
-        Self {
+pub struct MeasuringReceiver<T> {
+    receiver: Receiver<T>,
+    in_flight: Arc<AtomicUsize>,
+}
+
+pub fn measuring_channel<T>(capacity: usize) -> (MeasuringSender<T>, MeasuringReceiver<T>) {
+    let (tx, rx) = channel(capacity);
+    let counter = Arc::new(AtomicUsize::new(0));
+    (
+        MeasuringSender {
             sender: tx,
+            in_flight: Arc::clone(&counter),
+        },
+        MeasuringReceiver {
             receiver: rx,
-            in_flight_message: AtomicUsize::new(0),
+            in_flight: Arc::clone(&counter),
+        },
+    )
+}
+
+impl<T> MeasuringSender<T> {
+    pub fn try_send(&self, item: T) -> Result<(), TrySendError<T>> {
+        let res = self.sender.try_send(item);
+        if res.is_ok() {
+            self.in_flight.fetch_add(1, Ordering::Relaxed);
         }
+        res
     }
 
     pub async fn send(&self, item: T) -> Result<(), SendError<T>> {
-        let result = self.sender.send(item).await;
-        if result.is_ok() {
-            self.in_flight_message.fetch_add(1, Ordering::Relaxed);
+        let res = self.sender.send(item).await;
+        if res.is_ok() {
+            self.in_flight.fetch_add(1, Ordering::Relaxed);
         }
-        result
-    }
-
-    pub async fn recv(&mut self) -> Option<T> {
-        let result = self.receiver.recv().await;
-        if result.is_some() {
-            self.in_flight_message.fetch_sub(1, Ordering::Relaxed);
-        }
-        result
-    }
-
-    pub async fn recv_many(&mut self, buffer: &mut Vec<T>, limit: usize) -> usize {
-        let received_count = self.receiver.recv_many(buffer, limit).await;
-        self.in_flight_message
-            .fetch_sub(received_count, Ordering::Relaxed);
-        received_count
+        res
     }
 
     pub fn get_inflight_messages_count(&self) -> usize {
-        self.in_flight_message.load(Ordering::Relaxed)
-    }
-
-    pub fn tx(&self) -> &Sender<T> {
-        &self.sender
-    }
-
-    pub fn rx(&self) -> &Receiver<T> {
-        &self.receiver
+        self.in_flight.load(Ordering::Relaxed)
     }
 
     pub fn capacity(&self) -> usize {
         self.sender.capacity()
+    }
+
+    pub fn inner(&self) -> &Sender<T> {
+        &self.sender
+    }
+}
+
+impl<T> MeasuringReceiver<T> {
+    pub async fn recv(&mut self) -> Option<T> {
+        let res = self.receiver.recv().await;
+        if res.is_some() {
+            self.in_flight.fetch_sub(1, Ordering::Relaxed);
+        }
+        res
+    }
+
+    pub async fn recv_many(&mut self, buffer: &mut Vec<T>, limit: usize) -> usize {
+        let res = self.receiver.recv_many(buffer, limit).await;
+        if res > 0 {
+            self.in_flight.fetch_sub(res, Ordering::Relaxed);
+        }
+        res
+    }
+
+    pub fn inflight(&self) -> usize {
+        self.in_flight.load(Ordering::Relaxed)
+    }
+
+    pub fn inner(&self) -> &Receiver<T> {
+        &self.receiver
+    }
+
+    pub fn get_inflight_messages_count(&self) -> usize {
+        self.in_flight.load(Ordering::Relaxed)
     }
 }
