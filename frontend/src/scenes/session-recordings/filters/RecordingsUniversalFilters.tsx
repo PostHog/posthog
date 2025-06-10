@@ -323,10 +323,10 @@ export const RecordingsUniversalFilters = ({
                         size="small"
                         icon={<IconFilter />}
                         onClick={() => {
-                            setIsFiltersExpanded(!isFiltersExpanded)
                             posthog.capture('session_recordings_filters_toggle', {
                                 is_expanded: !isFiltersExpanded,
                             })
+                            setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth
                     >
