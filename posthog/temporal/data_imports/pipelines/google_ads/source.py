@@ -389,6 +389,6 @@ def _stream_response_as_dicts(
                 else:
                     value = dt.date.fromisoformat(value)
 
-            row_dict[path] = value
+            row_dict[path.replace(".", "_")] = value
 
         yield row_dict
