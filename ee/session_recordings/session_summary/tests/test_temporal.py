@@ -125,11 +125,11 @@ class TestStreamLlmSummaryActivity:
     @pytest.mark.asyncio
     async def test_stream_llm_summary_activity_standalone(
         self,
-        mocker: Generator[MockerFixture, None, None],
+        mocker: MockerFixture,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
         session_summary_inputs: Callable,
-        redis_test_setup: Generator[RedisTestContext, None, None],
+        redis_test_setup: RedisTestContext,
     ):
         # Prepare Redis data
         session_id = "test_session_id"
@@ -168,7 +168,7 @@ class TestSummarizeSessionWorkflow:
         mock_user: MagicMock,
         mock_team: MagicMock,
         session_summary_inputs: Callable,
-        redis_test_setup: Generator[RedisTestContext, None, None],
+        redis_test_setup: RedisTestContext,
     ):
         # Prepare input data
         session_id = "test_session_id"
@@ -260,11 +260,11 @@ class TestSummarizeSessionWorkflow:
     @pytest.mark.asyncio
     async def test_summarize_session_workflow(
         self,
-        mocker: Generator[MockerFixture, None, None],
+        mocker: MockerFixture,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
         session_summary_inputs: Callable,
-        redis_test_setup: Generator[RedisTestContext, None, None],
+        redis_test_setup: RedisTestContext,
     ):
         # Prepare test data
         session_id = "test_workflow_session_id"
@@ -311,7 +311,7 @@ class TestSummarizeSessionWorkflow:
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
         session_summary_inputs: Callable,
-        redis_test_setup: Generator[RedisTestContext, None, None],
+        redis_test_setup: RedisTestContext,
     ):
         """Test that the workflow retries when stream_llm_summary_activity fails initially, but succeeds eventually."""
         # Prepare test data
@@ -368,10 +368,7 @@ class TestSummarizeSessionWorkflow:
 
     @pytest.mark.asyncio
     async def test_summarize_session_workflow_exceeds_retries(
-        self,
-        mock_stream_llm: Callable,
-        session_summary_inputs: Callable,
-        redis_test_setup: Generator[RedisTestContext, None, None],
+        self, mock_stream_llm: Callable, session_summary_inputs: Callable, redis_test_setup: RedisTestContext
     ):
         """Test that the workflow retries when stream_llm_summary_activity and fails, as it exceeds the retries limit."""
         # Prepare test data

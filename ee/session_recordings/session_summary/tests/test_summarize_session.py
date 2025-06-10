@@ -109,7 +109,7 @@ class TestSummarizeSession:
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
             with pytest.raises(ValueError, match=f"No columns found for session_id {session_id}"):
-                get_session_events(session_id=session_id, session_metadata=mock_raw_metadata, team=mock_team)
+                get_session_events(session_id=session_id, session_metadata=mock_raw_metadata, team=mock_team)  # type: ignore[arg-type]
                 mock_instance.get_events.assert_called_once_with(
                     session_id="test_session_id",
                     team=mock_team,
@@ -172,7 +172,7 @@ class TestSummarizeSession:
             ) as mock_execute,
         ):
             result_gen = stream_recording_summary(session_id=session_id, user_pk=mock_user.pk, team=mock_team)
-            results = list(result_gen)
+            results = list(result_gen)  # type: ignore[arg-type]
             assert len(results) == 1
             assert results[0] == ready_summary
             mock_execute.assert_called_once_with(

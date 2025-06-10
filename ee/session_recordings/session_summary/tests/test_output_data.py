@@ -126,6 +126,7 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
             mock_raw_session_summary,
             mock_events_mapping,
@@ -178,6 +179,7 @@ class TestEnrichRawSessionSummary:
         # Remove one event from mapping
         del mock_events_mapping["mnop3456"]
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         with pytest.raises(
             ValueError, match=f"Mapping data for event_id mnop3456 not found when summarizing session_id {session_id}"
         ):
@@ -202,6 +204,7 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         # Remove one event from mapping (segment end id)
         del mock_events_mapping["vbgs1287"]
         # Should not raise an error anymore, but use fallback from key actions
@@ -240,6 +243,7 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         # Change type of the event to the unsupported one to cause schema validation error
         mock_events_mapping["abcd1234"][0] = set()
         with pytest.raises(
@@ -267,6 +271,7 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         # Remove URL from mapping
         mock_url_mapping_reversed.pop("url_1")
         # Some events are missing URLs (for example, coming from BE, like Python SDK ones), so enrichment should not fail
@@ -291,6 +296,7 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         # Remove window ID from mapping
         mock_window_mapping_reversed.pop("window_1")
         # Some events are missing window IDs (for example, coming from BE, like Python SDK ones), so enrichment should not fail
@@ -318,6 +324,7 @@ class TestEnrichRawSessionSummary:
         mock_events_mapping["abcd1234"][1] = "2025-03-31T18:40:39.302000Z"  # Later timestamp
         mock_events_mapping["defg4567"][1] = "2025-03-31T18:40:38.302000Z"  # Earlier timestamp
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
             mock_raw_session_summary,
             mock_events_mapping,
@@ -347,6 +354,7 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         session_id = "test_session"
+        assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
             mock_raw_session_summary,
             mock_events_mapping,
