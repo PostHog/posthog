@@ -2009,6 +2009,9 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+      zod:
+        specifier: '*'
+        version: 3.24.1
 
   products/notebooks:
     dependencies:
