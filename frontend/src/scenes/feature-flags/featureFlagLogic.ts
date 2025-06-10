@@ -409,12 +409,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
                     )
                     const oldPayloads = state.filters.payloads ?? {}
-                    const payloads = Object.keys(oldPayloads).reduce((newPayloads, variantKey) => {
+                    const payloads: Record<string, JsonType> = {}
+                    for (const variantKey of Object.keys(oldPayloads)) {
                         if (variantsSet.has(variantKey)) {
-                            return { ...newPayloads, [variantKey]: oldPayloads[variantKey] }
+                            payloads[variantKey] = oldPayloads[variantKey]
                         }
-                        return newPayloads
-                    }, {})
+                    }
                     return {
                         ...state,
                         filters: { ...state.filters, groups, payloads, multivariate: multivariateOptions },
