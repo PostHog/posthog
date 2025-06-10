@@ -158,10 +158,10 @@ export function TopBar(): JSX.Element | null {
                         <MetalyticsSummary />
                     </div>
                 </FlaggedFeature>
+                <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
                 <div className="shrink-1">
                     <TopBarSettingsButton />
                 </div>
-                <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
             </div>
         </div>
     ) : null
