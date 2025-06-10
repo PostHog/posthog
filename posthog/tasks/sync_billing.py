@@ -14,9 +14,7 @@ def sync_members_to_billing(organization_id: str) -> None:
     ).first()
 
     if not first_owner:
-        capture_exception(
-            Exception(f"Organization has no owner", additional_properties={"organization_id": organization.id})
-        )
+        capture_exception(Exception(f"Organization has no owner", {"organization_id": organization.id}))
         return
 
     first_owner.update_billing_organization_users(organization)

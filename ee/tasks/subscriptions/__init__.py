@@ -55,9 +55,7 @@ def _deliver_subscription_report(
     insights, assets = generate_assets(subscription)
 
     if not assets:
-        capture_exception(
-            Exception("No assets are in this subscription"), properties={"subscription_id": subscription.id}
-        )
+        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
         return
 
     if subscription.target_type == "email":

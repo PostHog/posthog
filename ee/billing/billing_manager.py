@@ -165,7 +165,7 @@ class BillingManager:
             if not first_owner_membership:
                 capture_exception(
                     Exception(f"No owner membership found for organization"),
-                    properties={"organization_id": organization.id},
+                    {"organization_id": organization.id},
                 )
                 return
             first_owner = first_owner_membership.user
