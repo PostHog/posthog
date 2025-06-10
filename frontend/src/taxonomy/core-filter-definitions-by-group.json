@@ -1849,6 +1849,12 @@
             "label": "Console log message"
         }
     },
+    "logs": {
+        "service_name": {
+            "description": "The service that emitted the log",
+            "label": "Service name"
+        }
+    },
     "metadata": {
         "distinct_id": {
             "description": "The current distinct ID of the user.",

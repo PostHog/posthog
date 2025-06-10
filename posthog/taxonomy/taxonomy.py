@@ -2084,6 +2084,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Number of console errors during the session",
         },
     },
+    "logs": {
+        "service_name": {
+            "label": "Service name",
+            "description": "The service that emitted the log",
+        },
+    },
     "log_entries": {
         "level": {
             "label": "Console log level",
