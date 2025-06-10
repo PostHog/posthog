@@ -4,6 +4,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from django.test import TestCase
+from freezegun import freeze_time
 from django.test.client import RequestFactory
 
 from posthog.api.csp import (
@@ -276,10 +277,9 @@ class TestCSPModule(TestCase):
         assert event["properties"]["$session_id"] == "test-session"
         assert event["properties"]["$csp_version"] == "1"
 
-    @patch("posthog.api.csp.datetime")
-    def test_sample_csp_report(self, mock_datetime):
-        mock_datetime.now.return_value = datetime(2023, 1, 1, 12, 0, 0)
-        trunc_date_iso_format = mock_datetime.now.return_value.replace(second=0, microsecond=0).isoformat()
+    @freeze_time("2023-01-01 12:00:00")
+    def test_sample_csp_report(self):
+        trunc_date_iso_format = datetime(2023, 1, 1, 12, 0, 0).isoformat()
 
         properties = {
             "document_url": "https://example.com/page",
@@ -577,28 +577,24 @@ class TestCSPModule(TestCase):
         assert call_args[0][0] == "Invalid CSP report properties"
         assert "error" in call_args[1]
 
-    @patch("posthog.api.csp.datetime")
-    def test_dynamic_sampling_with_time_component_includes_url_and_time(self, mock_datetime):
+    def test_dynamic_sampling_with_time_component_includes_url_and_time(self):
         """Test that the sampling key includes both URL and time component"""
-        time1 = datetime(2023, 1, 1, 12, 0, 0)
-        time2 = datetime(2023, 1, 1, 12, 1, 0)
-
         properties = {
             "document_url": "https://example.com/page",
             "effective_directive": "script-src",
         }
 
         # First minute
-        mock_datetime.now.return_value = time1
-        properties_copy1 = properties.copy()
-        sample_csp_report(properties_copy1, 0.5, add_metadata=True)
-        sampling_key1 = properties_copy1.get("csp_sampling_key")
+        with freeze_time("2023-01-01 12:00:00"):
+            properties_copy1 = properties.copy()
+            sample_csp_report(properties_copy1, 0.5, add_metadata=True)
+            sampling_key1 = properties_copy1.get("csp_sampling_key")
 
         # Second minute
-        mock_datetime.now.return_value = time2
-        properties_copy2 = properties.copy()
-        sample_csp_report(properties_copy2, 0.5, add_metadata=True)
-        sampling_key2 = properties_copy2.get("csp_sampling_key")
+        with freeze_time("2023-01-01 12:01:00"):
+            properties_copy2 = properties.copy()
+            sample_csp_report(properties_copy2, 0.5, add_metadata=True)
+            sampling_key2 = properties_copy2.get("csp_sampling_key")
 
         # Verify sampling keys are different due to time component
         assert sampling_key1 != sampling_key2
@@ -609,10 +605,8 @@ class TestCSPModule(TestCase):
         assert sampling_key1 is not None and "https://example.com/page" in sampling_key1
         assert sampling_key2 is not None and "https://example.com/page" in sampling_key2
 
-    @patch("posthog.api.csp.datetime")
-    def test_sampling_consistency_within_same_minute(self, mock_datetime):
-        mock_datetime.now.return_value = datetime(2023, 1, 1, 12, 0, 0)
-
+    @freeze_time("2023-01-01 12:00:00")
+    def test_sampling_consistency_within_same_minute(self):
         properties1 = {
             "document_url": "https://example.com/page",
             "effective_directive": "script-src",
@@ -633,8 +627,7 @@ class TestCSPModule(TestCase):
         # Should have the same sampling key (URL + time)
         assert properties1["csp_sampling_key"] == properties2["csp_sampling_key"]
 
-    @patch("posthog.api.csp.datetime")
-    def test_same_url_different_sampling_across_time_windows(self, mock_datetime):
+    def test_same_url_different_sampling_across_time_windows(self):
         """Test that demonstrates URLs are not permanently excluded
 
         Uses deterministic test cases based on known hash outcomes to ensure robustness.
@@ -644,52 +637,52 @@ class TestCSPModule(TestCase):
         # Test specific URL+time combinations with known expected outcomes
         # These were determined by calculating hash(url + "-" + timestamp) % 100
         deterministic_test_cases = [
-            # URL, time, expected_result_at_50_percent, hash_mod_100
-            ("https://example.com/other", datetime(2023, 1, 1, 12, 0, 0), True, 8),  # 8 < 50 = True
-            ("https://example.com/other", datetime(2023, 1, 1, 12, 1, 0), False, 99),  # 99 >= 50 = False
-            ("https://test.com/page", datetime(2023, 1, 1, 12, 3, 0), False, 52),  # 52 >= 50 = False
-            ("https://test.com/page", datetime(2023, 1, 1, 12, 4, 0), True, 43),  # 43 < 50 = True
-            ("https://test.com/page", datetime(2023, 1, 1, 12, 9, 0), False, 98),  # 98 >= 50 = False
+            # URL, time_string, expected_result_at_50_percent, hash_mod_100
+            ("https://example.com/other", "2023-01-01 12:00:00", True, 8),  # 8 < 50 = True
+            ("https://example.com/other", "2023-01-01 12:01:00", False, 99),  # 99 >= 50 = False
+            ("https://test.com/page", "2023-01-01 12:03:00", False, 52),  # 52 >= 50 = False
+            ("https://test.com/page", "2023-01-01 12:04:00", True, 43),  # 43 < 50 = True
+            ("https://test.com/page", "2023-01-01 12:09:00", False, 98),  # 98 >= 50 = False
         ]
 
-        for url, time, expected_result, expected_hash_mod in deterministic_test_cases:
-            mock_datetime.now.return_value = time
-            properties = {"document_url": url, "effective_directive": "script-src"}
-            result = sample_csp_report(properties, 0.5)
-            assert (
-                result == expected_result
-            ), f"Expected {expected_result} for {url} at {time} (hash%100={expected_hash_mod}), got {result}"
+        for url, time_string, expected_result, expected_hash_mod in deterministic_test_cases:
+            with freeze_time(time_string):
+                properties = {"document_url": url, "effective_directive": "script-src"}
+                result = sample_csp_report(properties, 0.5)
+                assert (
+                    result == expected_result
+                ), f"Expected {expected_result} for {url} at {time_string} (hash%100={expected_hash_mod}), got {result}"
 
         # Demonstrate the key improvement: same URL gets different sampling decisions across time
         url = "https://test.com/page"
         time_sampling_pairs = [
-            (datetime(2023, 1, 1, 12, 3, 0), False),  # hash%100=52 >= 50
-            (datetime(2023, 1, 1, 12, 4, 0), True),  # hash%100=43 < 50
-            (datetime(2023, 1, 1, 12, 9, 0), False),  # hash%100=98 >= 50
+            ("2023-01-01 12:03:00", False),  # hash%100=52 >= 50
+            ("2023-01-01 12:04:00", True),  # hash%100=43 < 50
+            ("2023-01-01 12:09:00", False),  # hash%100=98 >= 50
         ]
 
         sampled_in_results = []
         sampled_out_results = []
 
-        for time, expected_result in time_sampling_pairs:
-            mock_datetime.now.return_value = time
-            properties = {"document_url": url, "effective_directive": "script-src"}
-            result = sample_csp_report(properties, 0.5)
-            assert result == expected_result, f"Failed deterministic test for {url} at {time}"
+        for time_string, expected_result in time_sampling_pairs:
+            with freeze_time(time_string):
+                properties = {"document_url": url, "effective_directive": "script-src"}
+                result = sample_csp_report(properties, 0.5)
+                assert result == expected_result, f"Failed deterministic test for {url} at {time_string}"
 
-            if result:
-                sampled_in_results.append(time)
-            else:
-                sampled_out_results.append(time)
+                if result:
+                    sampled_in_results.append(time_string)
+                else:
+                    sampled_out_results.append(time_string)
 
         # This is the key assertion: same URL gets BOTH outcomes across time windows
         assert len(sampled_in_results) > 0, f"URL {url} should be sampled IN at least once"
         assert len(sampled_out_results) > 0, f"URL {url} should be sampled OUT at least once"
 
         # Verify consistency within the same minute (time component doesn't change within a minute)
-        mock_datetime.now.return_value = datetime(2023, 1, 1, 12, 0, 0)
-        properties1 = {"document_url": "https://example.com/test", "effective_directive": "script-src"}
-        result1 = sample_csp_report(properties1.copy(), 0.5)
-        result2 = sample_csp_report(properties1.copy(), 0.5)
+        with freeze_time("2023-01-01 12:00:00"):
+            properties1 = {"document_url": "https://example.com/test", "effective_directive": "script-src"}
+            result1 = sample_csp_report(properties1.copy(), 0.5)
+            result2 = sample_csp_report(properties1.copy(), 0.5)
 
-        assert result1 == result2, "Same URL+time should produce consistent sampling results within the same minute"
+            assert result1 == result2, "Same URL+time should produce consistent sampling results within the same minute"
