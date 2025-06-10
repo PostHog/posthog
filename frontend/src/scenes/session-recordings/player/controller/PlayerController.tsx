@@ -99,16 +99,14 @@ export function PlayerController(): JSX.Element {
     return (
         <div className="bg-surface-primary flex flex-col select-none">
             <Seekbar />
-            <div className="w-full px-2 py-1 relative flex items-center justify-center" ref={ref}>
-                <div className="absolute left-2">
-                    <Timestamp size={size} />
-                </div>
+            <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
+                <Timestamp size={size} />
                 <div className="flex gap-0.5 items-center justify-center">
                     <SeekSkip direction="backward" />
                     <PlayPauseButton />
                     <SeekSkip direction="forward" />
                 </div>
-                <div className="absolute right-2 flex justify-end items-center">
+                <div className="flex justify-end items-center">
                     <FlaggedFeature flag="annotations-recording-scope" match={true}>
                         <AnnotateRecording />
                     </FlaggedFeature>
