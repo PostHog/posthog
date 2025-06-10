@@ -15,6 +15,22 @@ from posthog.schema import (
 from posthog.types import InsightQueryNode
 
 
+def strip_version_recursive(d):
+    if not isinstance(d, dict):
+        return d
+
+    if "version" in d:
+        del d["version"]
+
+    for key, value in d.items():
+        if isinstance(value, dict):
+            d[key] = strip_version_recursive(value)
+        elif isinstance(value, list):
+            d[key] = [strip_version_recursive(item) if isinstance(item, dict) else item for item in value]
+
+    return d
+
+
 def to_dict(query: BaseModel) -> dict:
     klass: Any = type(query)
 
@@ -22,6 +38,9 @@ def to_dict(query: BaseModel) -> dict:
         @model_serializer(mode="wrap")
         def serialize_query(self, next_serializer):
             dumped = next_serializer(self)
+
+            # strip version
+            dumped = strip_version_recursive(dumped)
 
             ###
             # Our schema is generated with `Literal` fields for type, kind, etc. These
