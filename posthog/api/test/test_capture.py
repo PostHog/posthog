@@ -2727,3 +2727,40 @@ class TestCapture(BaseTest):
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
         mock_logger.exception.assert_called_once()
+
+    def test_csp_sampled_out_report_uri_does_not_return_400(self):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        # Use 0% sampling rate to ensure report is sampled out
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&sample_rate=0.0",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_csp_sampled_out_report_to_does_not_return_400(self):
+        report_to_format = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/foo/bar",
+                    "effectiveDirective": "script-src",
+                },
+            }
+        ]
+
+        # Use 0% sampling rate to ensure report is sampled out
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&sample_rate=0.0",
+            data=json.dumps(report_to_format),
+            content_type="application/reports+json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
