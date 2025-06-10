@@ -42,6 +42,9 @@ describe('featureFlagLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
     })
+    afterEach(() => {
+        logic.unmount()
+    })
 
     describe('setMultivariateEnabled functionality', () => {
         it('adds an empty variant when enabling multivariate', async () => {
