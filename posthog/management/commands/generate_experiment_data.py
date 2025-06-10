@@ -9,6 +9,7 @@ from typing import Any, Literal, Union
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from posthog.models import Team, User
 import posthoganalytics
 from pydantic import BaseModel, ValidationError, Field
 
@@ -16,8 +17,6 @@ from pydantic import BaseModel, ValidationError, Field
 def initialize_self_capture():
     """Initialize self-capture for posthoganalytics in management command context"""
     try:
-        from posthog.models import Team, User
-
         user = (
             User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
         )
