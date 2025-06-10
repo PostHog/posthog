@@ -144,13 +144,16 @@ describe('HogWatcher', () => {
         { name: string; cost: number; state: number },
         CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
     ][] = [
-        [{ name: 'single default result', cost: 0, state: 1 }, [createResult({ id: 'id1' })]],
         [
-            { name: 'three default results', cost: 0, state: 1 },
+            { name: 'should calculate cost and state for single default result', cost: 0, state: 1 },
+            [createResult({ id: 'id1' })],
+        ],
+        [
+            { name: 'should calculate cost and state for multiple default results', cost: 0, state: 1 },
             [createResult({ id: 'id1' }), createResult({ id: 'id1' }), createResult({ id: 'id1' })],
         ],
         [
-            { name: 'three small durations', cost: 0, state: 1 },
+            { name: 'should calculate cost and state for small durations', cost: 0, state: 1 },
             [
                 createResult({ id: 'id1', duration: 10 }),
                 createResult({ id: 'id1', duration: 20 }),
@@ -158,7 +161,7 @@ describe('HogWatcher', () => {
             ],
         ],
         [
-            { name: 'three 1000ms durations', cost: 12, state: 1 },
+            { name: 'should calculate cost and state for medium durations', cost: 12, state: 1 },
             [
                 createResult({ id: 'id1', duration: 1000, kind: 'async_function' }),
                 createResult({ id: 'id1', duration: 1000, kind: 'async_function' }),
@@ -166,15 +169,15 @@ describe('HogWatcher', () => {
             ],
         ],
         [
-            { name: 'single 5000ms', cost: 20, state: 1 },
+            { name: 'should calculate cost and state for single large duration', cost: 20, state: 1 },
             [createResult({ id: 'id1', duration: 5000, kind: 'async_function' })],
         ],
         [
-            { name: 'single 10000ms', cost: 40, state: 1 },
+            { name: 'should calculate cost and state for single very large duration', cost: 40, state: 1 },
             [createResult({ id: 'id1', duration: 10000, kind: 'async_function' })],
         ],
         [
-            { name: 'three large durations (should sum)', cost: 141, state: 1 },
+            { name: 'should calculate cumulative cost and state for multiple large durations', cost: 141, state: 1 },
             [
                 createResult({ id: 'id1', duration: 5000, kind: 'async_function' }),
                 createResult({ id: 'id1', duration: 10000, kind: 'async_function' }),
@@ -183,7 +186,7 @@ describe('HogWatcher', () => {
         ],
     ]
 
-    it.each(cases)('%s', async (expectedScore, results) => {
+    it.each(cases.map(([meta, results]) => [meta.name, meta, results]))('%s', async (name, expectedScore, results) => {
         await watcher.observeResults(results)
         const result = await watcher.getState('id1')
         expect(hub.CDP_WATCHER_BUCKET_SIZE - result.tokens).toEqual(expectedScore.cost)
