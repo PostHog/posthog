@@ -9,7 +9,7 @@ use tokio::sync::mpsc::{
     Receiver, Sender,
 };
 
-#[derive(Clone, Debug§)]
+#[derive(Clone, Debug)]
 pub struct MeasuringSender<T> {
     sender: Sender<T>,
     in_flight: Arc<AtomicUsize>,
