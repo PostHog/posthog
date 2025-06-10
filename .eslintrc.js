@@ -47,6 +47,7 @@ module.exports = {
         'dags',
         'funnel-udf',
         'patches',
+        '**/__pycache__/**',
     ],
     env,
     settings: {
