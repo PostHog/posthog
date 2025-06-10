@@ -64,11 +64,6 @@ export default [
 
     // Main configuration
     {
-        files: [
-            'frontend/**/*.{js,jsx,ts,tsx}',
-            'ee/frontend/**/*.{js,jsx,ts,tsx}',
-            'products/**/frontend/**/*.{js,jsx,ts,tsx}'
-        ],
         languageOptions: {
             ecmaVersion: 'latest',
             sourceType: 'module',
