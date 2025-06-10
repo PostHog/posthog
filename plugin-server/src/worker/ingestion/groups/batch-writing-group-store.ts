@@ -454,7 +454,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                             const groupUpdate = fromGroup(existingGroup)
                             this.addGroupToCache(teamId, groupKey, {
                                 ...groupUpdate,
-                                needsWrite: true,
+                                needsWrite: false,
                             })
                             return groupUpdate
                         } else {
