@@ -4,12 +4,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useRef } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { Navbar } from '~/layout/navigation-3000/components/Navbar'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -54,16 +51,7 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <FlaggedFeature
-                flag={FEATURE_FLAGS.TREE_VIEW}
-                fallback={
-                    <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_RELEASE} fallback={<Navbar />}>
-                        <PanelLayout mainRef={mainRef} />
-                    </FlaggedFeature>
-                }
-            >
-                <PanelLayout mainRef={mainRef} />
-            </FlaggedFeature>
+            <PanelLayout mainRef={mainRef} />
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
                 {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
