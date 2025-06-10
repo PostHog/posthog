@@ -5245,21 +5245,12 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    | 'id'
-    | 'type'
-    | 'kind'
-    | 'name'
-    | 'description'
-    | 'hog'
-    | 'inputs_schema'
-    | 'filters'
-    | 'icon_url'
-    | 'masking'
-    | 'mappings'
+    'id' | 'type' | 'kind' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
+    description?: string | React.ReactNode
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {

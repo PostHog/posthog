@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import { connect, kea, path, selectors } from 'kea'
 import { MANUAL_SOURCE_LINK_MAP, sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -24,7 +25,12 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         name: connector.name,
                         icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[connector.name],
                         status: connector.unreleasedSource ? 'coming_soon' : 'stable',
-                        description: connector.label ?? connector.name,
+                        description: (
+                            <>
+                                Data will be synced to PostHog and regularly refreshed.{' '}
+                                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
+                            </>
+                        ),
                         hog: '',
                         inputs_schema: [],
                         filters: null,
@@ -40,7 +46,12 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         name,
                         icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[type],
                         status: 'stable',
-                        description: name,
+                        description: (
+                            <>
+                                Data will be queried directly from your data source that you manage.{' '}
+                                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
+                            </>
+                        ),
                         hog: '',
                         inputs_schema: [],
                         filters: null,
