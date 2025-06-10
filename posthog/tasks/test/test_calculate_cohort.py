@@ -11,6 +11,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
     MAX_AGE_MINUTES,
+    MAX_ERRORS_CALCULATING,
     update_stale_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
 )
@@ -182,7 +183,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 last_calculation=now - relativedelta(hours=50),
                 deleted=False,
                 is_calculating=False,
-                errors_calculating=25,  # Should be excluded (>20 errors)
+                errors_calculating=MAX_ERRORS_CALCULATING + 1,  # Should be excluded (>20 errors)
                 is_static=False,
             )
 
@@ -229,10 +230,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(mock_logger.info.call_count, 2)
 
             # Check the log calls have the expected format
-            expected_calls = [
-                call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
-                call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
-            ]
-            mock_logger.info.assert_has_calls(expected_calls, any_order=True)
+            self.assertCountEqual(
+                mock_logger.info.call_args_list,
+                [
+                    call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
+                    call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
+                ],
+            )
 
     return TestCalculateCohort

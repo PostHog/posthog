@@ -38,6 +38,7 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
+MAX_ERRORS_CALCULATING = 20
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -46,7 +47,7 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
         | Q(last_calculation__isnull=True),
         deleted=False,
         is_calculating=False,
-        errors_calculating__lte=20,
+        errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
 
 
