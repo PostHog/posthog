@@ -308,8 +308,8 @@ INSIGHT_ACTORS_KINDS = {
 
 
 def is_insight_query(query: dict) -> bool:
-    kind = query.get("kind") or getattr(query, "kind", None)
-    source = query.get("source") or getattr(query, "source", None)
+    kind = query.get("kind")
+    source = query.get("source")
 
     if kind in INSIGHT_KINDS:
         return True
@@ -326,8 +326,8 @@ def is_insight_query(query: dict) -> bool:
 
 
 def is_insight_actors_query(query: dict) -> bool:
-    kind = query.get("kind") or getattr(query, "kind", None)
-    source = query.get("source") or getattr(query, "source", None)
+    kind = query.get("kind")
+    source = query.get("source")
 
     if kind in INSIGHT_ACTORS_KINDS:
         return True
@@ -338,7 +338,7 @@ def is_insight_actors_query(query: dict) -> bool:
 
 
 def is_insight_actors_options_query(query: dict) -> bool:
-    kind = query.get("kind") or getattr(query, "kind", None)
+    kind = query.get("kind")
     if kind == "InsightActorsQueryOptions":
         return True
     return False
