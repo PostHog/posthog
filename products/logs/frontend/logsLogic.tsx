@@ -19,53 +19,6 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
 
-    urlToAction(({ actions, values }) => {
-        const urlToAction = (_: any, params: Params): void => {
-            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
-                actions.setDateRange(params.dateRange)
-            }
-            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.filterGroup, false)
-            }
-            if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
-                actions.setSearchTerm(params.searchTerm)
-            }
-            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
-                actions.setSeverityLevels(params.severityLevels)
-            }
-        }
-        return {
-            '*': urlToAction,
-        }
-    }),
-
-    actionToUrl(({ actions, values }) => {
-        const buildURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            }
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'searchTerm', values.searchTerm, '')
-                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
-                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
-                updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                actions.runQuery(300)
-                return params
-            })
-        }
-
-        return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(),
-            setSeverityLevels: () => buildURL(),
-        }
-    }),
-
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
@@ -77,7 +30,6 @@ export const logsLogic = kea<logsLogicType>([
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
-        setResource: (resource: LogsQuery['resource']) => ({ resource }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
@@ -108,13 +60,6 @@ export const logsLogic = kea<logsLogicType>([
             { persist: true },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
-        resource: [
-            '' as LogsQuery['resource'],
-            { persist: true },
-            {
-                setResource: (_, { resource }) => resource,
             },
         ],
         severityLevels: [
@@ -202,7 +147,6 @@ export const logsLogic = kea<logsLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.dateRange,
                             searchTerm: values.searchTerm,
-                            resource: values.resource,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                         },
@@ -232,7 +176,6 @@ export const logsLogic = kea<logsLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.dateRange,
                             searchTerm: values.searchTerm,
-                            resource: values.resource,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                         },
@@ -272,6 +215,53 @@ export const logsLogic = kea<logsLogicType>([
                 index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
                 actions.setExpandedAttributeBreaksdowns(breakdowns)
             },
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
+                actions.setDateRange(params.dateRange)
+            }
+            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(params.filterGroup, false)
+            }
+            if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
+                actions.setSearchTerm(params.searchTerm)
+            }
+            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
+                actions.setSeverityLevels(params.severityLevels)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
+    }),
+
+    actionToUrl(({ actions, values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'searchTerm', values.searchTerm, '')
+                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
+                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
+                updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
+                actions.runQuery(300)
+                return params
+            })
+        }
+
+        return {
+            setDateRange: () => buildURL(),
+            setFilterGroup: () => buildURL(),
+            setSearchTerm: () => buildURL(),
+            setSeverityLevels: () => buildURL(),
         }
     }),
 ])
