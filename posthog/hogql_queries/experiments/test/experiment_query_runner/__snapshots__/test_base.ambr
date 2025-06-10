@@ -1590,12 +1590,12 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
@@ -2769,12 +2769,12 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.1

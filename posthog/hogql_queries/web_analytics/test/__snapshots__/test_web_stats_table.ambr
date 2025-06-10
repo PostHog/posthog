@@ -556,12 +556,12 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters.1

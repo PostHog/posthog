@@ -281,4 +281,5 @@ export function SessionsRecordings(): JSX.Element {
 export const scene: SceneExport = {
     component: SessionsRecordings,
     logic: sessionReplaySceneLogic,
+    settingSectionId: 'environment-replay',
 }

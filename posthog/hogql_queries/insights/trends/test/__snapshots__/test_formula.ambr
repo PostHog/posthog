@@ -197,12 +197,12 @@
 # ---
 # name: TestFormula.test_breakdown_cohort
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.1

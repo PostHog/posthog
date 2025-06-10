@@ -1,12 +1,12 @@
 # serializer version: 1
 # name: TestTrends.test_action_filtering_with_cohort
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.1
@@ -16,7 +16,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = 0
+    AND version = 2
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.2
@@ -179,12 +179,12 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
@@ -194,7 +194,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = 0
+    AND version = 2
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
@@ -810,12 +810,12 @@
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.1
@@ -1617,12 +1617,12 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.1
@@ -1741,12 +1741,12 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
@@ -2324,12 +2324,12 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.1
@@ -2492,12 +2492,12 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
