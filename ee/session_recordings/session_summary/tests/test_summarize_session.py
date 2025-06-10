@@ -5,6 +5,7 @@ from datetime import datetime
 
 import pytest
 
+from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
@@ -140,9 +141,6 @@ class TestSummarizeSession:
         self,
         mock_user: MagicMock,
         mock_team: MagicMock,
-        mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[tuple[Any, ...]],
-        mock_raw_events_columns: list[str],
         mock_loaded_llm_json_response: str,
     ):
         """Test the ASGI streaming path."""
@@ -151,14 +149,45 @@ class TestSummarizeSession:
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
-            patch("posthog.settings.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch("posthog.temporal.ai.session_summary.summarize_session.SERVER_GATEWAY_INTERFACE", "ASGI"),
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session.execute_summarize_session",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
             async_gen = stream_recording_summary(session_id=session_id, user_pk=mock_user.pk, team=mock_team)
+            assert isinstance(async_gen, SyncIterableToAsync)
             results = [chunk async for chunk in async_gen]
+            assert len(results) == 1
+            assert results[0] == ready_summary
+            mock_execute.assert_called_once_with(
+                session_id=session_id,
+                user_pk=mock_user.pk,
+                team=mock_team,
+                extra_summary_context=None,
+                local_reads_prod=False,
+            )
+
+    def test_stream_recording_summary_wsgi(
+        self,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_loaded_llm_json_response: str,
+    ):
+        """Test the WSGI (non-ASGI) streaming path."""
+        session_id = "test_session_id"
+        ready_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
+        )
+        with (
+            patch("posthog.settings.SERVER_GATEWAY_INTERFACE", "WSGI"),
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session.execute_summarize_session",
+                return_value=iter([ready_summary]),
+            ) as mock_execute,
+        ):
+            result_gen = stream_recording_summary(session_id=session_id, user_pk=mock_user.pk, team=mock_team)
+            results = list(result_gen)
             assert len(results) == 1
             assert results[0] == ready_summary
             mock_execute.assert_called_once_with(
