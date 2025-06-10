@@ -293,10 +293,16 @@ class BigQueryClient(bigquery.Client):
     ):
         """Attempt to SELECT from table to check for query permissions."""
         job_config = bigquery.QueryJobConfig()
+
         if "timestamp" in [field.name for field in table.schema]:
             query = f"""
             SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
             """
+
+            if table.time_partitioning is not None and table.time_partitioning.field == "timestamp":
+                today = dt.date.today()
+                query += f" AND timestamp = '{today.isoformat()}'"
+
         else:
             query = f"""
             SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
