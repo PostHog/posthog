@@ -1,10 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use tokio::sync::mpsc::{
-    channel,
-    error::{RecvError, SendError},
-    Receiver, Sender,
-};
+use tokio::sync::mpsc::{channel, error::SendError, Receiver, Sender};
 
 pub struct MeasuringChannel<T> {
     sender: Sender<T>,
@@ -45,7 +41,7 @@ impl<T> MeasuringChannel<T> {
         received_count
     }
 
-    pub fn len(&self) -> usize {
+    pub fn get_inflight_messages_count(&self) -> usize {
         self.in_flight_message.load(Ordering::Relaxed)
     }
 
