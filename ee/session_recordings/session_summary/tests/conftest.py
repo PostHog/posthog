@@ -2,10 +2,18 @@ from typing import Any
 from unittest.mock import MagicMock
 import pytest
 from datetime import datetime
+import datetime as dt
+from contextlib import contextmanager
+import temporalio.worker
+from temporalio.client import Client as TemporalClient
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
+from posthog.api.test.batch_exports.conftest import ThreadedWorker, cleanup_temporal_schedules
 from posthog.models import Team, User
 from ee.session_recordings.session_summary.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
+from posthog.temporal.ai.session_summary import WORKFLOWS, ACTIVITIES
+from posthog.temporal.common.client import sync_connect
+from posthog import constants
 
 
 @pytest.fixture
@@ -600,3 +608,24 @@ def mock_window_mapping_reversed() -> dict[str, str]:
 @pytest.fixture
 def mock_window_mapping(mock_window_mapping_reversed: dict[str, str]) -> dict[str, str]:
     return {v: k for k, v in mock_window_mapping_reversed.items()}
+
+
+@contextmanager
+def start_test_worker(temporal: TemporalClient):
+    with ThreadedWorker(
+        client=temporal,
+        task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+        workflows=WORKFLOWS,
+        activities=ACTIVITIES,
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        graceful_shutdown_timeout=dt.timedelta(seconds=5),
+    ).run_in_thread():
+        yield
+
+
+@pytest.fixture
+def temporal():
+    """Return a TemporalClient instance."""
+    client = sync_connect()
+    yield client
+    cleanup_temporal_schedules(client)
