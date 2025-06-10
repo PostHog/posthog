@@ -6,25 +6,24 @@ export type HogFlow = {
     name: string
     status: 'active' | 'draft' | 'archived'
 
-    trigger:
-        | {
-              type: 'event'
-              // TODO(team-messaging): use HogFunctionFilters instead of any
-              filters: any
-          }
-        | {
-              type: 'pre-processed-event'
-              // TODO(team-messaging): use HogFunctionFilters instead of any
-              filters: any
-          }
-        | {
-              type: 'schedule'
-              cron: string
-          }
-        | {
-              type: 'webhook'
-              hog_function_id: string
-          }
+    trigger: {
+        type: 'event'
+        // TODO(team-messaging): use HogFunctionFilters instead of any
+        filters: any
+    }
+    // | {
+    //       type: 'pre-processed-event'
+    //       // TODO(team-messaging): use HogFunctionFilters instead of any
+    //       filters: any
+    //   }
+    // | {
+    //       type: 'schedule'
+    //       cron: string
+    //   }
+    // | {
+    //       type: 'webhook'
+    //       hog_function_id: string
+    //   }
 
     trigger_masking: {
         ttl: number

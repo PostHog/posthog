@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/shared-types",
+    "name": "@posthog/shared_types",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
