@@ -55,7 +55,7 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]:
     """
     Performs a topological sort on the DAG to determine execution order.
-    Returns nodes ordered from most upstream to most downstream.
+    Returns nodes ordered from most upstream to the node itself.
     """
     # Build adjacency list and in-degree count
     graph = defaultdict(list)
