@@ -30,7 +30,9 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
-        "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts"
+        "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
+        "sourcemap:inject": "posthog-cli sourcemap inject --directory ./dist",
+        "sourcemap:upload": "posthog-cli sourcemap upload --directory ./dist"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -55,6 +57,7 @@
         "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
+        "@posthog/cli": "0.1.0",
         "@segment/action-destinations": "^3.383.0",
         "@types/lru-cache": "^5.1.0",
         "@types/node": "^18.11.9",
@@ -87,7 +90,7 @@
         "p-limit": "3.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
-        "posthog-node": "4.14.0",
+        "posthog-node": "4.18.0",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^14.2.0",
         "re2": "^1.20.3",

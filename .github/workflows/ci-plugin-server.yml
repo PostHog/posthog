@@ -102,6 +102,12 @@ jobs:
             - name: Check builds correctly
               run: pnpm --filter=@posthog/plugin-server build
 
+            - name: Inject sourcemaps
+              run: pnpm --filter=@posthog/plugin-server sourcemap:inject
+
+            - name: Upload sourcemaps
+              run: pnpm --filter=@posthog/plugin-server sourcemap:upload
+
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
         needs: changes
