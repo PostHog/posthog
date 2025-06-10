@@ -12,6 +12,7 @@ from posthog.api.csp import (
     parse_report_to,
     sample_csp_report,
 )
+from posthog.sampling import sample_on_property
 
 
 class TestCSPModule(TestCase):
@@ -275,8 +276,11 @@ class TestCSPModule(TestCase):
         assert event["properties"]["$session_id"] == "test-session"
         assert event["properties"]["$csp_version"] == "1"
 
-    def test_sample_csp_report(self):
-        # Create test properties
+    @patch("posthog.api.csp.datetime")
+    def test_sample_csp_report(self, mock_datetime):
+        mock_datetime.now.return_value = datetime(2023, 1, 1, 12, 0, 0)
+        trunc_date_iso_format = mock_datetime.now.return_value.replace(second=0, microsecond=0).isoformat()
+
         properties = {
             "document_url": "https://example.com/page",
             "effective_directive": "script-src",
@@ -293,13 +297,15 @@ class TestCSPModule(TestCase):
         # The same properties should have the same sampling decision at the same rate
         assert sample_csp_report(properties, 0.5) is result_at_50_percent
 
-        # Test with missing document_url (should be deterministic but include time)
-        result_missing_url = sample_csp_report({"effective_directive": "script-src"}, 0.5)
-        assert isinstance(result_missing_url, bool)
+        # Test with missing document_url
+        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) == sample_on_property(
+            f"-{trunc_date_iso_format}", 0.5
+        )
 
-        # Test with only document_url (should be deterministic but include time)
-        result_only_url = sample_csp_report({"document_url": "https://example.com/page"}, 0.5)
-        assert isinstance(result_only_url, bool)
+        # Test with only document_url
+        assert sample_csp_report({"document_url": "https://example.com/page"}, 0.5) == sample_on_property(
+            f"https://example.com/page-{trunc_date_iso_format}", 0.5
+        )
 
     def test_process_csp_report_with_sampling_in(self):
         # Create a test properties dictionary
@@ -447,12 +453,6 @@ class TestCSPModule(TestCase):
             result1 = sample_csp_report(case, rate)
             result2 = sample_csp_report(case, rate)
             assert result1 == result2, f"Expected consistent sampling decision for {case}"
-
-            # Check that sampling includes both document_url and time component
-            # The actual sampling key will be document_url + timestamp, so we can't compare directly
-            # with sample_on_property on just the URL anymore
-            assert isinstance(result1, bool)
-            assert isinstance(result2, bool)
 
     def test_process_csp_report_with_sampling_out(self):
         properties = {
@@ -652,7 +652,6 @@ class TestCSPModule(TestCase):
             ("https://test.com/page", datetime(2023, 1, 1, 12, 9, 0), False, 98),  # 98 >= 50 = False
         ]
 
-        # Verify each deterministic test case
         for url, time, expected_result, expected_hash_mod in deterministic_test_cases:
             mock_datetime.now.return_value = time
             properties = {"document_url": url, "effective_directive": "script-src"}
@@ -662,7 +661,6 @@ class TestCSPModule(TestCase):
             ), f"Expected {expected_result} for {url} at {time} (hash%100={expected_hash_mod}), got {result}"
 
         # Demonstrate the key improvement: same URL gets different sampling decisions across time
-        # This directly addresses Paul's concern about permanent URL exclusion
         url = "https://test.com/page"
         time_sampling_pairs = [
             (datetime(2023, 1, 1, 12, 3, 0), False),  # hash%100=52 >= 50
