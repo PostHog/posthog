@@ -74,7 +74,7 @@ const setQueryParams = (params: Record<string, string>): string => {
     return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
 }
 
-export type LineOrTableChart = 'line' | 'table'
+export type DisplayMode = 'line' | 'area' | 'bar' | 'table'
 
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
@@ -90,8 +90,9 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
             revenueAnalyticsFilters,
         }),
-        setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
-        setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
+        setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
+        setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
+        setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrossRevenueGroupBy: (groupBy: RevenueAnalyticsInsightsQueryGroupBy) => ({ groupBy }),
     }),
     reducers(() => ({
@@ -118,8 +119,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 setGrossRevenueGroupBy: (_, { groupBy }) => groupBy,
             },
         ],
+        insightsDisplayMode: [
+            'line' as DisplayMode,
+            persistConfig,
+            {
+                setInsightsDisplayMode: (_, { displayMode }) => displayMode,
+            },
+        ],
         growthRateDisplayMode: [
-            'line' as LineOrTableChart,
+            'line' as DisplayMode,
             persistConfig,
             {
                 setGrowthRateDisplayMode: (_, { displayMode }) => displayMode,
@@ -134,7 +142,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
         topCustomersDisplayMode: [
-            'line' as LineOrTableChart,
+            'line' as DisplayMode,
             persistConfig,
             {
                 setTopCustomersDisplayMode: (_, { displayMode }) => displayMode,
