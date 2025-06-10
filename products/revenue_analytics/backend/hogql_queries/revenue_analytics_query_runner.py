@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional, Union, cast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
@@ -120,23 +120,23 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None
     ]:
         # Remove the view name because it's not useful for the select query
-        parsed_charge_selects = [
-            selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY]
+        parsed_charge_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY])
             for _, selects in self.revenue_selects.items()
             if selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY] is not None
         ]
-        parsed_customer_selects = [
-            selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY]
+        parsed_customer_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
             for _, selects in self.revenue_selects.items()
             if selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
         ]
-        parsed_invoice_item_selects = [
-            selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY]
+        parsed_invoice_item_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY])
             for _, selects in self.revenue_selects.items()
             if selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
         ]
-        parsed_product_selects = [
-            selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY]
+        parsed_product_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
             for _, selects in self.revenue_selects.items()
             if selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
         ]
