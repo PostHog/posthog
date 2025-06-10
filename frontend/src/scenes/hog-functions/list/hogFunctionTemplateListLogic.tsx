@@ -182,6 +182,16 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         return `https://posthog.com/docs/cdp/${template.type}s/${template.id}`
                     }
 
+                    // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
+
+                    if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
+                        return (
+                            urls.dataWarehouseSourceNew() +
+                            '?kind=' +
+                            template.id.replace('self-managed-', '').replace('managed-', '')
+                        )
+                    }
+
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
                         : null
