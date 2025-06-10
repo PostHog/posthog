@@ -130,10 +130,16 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         ],
     }),
     selectors({
-        isAlreadyOnStartupPlan: [
+        isCurrentlyOnStartupPlan: [
             (s) => [s.billing],
             (billing: BillingType | null) => {
                 return !!billing?.startup_program_label
+            },
+        ],
+        wasPreviouslyOnStartupPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null) => {
+                return !!billing?.startup_program_label_previous
             },
         ],
         isUserOrganizationOwnerOrAdmin: [

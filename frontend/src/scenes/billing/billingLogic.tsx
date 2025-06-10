@@ -444,9 +444,14 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
         ],
-        startupProgramLabel: [
+        startupProgramLabelCurrent: [
             (s) => [s.billing],
             (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        startupProgramLabelPrevious: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null =>
+                billing?.startup_program_label_previous || null,
         ],
         showBillingSummary: [
             (s) => [s.billing, s.isOnboarding],

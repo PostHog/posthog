@@ -28,7 +28,7 @@ export function StartupProgram(): JSX.Element {
     const isYC = pathname.endsWith('/yc')
 
     const logic = startupProgramLogic({ isYC })
-    const { startupProgram, formSubmitted, isAlreadyOnStartupPlan, isUserOrganizationOwnerOrAdmin } = useValues(logic)
+    const { startupProgram, formSubmitted, isCurrentlyOnStartupPlan, isUserOrganizationOwnerOrAdmin } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
@@ -43,7 +43,7 @@ export function StartupProgram(): JSX.Element {
         },
     })
 
-    if (isAlreadyOnStartupPlan) {
+    if (isCurrentlyOnStartupPlan) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="info">

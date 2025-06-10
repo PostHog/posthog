@@ -1907,6 +1907,7 @@ export interface BillingType {
     }
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
+    startup_program_label_previous?: StartupProgramLabel | null
     account_owner?: {
         email?: string
         name?: string
