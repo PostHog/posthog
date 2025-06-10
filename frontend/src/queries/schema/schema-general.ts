@@ -1,5 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -2032,7 +2033,7 @@ export interface LogMessage {
     trace_id: string
     span_id: string
     body: string
-    attributes: string
+    attributes: Record<string, any>
     /**  @format date-time */
     timestamp: string
     /**  @format date-time */
@@ -3185,4 +3186,10 @@ export interface EventsHeatMapStructuredResult {
     rowAggregations: EventsHeatMapRowAggregationResult[]
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
+}
+
+export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
+
+export interface MarketingAnalyticsConfig {
+    sources_map?: Record<string, SourceMap>
 }

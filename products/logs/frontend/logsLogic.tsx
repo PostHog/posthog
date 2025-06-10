@@ -154,6 +154,12 @@ export const logsLogic = kea<logsLogicType>([
                         signal,
                     })
                     actions.setLogsAbortController(null)
+                    response.results.forEach((row) => {
+                        Object.keys(row.attributes).forEach((key) => {
+                            const value = row.attributes[key]
+                            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
+                        })
+                    })
                     return response.results
                 },
             },

@@ -165,6 +165,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    marketing_analytics_config: {
+        sources_map: {},
+    },
     base_currency: CurrencyCode.USD,
 }
 
