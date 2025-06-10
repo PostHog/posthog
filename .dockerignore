@@ -5,7 +5,7 @@
 !common/hogvm
 !common/esbuilder
 !common/eslint_rules
-!common/shared_types
+!common/shared-types
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind

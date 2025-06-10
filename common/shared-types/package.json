@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/shared_types",
+    "name": "@posthog/shared-types",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -16,5 +16,8 @@
         ".": {
             "types": "./dist/index.d.ts"
         }
+    },
+    "peerDependencies": {
+        "zod": "^3.24.1"
     }
 }

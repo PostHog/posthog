@@ -1,4 +1,4 @@
-import { HogFlow } from '@posthog/shared_types'
+import { HogFlow } from '@posthog/shared-types'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'

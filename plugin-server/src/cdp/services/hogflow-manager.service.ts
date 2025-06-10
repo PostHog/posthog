@@ -1,4 +1,4 @@
-import { HogFlow } from '@posthog/shared_types'
+import { HogFlow } from '@posthog/shared-types'
 
 import { Hub, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'

@@ -2,7 +2,7 @@
     "name": "@posthog/products-messaging",
     "peerDependencies": {
         "@posthog/icons": "*",
-        "@posthog/shared_types": "workspace:*",
+        "@posthog/shared-types": "workspace:*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",

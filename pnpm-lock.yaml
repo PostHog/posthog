@@ -234,7 +234,7 @@ importers:
         specifier: ~4.9.5
         version: 4.9.5
 
-  common/shared_types:
+  common/shared-types:
     devDependencies:
       typescript:
         specifier: ~4.9.5
@@ -649,7 +649,7 @@ importers:
         version: 0.0.14
       '@posthog/shared-types':
         specifier: workspace:*
-        version: link:../common/shared_types
+        version: link:../common/shared-types
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -1329,7 +1329,7 @@ importers:
         version: 1.4.4
       '@posthog/shared-types':
         specifier: workspace:*
-        version: link:../common/shared_types
+        version: link:../common/shared-types
       '@posthog/siphash':
         specifier: 1.1.1
         version: 1.1.1
@@ -1981,7 +1981,7 @@ importers:
         version: 0.21.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/shared-types':
         specifier: workspace:*
-        version: link:../../common/shared_types
+        version: link:../../common/shared-types
       '@types/react':
         specifier: '*'
         version: 17.0.52
