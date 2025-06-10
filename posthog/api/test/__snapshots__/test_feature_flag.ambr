@@ -95,7 +95,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
@@ -234,7 +234,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
