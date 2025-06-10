@@ -104,11 +104,11 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         assert mock_client.capture.call_count == persons_count
 
-        expected_calls = [
-            (
+        for i in range(persons_count):
+            mock_client.capture.assert_any_call(
                 f"user_{i}",
                 "user moved feature preview stage",
-                {
+                properties={
                     "from": "concept",
                     "to": "beta",
                     "feature_flag_key": feature_flag.key,
@@ -117,8 +117,3 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
                     "user_email": f"user_{i}@example.com",
                 },
             )
-            for i in range(persons_count)
-        ]
-
-        for call in expected_calls:
-            mock_client.capture.assert_any_call(*call)
