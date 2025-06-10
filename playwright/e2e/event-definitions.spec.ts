@@ -2,10 +2,10 @@ import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Event Definitions', () => {
     test('See recordings action', async ({ page }) => {
-        await page.goToMenuItem('datamanagement')
+        await page.goToMenuItem('data')
+        await page.goToMenuItem('event-definitions')
 
         // default tab is events
-        await expect(page.locator('[data-attr="data-management-events-tab"]')).toBeVisible()
         await page.waitForSelector('tbody tr:has-text("Loading… Loading… Loading…")', { state: 'detached' })
 
         await expect(page.locator('tbody tr .LemonButton').first()).toBeVisible()
