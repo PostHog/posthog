@@ -2,7 +2,7 @@ import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('SQL Editor', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goToMenuItem('sqleditor')
+        await page.goToMenuItem('sql-editor')
 
         await page.locator('[data-attr=sql-editor-new-tab-button]').click()
     })

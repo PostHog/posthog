@@ -259,5 +259,28 @@ describe('BatchWritingGroupStore', () => {
                 {}
             )
         })
+
+        it('should not write to db if no properties are changed', async () => {
+            const groupStoreForBatch = groupStore.forBatch()
+
+            // Mock the db.fetchGroup to return a group with the same properties
+            jest.spyOn(db, 'fetchGroup').mockResolvedValue(group)
+
+            await groupStoreForBatch.upsertGroup(
+                teamId,
+                projectId,
+                1,
+                'test',
+                group.group_properties,
+                DateTime.now(),
+                false
+            )
+
+            await groupStoreForBatch.flush()
+
+            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+            expect(db.updateGroup).toHaveBeenCalledTimes(0)
+            expect(db.insertGroup).toHaveBeenCalledTimes(0)
+        })
     })
 })

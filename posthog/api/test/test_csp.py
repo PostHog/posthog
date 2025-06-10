@@ -501,7 +501,7 @@ class TestCSPModule(TestCase):
         result, error = process_csp_report(request)
 
         assert result is None
-        assert error is None
+        assert error.status_code == 204
         mock_logger.warning.assert_called_with(
             "CSP report sampled out - report-uri format",
             document_url="https://example.com/foo/bar",
@@ -530,7 +530,7 @@ class TestCSPModule(TestCase):
         result, error = process_csp_report(request)
 
         assert result is None
-        assert error is None
+        assert error.status_code == 204
         mock_logger.warning.assert_called_with(
             "CSP report sampled out - report-to format",
             total_violations=1,

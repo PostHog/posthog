@@ -1,44 +1,24 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataSource, PipelineStage } from '~/types'
 
-import {
-    SharedExternalDataSourceConfiguration,
-    SimpleDataWarehouseTable,
-} from './SharedExternalDataSourceConfiguration'
+import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
 
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']
-
-const transformSourcesIntoTables = (sources: ExternalDataSource[]): SimpleDataWarehouseTable[] => {
-    return sources
-        .map((source) =>
-            source.schemas.map((schema) => ({
-                ...schema,
-                source_type: source.source_type,
-                source_id: source.id,
-                source_prefix: source.prefix,
-                columns: schema.table?.columns || [],
-                sourceUrl: urls.pipelineNode(PipelineStage.Source, `managed-${source.id}`, PipelineNodeTab.Schemas),
-            }))
-        )
-        .flat()
-}
 
 // This allows users to map columns from data warehouse sources (BigQuery, Postgres, etc.)
 // to the correct fields in the Marketing Analytics product.
 // These sources don't have predefined schemas like native integrations, so users need to manually map their columns.
 export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
-    const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
+    const { externalTables, loading } = useValues(marketingAnalyticsLogic)
 
-    const marketingSources =
-        dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
-
-    const tables: SimpleDataWarehouseTable[] = transformSourcesIntoTables(marketingSources)
-
+    const tables: ExternalTable[] | null =
+        externalTables.filter((source) =>
+            VALID_MARKETING_SOURCES.includes(source.source_type as ExternalDataSource['source_type'])
+        ) ?? null
     const handleSourceAdd = (source: ExternalDataSource['source_type']): void => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
     }
@@ -48,14 +28,9 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
             title="Non Native Data Warehouse Sources Configuration"
             description="PostHog can display marketing data in our Marketing Analytics product from the following data warehouse sources."
             tables={tables}
-            loading={dataWarehouseSources === null}
+            loading={loading}
             validSources={VALID_MARKETING_SOURCES}
-            renderSourceIcon={renderSourceIcon}
             onSourceAdd={handleSourceAdd}
         />
     )
 }
-
-const renderSourceIcon = (item: SimpleDataWarehouseTable): JSX.Element => (
-    <DataWarehouseSourceIcon type={item.source_type} />
-)
