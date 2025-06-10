@@ -1,11 +1,13 @@
 import { ExecResult } from '@posthog/hogvm'
+import { HogFlow } from '@posthog/shared-types'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
+import { HogFlow } from '../../schema/hogflow'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
-import { HogFlow, HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
+import { HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',

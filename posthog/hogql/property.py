@@ -407,7 +407,10 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.key.startswith("$virt") and property.type == "person":
+            # we pretend virtual person properties are regular properties, but they are ExpressionFields on the Persons table
+            chain = ["person"] if scope != "person" else []
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]

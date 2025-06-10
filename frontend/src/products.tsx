@@ -51,9 +51,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/TemplateLibrary/MessageLibrary'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns/Campaigns'),
     MessagingCampaign: () => import('../../products/messaging/frontend/Campaigns/CampaignScene'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/TemplateLibrary/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/TemplateLibrary/MessageTemplate'),
     MessageSenders: () => import('../../products/messaging/frontend/Senders/MessageSenders'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
@@ -474,22 +474,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
-    {
-        path: 'Broadcasts',
-        category: 'Behavior',
-        href: urls.messagingBroadcasts(),
-        type: 'hog_function/broadcast',
-        tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    {
-        path: 'Campaigns',
-        category: 'Behavior',
-        href: urls.messagingCampaigns(),
-        type: 'hog_function/campaign',
-        tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
     {
         path: 'Early access features',
         category: 'Features',

@@ -2,22 +2,25 @@ import { afterMount, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
+import type { HogFlow } from '../../../../plugin-server/src/schema/hogflow'
 import type { campaignLogicType } from './campaignLogicType'
-import { Workflow } from './Workflows/temporary_workflow_types_for_dev_to_be_deleted'
 
 export interface CampaignLogicProps {
     id?: string
 }
 
-const DEFAULT_WORKFLOW: Workflow = {
+const DEFAULT_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'Untitled campaign',
-    description: '',
-    workflow: { nodes: [], edges: [] },
-    created_at: null,
-    updated_at: null,
-    created_by: null,
+    edges: [],
+    actions: [],
+    trigger: { type: 'event' },
+    trigger_masking: { ttl: 0, hash: '', threshold: 0 },
+    conversion: { window_minutes: 0, filters: [] },
+    exit_condition: 'exit_on_conversion',
     version: 1,
+    status: 'draft',
+    team_id: 0,
 }
 
 export const campaignLogic = kea<campaignLogicType>([
@@ -45,7 +48,7 @@ export const campaignLogic = kea<campaignLogicType>([
     })),
     loaders(({ props }) => ({
         campaign: [
-            { ...DEFAULT_WORKFLOW } as Workflow,
+            { ...DEFAULT_WORKFLOW } as HogFlow,
             {
                 loadCampaign: async () => {
                     if (!props.id || props.id === 'new') {
