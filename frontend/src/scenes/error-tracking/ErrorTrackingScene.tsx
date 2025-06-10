@@ -1,4 +1,4 @@
-import { IconChevronDown, IconGear } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconGear, IconMinus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
@@ -21,8 +21,8 @@ import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { ErrorFilters } from './components/ErrorFilters'
 import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { StatusIndicator } from './components/Indicator'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
+import { IssueStatusSelect } from './components/IssueStatusSelect'
 import { RuntimeIcon } from './components/RuntimeIcon'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -30,7 +30,7 @@ import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
-import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
+import { ERROR_TRACKING_LISTING_RESOLUTION, ISSUE_STATUS_OPTIONS } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -119,10 +119,12 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
     )
 }
 
+const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary" transform="rotate(90)" />
+
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { updateIssueAssignee } = useActions(issueActionsLogic)
+    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
@@ -157,17 +159,13 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 </Link>
                 <div className="line-clamp-1 text-secondary">{record.description}</div>
-                <div className="flex gap-1 items-center text-secondary">
-                    <StatusIndicator size="xsmall" status={record.status} />
-                    <span>|</span>
-                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
-                    <span>|</span>
-                    {record.last_seen ? (
-                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
-                    ) : (
-                        <LemonSkeleton />
-                    )}
-                    <span>|</span>
+                <div className="flex items-center text-secondary">
+                    <IssueStatusSelect
+                        status={record.status}
+                        options={ISSUE_STATUS_OPTIONS}
+                        onChange={(status) => updateIssueStatus(record.id, status)}
+                    />
+                    <CustomGroupSeparator />
                     <AssigneeSelect
                         assignee={record.assignee}
                         onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
@@ -187,6 +185,14 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                             </div>
                         )}
                     </AssigneeSelect>
+                    <CustomGroupSeparator />
+                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
+                    <IconChevronRight className="text-quaternary mx-1" />
+                    {record.last_seen ? (
+                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                    ) : (
+                        <LemonSkeleton />
+                    )}
                 </div>
             </div>
         </div>
