@@ -7,7 +7,7 @@ import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreensho
 import { dayjs } from 'lib/dayjs'
 import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
 
-import { ExportedAssetType } from '~/types'
+import { ExportedAssetType, ExporterFormat } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
@@ -78,16 +78,18 @@ const ExportsContent = (): JSX.Element => {
                                 </div>
                             </div>
                             <div className="flex gap-2 mr-2">
-                                <LemonButton
-                                    tooltip="Edit"
-                                    size="small"
-                                    disabledReason={disabledReason}
-                                    type={isNotDownloaded ? 'primary' : 'secondary'}
-                                    icon={<IconPencil />}
-                                    onClick={() => {
-                                        void handleEdit(asset)
-                                    }}
-                                />
+                                {asset.export_format === ExporterFormat.PNG && (
+                                    <LemonButton
+                                        tooltip="Edit"
+                                        size="small"
+                                        disabledReason={disabledReason}
+                                        type={isNotDownloaded ? 'primary' : 'secondary'}
+                                        icon={<IconPencil />}
+                                        onClick={() => {
+                                            void handleEdit(asset)
+                                        }}
+                                    />
+                                )}
                                 <LemonButton
                                     tooltip="Download"
                                     size="small"
