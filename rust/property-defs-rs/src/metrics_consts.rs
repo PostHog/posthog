@@ -28,6 +28,7 @@ pub const CHUNK_SIZE: &str = "prop_defs_chunk_size";
 pub const DUPLICATES_IN_BATCH: &str = "prop_defs_duplicates_in_batch";
 pub const SINGLE_UPDATE_ISSUE_TIME: &str = "prop_defs_single_update_issue_time_ms";
 pub const CHANNEL_MESSAGES_IN_FLIGHT: &str = "prop_defs_channel_messages_in_flight";
+pub const CHANNEL_CAPACITY: &str = "prop_defs_channel_capacity";
 
 //
 // property-defs-rs "v2" (mirror deploy) metric keys below

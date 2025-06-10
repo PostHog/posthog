@@ -44,4 +44,8 @@ impl<T> MeasuringChannel<T> {
     pub fn rx(&self) -> &Receiver<T> {
         &self.receiver
     }
+
+    pub fn capacity(&self) -> usize {
+        self.sender.capacity()
+    }
 }
