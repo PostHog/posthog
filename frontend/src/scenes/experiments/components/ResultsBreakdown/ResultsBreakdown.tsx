@@ -22,7 +22,7 @@ export const ResultsBreakdown = ({
     return (
         <div>
             <div className="flex justify-end">
-                <ExploreAsInsightButton result={result} size="xsmall" />
+                <ExploreAsInsightButton experiment={experiment} result={result} />
             </div>
             <div className="pb-4">
                 <ResultsQuery experiment={experiment} result={result} />
