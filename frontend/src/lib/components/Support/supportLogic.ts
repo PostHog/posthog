@@ -543,11 +543,11 @@ export const supportLogic = kea<supportLogicType>([
                 // Check for addon trials (when addon has trial object but isn't subscribed)
                 // Note: Using 'as any' because the trial target types are outdated - they can also be 'boost', 'scale' etc.
                 const hasBoostTrial =
-                    (billing.trial?.status === 'active' && billing.trial?.target === 'boost') ||
+                    (billing.trial?.status === 'active' && (billing.trial?.target as any) === 'boost') ||
                     platformAndSupportProduct?.addons?.some((a) => a.type === 'boost' && a.trial && !a.subscribed) ||
                     false
                 const hasScaleTrial =
-                    (billing.trial?.status === 'active' && billing.trial?.target === 'scale') ||
+                    (billing.trial?.status === 'active' && (billing.trial?.target as any) === 'scale') ||
                     platformAndSupportProduct?.addons?.some((a) => a.type === 'scale' && a.trial && !a.subscribed) ||
                     false
                 const hasEnterpriseTrial =
