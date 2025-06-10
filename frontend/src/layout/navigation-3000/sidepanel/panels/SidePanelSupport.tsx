@@ -328,6 +328,13 @@ export function SidePanelSupport(): JSX.Element {
                                     >
                                         {billingLoading ? 'Loading...' : 'Email our support engineers'}
                                     </LemonButton>
+                                </Section>
+                            )}
+
+                            {/* Offer paid users the option to submit a bug on GitHub */}
+                            {showEmailSupport && isBillingLoaded && (
+                                <Section title="Report a bug">
+                                    <p>Found a bug? Submit it on GitHub and we'll investigate.</p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth
@@ -335,9 +342,8 @@ export function SidePanelSupport(): JSX.Element {
                                         to="https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml"
                                         targetBlank
                                         className="mt-2"
-                                        disabled={billingLoading}
                                     >
-                                        {billingLoading ? 'Loading...' : 'Submit a bug on GitHub'}
+                                        Submit an issue
                                     </LemonButton>
                                 </Section>
                             )}
