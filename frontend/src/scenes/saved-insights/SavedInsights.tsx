@@ -492,6 +492,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
+    settingSectionId: 'environment-product-analytics',
 }
 
 export function InsightIcon({

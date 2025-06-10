@@ -1,4 +1,4 @@
-import { TooltipItem } from 'chart.js'
+import { TooltipItem } from 'lib/Chart'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { GraphDataset } from '~/types'

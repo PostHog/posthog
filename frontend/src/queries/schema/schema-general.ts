@@ -1,5 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -818,6 +819,7 @@ export interface ChartSettings {
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
     showLegend?: boolean
+    showTotalRow?: boolean
 }
 
 export interface ConditionalFormattingRule {
@@ -1882,15 +1884,6 @@ export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: RevenueAnalyticsPropertyFilters
-    revenueSources: RevenueSources
-}
-
-export interface RevenueSources {
-    // These represent the IDs we're interested in from the data warehouse sources
-    dataWarehouseSources: string[]
-
-    // This is a list of strings that represent the event names we're interested in
-    events: string[]
 }
 
 export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
@@ -2032,7 +2025,7 @@ export interface LogMessage {
     trace_id: string
     span_id: string
     body: string
-    attributes: string
+    attributes: Record<string, any>
     /**  @format date-time */
     timestamp: string
     /**  @format date-time */
@@ -3185,4 +3178,10 @@ export interface EventsHeatMapStructuredResult {
     rowAggregations: EventsHeatMapRowAggregationResult[]
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
+}
+
+export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
+
+export interface MarketingAnalyticsConfig {
+    sources_map?: Record<string, SourceMap>
 }

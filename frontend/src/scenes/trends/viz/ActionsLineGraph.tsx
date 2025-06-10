@@ -1,7 +1,6 @@
-import { ChartType, defaults, LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
-import { Chart } from 'lib/Chart'
+import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

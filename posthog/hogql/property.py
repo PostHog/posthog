@@ -407,7 +407,10 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.key.startswith("$virt") and property.type == "person":
+            # we pretend virtual person properties are regular properties, but they are ExpressionFields on the Persons table
+            chain = ["person"] if scope != "person" else []
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -662,6 +665,8 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
         return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
+    elif property.key == "source":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"])
     else:
         raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 
