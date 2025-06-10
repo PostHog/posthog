@@ -6,26 +6,25 @@ import { YC_BATCHES } from './constants'
 /**
  * Generates YC batch options for the dropdown, showing relevant batches based on current date.
  *
- * - Sorts all batches by start date (newest first)
  * - Finds the current batch (most recent batch that has started)
- * - Returns current batch + all previous batches + 2 upcoming batches
+ * - Returns current batch, all previous batches and 2 upcoming batches (newest first)
  * - Adds placeholder at the top and "Earlier batches" at the bottom
  */
 export function getYCBatchOptions(): { label: string; value: string }[] {
-    // Sort batches by start date descending
-    const sortedBatches = sortBy(YC_BATCHES, (batch) => dayjs(batch.start_date)).reverse()
+    // Sort batches by start date (oldest first)
+    const sortedBatches = sortBy(YC_BATCHES, (batch) => dayjs(batch.start_date))
 
-    // Find current batch index (most recent batch where start date is in the past)
+    // Find current batch index (most recent batch where start date is today or in the past)
     const today = dayjs()
-    const currentBatchIndex = sortedBatches.findIndex((batch) => dayjs(batch.start_date).isSameOrBefore(today))
+    const firstFutureBatchIndex = sortedBatches.findIndex((batch) => dayjs(batch.start_date).isAfter(today))
+    // If no future batches exist, last batch is current batch
+    const currentBatchIndex = firstFutureBatchIndex === -1 ? sortedBatches.length - 1 : firstFutureBatchIndex - 1
 
-    // Start from 2 batches before current (or from beginning if current is early)
-    const startIndex = Math.max(0, currentBatchIndex - 2)
+    // Take current batch, all previous batches and 2 upcoming batches
+    const endIndex = Math.max(0, currentBatchIndex + 3)
+    const relevantBatches = sortedBatches.slice(0, endIndex)
 
-    // Take from 2 upcoming through all previous batches
-    const relevantBatches = sortedBatches.slice(startIndex)
-
-    const batchOptions = relevantBatches.map((batch) => ({
+    const batchOptions = relevantBatches.reverse().map((batch) => ({
         label: batch.batch_name,
         value: batch.batch_name,
     }))
