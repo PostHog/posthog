@@ -1,6 +1,7 @@
 from typing import cast
 
 import pydantic
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
@@ -56,9 +57,14 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
 
     def get_throttles(self):
-        if self.action == "create" and not (
-            # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-            get_instance_region() == "US" and self.team_id in (2, 87921)
+        if (
+            self.action == "create"
+            and not (
+                # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
+                get_instance_region() == "US" and self.team_id in (2, 87921)
+            )
+            # Do not apply limits in local development
+            and not settings.DEBUG
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
