@@ -52,8 +52,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/Library/MessageLibrary'),
-    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/Library/MessageTemplate'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/TemplateLibrary/MessageLibrary'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/TemplateLibrary/MessageTemplate'),
     MessageSenders: () => import('../../products/messaging/frontend/Senders/MessageSenders'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
@@ -564,5 +564,12 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'handMoney',
         href: urls.revenueSettings(),
         flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+    },
+    {
+        path: 'Marketing settings',
+        category: 'Definitions',
+        iconType: 'definitions',
+        href: urls.marketingAnalytics(),
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
 ]

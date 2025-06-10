@@ -67,6 +67,7 @@ class AssistantContextualTool(StrEnum):
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
+    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
 
 
 class AssistantDateRange(BaseModel):
@@ -1027,6 +1028,9 @@ class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
     UNIQUE_SESSION = "unique_session"
+    MIN = "min"
+    MAX = "max"
+    AVG = "avg"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -2667,6 +2671,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
     showLegend: Optional[bool] = None
+    showTotalRow: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -3056,7 +3061,7 @@ class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    attributes: str
+    attributes: dict[str, Any]
     body: str
     event_name: str
     instrumentation_scope: str
@@ -3069,6 +3074,13 @@ class LogMessage(BaseModel):
     timestamp: datetime
     trace_id: str
     uuid: str
+
+
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):
@@ -7413,7 +7425,6 @@ class RevenueAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    base_currency: Optional[CurrencyCode] = CurrencyCode.USD
     events: Optional[list[RevenueAnalyticsEventItem]] = []
     goals: Optional[list[RevenueAnalyticsGoal]] = []
 

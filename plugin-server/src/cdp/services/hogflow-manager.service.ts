@@ -1,9 +1,9 @@
+import { HogFlow } from '../../schema/hogflow'
 import { Hub, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
-import { HogFlow } from '../types'
 
 // TODO: Add these once DB models created
 // const HOG_FLOW_FIELDS = [
