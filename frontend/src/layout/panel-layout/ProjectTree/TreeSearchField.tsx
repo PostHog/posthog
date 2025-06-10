@@ -39,6 +39,7 @@ export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JS
     const { searchTerm } = useValues(projectTreeLogic)
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { clearActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
@@ -48,6 +49,12 @@ export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JS
                 e.currentTarget.blur() // Remove focus from input
                 panelTreeRef?.current?.focusItem(visibleItems[0].id)
             }
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault()
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
+            // TODO: refocus on last focused element
         }
     }
 
