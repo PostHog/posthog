@@ -280,8 +280,9 @@ class PipelineNonDLT:
                 self._schema.update_incremental_field_value(self._last_incremental_field_value)
             if self._resource.sort_mode == "desc":
                 earliest_value = _get_incremental_field_value(self._schema, pa_table, aggregate="min")
-                self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
-                self._schema.update_incremental_field_value(earliest_value, type="earliest")
+                if earliest_value < self._schema.incremental_field_earliest_value:
+                    self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
+                    self._schema.update_incremental_field_value(earliest_value, type="earliest")
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
         decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
