@@ -318,6 +318,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$config_defaults": {
+            "label": "Config defaults",
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "type": "String",
+        },
         "$python_runtime": {
             "label": "Python runtime",
             "description": "The Python runtime that was used to capture the event.",
@@ -974,6 +979,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$timezone": {
             "label": "Timezone",
             "description": "The timezone as reported by the device",
+        },
+        "$timezone_offset": {
+            "label": "Timezone offset",
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "type": "Numeric",
         },
         "$touch_x": {
             "label": "Touch X",
