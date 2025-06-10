@@ -6,6 +6,7 @@ from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.table import DataWarehouseTable
 import uuid
 from typing import Optional, Any
 from collections import defaultdict, deque
@@ -91,8 +92,44 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
 
     dag: dict[str, list[Any]] = {"nodes": [], "edges": []}
     seen_nodes: set[str] = set()
-    uuid_nodes: set[uuid.UUID] = set()
     node_data: dict[str, dict] = {}
+
+    # Sometimes we have no paths, meaning we only reference external tables and nothing else.
+    # we just map the external_tables on the saved query to directly reference the current model
+    if not paths:
+        saved_query = DataWarehouseSavedQuery.objects.filter(id=model_id, team_id=team_id).first()
+        if not saved_query:
+            return dag
+        seen_nodes = {model_id}
+
+        # Then add external table nodes and edges
+        for external_table in saved_query.external_tables:
+            node_id = external_table
+            if node_id not in seen_nodes:
+                dag["nodes"].append(
+                    {
+                        "id": node_id,
+                        "type": "table",
+                        "name": node_id,
+                    }
+                )
+                seen_nodes.add(node_id)
+
+            dag["edges"].append({"source": node_id, "target": model_id})
+            # Add the view node last
+            dag["nodes"].append(
+                {
+                    "id": model_id,
+                    "type": "view",
+                    "name": saved_query.name,
+                    "sync_frequency": saved_query.sync_frequency_interval,
+                    "last_run_at": saved_query.last_run_at,
+                    "status": saved_query.status,
+                }
+            )
+        return dag
+
+    uuid_nodes: set[uuid.UUID] = set()
 
     for path in paths:
         components = path.path if isinstance(path.path, list) else path.path.split(".")
@@ -118,7 +155,16 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 try:
                     node_uuid = uuid.UUID(component)
                     saved_query = saved_queries.get(str(node_uuid))
-                    name = saved_query.name if saved_query else component
+
+                    if not saved_query:
+                        # if it's not a saved query, try to find it as a table
+                        table_reference = DataWarehouseTable.objects.filter(id=component_uuid, team_id=team_id).first()
+                        if table_reference:
+                            name = table_reference.name
+                        else:
+                            name = component
+                    else:
+                        name = saved_query.name
                 except ValueError:
                     name = component
                 node_data[node_id] = {
