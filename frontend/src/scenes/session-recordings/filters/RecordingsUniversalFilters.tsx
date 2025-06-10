@@ -325,7 +325,7 @@ export const RecordingsUniversalFilters = ({
                         onClick={() => {
                             setIsFiltersExpanded(!isFiltersExpanded)
                             posthog.capture('session_recordings_filters_toggle', {
-                                is_expanded: isFiltersExpanded,
+                                is_expanded: !isFiltersExpanded,
                             })
                         }}
                         fullWidth
