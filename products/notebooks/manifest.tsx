@@ -15,7 +15,6 @@ export const manifest: ProductManifest = {
             name: 'Notebook',
             icon: <IconNotebook />,
             href: (ref: string) => urls.notebook(ref),
-            iconColor: ['var(--product-notebooks-light)'],
             filterKey: 'notebook',
         },
     },

@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { getDefaultInterval } from 'lib/utils'
+import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
@@ -13,8 +13,10 @@ import {
     QuerySchema,
     RevenueAnalyticsEventItem,
     RevenueAnalyticsInsightsQueryGroupBy,
+    RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
+import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { Breadcrumb, ExternalDataSource, InsightLogicProps } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
@@ -34,6 +36,7 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
     return `new-AdHoc.revenue-analytics.${queryType}`
 }
 
+const INITIAL_REVENUE_ANALYTICS_FILTER = [] as RevenueAnalyticsPropertyFilters
 const INITIAL_DATE_FROM = 'yStart' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
@@ -94,6 +97,9 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
+            revenueAnalyticsFilters,
+        }),
         setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setRevenueSources: (revenueSources: RawRevenueSources) => ({ revenueSources }),
@@ -111,7 +117,11 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }),
             },
         ],
-
+        revenueAnalyticsFilter: [
+            INITIAL_REVENUE_ANALYTICS_FILTER,
+            persistConfig,
+            { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
+        ],
         grossRevenueGroupBy: [
             'all' as RevenueAnalyticsInsightsQueryGroupBy,
             persistConfig,
@@ -229,6 +239,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         queries: [
             (s) => [
                 s.dateFilter,
+                s.revenueAnalyticsFilter,
                 s.rawRevenueSources,
                 s.topCustomersDisplayMode,
                 s.growthRateDisplayMode,
@@ -236,6 +247,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ],
             (
                 dateFilter,
+                revenueAnalyticsFilter,
                 rawRevenueSources,
                 topCustomersDisplayMode,
                 growthRateDisplayMode,
@@ -257,24 +269,32 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 return {
                     [RevenueAnalyticsQuery.OVERVIEW]: {
                         kind: NodeKind.RevenueAnalyticsOverviewQuery,
+                        properties: revenueAnalyticsFilter,
                         revenueSources,
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
                         kind: NodeKind.RevenueAnalyticsInsightsQuery,
+                        properties: revenueAnalyticsFilter,
                         revenueSources,
                         groupBy: grossRevenueGroupBy,
                         interval,
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
-                        { kind: NodeKind.RevenueAnalyticsGrowthRateQuery, dateRange, revenueSources },
+                        {
+                            kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
+                            properties: revenueAnalyticsFilter,
+                            dateRange,
+                            revenueSources,
+                        },
                         ['month', 'mrr', 'previous_mrr', 'mrr_growth_rate'],
                         growthRateDisplayMode === 'table'
                     ),
                     [RevenueAnalyticsQuery.TOP_CUSTOMERS]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsTopCustomersQuery,
+                            properties: revenueAnalyticsFilter,
                             dateRange,
                             revenueSources,
                             groupBy: topCustomersGroupBy,
@@ -290,9 +310,11 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
         setGrossRevenueGroupBy: ({ groupBy }): string => setQueryParams({ revenue_group_by: groupBy ?? '' }),
+        setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
+            setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.revenueAnalytics()]: (_, { date_from, date_to, revenue_group_by }) => {
+        [urls.revenueAnalytics()]: (_, { filters, date_from, date_to, revenue_group_by }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
                 (date_to && date_to !== values.dateFilter.dateTo)
@@ -302,6 +324,11 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
 
             if (revenue_group_by && revenue_group_by !== values.grossRevenueGroupBy) {
                 actions.setGrossRevenueGroupBy(revenue_group_by)
+            }
+
+            const parsedFilters = isRevenueAnalyticsPropertyFilters(filters) ? filters : undefined
+            if (parsedFilters && !objectsEqual(parsedFilters, values.revenueAnalyticsFilter)) {
+                actions.setRevenueAnalyticsFilters(parsedFilters)
             }
         },
     })),

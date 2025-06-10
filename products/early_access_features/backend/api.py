@@ -87,9 +87,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 new_stage=stage,
             )
 
-            send_events_for_early_access_feature_stage_change(
-                str(instance.id), str(instance.team.id), instance.stage, stage
-            )
+            send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [

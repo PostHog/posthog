@@ -146,6 +146,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "ref"]),
+            models.Index(fields=["last_used"]),
         ]
 
         constraints = [

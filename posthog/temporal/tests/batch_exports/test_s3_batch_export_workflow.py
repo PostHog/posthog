@@ -4,6 +4,7 @@ import datetime as dt
 import functools
 import io
 import json
+import operator
 import os
 import re
 import typing as t
@@ -347,6 +348,7 @@ async def assert_clickhouse_records_in_s3(
         is_backfill=backfill_details is not None,
         backfill_details=backfill_details,
         extra_query_parameters=extra_query_parameters,
+        order_columns=None,
     )
     while not queue.empty() or not producer_task.done():
         record_batch = await get_record_batch_from_queue(queue, producer_task)
@@ -371,19 +373,22 @@ async def assert_clickhouse_records_in_s3(
 
     # sort records before comparing (we don't care about order of records in the export)
     if sort_key in schema_column_names:
-        s3_data = sorted(s3_data, key=lambda x: x[sort_key])
-        expected_records = sorted(expected_records, key=lambda x: x[sort_key])
+        s3_data = sorted(s3_data, key=operator.itemgetter(sort_key))
+        expected_records = sorted(expected_records, key=operator.itemgetter(sort_key))
 
     # check schema of first record (ignoring sessions model for now)
     if isinstance(batch_export_model, BatchExportModel) and batch_export_model.name in ["events", "persons"]:
         assert set(s3_data[0].keys()) == set(schema_column_names)
 
-    assert s3_data[0] == expected_records[0]
     if allow_duplicates:
         # de-duplicate based on uuid
         s3_data = list({record["uuid"]: record for record in s3_data}.values())
     assert len(s3_data) == len(expected_records)
-    assert s3_data == expected_records
+
+    first_value_matches = s3_data[0] == expected_records[0]
+    assert first_value_matches
+    all_match = s3_data == expected_records
+    assert all_match
 
 
 TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
@@ -1484,6 +1489,13 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
         clickhouse_client=clickhouse_client,
@@ -1494,6 +1506,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
         data_interval_end=data_interval_end,
         compression=compression,
         batch_export_model=model,
+        sort_key=sort_key,
     )
 
 
@@ -1881,6 +1894,7 @@ async def test_insert_into_s3_activity_heartbeats(
             team_id=ateam.pk,
             start_time=data_interval_start,
             end_time=data_interval_end,
+            event_name=f"test-{i}",
             count=1,
             count_outside_range=0,
             count_other_team=0,
@@ -1935,6 +1949,7 @@ async def test_insert_into_s3_activity_heartbeats(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
+        sort_key="event",
     )
 
 
@@ -2265,6 +2280,13 @@ async def test_s3_export_workflow_with_request_timeouts(
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
         clickhouse_client=clickhouse_client,
@@ -2274,6 +2296,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         batch_export_model=model,
+        sort_key=sort_key,
     )
 
 

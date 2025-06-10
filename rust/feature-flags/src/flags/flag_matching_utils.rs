@@ -16,7 +16,10 @@ use crate::{
         FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME,
     },
-    properties::{property_matching::match_property, property_models::PropertyFilter},
+    properties::{
+        property_matching::match_property,
+        property_models::{PropertyFilter, PropertyType},
+    },
 };
 
 use super::{
@@ -207,9 +210,9 @@ pub fn locally_computable_property_overrides(
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
     property_overrides.as_ref().and_then(|overrides| {
-        let should_prefer_overrides = property_filters
-            .iter()
-            .all(|prop| overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
+        let should_prefer_overrides = property_filters.iter().all(|prop| {
+            overrides.contains_key(&prop.key) && prop.prop_type != PropertyType::Cohort
+        });
 
         if should_prefer_overrides {
             Some(overrides.clone())
@@ -471,7 +474,7 @@ mod tests {
 
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
-        properties::property_models::OperatorType,
+        properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
             create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
@@ -581,7 +584,7 @@ mod tests {
                 key: "email".to_string(),
                 value: Some(json!("test@example.com")),
                 operator: None,
-                prop_type: "person".to_string(),
+                prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
             },
@@ -589,7 +592,7 @@ mod tests {
                 key: "age".to_string(),
                 value: Some(json!(25)),
                 operator: Some(OperatorType::Gte),
-                prop_type: "person".to_string(),
+                prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
             },
@@ -603,7 +606,7 @@ mod tests {
                 key: "email".to_string(),
                 value: Some(json!("test@example.com")),
                 operator: None,
-                prop_type: "person".to_string(),
+                prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
             },
@@ -611,7 +614,7 @@ mod tests {
                 key: "cohort".to_string(),
                 value: Some(json!(1)),
                 operator: None,
-                prop_type: "cohort".to_string(),
+                prop_type: PropertyType::Cohort,
                 group_type_index: None,
                 negation: None,
             },

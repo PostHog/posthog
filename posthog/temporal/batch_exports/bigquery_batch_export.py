@@ -647,7 +647,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
         _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
-        if details is None:
+        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
             details = BigQueryHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges

@@ -12,19 +12,13 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
+import { SCALE_LABELS } from '../../constants'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
 import { SingleChoiceQuestionViz } from './SingleChoiceQuestionViz'
 
 interface Props {
     question: SurveyQuestion
     questionIndex: number
-}
-
-const SCALE_LABEL: Record<number, string> = {
-    3: '1 - 3',
-    5: '1 - 5',
-    7: '1 - 7',
-    10: '0 - 10',
 }
 
 function QuestionTitle({
@@ -37,7 +31,9 @@ function QuestionTitle({
             <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
                 <span>
                     {SurveyQuestionLabel[question.type]}&nbsp;
-                    {question.type === SurveyQuestionType.Rating && <span>{SCALE_LABEL[question.scale]}</span>}
+                    {question.type === SurveyQuestionType.Rating && (
+                        <span>{SCALE_LABELS[question.scale] || `1 - ${question.scale}`}</span>
+                    )}
                 </span>
                 {totalResponses > 0 && (
                     <>

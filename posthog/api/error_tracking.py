@@ -760,4 +760,4 @@ def validate_bytecode(bytecode: list[Any]) -> None:
 
 
 def get_suppression_rules(team: Team):
-    return list(ErrorTrackingAssignmentRule.objects.filter(team=team).values_list("filters", flat=True))
+    return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))

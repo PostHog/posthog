@@ -1,7 +1,7 @@
 # serializer version: 1
-# name: TestRevenueAnalyticsTopCustomersQueryRunner.test_no_crash_when_no_charges_data
+# name: TestRevenueAnalyticsTopCustomersQueryRunner.test_no_crash_when_no_invoices_data
   '''
-  SELECT customers.name AS name,
+  SELECT revenue_analytics_customer.name AS name,
          inner.customer_id AS customer_id,
          inner.amount AS amount,
          inner.month AS month
@@ -12,23 +12,27 @@
      WHERE 0) AS inner
   INNER JOIN
     (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+            `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
             `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
             `stripe.posthog_test.customer_revenue_view`.name AS name,
             `stripe.posthog_test.customer_revenue_view`.email AS email,
-            `stripe.posthog_test.customer_revenue_view`.phone AS phone
+            `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+            `stripe.posthog_test.customer_revenue_view`.cohort AS cohort
      FROM
-       (SELECT posthog_test_stripe_customer.id AS id,
-               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_customer.created), 6, 'UTC') AS timestamp,
-               posthog_test_stripe_customer.name AS name,
-               posthog_test_stripe_customer.email AS email,
-               posthog_test_stripe_customer.phone AS phone
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime') AS posthog_test_stripe_customer) AS `stripe.posthog_test.customer_revenue_view`) AS customers ON equals(customers.id, inner.customer_id)
+       (SELECT outer.id AS id,
+               'stripe.posthog_test' AS source_label,
+               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+               outer.name AS name,
+               outer.email AS email,
+               outer.phone AS phone,
+               NULL AS cohort
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime') AS outer) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_customer.id, inner.customer_id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -53,7 +57,7 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -64,68 +68,93 @@
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data
   '''
-  SELECT customers.name AS name,
+  SELECT revenue_analytics_customer.name AS name,
          inner.customer_id AS customer_id,
          inner.amount AS amount,
          inner.month AS month
   FROM
-    (SELECT customer_id AS customer_id,
-            toStartOfMonth(timestamp) AS month,
-            sum(amount) AS amount
+    (SELECT revenue_analytics_invoice_item.customer_id AS customer_id,
+            toStartOfMonth(revenue_analytics_invoice_item.timestamp) AS month,
+            sum(revenue_analytics_invoice_item.amount) AS amount
      FROM
-       (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
-               `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
-               `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
-               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
-               `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
-               `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
-               `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
-               `stripe.posthog_test.charge_revenue_view`.original_amount AS original_amount,
-               `stripe.posthog_test.charge_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_divider AS currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_amount AS currency_aware_amount,
-               `stripe.posthog_test.charge_revenue_view`.currency AS currency,
-               `stripe.posthog_test.charge_revenue_view`.amount AS amount
+       (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+               `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
         FROM
-          (SELECT posthog_test_stripe_charge.id AS id,
-                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
-                  posthog_test_stripe_charge.customer AS customer_id,
-                  posthog_test_stripe_charge.invoice AS invoice_id,
+          (SELECT invoice.invoice_item_id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  invoice.created_at AS timestamp,
+                  invoice.product_id AS product_id,
+                  invoice.customer_id AS customer_id,
+                  id AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
-                  upper(posthog_test_stripe_charge.currency) AS original_currency,
-                  accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                  upper(invoice.currency) AS original_currency,
+                  accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
                   in(original_currency,
                      ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
                     if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-           WHERE equals(posthog_test_stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.charge_revenue_view`)
-     WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+           FROM
+             (SELECT posthog_test_stripe_invoice.id AS id,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                     posthog_test_stripe_invoice.customer AS customer_id,
+                     arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                     JSONExtractString(data, 'id') AS invoice_item_id,
+                     JSONExtractString(data, 'amount') AS amount_captured,
+                     JSONExtractString(data, 'currency') AS currency,
+                     JSONExtractString(data, 'price', 'product') AS product_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+              WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
      GROUP BY customer_id,
               month
      LIMIT 20 BY month) AS inner
   INNER JOIN
     (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+            `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
             `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
             `stripe.posthog_test.customer_revenue_view`.name AS name,
             `stripe.posthog_test.customer_revenue_view`.email AS email,
-            `stripe.posthog_test.customer_revenue_view`.phone AS phone
+            `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+            `stripe.posthog_test.customer_revenue_view`.cohort AS cohort
      FROM
-       (SELECT posthog_test_stripe_customer.id AS id,
-               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_customer.created), 6, 'UTC') AS timestamp,
-               posthog_test_stripe_customer.name AS name,
-               posthog_test_stripe_customer.email AS email,
-               posthog_test_stripe_customer.phone AS phone
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime') AS posthog_test_stripe_customer) AS `stripe.posthog_test.customer_revenue_view`) AS customers ON equals(customers.id, inner.customer_id)
+       (SELECT outer.id AS id,
+               'stripe.posthog_test' AS source_label,
+               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+               outer.name AS name,
+               outer.email AS email,
+               outer.phone AS phone,
+               cohort_inner.cohort_readable AS cohort
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime')) AS outer
+        LEFT JOIN
+          (SELECT invoice.customer AS customer_id,
+                  toStartOfMonth(min(parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC'))) AS cohort,
+                  formatDateTime(cohort, '%Y-%m') AS cohort_readable
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
+           GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_customer.id, inner.customer_id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -136,68 +165,93 @@
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_and_limited_date_range
   '''
-  SELECT customers.name AS name,
+  SELECT revenue_analytics_customer.name AS name,
          inner.customer_id AS customer_id,
          inner.amount AS amount,
          inner.month AS month
   FROM
-    (SELECT customer_id AS customer_id,
-            toStartOfMonth(timestamp) AS month,
-            sum(amount) AS amount
+    (SELECT revenue_analytics_invoice_item.customer_id AS customer_id,
+            toStartOfMonth(revenue_analytics_invoice_item.timestamp) AS month,
+            sum(revenue_analytics_invoice_item.amount) AS amount
      FROM
-       (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
-               `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
-               `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
-               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
-               `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
-               `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
-               `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
-               `stripe.posthog_test.charge_revenue_view`.original_amount AS original_amount,
-               `stripe.posthog_test.charge_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_divider AS currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_amount AS currency_aware_amount,
-               `stripe.posthog_test.charge_revenue_view`.currency AS currency,
-               `stripe.posthog_test.charge_revenue_view`.amount AS amount
+       (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+               `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
         FROM
-          (SELECT posthog_test_stripe_charge.id AS id,
-                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
-                  posthog_test_stripe_charge.customer AS customer_id,
-                  posthog_test_stripe_charge.invoice AS invoice_id,
+          (SELECT invoice.invoice_item_id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  invoice.created_at AS timestamp,
+                  invoice.product_id AS product_id,
+                  invoice.customer_id AS customer_id,
+                  id AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
-                  upper(posthog_test_stripe_charge.currency) AS original_currency,
-                  accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                  upper(invoice.currency) AS original_currency,
+                  accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
                   in(original_currency,
                      ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
                     if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-           WHERE equals(posthog_test_stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.charge_revenue_view`)
-     WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))), 0))
+           FROM
+             (SELECT posthog_test_stripe_invoice.id AS id,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                     posthog_test_stripe_invoice.customer AS customer_id,
+                     arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                     JSONExtractString(data, 'id') AS invoice_item_id,
+                     JSONExtractString(data, 'amount') AS amount_captured,
+                     JSONExtractString(data, 'currency') AS currency,
+                     JSONExtractString(data, 'price', 'product') AS product_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+              WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))), 0))
      GROUP BY customer_id,
               month
      LIMIT 20 BY month) AS inner
   INNER JOIN
     (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+            `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
             `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
             `stripe.posthog_test.customer_revenue_view`.name AS name,
             `stripe.posthog_test.customer_revenue_view`.email AS email,
-            `stripe.posthog_test.customer_revenue_view`.phone AS phone
+            `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+            `stripe.posthog_test.customer_revenue_view`.cohort AS cohort
      FROM
-       (SELECT posthog_test_stripe_customer.id AS id,
-               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_customer.created), 6, 'UTC') AS timestamp,
-               posthog_test_stripe_customer.name AS name,
-               posthog_test_stripe_customer.email AS email,
-               posthog_test_stripe_customer.phone AS phone
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime') AS posthog_test_stripe_customer) AS `stripe.posthog_test.customer_revenue_view`) AS customers ON equals(customers.id, inner.customer_id)
+       (SELECT outer.id AS id,
+               'stripe.posthog_test' AS source_label,
+               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+               outer.name AS name,
+               outer.email AS email,
+               outer.phone AS phone,
+               cohort_inner.cohort_readable AS cohort
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime')) AS outer
+        LEFT JOIN
+          (SELECT invoice.customer AS customer_id,
+                  toStartOfMonth(min(parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC'))) AS cohort,
+                  formatDateTime(cohort, '%Y-%m') AS cohort_readable
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
+           GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_customer.id, inner.customer_id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -208,62 +262,87 @@
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_group_by_all
   '''
-  SELECT customers.name AS name,
+  SELECT revenue_analytics_customer.name AS name,
          inner.customer_id AS customer_id,
          sum(inner.amount) AS amount,
          'all' AS month
   FROM
-    (SELECT customer_id AS customer_id,
-            toStartOfMonth(timestamp) AS month,
-            sum(amount) AS amount
+    (SELECT revenue_analytics_invoice_item.customer_id AS customer_id,
+            toStartOfMonth(revenue_analytics_invoice_item.timestamp) AS month,
+            sum(revenue_analytics_invoice_item.amount) AS amount
      FROM
-       (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
-               `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
-               `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
-               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
-               `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
-               `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
-               `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
-               `stripe.posthog_test.charge_revenue_view`.original_amount AS original_amount,
-               `stripe.posthog_test.charge_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_divider AS currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_amount AS currency_aware_amount,
-               `stripe.posthog_test.charge_revenue_view`.currency AS currency,
-               `stripe.posthog_test.charge_revenue_view`.amount AS amount
+       (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+               `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
         FROM
-          (SELECT posthog_test_stripe_charge.id AS id,
-                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
-                  posthog_test_stripe_charge.customer AS customer_id,
-                  posthog_test_stripe_charge.invoice AS invoice_id,
+          (SELECT invoice.invoice_item_id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  invoice.created_at AS timestamp,
+                  invoice.product_id AS product_id,
+                  invoice.customer_id AS customer_id,
+                  id AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
-                  upper(posthog_test_stripe_charge.currency) AS original_currency,
-                  accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                  upper(invoice.currency) AS original_currency,
+                  accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
                   in(original_currency,
                      ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
                     if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-           WHERE equals(posthog_test_stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.charge_revenue_view`)
-     WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+           FROM
+             (SELECT posthog_test_stripe_invoice.id AS id,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                     posthog_test_stripe_invoice.customer AS customer_id,
+                     arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                     JSONExtractString(data, 'id') AS invoice_item_id,
+                     JSONExtractString(data, 'amount') AS amount_captured,
+                     JSONExtractString(data, 'currency') AS currency,
+                     JSONExtractString(data, 'price', 'product') AS product_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+              WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
      GROUP BY customer_id,
               month
      LIMIT 20 BY month) AS inner
   INNER JOIN
     (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+            `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
             `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
             `stripe.posthog_test.customer_revenue_view`.name AS name,
             `stripe.posthog_test.customer_revenue_view`.email AS email,
-            `stripe.posthog_test.customer_revenue_view`.phone AS phone
+            `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+            `stripe.posthog_test.customer_revenue_view`.cohort AS cohort
      FROM
-       (SELECT posthog_test_stripe_customer.id AS id,
-               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_customer.created), 6, 'UTC') AS timestamp,
-               posthog_test_stripe_customer.name AS name,
-               posthog_test_stripe_customer.email AS email,
-               posthog_test_stripe_customer.phone AS phone
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime') AS posthog_test_stripe_customer) AS `stripe.posthog_test.customer_revenue_view`) AS customers ON equals(customers.id, inner.customer_id)
+       (SELECT outer.id AS id,
+               'stripe.posthog_test' AS source_label,
+               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+               outer.name AS name,
+               outer.email AS email,
+               outer.phone AS phone,
+               cohort_inner.cohort_readable AS cohort
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `created` DateTime')) AS outer
+        LEFT JOIN
+          (SELECT invoice.customer AS customer_id,
+                  toStartOfMonth(min(parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC'))) AS cohort,
+                  formatDateTime(cohort, '%Y-%m') AS cohort_readable
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
+           GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_customer.id, inner.customer_id)
   GROUP BY name,
            customer_id
   ORDER BY amount DESC
@@ -271,7 +350,7 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -287,26 +366,30 @@
          inner.amount AS amount,
          inner.month AS month
   FROM
-    (SELECT customer_id AS customer_id,
-            toStartOfMonth(timestamp) AS month,
-            sum(amount) AS amount
+    (SELECT revenue_analytics_invoice_item.customer_id AS customer_id,
+            toStartOfMonth(revenue_analytics_invoice_item.timestamp) AS month,
+            sum(revenue_analytics_invoice_item.amount) AS amount
      FROM
-       (SELECT `revenue_analytics.purchase.charge_events_revenue_view`.id AS id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.timestamp AS timestamp,
-               `revenue_analytics.purchase.charge_events_revenue_view`.customer_id AS customer_id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.invoice_id AS invoice_id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.session_id AS session_id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.event_name AS event_name,
-               `revenue_analytics.purchase.charge_events_revenue_view`.original_currency AS original_currency,
-               `revenue_analytics.purchase.charge_events_revenue_view`.original_amount AS original_amount,
-               `revenue_analytics.purchase.charge_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-               `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-               `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-               `revenue_analytics.purchase.charge_events_revenue_view`.currency AS currency,
-               `revenue_analytics.purchase.charge_events_revenue_view`.amount AS amount
+       (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.session_id AS session_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.event_name AS event_name,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.original_currency AS original_currency,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.original_amount AS original_amount,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.currency_aware_divider AS currency_aware_divider,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.currency_aware_amount AS currency_aware_amount,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.currency AS currency,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.amount AS amount
         FROM
           (SELECT events.uuid AS id,
-                  toTimeZone(events.created_at, 'UTC') AS timestamp,
+                  'revenue_analytics.purchase' AS source_label,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  NULL AS product_id,
                   events.distinct_id AS customer_id,
                   NULL AS invoice_id,
                   toString(events.`$session_id`) AS session_id,
@@ -320,10 +403,10 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
-           ORDER BY timestamp DESC) AS `revenue_analytics.purchase.charge_events_revenue_view`
-        WHERE in(`revenue_analytics.purchase.charge_events_revenue_view`.event_name,
-                 ['purchase']))
-     WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
+           ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`
+        WHERE in(`revenue_analytics.purchase.invoice_item_revenue_view_events`.event_name,
+                 ['purchase'])) AS revenue_analytics_invoice_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
      GROUP BY customer_id,
               month
      LIMIT 20 BY month) AS inner
@@ -332,7 +415,7 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -348,26 +431,30 @@
          inner.amount AS amount,
          inner.month AS month
   FROM
-    (SELECT customer_id AS customer_id,
-            toStartOfMonth(timestamp) AS month,
-            sum(amount) AS amount
+    (SELECT revenue_analytics_invoice_item.customer_id AS customer_id,
+            toStartOfMonth(revenue_analytics_invoice_item.timestamp) AS month,
+            sum(revenue_analytics_invoice_item.amount) AS amount
      FROM
-       (SELECT `revenue_analytics.purchase.charge_events_revenue_view`.id AS id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.timestamp AS timestamp,
-               `revenue_analytics.purchase.charge_events_revenue_view`.customer_id AS customer_id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.invoice_id AS invoice_id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.session_id AS session_id,
-               `revenue_analytics.purchase.charge_events_revenue_view`.event_name AS event_name,
-               `revenue_analytics.purchase.charge_events_revenue_view`.original_currency AS original_currency,
-               `revenue_analytics.purchase.charge_events_revenue_view`.original_amount AS original_amount,
-               `revenue_analytics.purchase.charge_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-               `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-               `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-               `revenue_analytics.purchase.charge_events_revenue_view`.currency AS currency,
-               `revenue_analytics.purchase.charge_events_revenue_view`.amount AS amount
+       (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.session_id AS session_id,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.event_name AS event_name,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.original_currency AS original_currency,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.original_amount AS original_amount,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.currency_aware_divider AS currency_aware_divider,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.currency_aware_amount AS currency_aware_amount,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.currency AS currency,
+               `revenue_analytics.purchase.invoice_item_revenue_view_events`.amount AS amount
         FROM
           (SELECT events.uuid AS id,
-                  toTimeZone(events.created_at, 'UTC') AS timestamp,
+                  'revenue_analytics.purchase' AS source_label,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  NULL AS product_id,
                   events.distinct_id AS customer_id,
                   NULL AS invoice_id,
                   toString(events.`$session_id`) AS session_id,
@@ -382,10 +469,10 @@
                     if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
-           ORDER BY timestamp DESC) AS `revenue_analytics.purchase.charge_events_revenue_view`
-        WHERE in(`revenue_analytics.purchase.charge_events_revenue_view`.event_name,
-                 ['purchase']))
-     WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
+           ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`
+        WHERE in(`revenue_analytics.purchase.invoice_item_revenue_view_events`.event_name,
+                 ['purchase'])) AS revenue_analytics_invoice_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
      GROUP BY customer_id,
               month
      LIMIT 20 BY month) AS inner
@@ -394,7 +481,7 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
@@ -410,41 +497,54 @@
          inner.amount AS amount,
          inner.month AS month
   FROM
-    (SELECT customer_id AS customer_id,
-            toStartOfMonth(timestamp) AS month,
-            sum(amount) AS amount
+    (SELECT revenue_analytics_invoice_item.customer_id AS customer_id,
+            toStartOfMonth(revenue_analytics_invoice_item.timestamp) AS month,
+            sum(revenue_analytics_invoice_item.amount) AS amount
      FROM
-       (SELECT `stripe.posthog_test.charge_revenue_view`.id AS id,
-               `stripe.posthog_test.charge_revenue_view`.timestamp AS timestamp,
-               `stripe.posthog_test.charge_revenue_view`.customer_id AS customer_id,
-               `stripe.posthog_test.charge_revenue_view`.invoice_id AS invoice_id,
-               `stripe.posthog_test.charge_revenue_view`.session_id AS session_id,
-               `stripe.posthog_test.charge_revenue_view`.event_name AS event_name,
-               `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
-               `stripe.posthog_test.charge_revenue_view`.original_amount AS original_amount,
-               `stripe.posthog_test.charge_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_divider AS currency_aware_divider,
-               `stripe.posthog_test.charge_revenue_view`.currency_aware_amount AS currency_aware_amount,
-               `stripe.posthog_test.charge_revenue_view`.currency AS currency,
-               `stripe.posthog_test.charge_revenue_view`.amount AS amount
+       (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+               `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
         FROM
-          (SELECT posthog_test_stripe_charge.id AS id,
-                  parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_charge.created), 6, 'UTC') AS timestamp,
-                  posthog_test_stripe_charge.customer AS customer_id,
-                  posthog_test_stripe_charge.invoice AS invoice_id,
+          (SELECT invoice.invoice_item_id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  invoice.created_at AS timestamp,
+                  invoice.product_id AS product_id,
+                  invoice.customer_id AS customer_id,
+                  id AS invoice_id,
                   NULL AS session_id,
                   NULL AS event_name,
-                  upper(posthog_test_stripe_charge.currency) AS original_currency,
-                  accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
+                  upper(invoice.currency) AS original_currency,
+                  accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
                   in(original_currency,
                      ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
                     if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
-           WHERE equals(posthog_test_stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.charge_revenue_view`)
-     WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+           FROM
+             (SELECT posthog_test_stripe_invoice.id AS id,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                     posthog_test_stripe_invoice.customer AS customer_id,
+                     arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                     JSONExtractString(data, 'id') AS invoice_item_id,
+                     JSONExtractString(data, 'amount') AS amount_captured,
+                     JSONExtractString(data, 'currency') AS currency,
+                     JSONExtractString(data, 'price', 'product') AS product_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+              WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item
+     WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
      GROUP BY customer_id,
               month
      LIMIT 20 BY month) AS inner
@@ -453,7 +553,7 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
+                     format_csv_allow_double_quotes=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,

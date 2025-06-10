@@ -41,7 +41,7 @@ export async function prepareEventStep(
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
         processPerson,
-        runner.groupStoreForDistinctId
+        runner.groupStoreForBatch
     )
     await Promise.all(tsParsingIngestionWarnings)
 

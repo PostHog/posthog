@@ -24,7 +24,7 @@ from posthog.utils import get_instance_region
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=6000)  ## roughly 1.5k tokens
+    content = serializers.CharField(required=True, max_length=40000)  ## roughly 10k tokens
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)

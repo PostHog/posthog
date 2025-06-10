@@ -22,6 +22,8 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+import products.revenue_analytics.backend.api as revenue_analytics
+from posthog.warehouse.api.lineage import LineageViewSet
 import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -704,6 +706,8 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
+
 environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
 environments_router.register(
@@ -727,5 +731,12 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/taxonomy",
+    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
+    "environment_revenue_analytics_taxonomy",
     ["team_id"],
 )

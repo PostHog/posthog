@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
     addProductIntent,
@@ -16,6 +17,7 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
@@ -255,6 +257,10 @@ export const teamLogic = kea<teamLogicType>([
                 }
                 return frequentMistakes
             },
+        ],
+        baseCurrency: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam: TeamType): CurrencyCode => currentTeam?.base_currency ?? DEFAULT_CURRENCY,
         ],
     })),
     listeners(({ actions }) => ({

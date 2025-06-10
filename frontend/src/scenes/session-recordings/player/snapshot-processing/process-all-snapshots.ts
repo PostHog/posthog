@@ -56,10 +56,10 @@ export function processAllSnapshots(
 
         if (snapshotsBySource?.[sourceKey]?.processed) {
             // If we already processed this source, skip it
-            // doing push.apply to mutate the original array
-            // and avoid a spread on a large array
-            // eslint-disable-next-line prefer-spread
-            result.push.apply(result, snapshotsBySource[sourceKey].snapshots || [])
+            // here we loop and push one by one, to avoid a spread on a large array
+            for (const snapshot of snapshotsBySource[sourceKey].snapshots || []) {
+                result.push(snapshot)
+            }
             continue
         }
 
@@ -121,8 +121,9 @@ export function processAllSnapshots(
         snapshotsBySource[sourceKey].processed = true
         // doing push.apply to mutate the original array
         // and avoid a spread on a large array
-        // eslint-disable-next-line prefer-spread
-        result.push.apply(result, sourceResult)
+        for (const snapshot of sourceResult) {
+            result.push(snapshot)
+        }
     }
 
     // sorting is very cheap for already sorted lists
@@ -133,6 +134,7 @@ export function processAllSnapshots(
     snapshotsBySource['processed'] = {
         source: 'processed',
         processed: true,
+        sourceLoaded: true,
         snapshots: needToPatchMeta
             ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId)
             : result,

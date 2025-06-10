@@ -774,6 +774,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             done_ranges=done_ranges,
             fields=fields,
             filters=filters,
+            order_columns=None,
             destination_default_fields=s3_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

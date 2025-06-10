@@ -2,6 +2,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.utils import timezone
+from django.core.cache import cache
 
 from posthog.models import Organization, OrganizationInvite, Plugin
 from posthog.models.organization import OrganizationMembership
@@ -11,6 +12,10 @@ from posthog.test.base import BaseTest
 
 
 class TestOrganization(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
         self.assertEqual(self.organization.active_invites.count(), 0)
@@ -82,6 +87,22 @@ class TestOrganization(BaseTest):
                 {"key": "test1", "name": "test1"},
                 {"key": "test2", "name": "test2"},
             ]
+
+    def test_session_age_caching(self):
+        # Test caching when session_cookie_age is set
+        self.organization.session_cookie_age = 3600
+        self.organization.save()
+        self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 3600)
+
+        # Test cache deletion when session_cookie_age is set to None
+        self.organization.session_cookie_age = None
+        self.organization.save()
+        self.assertIsNone(cache.get(f"org_session_age:{self.organization.id}"))
+
+        # Test cache update when session_cookie_age changes
+        self.organization.session_cookie_age = 7200
+        self.organization.save()
+        self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
 
 
 class TestOrganizationMembership(BaseTest):

@@ -72,7 +72,7 @@ pub fn session_recording_config_response(
         None
     };
 
-    // session_replay_config logic
+    // session_replay_config logic - only include canvas fields if record_canvas is configured
     let (record_canvas, canvas_fps, canvas_quality) = if let Some(cfg) = &team.session_replay_config
     {
         if let Some(record_canvas) = cfg.get("record_canvas") {

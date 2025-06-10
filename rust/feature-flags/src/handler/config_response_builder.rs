@@ -1,7 +1,7 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, FlagsResponse},
+        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse},
     },
     config::Config,
     site_apps::get_decide_site_apps,
@@ -10,7 +10,7 @@ use crate::{
 use axum::http::HeaderMap;
 use std::{collections::HashMap, sync::Arc};
 
-use super::{session_recording, types::RequestContext};
+use super::{error_tracking, session_recording, types::RequestContext};
 
 /// Isolates the specific fields needed to build config responses from a RequestContext.
 /// This allows us to extract only the relevant dependencies (config, database client,
@@ -86,6 +86,33 @@ async fn apply_config_fields(
         Some(vec![])
     };
 
+    // Handle error tracking configuration
+    response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
+        // Try to get suppression rules, but don't fail if database is unavailable
+        let suppression_rules =
+            match error_tracking::get_suppression_rules(context.reader.clone(), team).await {
+                Ok(rules) => rules,
+                Err(_) => {
+                    // Log error but continue with empty rules, similar to Django behavior
+                    tracing::warn!(
+                        "Failed to fetch suppression rules for team {}, using empty rules",
+                        team.id
+                    );
+                    vec![]
+                }
+            };
+
+        Some(ErrorTrackingConfig {
+            autocapture_exceptions: true,
+            suppression_rules,
+        })
+    } else {
+        Some(ErrorTrackingConfig {
+            autocapture_exceptions: false,
+            suppression_rules: vec![],
+        })
+    };
+
     Ok(())
 }
 
@@ -97,12 +124,12 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
         team.autocapture_web_vitals_allowed_metrics.as_ref();
     let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
 
-    response.config.has_feature_flags = Some(!response.flags.is_empty());
     response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-    response.config.autocapture_opt_out = team.autocapture_opt_out;
+    response.config.autocapture_opt_out = team.autocapture_opt_out.unwrap_or(false);
 
     response.config.analytics = if !*config.debug
         && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
+        && !config.new_analytics_capture_endpoint.is_empty()
     {
         Some(AnalyticsConfig {
             endpoint: Some(config.new_analytics_capture_endpoint.clone()),
@@ -161,10 +188,7 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::{
-            ConfigResponse, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagsResponse,
-            SessionRecordingField,
-        },
+        api::types::{ConfigResponse, FlagsResponse, SessionRecordingField},
         config::{Config, FlexBool, TeamIdCollection},
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
@@ -234,7 +258,6 @@ mod tests {
             response.config.supported_compression,
             vec!["gzip", "gzip-js"]
         );
-        assert_eq!(response.config.has_feature_flags, Some(false)); // empty flags
         assert_eq!(response.config.default_identified_only, Some(true));
         assert_eq!(response.config.is_authenticated, Some(false));
         assert_eq!(
@@ -242,37 +265,6 @@ mod tests {
             Some(json!({"enable_collect_everything": true}))
         );
         assert_eq!(response.config.toolbar_params, Some(json!({})));
-    }
-
-    #[test]
-    fn test_has_feature_flags_with_flags() {
-        let mut response = create_base_response();
-        response.flags.insert(
-            "test_flag".to_string(),
-            FlagDetails {
-                key: "test_flag".to_string(),
-                enabled: true,
-                variant: None,
-                reason: FlagEvaluationReason {
-                    code: "condition_match".to_string(),
-                    condition_index: Some(0),
-                    description: None,
-                },
-                metadata: FlagDetailsMetadata {
-                    id: 1,
-                    version: 1,
-                    description: None,
-                    payload: None,
-                },
-            },
-        );
-
-        let config = Config::default_test_config();
-        let team = create_base_team();
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.has_feature_flags, Some(true));
     }
 
     #[test]
@@ -317,6 +309,21 @@ mod tests {
 
         let mut response = create_base_response();
         let team = create_base_team(); // team.id = 1
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert!(response.config.analytics.is_none());
+    }
+
+    #[test]
+    fn test_analytics_config_disabled_empty_endpoint() {
+        let mut config = Config::default_test_config();
+        config.debug = FlexBool(false);
+        config.new_analytics_capture_endpoint = "".to_string(); // Empty endpoint
+        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
+
+        let mut response = create_base_response();
+        let team = create_base_team();
 
         apply_core_config_fields(&mut response, &config, &team);
 
@@ -546,7 +553,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.autocapture_opt_out, Some(true));
+        assert!(response.config.autocapture_opt_out);
     }
 
     #[test]
@@ -559,7 +566,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.autocapture_opt_out, Some(false));
+        assert!(!response.config.autocapture_opt_out);
     }
 
     #[test]
@@ -596,13 +603,15 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
+        println!("response: {:?}", response);
+
         // Test that defaults are applied correctly
         assert_eq!(response.config.surveys, Some(json!(false)));
         assert_eq!(response.config.heatmaps, Some(false));
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
         assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert!(response.config.autocapture_opt_out.is_none());
+        assert!(!response.config.autocapture_opt_out);
         assert!(response.config.capture_dead_clicks.is_none());
     }
 
