@@ -127,7 +127,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         }}
                         fullWidth
                     >
-                        {isFiltersExpanded ? 'Close' : 'Open'} filters{' '}
+                        {isFiltersExpanded ? 'Hide' : 'Show'} filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                 </>
