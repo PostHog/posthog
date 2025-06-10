@@ -1,7 +1,7 @@
 import dataclasses
 import json
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 from posthog.temporal.ai.session_summary.summarize_session import stream_llm_summary_activity, SessionSummaryInputs
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
@@ -13,6 +13,7 @@ class TestStreamLlmSummaryActivity:
     @pytest.mark.asyncio
     async def test_stream_llm_summary_activity_standalone(
         self,
+        mocker,
         mock_user: MagicMock,
         mock_valid_llm_yaml_response: str,
         mock_enriched_llm_json_response: dict,
@@ -39,8 +40,6 @@ class TestStreamLlmSummaryActivity:
 
         async def _mock_stream_llm(*args, **kwargs):
             for chunk_content in yaml_chunks:
-                if not chunk_content.strip():
-                    continue  # Only yield non-empty chunks
                 yield _create_chunk(chunk_content)
 
         # Split the fixture YAML response into realistic chunks to simulate streaming
@@ -49,7 +48,7 @@ class TestStreamLlmSummaryActivity:
             mock_valid_llm_yaml_response[i : i + chunk_size]
             for i in range(0, len(mock_valid_llm_yaml_response), chunk_size)
         ]
-        expected_chunk_count = len([chunk for chunk in yaml_chunks if chunk.strip()])
+
         # Prepare Redis data
         session_id = "test_session_id"
         input_data = SessionSummaryInputs(
@@ -67,6 +66,12 @@ class TestStreamLlmSummaryActivity:
         redis_client = get_client()
         redis_input_key = "test_input_key"
         redis_output_key = "test_output_key"
+
+        # Set up spies to track Redis operations
+        spy_get = mocker.spy(redis_client, "get")
+        spy_setex = mocker.spy(redis_client, "setex")
+
+        # Store initial input data
         redis_client.setex(
             redis_input_key,
             900,  # 15 minutes TTL
@@ -77,17 +82,27 @@ class TestStreamLlmSummaryActivity:
                 }
             ),
         )
-        # Expected SSE events that should be generated
+
+        # Run the activity and verify results
         expected_final_summary = serialize_to_sse_event(
             event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
         )
-        with (
-            patch("ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=_mock_stream_llm()),
-            patch("temporalio.activity.heartbeat") as mock_heartbeat,
-        ):
-            # Call the activity directly as a function
-            result = await stream_llm_summary_activity(redis_input_key)
-            # Verify the result is the final SSE event
-            assert result == expected_final_summary
-            # Verify heartbeat was called
-            assert mock_heartbeat.call_count >= 1
+        try:
+            with (
+                patch("ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=_mock_stream_llm()),
+                patch("temporalio.activity.heartbeat") as mock_heartbeat,
+            ):
+                # Call the activity directly as a function
+                result = await stream_llm_summary_activity(redis_input_key)
+                # Verify the result is the final SSE event
+                assert result == expected_final_summary
+                # Verify heartbeat was called
+                assert mock_heartbeat.call_count >= 1
+                # Verify Redis operations count
+                assert spy_get.call_count == 1  # Get input data
+                # Initial setup and number of valid chunks (unparseable chunks are skipped)
+                assert spy_setex.call_count == 1 + 8
+        finally:
+            # Clean up Redis data
+            redis_client.delete(redis_input_key)
+            redis_client.delete(redis_output_key)
