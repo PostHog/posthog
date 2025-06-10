@@ -1,5 +1,4 @@
 import { PostHog } from 'posthog-node'
-import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 
 import { defaultConfig } from '../config/config'
 import { Team } from '../types'
@@ -74,6 +73,8 @@ export function flush(): void {
 // We use sentry-style hints rather than our flat property list all over the place,
 // so define a type for them that we can flatten internally
 type Primitive = number | string | boolean | bigint | symbol | null | undefined
+type SeverityLevel = 'fatal' | 'error' | 'warning' | 'log' | 'info' | 'debug'
+
 interface ExceptionHint {
     level: SeverityLevel
     tags: Record<string, Primitive>
