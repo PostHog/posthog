@@ -17,6 +17,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
         sessionPlayerData: { sessionRecordingId },
         logicProps,
     } = useValues(sessionRecordingPlayerLogic)
+    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
 
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
@@ -68,12 +69,21 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     </LemonField>
                     <div
                         className={cn('flex flex-row gap-2 justify-end items-center text-text-3000 text-sm', {
-                            'text-danger': (recordingAnnotation.content?.length ?? 0) === 400,
+                            'text-danger': (recordingAnnotation.content?.length ?? 0) > 400,
                         })}
                     >
                         {recordingAnnotation.content?.length ?? 0} / 400
                     </div>
-                    <div className="flex gap-2 mt-2 justify-end">
+                    <div className="flex gap-2 mt-2 justify-between">
+                        <LemonButton
+                            data-attr="cancel-recording-annotation"
+                            type="secondary"
+                            onClick={() => {
+                                setIsCommenting(false)
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
                         <LemonButton
                             form="recording-annotation-form"
                             type="primary"
