@@ -24,16 +24,24 @@ export interface ItemCommentProps {
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
     return (
-        <div data-attr="item-notebook-comment" className="font-light w-full px-2 py-1 text-xs text-wrap">
-            {item.data.comment}
+        <div data-attr="item-notebook-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
+            {item.data.comment.trim().length > 30 ? (
+                <Tooltip title={item.data.comment}>{item.data.comment}</Tooltip>
+            ) : (
+                item.data.comment
+            )}
         </div>
     )
 }
 
 function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
     return (
-        <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs text-wrap">
-            item.data.content
+        <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
+            {(item.data.content || '').trim().length > 30 ? (
+                <Tooltip title={item.data.content}>{item.data.content}</Tooltip>
+            ) : (
+                item.data.content
+            )}
         </div>
     )
 }
@@ -137,7 +145,7 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t cursor-pointer text-wrap">item.data.content</div>
+            <div className="p-2 text-xs border-t cursor-pointer text-wrap">{item.data.content}</div>
         </div>
     )
 }
