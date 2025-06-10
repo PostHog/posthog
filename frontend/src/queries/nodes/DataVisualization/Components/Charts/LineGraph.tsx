@@ -379,18 +379,22 @@ export const LineGraph = (): JSX.Element => {
                                 }
                             })
 
-                            if (tooltipData.length > 1) {
-                                const rawData = (
-                                    ySeriesData as (AxisSeries<number> | AxisBreakdownSeries<number>)[]
-                                ).reduce((acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
-                                    acc += cur.data[referenceDataPoint.dataIndex]
-                                    return acc
-                                }, 0)
+                            const tooltipTotalData = (
+                                ySeriesData as (AxisSeries<number> | AxisBreakdownSeries<number>)[]
+                            ).filter((n) => n.settings?.formatting?.style !== 'percent')
 
+                            if (tooltipTotalData.length > 1 && chartSettings.showTotalRow !== false) {
+                                const totalRawData = tooltipTotalData.reduce(
+                                    (acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
+                                        acc += cur.data[referenceDataPoint.dataIndex]
+                                        return acc
+                                    },
+                                    0
+                                )
                                 tooltipData.push({
                                     series: '',
-                                    data: rawData.toString(),
-                                    rawData: rawData,
+                                    data: totalRawData.toLocaleString(),
+                                    rawData: totalRawData,
                                     dataIndex: referenceDataPoint.dataIndex,
                                     isTotalRow: true,
                                 })
