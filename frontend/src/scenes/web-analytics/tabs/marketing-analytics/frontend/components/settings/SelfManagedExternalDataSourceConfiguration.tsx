@@ -1,16 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import {
-    DataWarehouseSourceIcon,
-    mapUrlToProvider,
-    mapUrlToSourceName,
-} from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ManualLinkSourceType, PipelineNodeTab, PipelineStage } from '~/types'
+import { ManualLinkSourceType, PipelineStage } from '~/types'
 
+import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import {
     SharedExternalDataSourceConfiguration,
     SimpleDataWarehouseTable,
@@ -22,29 +18,13 @@ const VALID_MANUAL_LINK_SOURCES: ManualLinkSourceType[] = ['aws', 'google-cloud'
 // to the correct fields in the Marketing Analytics product.
 // These sources don't have predefined schemas like native integrations, so users need to manually map their columns.
 export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
-    const { dataWarehouseSources, selfManagedTables } = useValues(dataWarehouseSettingsLogic)
+    const { externalTables, loading } = useValues(marketingAnalyticsLogic)
     const { toggleManualLinkFormVisible, setManualLinkingProvider } = useActions(sourceWizardLogic)
 
-    const tables: SimpleDataWarehouseTable[] = selfManagedTables
-        .map((source) => ({
-            ...source,
-            id: source.id,
-            source_type: mapUrlToSourceName(source.url_pattern),
-            source_id: source.id,
-            source_prefix: '',
-            name: source.name,
-            columns: Object.keys(source.fields).map((field) => ({
-                name: source.fields[field].hogql_value,
-                type: source.fields[field].type,
-            })),
-            url_pattern: source.url_pattern,
-            sourceUrl: urls.pipelineNode(
-                PipelineStage.Source,
-                `self-managed-${source.id}`,
-                PipelineNodeTab.SourceConfiguration
-            ),
-        }))
-        .flat()
+    const tables: ExternalTable[] | null =
+        externalTables.filter((source) =>
+            VALID_MANUAL_LINK_SOURCES.includes(source.source_type as ManualLinkSourceType)
+        ) ?? null
 
     const handleSourceAdd = (manualLinkSource: ManualLinkSourceType): void => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
@@ -57,7 +37,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
             title="Self-managed Data Warehouse Sources Configuration"
             description="PostHog can display marketing data in our Marketing Analytics product from the following self-managed data warehouse sources."
             tables={tables}
-            loading={dataWarehouseSources === null}
+            loading={loading}
             validSources={VALID_MANUAL_LINK_SOURCES}
             renderSourceIcon={renderSourceIcon}
             onSourceAdd={handleSourceAdd}

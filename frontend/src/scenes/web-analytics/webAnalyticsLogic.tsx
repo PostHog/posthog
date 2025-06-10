@@ -73,7 +73,10 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { MARKETING_ANALYTICS_SCHEMA } from './tabs/marketing-analytics/utils'
+import {
+    ExternalTable,
+    marketingAnalyticsLogic,
+} from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
@@ -427,6 +430,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['sources_map'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
+            marketingAnalyticsLogic,
+            ['validExternalTables'],
         ],
     })),
     actions({
@@ -758,121 +763,68 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     selectors(({ actions, values }) => ({
         // Helper functions for dynamic marketing analytics
         createMarketingDataWarehouseNodes: [
-            (s) => [s.sources_map, s.dataWarehouseTables, s.selfManagedTables],
-            (
-                sources_map: { [key: string]: SourceMap },
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                selfManagedTables: DatabaseSchemaDataWarehouseTable[]
-            ): DataWarehouseNode[] => {
-                if (
-                    !sources_map ||
-                    Object.keys(sources_map).length === 0 ||
-                    ((!dataWarehouseTables || dataWarehouseTables.length === 0) &&
-                        (!selfManagedTables || selfManagedTables.length === 0))
-                ) {
+            (s) => [s.validExternalTables],
+            (validExternalTables: ExternalTable[]): DataWarehouseNode[] => {
+                if (!validExternalTables || validExternalTables.length === 0) {
                     return []
                 }
 
-                const validSourcesMap = sources_map
-
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
-                    .forEach((column_name: string) => {
-                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
-                            if (!fieldMapping[column_name]) {
-                                delete validSourcesMap[tableId]
-                            }
-                        })
-                    })
-
-                if (Object.keys(validSourcesMap).length === 0) {
-                    return []
-                }
-
-                const nodeList: DataWarehouseNode[] = Object.entries(validSourcesMap)
-                    .map(([tableId, fieldMapping]: [string, any]) => {
-                        const dataWarehouseTable = dataWarehouseTables.find((table) => table.schema?.id === tableId)
-                        const selfManagedTable = selfManagedTables.find((table) => table.id === tableId)
-                        const tableName = dataWarehouseTable?.name || selfManagedTable?.name
-                        const schema = dataWarehouseTable?.schema?.name || selfManagedTable?.name
-
-                        if (!tableName) {
+                const nodeList: DataWarehouseNode[] = validExternalTables
+                    .map((table) => {
+                        if (!table.source_map || !table.source_map.date || !table.source_map.total_cost) {
                             return null
                         }
 
                         const returning: DataWarehouseNode = {
                             kind: NodeKind.DataWarehouseNode,
-                            id: tableId,
-                            name: schema,
-                            custom_name: `${schema} Cost`,
+                            id: table.id,
+                            name: table.schema_name,
+                            custom_name: `${table.schema_name} Cost`,
                             id_field: 'id',
                             distinct_id_field: 'id',
-                            timestamp_field: fieldMapping.date,
-                            table_name: tableName,
+                            timestamp_field: table.source_map.date,
+                            table_name: table.name,
                             math: PropertyMathType.Sum,
-                            math_property: fieldMapping.total_cost,
+                            math_property: table.source_map.total_cost,
                         }
                         return returning
                     })
-                    // necessary so that the type checker doesn't complain about the nulls even though we filter them out
-                    .filter((node) => node !== null) as DataWarehouseNode[]
+                    .filter(Boolean) as DataWarehouseNode[]
 
                 return nodeList
             },
         ],
 
         createDynamicCampaignQuery: [
-            (s) => [s.sources_map, s.dataWarehouseTables, s.selfManagedTables],
-            (
-                sources_map: { [key: string]: SourceMap },
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                selfManagedTables: DatabaseSchemaDataWarehouseTable[]
-            ): string | null => {
-                if (
-                    !sources_map ||
-                    Object.keys(sources_map).length === 0 ||
-                    ((!dataWarehouseTables || dataWarehouseTables.length === 0) &&
-                        (!selfManagedTables || selfManagedTables.length === 0))
-                ) {
+            (s) => [s.validExternalTables],
+            (validExternalTables: ExternalTable[]): string | null => {
+                if (!validExternalTables || validExternalTables.length === 0) {
                     return null
                 }
 
-                const validSourcesMap = sources_map
-
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
-                    .forEach((column_name: string) => {
-                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
-                            if (!fieldMapping[column_name]) {
-                                delete validSourcesMap[tableId]
-                            }
-                        })
-                    })
-
-                if (Object.keys(validSourcesMap).length === 0) {
-                    return null
-                }
-
-                const unionQueries = Object.entries(validSourcesMap)
-                    .map(([tableId, fieldMapping]: [string, any]) => {
-                        const dataWarehouseTable = dataWarehouseTables.find((table) => table.schema?.id === tableId)
-                        const selfManagedTable = selfManagedTables.find((table) => table.id === tableId)
-                        const tableName = dataWarehouseTable?.name || selfManagedTable?.name
-                        const schemaName = dataWarehouseTable?.schema?.name || selfManagedTable?.name
-                        if (!tableName) {
+                const unionQueries = validExternalTables
+                    .map((table) => {
+                        const tableName = table.name
+                        const schemaName = table.schema_name
+                        if (
+                            !table.source_map ||
+                            !table.source_map.date ||
+                            !table.source_map.total_cost ||
+                            !table.source_map.campaign_name
+                        ) {
                             return null
                         }
 
                         // TODO: we should replicate this logic for the area charts once we build the query runner
                         return `
                         SELECT 
-                            ${fieldMapping.campaign_name} as campaignname,
-                            toFloat(coalesce(${fieldMapping.total_cost}, 0)) as cost,
-                            toFloat(coalesce(${fieldMapping.clicks || '0'}, 0)) as clicks,
-                            toFloat(coalesce(${fieldMapping.impressions || '0'}, 0)) as impressions,
-                            ${fieldMapping.source_name || `'${schemaName}'`} as source_name
+                            ${table.source_map.campaign_name} as campaignname,
+                            toFloat(coalesce(${table.source_map.total_cost}, 0)) as cost,
+                            toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
+                            toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
+                            ${table.source_map.source_name || `'${schemaName}'`} as source_name
                         FROM ${tableName}
-                        WHERE ${fieldMapping.date} >= '2025-01-01'
+                        WHERE ${table.source_map.date} >= '2025-01-01'
                     `.trim()
                     })
                     .filter(Boolean)

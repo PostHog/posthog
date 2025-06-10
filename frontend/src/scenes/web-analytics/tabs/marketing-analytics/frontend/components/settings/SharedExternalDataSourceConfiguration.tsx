@@ -1,6 +1,6 @@
 import { IconCheck, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSelect, LemonSelectSection, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -8,13 +8,14 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
+import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
 export type SimpleDataWarehouseTable = {
     name: string
     source_type: string
     id: string
-    source_id: string
+    source_map_id: string
     source_prefix: string
     columns?: { name: string; type: string }[]
     url_pattern?: string
@@ -24,7 +25,7 @@ export type SimpleDataWarehouseTable = {
 interface SharedExternalDataSourceConfigurationProps {
     title: string
     description: string
-    tables: SimpleDataWarehouseTable[]
+    tables: ExternalTable[]
     loading: boolean
     validSources: ExternalDataSource['source_type'][] | ManualLinkSourceType[]
     renderSourceIcon: (item: SimpleDataWarehouseTable) => JSX.Element
@@ -40,8 +41,10 @@ export function SharedExternalDataSourceConfiguration({
     renderSourceIcon,
     onSourceAdd,
 }: SharedExternalDataSourceConfigurationProps): JSX.Element {
-    const { sources_map } = useValues(marketingAnalyticsSettingsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
+    const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
+        (field) => MARKETING_ANALYTICS_SCHEMA[field].required
+    )
 
     const isColumnTypeCompatible = (
         columnType: string,
@@ -51,14 +54,12 @@ export function SharedExternalDataSourceConfiguration({
     }
 
     const renderColumnMappingDropdown = (
-        table: SimpleDataWarehouseTable,
+        table: ExternalTable,
         fieldName: keyof typeof MARKETING_ANALYTICS_SCHEMA
     ): JSX.Element => {
-        const sourceMapping = sources_map?.[table.id]
-        const currentValue = sourceMapping?.[fieldName]
+        const currentValue = table.source_map?.[fieldName]
         const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
         const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
-
         const columnOptions: LemonSelectSection<string | null>[] = [
             {
                 options: [
@@ -79,7 +80,7 @@ export function SharedExternalDataSourceConfiguration({
         return (
             <LemonSelect
                 value={currentValue || null}
-                onChange={(value) => updateSourceMapping(table.id, fieldName, value)}
+                onChange={(value) => updateSourceMapping(table.source_map_id, fieldName, value)}
                 options={columnOptions}
                 placeholder="Select..."
                 size="small"
@@ -87,50 +88,44 @@ export function SharedExternalDataSourceConfiguration({
         )
     }
 
-    const removeTableMapping = (tableId: string): void => {
+    const removeTableMapping = (table: ExternalTable): void => {
         // Remove all field mappings for this table by setting each to null
-        const sourceMapping = sources_map?.[tableId]
+        const sourceMapping = table.source_map
 
         if (sourceMapping) {
             Object.keys(sourceMapping).forEach((fieldName) => {
-                updateSourceMapping(tableId, fieldName, null)
+                updateSourceMapping(table.source_map_id, fieldName, null)
             })
         }
     }
 
-    const hasAnyMapping = (tableId: string): boolean => {
-        const sourceMapping = sources_map?.[tableId]
-        return sourceMapping && Object.keys(sourceMapping).length > 0
+    const hasAnyMapping = (table: ExternalTable): boolean => {
+        const sourceMapping = table.source_map
+        return sourceMapping ? Object.keys(sourceMapping).length > 0 : false
     }
 
-    const isTableFullyConfigured = (tableId: string): boolean => {
-        const sourceMapping = sources_map?.[tableId]
+    const isTableFullyConfigured = (table: ExternalTable): boolean => {
+        const sourceMapping = table.source_map
         if (!sourceMapping) {
             return false
         }
 
-        // Check if all required fields from the schema are mapped
-        const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
-            (field) => MARKETING_ANALYTICS_SCHEMA[field].required
-        )
         return requiredFields.every((fieldName: string) => {
             const mapping = sourceMapping[fieldName]
             return mapping && mapping.trim() !== ''
         })
     }
 
-    const getTableStatus = (tableId: string): { isConfigured: boolean; message: string } => {
-        const sourceMapping = sources_map?.[tableId]
+    const getTableStatus = (table: ExternalTable): { isConfigured: boolean; message: string } => {
+        const sourceMapping = table.source_map
         if (!sourceMapping || Object.keys(sourceMapping).length === 0) {
             return { isConfigured: false, message: 'No fields mapped' }
         }
 
-        if (isTableFullyConfigured(tableId)) {
+        if (isTableFullyConfigured(table)) {
             return { isConfigured: true, message: 'Ready to use! All fields mapped correctly.' }
         }
-        const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
-            (field) => MARKETING_ANALYTICS_SCHEMA[field].required
-        )
+
         const mappedFields = requiredFields.filter((fieldName) => {
             const mapping = sourceMapping[fieldName]
             return mapping && mapping.trim() !== ''
@@ -156,13 +151,13 @@ export function SharedExternalDataSourceConfiguration({
                         key: 'source_icon',
                         title: '',
                         width: 0,
-                        render: (_, item: SimpleDataWarehouseTable) => renderSourceIcon(item),
+                        render: (_, item: ExternalTable) => renderSourceIcon(item),
                     },
                     {
                         key: 'source',
                         title: 'Source',
                         width: 0,
-                        render: (_, item: SimpleDataWarehouseTable) => {
+                        render: (_, item: ExternalTable) => {
                             return item.sourceUrl ? (
                                 <Link to={item.sourceUrl}>
                                     {item.source_type} {item.source_prefix}
@@ -177,15 +172,15 @@ export function SharedExternalDataSourceConfiguration({
                     {
                         key: 'prefix',
                         title: 'Table',
-                        render: (_, item: SimpleDataWarehouseTable) => item.name,
+                        render: (_, item: ExternalTable) => item.name,
                     },
                     {
                         key: 'status',
                         title: 'Status',
                         width: 80,
-                        render: (_, item: SimpleDataWarehouseTable) => {
-                            const { isConfigured, message } = getTableStatus(item.id)
-                            const sourceMapping = sources_map?.[item.id]
+                        render: (_, item: ExternalTable) => {
+                            const { isConfigured, message } = getTableStatus(item)
+                            const sourceMapping = item.source_map
                             const hasAnyMapping = sourceMapping && Object.keys(sourceMapping).length > 0
 
                             if (isConfigured) {
@@ -215,23 +210,18 @@ export function SharedExternalDataSourceConfiguration({
                         },
                     },
                     // Required fields first
-                    ...Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                        .filter((column) => MARKETING_ANALYTICS_SCHEMA[column].required)
-                        .sort()
-                        .map((column) => ({
-                            key: column,
-                            title: `${column.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())} (*)`,
-                            render: (_: any, item: SimpleDataWarehouseTable) =>
-                                renderColumnMappingDropdown(item, column),
-                        })),
+                    ...requiredFields.sort().map((column) => ({
+                        key: column,
+                        title: `${column.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())} (*)`,
+                        render: (_: any, item: ExternalTable) => renderColumnMappingDropdown(item, column),
+                    })),
                     ...Object.keys(MARKETING_ANALYTICS_SCHEMA)
                         .filter((column) => !MARKETING_ANALYTICS_SCHEMA[column].required)
                         .sort()
                         .map((column) => ({
                             key: column,
                             title: `${column.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}`,
-                            render: (_: any, item: SimpleDataWarehouseTable) =>
-                                renderColumnMappingDropdown(item, column),
+                            render: (_: any, item: ExternalTable) => renderColumnMappingDropdown(item, column),
                         })),
                     {
                         key: 'actions',
@@ -263,14 +253,14 @@ export function SharedExternalDataSourceConfiguration({
                                 </LemonButton>
                             </LemonDropdown>
                         ),
-                        render: (_, item: SimpleDataWarehouseTable) => {
-                            const tableHasMapping = hasAnyMapping(item.id)
+                        render: (_, item: ExternalTable) => {
+                            const tableHasMapping = hasAnyMapping(item)
                             return tableHasMapping ? (
                                 <LemonButton
                                     icon={<IconTrash />}
                                     size="small"
                                     status="danger"
-                                    onClick={() => removeTableMapping(item.id)}
+                                    onClick={() => removeTableMapping(item)}
                                     tooltip="Remove all mappings for this table"
                                 />
                             ) : null
