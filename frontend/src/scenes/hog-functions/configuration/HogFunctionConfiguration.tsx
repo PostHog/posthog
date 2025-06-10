@@ -20,6 +20,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -94,6 +95,7 @@ export function HogFunctionConfiguration({
         mightDropEvents,
         oldHogCode,
         newHogCode,
+        featureFlags,
     } = useValues(logic)
 
     const {
@@ -114,6 +116,7 @@ export function HogFunctionConfiguration({
         reportAIHogTransformationPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const aiHogFunctionCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
     const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     if (loading && !loaded) {
@@ -527,60 +530,85 @@ export function HogFunctionConfiguration({
                                                             instead.
                                                         </LemonBanner>
                                                     )}
-                                                    <MaxTool
-                                                        name="create_hog_transformation_function"
-                                                        displayName="Write and tweak Hog code"
-                                                        context={{
-                                                            current_hog_code: value ?? '',
-                                                        }}
-                                                        callback={(toolOutput: string) => {
-                                                            // Store the old value before changing
-                                                            setOldHogCode(value ?? '')
-                                                            // Store the new value from Max Tool
-                                                            setNewHogCode(toolOutput)
-                                                            // Report that AI was prompted
-                                                            reportAIHogTransformationPrompted()
-                                                            // Don't immediately update the form - let user accept/reject
-                                                        }}
-                                                        onMaxOpen={() => {
-                                                            reportAIHogTransformationPromptOpen()
-                                                        }}
-                                                        suggestions={[]}
-                                                        introOverride={{
-                                                            headline: 'What transformation do you want to create?',
-                                                            description:
-                                                                'Let me help you quickly write the code for your transformation, and tweak it.',
-                                                        }}
-                                                    >
+                                                    {aiHogFunctionCreation ? (
+                                                        <MaxTool
+                                                            name="create_hog_transformation_function"
+                                                            displayName="Write and tweak Hog code"
+                                                            context={{
+                                                                current_hog_code: value ?? '',
+                                                            }}
+                                                            callback={(toolOutput: string) => {
+                                                                // Store the old value before changing
+                                                                setOldHogCode(value ?? '')
+                                                                // Store the new value from Max Tool
+                                                                setNewHogCode(toolOutput)
+                                                                // Report that AI was prompted
+                                                                reportAIHogTransformationPrompted()
+                                                                // Don't immediately update the form - let user accept/reject
+                                                            }}
+                                                            onMaxOpen={() => {
+                                                                reportAIHogTransformationPromptOpen()
+                                                            }}
+                                                            suggestions={[]}
+                                                            introOverride={{
+                                                                headline: 'What transformation do you want to create?',
+                                                                description:
+                                                                    'Let me help you quickly write the code for your transformation, and tweak it.',
+                                                            }}
+                                                        >
+                                                            <CodeEditorResizeable
+                                                                language={
+                                                                    type.startsWith('site_') ? 'typescript' : 'hog'
+                                                                }
+                                                                value={newHogCode ?? value ?? ''}
+                                                                originalValue={
+                                                                    oldHogCode && newHogCode ? oldHogCode : undefined
+                                                                }
+                                                                onChange={(v) => {
+                                                                    // If user manually edits while diff is showing, clear the diff
+                                                                    if (oldHogCode && newHogCode) {
+                                                                        clearHogCodeDiff()
+                                                                    }
+                                                                    onChange(v ?? '')
+                                                                }}
+                                                                globals={sampleGlobalsWithInputs}
+                                                                showDiffActions={!!(oldHogCode && newHogCode)}
+                                                                onAcceptChanges={() => {
+                                                                    if (newHogCode) {
+                                                                        onChange(newHogCode)
+                                                                    }
+                                                                    reportAIHogTransformationAccepted()
+                                                                    clearHogCodeDiff()
+                                                                }}
+                                                                onRejectChanges={() => {
+                                                                    if (oldHogCode) {
+                                                                        onChange(oldHogCode)
+                                                                    }
+                                                                    reportAIHogTransformationRejected()
+                                                                    clearHogCodeDiff()
+                                                                }}
+                                                                options={{
+                                                                    minimap: {
+                                                                        enabled: false,
+                                                                    },
+                                                                    wordWrap: 'on',
+                                                                    scrollBeyondLastLine: false,
+                                                                    automaticLayout: true,
+                                                                    fixedOverflowWidgets: true,
+                                                                    suggest: {
+                                                                        showInlineDetails: true,
+                                                                    },
+                                                                    quickSuggestionsDelay: 300,
+                                                                    readOnly: !!(oldHogCode && newHogCode),
+                                                                }}
+                                                            />
+                                                        </MaxTool>
+                                                    ) : (
                                                         <CodeEditorResizeable
                                                             language={type.startsWith('site_') ? 'typescript' : 'hog'}
-                                                            value={newHogCode ?? value ?? ''}
-                                                            originalValue={
-                                                                oldHogCode && newHogCode ? oldHogCode : undefined
-                                                            }
-                                                            onChange={(v) => {
-                                                                // If user manually edits while diff is showing, clear the diff
-                                                                if (oldHogCode && newHogCode) {
-                                                                    clearHogCodeDiff()
-                                                                }
-                                                                onChange(v ?? '')
-                                                            }}
+                                                            value={value ?? ''}
+                                                            onChange={(v) => onChange(v ?? '')}
                                                             globals={sampleGlobalsWithInputs}
-                                                            showDiffActions={!!(oldHogCode && newHogCode)}
-                                                            onAcceptChanges={() => {
-                                                                if (newHogCode) {
-                                                                    onChange(newHogCode)
-                                                                }
-                                                                reportAIHogTransformationAccepted()
-                                                                clearHogCodeDiff()
-                                                            }}
-                                                            onRejectChanges={() => {
-                                                                if (oldHogCode) {
-                                                                    onChange(oldHogCode)
-                                                                }
-                                                                reportAIHogTransformationRejected()
-                                                                clearHogCodeDiff()
-                                                            }}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,
@@ -593,10 +621,9 @@ export function HogFunctionConfiguration({
                                                                     showInlineDetails: true,
                                                                 },
                                                                 quickSuggestionsDelay: 300,
-                                                                readOnly: !!(oldHogCode && newHogCode),
                                                             }}
                                                         />
-                                                    </MaxTool>
+                                                    )}
                                                 </>
                                             )}
                                         </LemonField>
