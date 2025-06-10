@@ -7,7 +7,7 @@ from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -644,6 +644,13 @@ register_grandfathered_environment_nested_viewset(
     r"hog_functions",
     hog_function.HogFunctionViewSet,
     "environment_hog_functions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"hog_flows",
+    hog_flow.HogFlowViewSet,
+    "environment_hog_flows",
     ["team_id"],
 )
 

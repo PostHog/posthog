@@ -118,6 +118,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             >
                 <>
                     <LemonButton
+                        active={isFiltersExpanded}
                         type="secondary"
                         size="small"
                         icon={<IconFilter />}
@@ -126,7 +127,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         }}
                         fullWidth
                     >
-                        Filters{' '}
+                        {isFiltersExpanded ? 'Hide' : 'Show'} filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                 </>

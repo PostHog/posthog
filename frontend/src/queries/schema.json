@@ -635,7 +635,8 @@
                 "generate_hogql_query",
                 "fix_hogql_query",
                 "analyze_user_interviews",
-                "create_and_query_insight"
+                "create_and_query_insight",
+                "create_hog_transformation_function"
             ],
             "type": "string"
         },
@@ -5773,6 +5774,9 @@
                 "showLegend": {
                     "type": "boolean"
                 },
+                "showTotalRow": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
@@ -9466,7 +9470,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {

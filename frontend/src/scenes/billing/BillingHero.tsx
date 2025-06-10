@@ -156,7 +156,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
 export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
-    const { redirectPath, billingPlan, startupProgramLabel, isManagedAccount } = useValues(billingLogic)
+    const { redirectPath, billingPlan, startupProgramLabelCurrent, isManagedAccount } = useValues(billingLogic)
     const { scrollToProduct } = useActions(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
@@ -167,10 +167,10 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
 
     const showUpgradeOptions = billingPlan === BillingPlan.Free && !isManagedAccount
     const copyVariation =
-        (startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]) ||
+        (startupProgramLabelCurrent ? BADGE_CONFIG[startupProgramLabelCurrent] : BADGE_CONFIG[billingPlan]) ||
         BADGE_CONFIG[BillingPlan.Paid]
     const planBadge =
-        (startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]) ||
+        (startupProgramLabelCurrent ? STARTUP_PROGRAM_BADGES[startupProgramLabelCurrent] : PLAN_BADGES[billingPlan]) ||
         PLAN_BADGES[BillingPlan.Paid]
 
     return (
@@ -178,7 +178,11 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
             <div className="@container p-4 relative">
                 <img
                     src={planBadge}
-                    alt={startupProgramLabel ? `${startupProgramLabel} plan badge` : `${billingPlan} plan badge`}
+                    alt={
+                        startupProgramLabelCurrent
+                            ? `${startupProgramLabelCurrent} plan badge`
+                            : `${billingPlan} plan badge`
+                    }
                     className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
