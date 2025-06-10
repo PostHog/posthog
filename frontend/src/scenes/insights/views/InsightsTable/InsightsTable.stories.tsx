@@ -22,7 +22,7 @@ let uniqueNode = 0
 const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
     const cachedInsight = {
         ...insight,

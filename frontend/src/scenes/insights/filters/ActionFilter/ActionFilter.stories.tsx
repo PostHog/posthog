@@ -52,7 +52,7 @@ const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilt
 
     const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
     const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps

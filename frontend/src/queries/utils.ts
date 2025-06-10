@@ -593,7 +593,7 @@ function isHogQlIdentifier(value: any): value is HogQLIdentifier {
 }
 
 function formatHogQlValue(value: any): string {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { teamLogic } = require('scenes/teamLogic')
 
     if (Array.isArray(value)) {

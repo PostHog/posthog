@@ -17,13 +17,13 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/query/:id/': async (_, res, ctx) => {
-                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    // eslint-disable-next-line @typescript-eslint/no-require-imports
                     return res(ctx.json(require('./__mocks__/sessionAttributionQueryStatus.json')))
                 },
             },
             post: {
                 '/api/environments/:team_id/query/': async (_, res, ctx) => {
-                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    // eslint-disable-next-line @typescript-eslint/no-require-imports
                     return res(ctx.json(require('./__mocks__/sessionAttributionQuery.json')))
                 },
             },

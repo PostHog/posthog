@@ -33,7 +33,7 @@ let uniqueNode = 0
 const Template: StoryFn<typeof FunnelPropertyCorrelationTable> = () => {
     const [dashboardItemId] = useState(() => `FunnelPropertyCorrelationTableStory.${uniqueNode++}`)
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
     const cachedInsight = { ...insight, short_id: dashboardItemId }
 

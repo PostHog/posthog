@@ -46,20 +46,21 @@
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
-        "eslint": "^8.57.0",
+        "eslint": "^9.28.0",
         "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-compat": "^4.2.0",
-        "eslint-plugin-cypress": "^2.15.1",
+        "eslint-plugin-compat": "^6.0.2",
+        "eslint-plugin-cypress": "^4.0.0",
         "eslint-plugin-eslint-comments": "^3.2.0",
-        "eslint-plugin-import": "^2.29.0",
-        "eslint-plugin-jest": "^28.6.0",
+        "eslint-plugin-import": "^2.31.0",
+        "eslint-plugin-jest": "^28.10.0",
         "eslint-plugin-posthog": "workspace:*",
-        "eslint-plugin-react": "^7.33.2",
+        "eslint-plugin-react": "^7.37.2",
         "eslint-plugin-react-google-translate": "^0.0.114",
-        "eslint-plugin-react-hooks": "^4.6.2",
-        "eslint-plugin-simple-import-sort": "^10.0.0",
-        "eslint-plugin-storybook": "^0.6.15",
-        "eslint-plugin-unused-imports": "^3.1.0",
+        "eslint-plugin-react-hooks": "^5.1.0",
+        "eslint-plugin-simple-import-sort": "^12.1.1",
+        "eslint-plugin-storybook": "^0.11.1",
+        "eslint-plugin-unused-imports": "^4.1.4",
+        "typescript-eslint": "^8.34.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.3.0",
@@ -88,36 +89,32 @@
             "stylelint --fix",
             "prettier --write"
         ],
-        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
         "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "products/*/manifest.tsx": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "common/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "frontend/*.mjs": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache --cache-location .cache/.eslintcache --fix",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [

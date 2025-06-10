@@ -1,4 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const cyclotron = require('../index.node')
 import { convertToInternalPoolConfig, deserializeObject, serializeObject } from './helpers'
 import {
@@ -61,7 +61,7 @@ export class CyclotronWorker {
 
     private consumerLoopPromise: Promise<void> | null = null
 
-    constructor(private config: CyclotronWorkerConfig) {}
+    constructor(private config: CyclotronWorkerConfig) { }
 
     public isHealthy(): boolean {
         return (
