@@ -19,13 +19,16 @@ use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
 
-use crate::{measuring_channel::MeasuringChannel, metrics_consts::{CHANNEL_CAPACITY, CHANNEL_MESSAGES_IN_FLIGHT}};
+use crate::{
+    measuring_channel::MeasuringChannel,
+    metrics_consts::{CHANNEL_CAPACITY, CHANNEL_MESSAGES_IN_FLIGHT},
+};
 
 pub mod api;
 pub mod app_context;
 pub mod config;
-pub mod metrics_consts;
 pub mod measuring_channel;
+pub mod metrics_consts;
 pub mod types;
 pub mod v2_batch_ingestion;
 

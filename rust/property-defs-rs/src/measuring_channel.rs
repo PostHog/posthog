@@ -1,6 +1,10 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use tokio::sync::mpsc::{channel, error::{RecvError, SendError}, Receiver, Sender};
+use tokio::sync::mpsc::{
+    channel,
+    error::{RecvError, SendError},
+    Receiver, Sender,
+};
 
 pub struct MeasuringChannel<T> {
     sender: Sender<T>,
@@ -36,7 +40,8 @@ impl<T> MeasuringChannel<T> {
 
     pub async fn recv_many(&mut self, buffer: &mut Vec<T>, limit: usize) -> usize {
         let received_count = self.receiver.recv_many(buffer, limit).await;
-        self.in_flight_message.fetch_sub(received_count, Ordering::Relaxed);
+        self.in_flight_message
+            .fetch_sub(received_count, Ordering::Relaxed);
         received_count
     }
 

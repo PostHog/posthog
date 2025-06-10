@@ -5,15 +5,17 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 
 use futures::future::ready;
 use property_defs_rs::{
-    api::v1::{query::Manager, routing::apply_routes}, app_context::AppContext, config::Config, measuring_channel::MeasuringChannel, update_consumer_loop, update_producer_loop
+    api::v1::{query::Manager, routing::apply_routes},
+    app_context::AppContext,
+    config::Config,
+    measuring_channel::MeasuringChannel,
+    update_consumer_loop, update_producer_loop,
 };
 
 use quick_cache::sync::Cache;
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
-use tokio::{
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
