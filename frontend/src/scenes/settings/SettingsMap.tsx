@@ -24,8 +24,7 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
-import { NonNativeExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/NonNativeExternalDataSourceConfiguration'
-import { SelfManagedExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/SelfManagedExternalDataSourceConfiguration'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { Realm } from '~/types'
 
@@ -276,14 +275,9 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'WEB_ANALYTICS_MARKETING',
         settings: [
             {
-                id: 'marketing-analytics-external-data-sources',
-                title: 'External data sources',
-                component: <NonNativeExternalDataSourceConfiguration />,
-            },
-            {
-                id: 'marketing-analytics-self-managed-external-data-sources',
-                title: 'Self-managed external data sources',
-                component: <SelfManagedExternalDataSourceConfiguration />,
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettings />,
             },
         ],
     },
