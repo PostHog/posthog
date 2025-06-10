@@ -121,3 +121,18 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
     }
     return ticks
 }
+
+export function formatPValue(pValue: number | null | undefined): string {
+    if (!pValue) {
+        return 'N/A'
+    }
+
+    if (pValue < 0.001) {
+        // Use scientific notation for very small p-values
+        return `< 0.001`
+    } else if (pValue < 0.01) {
+        // Show 4 decimal places for small p-values
+        return pValue.toFixed(4)
+    }
+    return pValue.toFixed(3)
+}
