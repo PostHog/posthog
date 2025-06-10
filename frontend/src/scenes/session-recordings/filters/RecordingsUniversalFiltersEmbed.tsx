@@ -19,7 +19,6 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -124,9 +123,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         size="small"
                         icon={<IconFilter />}
                         onClick={() => {
-                            posthog.capture('session_recordings_filters_toggle', {
-                                is_expanded: !isFiltersExpanded,
-                            })
                             setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth

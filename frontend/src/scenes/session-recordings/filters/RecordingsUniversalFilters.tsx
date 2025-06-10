@@ -8,7 +8,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -323,9 +322,6 @@ export const RecordingsUniversalFilters = ({
                         size="small"
                         icon={<IconFilter />}
                         onClick={() => {
-                            posthog.capture('session_recordings_filters_toggle', {
-                                is_expanded: !isFiltersExpanded,
-                            })
                             setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth
