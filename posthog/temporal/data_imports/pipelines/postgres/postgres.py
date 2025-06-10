@@ -198,6 +198,8 @@ def _has_duplicate_primary_keys(
         row = cursor.fetchone()
 
         return row is not None
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         capture_exception(e)
         return False
@@ -227,6 +229,8 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         )
 
         return min_chunk_size
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
@@ -252,6 +256,8 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
         logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
 
         return int(rows_to_sync)
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
@@ -274,6 +280,8 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
 
     try:
         cursor.execute(query)
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         capture_exception(e)
         return None
