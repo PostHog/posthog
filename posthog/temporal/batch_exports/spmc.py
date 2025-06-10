@@ -1255,47 +1255,12 @@ class ConsumerFromStage:
         # record_batches_count_total = 0
         # records_count = 0
 
-        # await self.logger.adebug("Consuming record batches from producer %s", producer_task.get_name())
-
-        # writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
-
-        # async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
-        #     record_batches_count += 1
-        #     record_batches_count_total += 1
-        #     record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
-
-        #     await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
-
-        #     if writer.should_flush() or writer.should_hard_flush():
-        #         await self.logger.adebug(
-        #             "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
-        #         )
-
-        #         records_count += writer.records_since_last_flush
-
-        #         if multiple_files or writer.should_hard_flush():
-        #             await writer.hard_flush()
-        #         else:
-        #             await writer.flush()
-
-        #         for _ in range(record_batches_count):
-        #             queue.task_done()
-        #         record_batches_count = 0
-
-        #     self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-
-        # records_count += writer.records_since_last_flush
-
         # await self.logger.adebug(
         #     "Finished consuming %s records from %s record batches, will flush any pending data",
         #     records_count,
         #     record_batches_count_total,
         # )
 
-        # await writer.close_temporary_file()
-        # await self.close()
-
-        # self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
         # return records_count
 
     async def generate_record_batches_from_queue(
@@ -1398,7 +1363,5 @@ async def run_consumer_from_stage(
 
     await raise_on_task_failure(producer_task)
     await consumer.logger.adebug("Successfully finished record batch consumer")
-
-    # consumer.complete_heartbeat()
 
     return records_completed

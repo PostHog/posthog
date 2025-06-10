@@ -713,444 +713,6 @@ async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str]
         )
 
 
-class S3MultiPartUploadManager:
-    """
-    TODO
-    """
-
-    def __init__(
-        self,
-        region_name: str,
-        bucket_name: str,
-        key_prefix: str,
-        file_format: str,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        max_file_size_mb: int | None,
-        compression: str | None,
-        encryption: str | None,
-        kms_key_id: str | None,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
-        endpoint_url: str | None = None,
-        config: dict[str, typing.Any] | None = None,
-        max_file_size_bytes: int = 0,
-    ):
-        self._session = aioboto3.Session()
-        self.region_name = region_name
-        self.aws_access_key_id = aws_access_key_id
-        self.aws_secret_access_key = aws_secret_access_key
-        self.endpoint_url = endpoint_url
-        if self.endpoint_url == "":
-            raise InvalidS3EndpointError("Endpoint URL is empty.")
-        self.bucket_name = bucket_name
-        self.key_prefix = key_prefix
-        self.encryption = encryption
-        self.kms_key_id = kms_key_id
-        self.config = config
-        self.file_format = file_format
-        self.data_interval_start = data_interval_start
-        self.data_interval_end = data_interval_end
-        self.max_file_size_mb = max_file_size_mb
-        self.compression = compression
-        self.max_file_size_bytes = max_file_size_bytes
-
-        self.logger = get_internal_logger()
-
-        self.current_file_number: int | None = None
-        self.current_file_size_bytes = 0
-        self.upload_id: str | None = None
-        self.parts: list[Part] = []
-        self.pending_parts: list[Part] = []
-        self.lock = asyncio.Lock()
-        self.active_uploads = 0
-        self.upload_complete = asyncio.Event()
-
-    @property
-    def part_number(self):
-        """Return the current part number."""
-        return len(self.parts) + len(self.pending_parts)
-
-    def is_upload_in_progress(self) -> bool:
-        """Whether this S3MultiPartUpload is in progress or not."""
-        if self.upload_id is None:
-            return False
-        return True
-
-    @contextlib.asynccontextmanager
-    async def s3_client(self):
-        """Asynchronously yield an S3 client."""
-        if self.config:
-            boto_config = AioConfig(**self.config)
-        else:
-            boto_config = None
-
-        try:
-            async with self._session.client(
-                "s3",
-                region_name=self.region_name,
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                endpoint_url=self.endpoint_url,
-                config=boto_config,
-            ) as client:
-                yield client
-        except ValueError as err:
-            if "Invalid endpoint" in str(err):
-                raise InvalidS3EndpointError(str(err)) from err
-            raise
-
-    async def start(self) -> str:
-        """Start this S3MultiPartUpload."""
-        if self.is_upload_in_progress() is True:
-            raise UploadAlreadyInProgressError(self.upload_id)
-
-        if self.current_file_number is None:
-            self.current_file_number = 0
-        else:
-            self.current_file_number += 1
-
-        optional_kwargs = {}
-        if self.encryption:
-            optional_kwargs["ServerSideEncryption"] = self.encryption
-        if self.kms_key_id:
-            optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
-
-        async with self.s3_client() as s3_client:
-            multipart_response = await s3_client.create_multipart_upload(
-                Bucket=self.bucket_name,
-                Key=self.key,
-                **optional_kwargs,
-            )
-
-        upload_id: str = multipart_response["UploadId"]
-        self.upload_id = upload_id
-        await self.logger.adebug("Started multipart upload for key %s with upload id %s", self.key, upload_id)
-        return upload_id
-
-    @property
-    def key(self) -> str:
-        try:
-            file_extension = FILE_FORMAT_EXTENSIONS[self.file_format]
-        except KeyError:
-            raise UnsupportedFileFormatError(self.file_format, "S3")
-
-        base_file_name = f"{self.data_interval_start}-{self.data_interval_end}"
-        # to maintain backwards compatibility with the old file naming scheme
-        if self.max_file_size_mb is not None:
-            base_file_name = f"{base_file_name}-{self.current_file_number}"
-        if self.compression is not None:
-            file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[self.compression]}"
-        else:
-            file_name = base_file_name + f".{file_extension}"
-
-        key = posixpath.join(self.key_prefix, file_name)
-
-        if posixpath.isabs(key):
-            # Keys are relative to root dir, so this would add an extra "/"
-            key = posixpath.relpath(key, "/")
-
-        return key
-
-    @contextlib.asynccontextmanager
-    async def _track_upload(self):
-        """Track an upload operation and signal when complete."""
-        self.active_uploads += 1
-        try:
-            yield
-        finally:
-            self.active_uploads -= 1
-            if self.active_uploads == 0:
-                self.upload_complete.set()
-
-    async def upload_part(
-        self,
-        body: BatchExportTemporaryFile,
-        rewind: bool = True,
-        max_attempts: int = 5,
-        initial_retry_delay: float | int = 2,
-        max_retry_delay: float | int = 32,
-        exponential_backoff_coefficient: int = 2,
-    ):
-        """Upload a part of the multipart upload.
-
-        Also handle the start and completion of the upload, if necessary.
-        """
-        async with self.lock:
-            if self.is_upload_in_progress() is False:
-                await self.start()
-
-            current_file_size_bytes = self.current_file_size_bytes + body.bytes_total
-            if self.max_file_size_bytes > 0 and current_file_size_bytes > self.max_file_size_bytes:
-                async with self._track_upload():
-                    await self._upload_part(
-                        body,
-                        rewind,
-                        max_attempts,
-                        initial_retry_delay,
-                        max_retry_delay,
-                        exponential_backoff_coefficient,
-                    )
-                await self.complete()
-                return
-        async with self._track_upload():
-            await self._upload_part(
-                body, rewind, max_attempts, initial_retry_delay, max_retry_delay, exponential_backoff_coefficient
-            )
-
-    async def upload_final_part(self, body: BatchExportTemporaryFile):
-        pass
-
-    async def complete(self):
-        """Complete the multipart upload."""
-        # Wait for all upload_part operations to finish
-        if self.active_uploads > 0:
-            await self.upload_complete.wait()
-            self.upload_complete.clear()
-
-        async with self.lock:
-            await self._complete()
-            self.current_file_size_bytes = 0
-
-    async def _complete(self) -> str | None:
-        if self.is_upload_in_progress() is False:
-            raise NoUploadInProgressError()
-
-        sorted_parts = sorted(self.parts, key=operator.itemgetter("PartNumber"))
-        async with self.s3_client() as s3_client:
-            response = await s3_client.complete_multipart_upload(
-                Bucket=self.bucket_name,
-                Key=self.key,
-                UploadId=self.upload_id,
-                MultipartUpload={"Parts": sorted_parts},
-            )
-
-        self.upload_id = None
-        self.parts = []
-
-        return response.get("Key")
-
-    async def _abort(self):
-        """Abort this S3 multi-part upload."""
-        if self.is_upload_in_progress() is False:
-            raise NoUploadInProgressError()
-
-        async with self.s3_client() as s3_client:
-            await s3_client.abort_multipart_upload(
-                Bucket=self.bucket_name,
-                Key=self.key,
-                UploadId=self.upload_id,
-            )
-
-        self.upload_id = None
-        self.parts = []
-
-    async def _upload_part(
-        self,
-        body: BatchExportTemporaryFile,
-        rewind: bool = True,
-        max_attempts: int = 5,
-        initial_retry_delay: float | int = 2,
-        max_retry_delay: float | int = 32,
-        exponential_backoff_coefficient: int = 2,
-    ):
-        """Upload a part of this multi-part upload."""
-        next_part_number = self.part_number + 1
-        part = {"PartNumber": next_part_number, "ETag": ""}
-        self.pending_parts.append(part)
-
-        if rewind is True:
-            body.rewind()
-
-        # aiohttp is not duck-type friendly and requires a io.IOBase
-        # We comply with the file-like interface of io.IOBase.
-        # So we tell mypy to be nice with us.
-        reader = io.BufferedReader(body)  # type: ignore
-
-        try:
-            etag = await self._upload_part_retryable(
-                reader,
-                next_part_number,
-                max_attempts=max_attempts,
-                initial_retry_delay=initial_retry_delay,
-                max_retry_delay=max_retry_delay,
-                exponential_backoff_coefficient=exponential_backoff_coefficient,
-            )
-        except Exception:
-            raise
-
-        finally:
-            reader.detach()  # BufferedReader closes the file otherwise.
-
-        self.pending_parts.pop(self.pending_parts.index(part))
-        part["ETag"] = etag
-        self.parts.append(part)
-
-    async def _upload_part_retryable(
-        self,
-        reader: io.BufferedReader,
-        next_part_number: int,
-        max_attempts: int = 5,
-        initial_retry_delay: float | int = 2,
-        max_retry_delay: float | int = 32,
-        exponential_backoff_coefficient: int = 2,
-    ) -> str:
-        """Attempt to upload a part for this multi-part upload retrying on transient errors."""
-        response: dict[str, str] | None = None
-        attempt = 0
-
-        async with self.s3_client() as s3_client:
-            while response is None:
-                try:
-                    response = await s3_client.upload_part(
-                        Bucket=self.bucket_name,
-                        Key=self.key,
-                        PartNumber=next_part_number,
-                        UploadId=self.upload_id,
-                        Body=reader,
-                    )
-
-                except botocore.exceptions.ClientError as err:
-                    error_code = err.response.get("Error", {}).get("Code", None)
-                    attempt += 1
-
-                    await self.logger.ainfo(
-                        "Caught ClientError while uploading part %s: %s", next_part_number, error_code
-                    )
-
-                    if error_code is not None and error_code == "RequestTimeout":
-                        if attempt >= max_attempts:
-                            raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
-
-                        await asyncio.sleep(
-                            min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
-                        )
-
-                        continue
-                    else:
-                        raise
-
-        return response["ETag"]
-
-
-def initialize_concurrent_upload(inputs: S3InsertInputs) -> S3MultiPartUploadManager:
-    """Initialize a S3MultiPartUpload."""
-
-    try:
-        key_prefix = get_s3_key_prefix(inputs)
-    except Exception as e:
-        raise InvalidS3Key(e) from e
-
-    if inputs.use_virtual_style_addressing:
-        config = {"s3": {"addressing_style": "virtual"}}
-    else:
-        config = None
-
-    return S3MultiPartUploadManager(
-        region_name=inputs.region,
-        bucket_name=inputs.bucket_name,
-        key_prefix=key_prefix,
-        file_format=inputs.file_format,
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-        max_file_size_mb=inputs.max_file_size_mb,
-        compression=inputs.compression,
-        encryption=inputs.encryption,
-        kms_key_id=inputs.kms_key_id,
-        aws_access_key_id=inputs.aws_access_key_id,
-        aws_secret_access_key=inputs.aws_secret_access_key,
-        endpoint_url=inputs.endpoint_url or None,
-        config=config,
-        max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-    )
-
-
-# class S3ConsumerFromStage(ConsumerFromStage):
-#     def __init__(
-#         self,
-#         data_interval_start: dt.datetime | str | None,
-#         data_interval_end: dt.datetime | str,
-#         s3_inputs: S3InsertInputs,
-#     ):
-#         super().__init__(
-#             data_interval_start=data_interval_start,
-#             data_interval_end=data_interval_end,
-#         )
-#         self.s3_inputs = s3_inputs
-#         self.file_number = 0
-#         self.files_uploaded: list[str] = []
-
-#     async def flush(
-#         self,
-#         batch_export_file: BatchExportTemporaryFile,
-#         records_since_last_flush: int,
-#         bytes_since_last_flush: int,
-#         flush_counter: int,
-#         last_date_range: DateRange,
-#         # we don't use is_last, since we're handling multiple batch export files
-#         is_last: bool,
-#         error: Exception | None,
-#     ):
-#         # TODO
-#         if error is not None:
-#             if not self.s3_upload:
-#                 return
-#             await self.logger.adebug("Error while writing part %d", self.s3_upload.part_number + 1, exc_info=error)
-#             await self.logger.awarning(
-#                 "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
-#                 self.s3_upload.part_number + 1,
-#             )
-#             return
-
-#         # await self.logger.adebug(
-#         #     "Uploading file number %s part %s with upload id %s containing %s records with size %s bytes",
-#         #     self.file_number,
-#         #     s3_upload.part_number + 1,
-#         #     s3_upload.upload_id,
-#         #     records_since_last_flush,
-#         #     bytes_since_last_flush,
-#         # )
-#         await self.s3_upload.upload_part(batch_export_file)
-
-#         # TODO: handle max file size
-
-#         self.rows_exported_counter.add(records_since_last_flush)
-#         self.bytes_exported_counter.add(bytes_since_last_flush)
-
-#         #     if is_last:
-#         #         await self.logger.adebug(
-#         #             "Completing multipart upload %s for file number %s", s3_upload.upload_id, self.file_number
-#         #         )
-#         #         await s3_upload.complete()
-
-#         # if is_last:
-#         #     self.files_uploaded.append(s3_upload.key)
-#         #     self.s3_upload = None
-#         #     # self.heartbeat_details.mark_file_upload_as_complete()
-#         #     self.file_number += 1
-#         # else:
-#         # self.heartbeat_details.append_upload_state(self.s3_upload.to_state())
-
-#         # self.heartbeat_details.records_completed += records_since_last_flush
-#         # self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
-
-#     async def close(self):
-#         if self.s3_upload is not None:
-#             await self.logger.adebug(
-#                 "Completing multipart upload %s for file number %s", self.s3_upload.upload_id, self.file_number
-#             )
-#             await self.s3_upload.complete()
-#             # self.heartbeat_details.mark_file_upload_as_complete()
-#             self.files_uploaded.append(self.s3_upload.key)
-
-#         # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
-#         # containing the list of files.  This is used to check if the export is complete.
-#         if self.s3_inputs.max_file_size_mb:
-#             manifest_key = get_manifest_key(self.s3_inputs)
-#             await self.logger.ainfo("Uploading manifest file %s", manifest_key)
-#             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
-
-
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -1448,8 +1010,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
         # max_memory_buffer: int = 100 * 1024 * 1024,  # 100MB total buffer
-        max_file_size_bytes: int = 0,
-    ):  # Split files if set
+        max_file_size_bytes: int = 0,  # Split files if set
+    ):
         super().__init__(data_interval_start, data_interval_end)
 
         self.s3_inputs = s3_inputs
@@ -1557,9 +1119,24 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         await self._cleanup_completed_uploads()
 
     async def _upload_part_with_cleanup(self, data: bytes, part_number: int):
-        """Upload part and handle cleanup"""
+        """Upload part and handle cleanup.
+
+        Note: This can run concurrently so need to be careful
+
+        TODO: add retry logic
+        """
+        # safety check - we should never have a part number without an upload id
+        if not self.upload_id:
+            raise NoUploadInProgressError()
+
         try:
             async with self.upload_semaphore:
+                await self.logger.adebug(
+                    "Uploading file number %s part %s with upload id %s",
+                    self.current_file_index,
+                    part_number,
+                    self.upload_id,
+                )
                 current_key = self._get_current_key()
                 async with self.s3_client() as client:
                     response = await client.upload_part(
@@ -1677,6 +1254,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self.logger.aexception(f"Upload failed for part {part_number}")
                 raise
 
+        await self.logger.adebug("%s concurrent uploads are currently in progress", len(self.pending_uploads))
+
     async def _initialize_multipart_upload(self):
         """Initialize multipart upload with optimizations for large files"""
         if self.upload_id:
@@ -1696,6 +1275,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 **optional_kwargs,
             )
         self.upload_id = response["UploadId"]
+        await self.logger.adebug(
+            "Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id
+        )
 
     async def finalize(self):
         """Finalize upload with proper cleanup"""
@@ -1707,9 +1289,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             await self._finalize_current_file()
 
             # If no files were created, we might have a small single file
-            if self.total_files_created == 0 and len(self.current_buffer) > 0:
-                await self._single_file_upload_current()
-                self.total_files_created = 1
+            # if self.total_files_created == 0 and len(self.current_buffer) > 0:
+            #     await self._single_file_upload_current()
+            #     self.total_files_created = 1
 
         except Exception:
             # Cleanup on error
@@ -1780,15 +1362,15 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 MultipartUpload={"Parts": sorted_parts},
             )
 
-    def get_progress_info(self):
-        """Get upload progress information"""
-        return {
-            "current_file_index": self.current_file_index,
-            "current_file_size": self.current_file_size,
-            "total_files_created": self.total_files_created,
-            "parts_completed": len(self.completed_parts),
-            "parts_pending": len(self.pending_uploads),
-            "buffer_size": len(self.current_buffer),
-            "estimated_total_parts": self.part_counter - 1,
-            "max_file_size_bytes": self.max_file_size_bytes,
-        }
+    # def get_progress_info(self):
+    #     """Get upload progress information"""
+    #     return {
+    #         "current_file_index": self.current_file_index,
+    #         "current_file_size": self.current_file_size,
+    #         "total_files_created": self.total_files_created,
+    #         "parts_completed": len(self.completed_parts),
+    #         "parts_pending": len(self.pending_uploads),
+    #         "buffer_size": len(self.current_buffer),
+    #         "estimated_total_parts": self.part_counter - 1,
+    #         "max_file_size_bytes": self.max_file_size_bytes,
+    #     }
