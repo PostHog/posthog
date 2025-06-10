@@ -1,60 +1,16 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { IconInfo } from '@posthog/icons'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { credibleIntervalForVariant } from '../experimentCalculations'
-import { experimentLogic } from '../experimentLogic'
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
+import { credibleIntervalForVariant } from '../../experimentCalculations'
+import { experimentLogic } from '../../experimentLogic'
+import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
+import { MAX_PRIMARY_METRICS } from '../shared/const'
+import { getNiceTickValues } from '../shared/utils'
 import { DeltaChart } from './DeltaChart'
-import { getNiceTickValues } from './utils'
 
-function AddPrimaryMetric(): JSX.Element {
-    const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
-
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="xsmall"
-            onClick={() => {
-                openPrimaryMetricSourceModal()
-            }}
-            disabledReason={
-                primaryMetricsLengthWithSharedMetrics >= MAX_PRIMARY_METRICS
-                    ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
-                    : undefined
-            }
-        >
-            Add primary metric
-        </LemonButton>
-    )
-}
-
-export function AddSecondaryMetric(): JSX.Element {
-    const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
-    return (
-        <LemonButton
-            icon={<IconPlus />}
-            type="secondary"
-            size="xsmall"
-            onClick={() => {
-                openSecondaryMetricSourceModal()
-            }}
-            disabledReason={
-                secondaryMetricsLengthWithSharedMetrics >= MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
-                    : undefined
-            }
-        >
-            Add secondary metric
-        </LemonButton>
-    )
-}
-
-export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
         getInsightType,
@@ -68,7 +24,9 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
     if (!variants) {
         return <></>
     }
+
     const results = isSecondary ? legacySecondaryMetricResults : legacyMetricResults
+
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
 
