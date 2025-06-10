@@ -30,26 +30,29 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
     actions({
         openModal: true,
         closeModal: true,
-        setSelectedEnvironmentId: (id: number | null) => ({ id }),
+        setProjectEnvironment: (projectId: number, environmentId: number | null) => ({ projectId, environmentId }),
         submitEnvironmentRollback: true,
     }),
     reducers({
         isOpen: [
-            true,
+            false,
             {
                 openModal: () => true,
                 closeModal: () => false,
             },
         ],
-        selectedEnvironmentId: [
-            null as number | null,
+        selectedEnvironments: [
+            {} as Record<number, number | null>,
             {
-                setSelectedEnvironmentId: (_, { id }) => id,
-                closeModal: () => null,
+                setProjectEnvironment: (state, { projectId, environmentId }) => ({
+                    ...state,
+                    [projectId]: environmentId,
+                }),
+                closeModal: () => ({}),
             },
         ],
     }),
-    selectors({
+    selectors(() => ({
         // Get all projects with their environments
         projectsWithEnvironments: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
@@ -128,22 +131,32 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                 }))
             },
         ],
-    }),
+        isReadyToSubmit: [
+            (s) => [s.selectedEnvironments, s.projectsWithEnvironments],
+            (
+                selectedEnvironments: Record<number, number | null>,
+                projectsWithEnvironments: ProjectWithEnvironments[]
+            ): boolean => {
+                return projectsWithEnvironments.every((project) => selectedEnvironments[project.id] !== undefined)
+            },
+        ],
+    })),
     listeners(({ values, actions }) => ({
         submitEnvironmentRollback: async () => {
             if (values.currentOrganizationLoading || !values.currentOrganization) {
                 throw new Error('Organization data is not yet loaded')
             }
 
-            if (!values.selectedEnvironmentId) {
-                lemonToast.error('Please select a main environment')
+            if (!values.isReadyToSubmit) {
+                lemonToast.error('Please select an environment for each project')
                 return
             }
 
             try {
-                await api.create(`api/organizations/@current/environments_rollback/`, {
-                    main_environment_id: values.selectedEnvironmentId,
-                })
+                await api.create(
+                    `api/organizations/${values.currentOrganization.id}/environments_rollback/`,
+                    values.selectedEnvironments
+                )
 
                 lemonToast.success('Environment rollback initiated successfully')
                 actions.closeModal()

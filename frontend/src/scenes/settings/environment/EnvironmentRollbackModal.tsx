@@ -1,40 +1,72 @@
 import { LemonButton, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
 
-import { environmentRollbackModalLogic } from './environmentRollbackModalLogic'
+import { environmentRollbackModalLogic, type ProjectWithEnvironments } from './environmentRollbackModalLogic'
 
 function ModalDescription(): JSX.Element {
     return (
-        <div>
-            <p className="mb-2">
-                All the insights currently present on your environments will be migrated to a single project. Please
-                choose which one you want this single environment to be.
+        <div className="space-y-4">
+            <p>
+                We noticed you're using multiple environments per project. As we're moving towards a simpler
+                project-based approach, we're offering a way to consolidate your environments.
             </p>
-            <p className="mb-2">
-                We recommend that you select your <b>production</b> environment.
+            <div>
+                <p className="mb-2">
+                    For each project below, select which environment you'd like to keep as the primary one.
+                </p>
+                <p className="mb-2">
+                    The following data will be migrated from other environments to your selected one:
+                </p>
+                <ul className="list-disc pl-8">
+                    <li>Insights & Dashboards</li>
+                    <li>Feature Flags</li>
+                    <li>Actions & Surveys</li>
+                    <li>Experiments</li>
+                    <li>Cohorts</li>
+                </ul>
+            </div>
+            <p className="text-sm text-muted">
+                While this change is optional now, we recommend completing it within the next 2 months to ensure a
+                smooth transition when multi-environment projects are discontinued.
             </p>
+        </div>
+    )
+}
+
+function ProjectEnvironmentSelector({ project }: { project: ProjectWithEnvironments }): JSX.Element {
+    const { selectedEnvironments } = useValues(environmentRollbackModalLogic)
+    const { setProjectEnvironment } = useActions(environmentRollbackModalLogic)
+
+    const environmentOptions = project.environments.map((env) => ({
+        value: env.id,
+        label: env.name,
+    }))
+
+    return (
+        <div className="mb-4">
+            <div className="font-semibold mb-2">Project: {project.name}</div>
+            <LemonSelect
+                value={selectedEnvironments[project.id]}
+                onChange={(value) => setProjectEnvironment(project.id, value)}
+                options={environmentOptions}
+                placeholder="Select primary environment"
+            />
         </div>
     )
 }
 
 function ModalFooter(): JSX.Element {
     const { closeModal, submitEnvironmentRollback } = useActions(environmentRollbackModalLogic)
-    const { projectsWithEnvironments, hiddenProjectsCount, selectedEnvironmentId } =
-        useValues(environmentRollbackModalLogic)
+    const { hiddenProjectsCount, isReadyToSubmit } = useValues(environmentRollbackModalLogic)
 
     return (
         <div className="space-y-2">
             {hiddenProjectsCount > 0 && (
                 <div className="text-muted text-sm">
-                    {pluralize(hiddenProjectsCount, 'project')} with only 1 environment found, these can be safely
-                    ignored.
+                    {pluralize(hiddenProjectsCount, 'project')} already using a single environment will not be affected.
                 </div>
             )}
-            <LemonBanner type="warning">
-                This action cannot be undone. Please make sure you select the correct environment.
-            </LemonBanner>
             <div className="flex justify-end gap-2">
                 <LemonButton type="secondary" onClick={closeModal}>
                     Cancel
@@ -43,9 +75,9 @@ function ModalFooter(): JSX.Element {
                     type="primary"
                     status="danger"
                     onClick={submitEnvironmentRollback}
-                    disabled={projectsWithEnvironments.length === 0 || !selectedEnvironmentId}
+                    disabled={!isReadyToSubmit}
                 >
-                    Migrate environments
+                    Consolidate environments
                 </LemonButton>
             </div>
         </div>
@@ -53,28 +85,19 @@ function ModalFooter(): JSX.Element {
 }
 
 export function EnvironmentRollbackModal(): JSX.Element {
-    const { isOpen, projectsWithEnvironments, currentOrganizationLoading, selectedEnvironmentId } =
-        useValues(environmentRollbackModalLogic)
-    const { closeModal, setSelectedEnvironmentId } = useActions(environmentRollbackModalLogic)
-
-    const selectOptions = projectsWithEnvironments.map((project) => ({
-        title: `Project: ${project.name}`,
-        options: project.environments.map((env) => ({
-            value: env.id,
-            label: env.name,
-        })),
-    }))
+    const { isOpen, projectsWithEnvironments, currentOrganizationLoading } = useValues(environmentRollbackModalLogic)
+    const { closeModal } = useActions(environmentRollbackModalLogic)
 
     return (
         <LemonModal
-            title="Migrate to single environment"
+            title="Consolidate project environments"
             description={<ModalDescription />}
             onClose={closeModal}
             isOpen={isOpen}
-            width={600}
+            width={800}
         >
             <div className="space-y-4">
-                <div className="space-y-2 flex justify-center items-center">
+                <div>
                     {currentOrganizationLoading ? (
                         <div className="p-4">
                             <Spinner />
@@ -82,13 +105,9 @@ export function EnvironmentRollbackModal(): JSX.Element {
                     ) : projectsWithEnvironments.length === 0 ? (
                         <div className="text-muted">No projects with multiple environments found</div>
                     ) : (
-                        <LemonSelect
-                            className="py-6"
-                            value={selectedEnvironmentId}
-                            onChange={(value) => setSelectedEnvironmentId(value)}
-                            options={selectOptions}
-                            placeholder="Select an environment"
-                        />
+                        projectsWithEnvironments.map((project) => (
+                            <ProjectEnvironmentSelector key={project.id} project={project} />
+                        ))
                     )}
                 </div>
 
