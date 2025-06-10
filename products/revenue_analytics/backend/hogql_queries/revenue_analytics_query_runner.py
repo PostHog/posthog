@@ -12,7 +12,13 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
 )
-from products.revenue_analytics.backend.utils import revenue_selects_from_database
+from products.revenue_analytics.backend.utils import (
+    REVENUE_SELECT_OUTPUT_CHARGE_KEY,
+    REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
+    REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
+    REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    revenue_selects_from_database,
+)
 from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
@@ -115,18 +121,24 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     ]:
         # Remove the view name because it's not useful for the select query
         parsed_charge_selects = [
-            selects["charge"] for _, selects in self.revenue_selects.items() if selects["charge"] is not None
+            selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY]
+            for _, selects in self.revenue_selects.items()
+            if selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY] is not None
         ]
         parsed_customer_selects = [
-            selects["customer"] for _, selects in self.revenue_selects.items() if selects["customer"] is not None
+            selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY]
+            for _, selects in self.revenue_selects.items()
+            if selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
         ]
         parsed_invoice_item_selects = [
-            selects["invoice_item"]
+            selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY]
             for _, selects in self.revenue_selects.items()
-            if selects["invoice_item"] is not None
+            if selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
         ]
         parsed_product_selects = [
-            selects["product"] for _, selects in self.revenue_selects.items() if selects["product"] is not None
+            selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY]
+            for _, selects in self.revenue_selects.items()
+            if selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
         ]
 
         return (
