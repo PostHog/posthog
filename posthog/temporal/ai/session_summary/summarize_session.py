@@ -19,6 +19,7 @@ from ee.session_recordings.session_summary.summarize_session import (
     prepare_data_for_single_session_summary,
 )
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
+from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import connect
@@ -148,7 +149,7 @@ async def _start_workflow(redis_input_key: str, workflow_id: str) -> WorkflowHan
         redis_input_key,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
         retry_policy=retry_policy,
     )
     return handle
