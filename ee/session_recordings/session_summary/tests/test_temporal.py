@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 import pytest
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryData
 from posthog.temporal.ai.session_summary.summarize_session import (
     execute_summarize_session,
@@ -20,6 +20,7 @@ from posthog.redis import get_client
 from posthog.temporal.ai.session_summary import WORKFLOWS, ACTIVITIES
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 from posthog import constants
+from unittest.mock import AsyncMock
 
 
 def _create_chunk(content: str) -> ChatCompletionChunk:
@@ -157,7 +158,6 @@ class TestStreamLlmSummaryActivity:
 class TestSummarizeSessionWorkflow:
     def test_execute_summarize_session(
         self,
-        mocker,
         mock_enriched_llm_json_response,
         mock_user,
         mock_team,
@@ -174,20 +174,10 @@ class TestSummarizeSessionWorkflow:
             sse_error_msg=None,
         )
         input_data = session_summary_inputs(session_id)
-        # Simulate workflow states: RUNNING -> RUNNING with data -> COMPLETED
-        mock_workflow_handle = mocker.MagicMock()
-        workflow_states = [
-            mocker.MagicMock(status=mocker.MagicMock(name="RUNNING")),  # First poll - no data yet
-            mocker.MagicMock(status=mocker.MagicMock(name="RUNNING")),  # Second poll - with streaming data
-            mocker.MagicMock(status=mocker.MagicMock(name="COMPLETED")),  # Final poll - completed
-        ]
-        mock_workflow_handle.describe.side_effect = workflow_states
-        # Mock final result
+        # Mock Redis data for streaming updates
         expected_final_summary = serialize_to_sse_event(
             event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
         )
-        mock_workflow_handle.result.return_value = expected_final_summary
-        # Mock Redis data for streaming updates
         intermediate_summary = serialize_to_sse_event(
             event_label="session-summary-stream", event_data=json.dumps({"partial": "data"})
         )
@@ -211,6 +201,21 @@ class TestSummarizeSessionWorkflow:
                     return json.dumps({"last_summary_state": expected_final_summary, "timestamp": 1234567891})
             return None
 
+        # Simulate workflow states: RUNNING -> RUNNING with data -> COMPLETED
+        mock_workflow_handle = MagicMock()
+        # Create proper status mocks where .name returns the actual string value
+        running_status = MagicMock()
+        running_status.name = "RUNNING"
+        completed_status = MagicMock()
+        completed_status.name = "COMPLETED"
+        mock_workflow_handle.describe = AsyncMock(
+            side_effect=[
+                MagicMock(status=running_status),  # First poll - no data yet
+                MagicMock(status=running_status),  # Second poll - with streaming data
+                MagicMock(status=completed_status),  # Final poll - completed
+            ]
+        )
+        mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
         with (
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session.prepare_data_for_single_session_summary",
@@ -241,7 +246,7 @@ class TestSummarizeSessionWorkflow:
             assert len(result) == 2  # intermediate + final, as the first empty result is skipped
             assert result[0] == intermediate_summary
             assert result[1] == expected_final_summary
-            # Verify workflow was started and polled properly
+            # Verify workflow was polled the expected number of times
             assert mock_workflow_handle.describe.call_count == 3
             assert mock_workflow_handle.result.call_count == 1
 
