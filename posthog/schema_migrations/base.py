@@ -19,12 +19,12 @@ class SchemaMigration(ABC):
         if not self.should_run(query):
             return query
         query = self.transform(query)
-        query["v"] = self.targets[query["kind"]] + 1  # bump version
+        query["version"] = self.targets[query["kind"]] + 1  # bump version
         return query
 
     def should_run(self, query: dict) -> bool:
         kind = query.get("kind")
-        return kind in self.targets and (query.get("v") or 1) == self.targets[kind]
+        return kind in self.targets and (query.get("version") or 1) == self.targets[kind]
 
     @abstractmethod
     def transform(self, query: dict) -> dict:

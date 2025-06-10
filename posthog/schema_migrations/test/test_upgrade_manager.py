@@ -27,8 +27,8 @@ def setup_migrations():
 
 def test_upgrade_insight_context_manager():
     mock_insight = Mock()
-    mock_insight.query = {"kind": NodeKind.TRENDS_QUERY, "v": 1, "aggregation_group_type_index": 2}
-    upgraded_query = {"kind": NodeKind.TRENDS_QUERY, "v": 2, "aggregationGroupTypeIndex": 2}
+    mock_insight.query = {"kind": NodeKind.TRENDS_QUERY, "version": 1, "aggregation_group_type_index": 2}
+    upgraded_query = {"kind": NodeKind.TRENDS_QUERY, "version": 2, "aggregationGroupTypeIndex": 2}
 
     with upgrade_insight(mock_insight):
         assert mock_insight.query == upgraded_query
