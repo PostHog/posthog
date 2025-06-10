@@ -178,7 +178,15 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
 
         if (!group) {
-            await this.upsertGroupDirectly(teamId, groupTypeIndex, groupKey, properties, timestamp, false, 'cr')
+            await this.upsertGroupDirectly(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                properties,
+                timestamp,
+                false,
+                'batch-create'
+            )
             return
         }
 
