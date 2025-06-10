@@ -1,13 +1,44 @@
 import { z } from 'zod'
 
+const CyclotronJobInputSchema = z.object({
+    type: z.enum(['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'integration_field', 'email']),
+    key: z.string(),
+    label: z.string(),
+    choices: z
+        .array(
+            z.object({
+                value: z.string(),
+                label: z.string(),
+            })
+        )
+        .optional(),
+    required: z.boolean().optional(),
+    default: z.any().optional(),
+    secret: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    templating: z.boolean().optional(),
+    description: z.string().optional(),
+    integration: z.string().optional(),
+    integration_key: z.string().optional(),
+    integration_field: z.string().optional(),
+    requires_field: z.string().optional(),
+    requiredScopes: z.string().optional(),
+})
+
+const CyclotronJobInput = z.object({
+    value: z.any(),
+    templating: z.enum(['hog', 'liquid']).optional(),
+    secret: z.boolean().optional(),
+})
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
-    inputs: z.record(z.string(), z.any()),
-    inputs_schema: z.array(z.any()),
+    inputs: z.record(z.string(), CyclotronJobInput),
+    inputs_schema: z.array(CyclotronJobInputSchema),
     trigger: z.object({
         type: z.literal('event'),
         filters: z.any(),
