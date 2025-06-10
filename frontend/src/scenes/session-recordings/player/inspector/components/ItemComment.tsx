@@ -24,20 +24,16 @@ export interface ItemCommentProps {
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
     return (
-        <div data-attr="item-notebook-comment" className="font-light w-full">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="font-medium truncate">{item.data.comment}</div>
-            </div>
+        <div data-attr="item-notebook-comment" className="font-light w-full px-2 py-1 text-xs text-wrap">
+            {item.data.comment}
         </div>
     )
 }
 
 function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
     return (
-        <div data-attr="item-annotation-comment" className="font-light w-full">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="font-medium truncate">{item.data.content}</div>
-            </div>
+        <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs text-wrap">
+            item.data.content
         </div>
     )
 }
@@ -73,11 +69,7 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t">
-                <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer truncate">
-                    <div className="font-medium shrink-0">{item.data.comment}</div>
-                </div>
-            </div>
+            <div className="px-2 py-1 text-xs border-t text-wrap">{item.data.comment}</div>
         </div>
     )
 }
@@ -145,11 +137,7 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t">
-                <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer truncate">
-                    <div className="font-medium shrink-0">{item.data.content}</div>
-                </div>
-            </div>
+            <div className="p-2 text-xs border-t cursor-pointer text-wrap">item.data.content</div>
         </div>
     )
 }
