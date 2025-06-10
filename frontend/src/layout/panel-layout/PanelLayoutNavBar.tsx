@@ -25,7 +25,6 @@ import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -403,6 +402,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                 tooltipDocLink="https://posthog.com/docs/toolbar"
                                 tooltipPlacement="right"
+                                data-attr="menu-item-toolbar"
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -421,12 +421,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     iconOnly: isLayoutNavCollapsed,
                                 }}
                                 to={urls.settings('project')}
-                                data-attr={Scene.Settings}
                                 onClick={() => {
                                     handleStaticNavbarItemClick(urls.settings('project'), true)
                                 }}
                                 tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                 tooltipPlacement="right"
+                                data-attr="menu-item-settings"
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -452,6 +452,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
                                     tooltipPlacement="right"
                                     iconOnly={isLayoutNavCollapsed}
+                                    data-attr="menu-item-me"
                                 >
                                     <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
                                     {!isLayoutNavCollapsed && (

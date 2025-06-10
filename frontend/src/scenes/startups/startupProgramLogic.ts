@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -12,49 +12,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { BillingType } from '~/types'
 
+import { PUBLIC_EMAIL_DOMAINS } from './constants'
 import type { startupProgramLogicType } from './startupProgramLogicType'
-
-const PUBLIC_EMAIL_DOMAINS = [
-    'gmail.com',
-    'yahoo.com',
-    'hotmail.com',
-    'outlook.com',
-    'aol.com',
-    'protonmail.com',
-    'icloud.com',
-    'mail.com',
-    'zoho.com',
-    'yandex.com',
-    'gmx.com',
-    'live.com',
-    'mail.ru',
-]
-
-export const RAISED_OPTIONS = [
-    { label: 'Bootstrapped', value: '0' },
-    { label: 'Under $100k', value: '99999' },
-    { label: 'From $100k to $500k', value: '499999' },
-    { label: 'From $500k to $1m', value: '999999' },
-    { label: 'From $1m to $5m', value: '4999999' },
-    { label: '$5m or more', value: '5000000' },
-]
-
-export const YC_BATCH_OPTIONS = [
-    { label: 'Select your batch', value: '' },
-    { label: 'Summer 2025', value: 'Summer 2025' },
-    { label: 'Spring 2025', value: 'Spring 2025' },
-    { label: 'Winter 2025', value: 'Winter 2025' },
-    { label: 'Fall 2024', value: 'Fall 2024' },
-    { label: 'Summer 2024', value: 'Summer 2024' },
-    { label: 'Winter 2024', value: 'Winter 2024' },
-    { label: 'Summer 2023', value: 'Summer 2023' },
-    { label: 'Winter 2023', value: 'Winter 2023' },
-    { label: 'Summer 2022', value: 'Summer 2022' },
-    { label: 'Winter 2022', value: 'Winter 2022' },
-    { label: 'Summer 2021', value: 'Summer 2021' },
-    { label: 'Winter 2021', value: 'Winter 2021' },
-    { label: 'Earlier batches', value: 'Earlier' },
-]
+import { getYCBatchOptions } from './utils'
 
 export enum StartupProgramType {
     YC = 'YC',
@@ -74,7 +34,7 @@ export interface StartupProgramFormValues {
 }
 
 export interface StartupProgramLogicProps {
-    isYC: boolean
+    referrer?: string
 }
 
 function validateIncorporationDate(date: Dayjs | undefined, isYC: boolean): string | undefined {
@@ -113,7 +73,6 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
 export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
-    key(({ isYC }: StartupProgramLogicProps) => isYC || false),
     connect({
         values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
         actions: [paymentEntryLogic, ['showPaymentEntryModal']],
@@ -130,10 +89,31 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         ],
     }),
     selectors({
-        isAlreadyOnStartupPlan: [
+        isYC: [() => [(_, props) => props.referrer], (referrer: string | undefined) => referrer === 'yc'],
+        isReferralProgram: [
+            () => [(_, props) => props.referrer],
+            (referrer: string | undefined) => !!referrer && referrer !== 'yc',
+        ],
+        referrer: [() => [(_, props) => props.referrer], (referrer: string | undefined) => referrer],
+        referrerDisplayName: [
+            () => [(_, props) => props.referrer],
+            (referrer: string | undefined) => {
+                if (!referrer || referrer === 'yc') {
+                    return undefined
+                }
+                return referrer.split('-').join(' ')
+            },
+        ],
+        isCurrentlyOnStartupPlan: [
             (s) => [s.billing],
             (billing: BillingType | null) => {
                 return !!billing?.startup_program_label
+            },
+        ],
+        wasPreviouslyOnStartupPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null) => {
+                return !!billing?.startup_program_label_previous
             },
         ],
         isUserOrganizationOwnerOrAdmin: [
@@ -157,19 +137,25 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 return domain
             },
         ],
+        ycBatchOptions: [
+            () => [],
+            () => {
+                return getYCBatchOptions()
+            },
+        ],
     }),
     forms(({ values, actions, props }) => ({
         startupProgram: {
             defaults: {
-                type: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                type: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                 startup_domain: values.domainFromEmail || '',
                 organization_name: values.currentOrganization?.name || '',
                 organization_id: values.currentOrganization?.id || '',
                 raised: undefined,
                 incorporation_date: undefined,
-                yc_batch: props.isYC ? '' : undefined,
+                yc_batch: values.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
-                yc_merch_count: props.isYC ? 1 : undefined,
+                yc_merch_count: values.isYC ? 1 : undefined,
             } as StartupProgramFormValues,
             errors: ({ organization_id, raised, incorporation_date, yc_batch, yc_proof_screenshot_url }) => {
                 if (!values.billing?.has_active_subscription) {
@@ -180,30 +166,33 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
 
                 return {
                     organization_id: !organization_id ? 'Please select an organization' : undefined,
-                    raised: validateFunding(raised, props.isYC),
-                    incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
-                    yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
+                    raised: validateFunding(raised, values.isYC),
+                    incorporation_date: validateIncorporationDate(incorporation_date, values.isYC),
+                    yc_batch: values.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
                     yc_proof_screenshot_url:
-                        props.isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
+                        values.isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
                 }
             },
             submit: async (formValues: StartupProgramFormValues) => {
                 const valuesToSubmit: Record<string, any> = {
-                    program: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                    program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                     organization_id: formValues.organization_id,
                     yc_merch_count: formValues.yc_merch_count,
                 }
 
-                if (props.isYC) {
+                if (values.isYC) {
                     valuesToSubmit.yc_batch = formValues.yc_batch
                     valuesToSubmit.yc_proof_screenshot_url = formValues.yc_proof_screenshot_url
                 }
 
-                if (!props.isYC) {
+                if (!values.isYC) {
                     valuesToSubmit.raised = formValues.raised
                     valuesToSubmit.incorporation_date = dayjs.isDayjs(formValues.incorporation_date)
                         ? formValues.incorporation_date.format('YYYY-MM-DD')
                         : undefined
+                    if (props.referrer) {
+                        valuesToSubmit.referrer = props.referrer.toLowerCase()
+                    }
                 }
 
                 try {
