@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { AnnotationScope } from '~/types'
@@ -65,6 +66,13 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             maxLength={400}
                         />
                     </LemonField>
+                    <div
+                        className={cn('flex flex-row gap-2 justify-end items-center text-text-3000 text-sm', {
+                            'text-danger': (recordingAnnotation.content?.length ?? 0) === 400,
+                        })}
+                    >
+                        {recordingAnnotation.content?.length ?? 0} / 400
+                    </div>
                     <div className="flex gap-2 mt-2 justify-end">
                         <LemonButton
                             form="recording-annotation-form"
