@@ -1148,6 +1148,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        currentHogCode: [
+            (s) => [s.newHogCode, s.configuration],
+            (newHogCode: string | null, configuration: HogFunctionConfigurationType) => {
+                return newHogCode ?? configuration.hog ?? ''
+            },
+        ],
+
         canLoadSampleGlobals: [
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {

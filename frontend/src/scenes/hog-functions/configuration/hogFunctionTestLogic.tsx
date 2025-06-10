@@ -83,7 +83,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 'exampleInvocationGlobals',
                 'sampleGlobalsError',
                 'type',
-                'newHogCode',
+                'currentHogCode',
             ],
             groupsModel,
             ['groupTypes'],
@@ -316,11 +316,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 const parsedData = tryJsonParse(data.globals)
                 const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
                 configuration.template_id = values.templateId
-
-                // Use newHogCode if available (when there's a pending diff)
-                if (values.newHogCode) {
-                    configuration.hog = values.newHogCode
-                }
+                configuration.hog = values.currentHogCode
 
                 // Transformations have a simpler UI just showing the event so we need to map it back to the event
                 const globals =
