@@ -2,7 +2,6 @@ import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -20,19 +19,26 @@ const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
 export const scene: SceneExport = {
     component: StartupProgram,
+    logic: startupProgramLogic,
+    paramsToProps: ({ params: { referrer } }): { referrer?: string } => ({
+        referrer: referrer || undefined,
+    }),
 }
 
 export function StartupProgram(): JSX.Element {
     const {
-        location: { pathname },
-    } = useValues(router)
-    const isYC = pathname.endsWith('/yc')
-
-    const logic = startupProgramLogic({ isYC })
-    const { startupProgram, formSubmitted, isAlreadyOnStartupPlan, isUserOrganizationOwnerOrAdmin, ycBatchOptions } =
-        useValues(logic)
+        startupProgram,
+        formSubmitted,
+        isAlreadyOnStartupPlan,
+        isUserOrganizationOwnerOrAdmin,
+        isYC,
+        isReferralProgram,
+        referrerDisplayName,
+        ycBatchOptions,
+    } = useValues(startupProgramLogic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
+    const { setStartupProgramValue, showPaymentEntryModal } = useActions(startupProgramLogic)
+
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -107,7 +113,11 @@ export function StartupProgram(): JSX.Element {
                             </div>
                         </div>
                         <div className="text-center">
-                            <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">Apply for PostHog's startup program</h1>
+                            <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">
+                                {isReferralProgram && referrerDisplayName
+                                    ? `PostHog x ${referrerDisplayName}`
+                                    : "Apply for PostHog's startup program"}
+                            </h1>
                             <p className="text-sm sm:text-base text-muted">
                                 Get $50,000 in credits (plus extras you'll actually use) to help you get to
                                 product-market fit.
@@ -124,7 +134,11 @@ export function StartupProgram(): JSX.Element {
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
                 <div className="bg-surface-secondary rounded-lg p-6">
-                    <h2 className="text-xl mb-4">What you can get</h2>
+                    <h2 className="text-xl mb-4">
+                        {isReferralProgram && referrerDisplayName
+                            ? `We've teamed up with ${referrerDisplayName} to offer you`
+                            : 'What you can get'}
+                    </h2>
                     <div className="space-y-3">
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
@@ -151,7 +165,7 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
+                                <h4 className="font-semibold">50% off Mintlify and Speakeasy for 6 months</h4>
                                 <p className="text-muted text-sm">The best products deserve the best documentation</p>
                             </div>
                         </div>
@@ -265,7 +279,6 @@ export function StartupProgram(): JSX.Element {
                         ) : (
                             <Form
                                 logic={startupProgramLogic}
-                                props={{ isYC }}
                                 formKey="startupProgram"
                                 enableFormOnSubmit
                                 className="space-y-3"
