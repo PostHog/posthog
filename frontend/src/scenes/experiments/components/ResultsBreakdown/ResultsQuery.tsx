@@ -19,13 +19,13 @@ export const ResultsQuery = ({
     /**
      * we get the generated query and the results from the breakdown logic
      */
-    const { breakdownResults } = useValues(resultsBreakdownLogic({ experiment, metric: result.metric }))
+    const { breakdownResults, query } = useValues(resultsBreakdownLogic({ experiment, metric: result.metric }))
 
     if (!breakdownResults) {
         return null
     }
 
-    const { query, results } = breakdownResults
+    const { results } = breakdownResults
 
     const fakeInsightId = Math.random().toString(36).substring(2, 15)
 

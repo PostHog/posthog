@@ -2,6 +2,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
+import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod } from '~/types'
 
 import { ResultsBreakdown } from '../components/ResultsBreakdown'
@@ -70,6 +71,9 @@ const ResultsTab = (): JSX.Element => {
                     <Overview />
                 </div>
             )}
+            {/**
+             * we only show bayesian results for now
+             */}
             {statsMethod === ExperimentStatsMethod.Bayesian ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
@@ -79,31 +83,40 @@ const ResultsTab = (): JSX.Element => {
                      * - if the metric has insight results
                      * - if we have the minimum number of exposures
                      * - if it's the first primary metric (?)
-                     */}{' '}
-                    {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
-                        <div>
-                            <div className="pb-4">
-                                <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
-                            </div>
-                            {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                            {legacyMetricResults?.[0] &&
-                                (legacyMetricResults[0].kind === 'ExperimentTrendsQuery' ||
-                                    legacyMetricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                     */}
+                    {hasSomeResults &&
+                        hasMinimumExposureForResults &&
+                        hasSinglePrimaryMetric &&
+                        firstPrimaryMetric &&
+                        firstPrimaryMetricResult && (
+                            <div>
+                                <div className="pb-4">
+                                    <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
+                                </div>
+                                {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
                                     <>
                                         <div className="flex justify-end">
-                                            <ExploreButton result={legacyMetricResults[0]} size="xsmall" />
+                                            <LegacyExploreButton result={firstPrimaryMetricResult} size="xsmall" />
                                         </div>
                                         <div className="pb-4">
-                                            <ResultsQuery
-                                                experiment={experiment}
-                                                result={legacyMetricResults?.[0] || null}
+                                            <LegacyResultsQuery
+                                                result={firstPrimaryMetricResult || null}
                                                 showTable={true}
                                             />
                                         </div>
                                     </>
+                                ) : (
+                                    /**
+                                     * altough we don't have a great typeguard here, we know that the result is a CachedExperimentQueryResponse
+                                     * because we're only showing results for experiment queries (legacy check)
+                                     */
+                                    <ResultsBreakdown
+                                        result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
+                                        experiment={experiment}
+                                    />
                                 )}
-                        </div>
-                    )}
+                            </div>
+                        )}
                     <MetricsViewLegacy isSecondary={true} />
                 </>
             ) : (

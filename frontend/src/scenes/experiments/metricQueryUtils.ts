@@ -195,7 +195,10 @@ const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | Ac
         } as any,
         true,
         MathAvailability.None
-    ).filter((series) => series.kind === NodeKind.EventsNode || series.kind === NodeKind.ActionsNode)
+    ).filter((series) => series.kind === NodeKind.EventsNode || series.kind === NodeKind.ActionsNode) as (
+        | EventsNode
+        | ActionsNode
+    )[]
 }
 
 /**
