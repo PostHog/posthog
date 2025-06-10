@@ -146,7 +146,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
-    POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
@@ -276,6 +275,7 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-observability @peter-k
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
+    CDP_HOG_INPUT_LIQUID: 'cdp-hog-input-liquid', // owner: #team-messaging
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_FILTERS: 'revenue-analytics-filters', // owner: @rafaeelaudibert #team-revenue-analytics
     REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
@@ -286,6 +286,7 @@ export const FEATURE_FLAGS = {
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     EXPERIMENTS_FREQUENTIST: 'experiments-frequentist', // owner: @jurajmajerik #team-experiments
     TAXONOMIC_EVENT_SORTING: 'taxonomic-event-sorting', // owner: @pauldambra #team-replay
+    AI_HOG_FUNCTION_CREATION: 'ai-hog-function-creation', // owner: @meikel #team-cdp
     REPLAY_FILTERS_IN_PLAYLIST: 'replay-filters-in-playlist', // owner: @veryayskiy #team-replay
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
 } as const
