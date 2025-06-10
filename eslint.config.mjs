@@ -79,7 +79,8 @@ export default [
                 ...globals.browser,
                 ...globals.es6,
                 Atomics: 'readonly',
-                SharedArrayBuffer: 'readonly'
+                SharedArrayBuffer: 'readonly',
+                JSX: 'readonly'
             }
         },
 
