@@ -5,9 +5,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import type { HogFlow } from '../../../../plugin-server/src/schema/hogflow'
 import { campaignLogic } from './campaignLogic'
 import type { campaignSceneLogicType } from './campaignSceneLogicType'
-import { Workflow } from './Workflows/temporary_workflow_types_for_dev_to_be_deleted'
 
 export const CampaignTabs = ['overview', 'workflow'] as const
 export type CampaignTab = (typeof CampaignTabs)[number]
@@ -37,7 +37,7 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
     selectors({
         breadcrumbs: [
             (s) => [s.campaign],
-            (campaign: Workflow): Breadcrumb[] => {
+            (campaign: HogFlow): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingCampaigns,

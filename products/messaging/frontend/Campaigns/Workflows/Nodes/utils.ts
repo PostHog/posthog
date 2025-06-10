@@ -2,6 +2,7 @@ import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xy
 
 import { Optional } from '~/types'
 
+import type { HogFlowAction, HogFlowEdge } from '../../../../../../plugin-server/src/schema/hogflow'
 import {
     BOTTOM_HANDLE_POSITION,
     DEFAULT_EDGE_OPTIONS,
@@ -12,14 +13,10 @@ import {
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
-import { WorkflowEdgeData, WorkflowNodeData, WorkflowNodeType } from '../temporary_workflow_types_for_dev_to_be_deleted'
 import { ToolbarNode } from '../Toolbar'
 
 // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
-export const addDropzoneNodes = (
-    nodes: Node<WorkflowNodeData>[],
-    edges: Edge<WorkflowEdgeData>[]
-): Node<WorkflowNodeData>[] => {
+export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] => {
     const newNodes = [...nodes]
 
     edges.forEach((edge) => {
@@ -55,7 +52,7 @@ export const addDropzoneNodes = (
 }
 
 type NodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
-export const getNodeHandles = (nodeId: string, nodeType: WorkflowNodeType): NodeHandle[] => {
+export const getNodeHandles = (nodeId: string, nodeType: HogFlowAction['type']): NodeHandle[] => {
     switch (nodeType) {
         case 'trigger':
             return [
@@ -75,7 +72,7 @@ export const getNodeHandles = (nodeId: string, nodeType: WorkflowNodeType): Node
                     ...TOP_HANDLE_POSITION,
                 },
             ]
-        case 'email':
+        case 'message':
             return [
                 {
                     id: `${nodeId}_target`,
@@ -98,7 +95,7 @@ export const getNodeHandles = (nodeId: string, nodeType: WorkflowNodeType): Node
                     ...RIGHT_HANDLE_POSITION,
                 },
             ]
-        case 'delay_until':
+        case 'wait_for_condition':
             return [
                 {
                     id: `${nodeId}_target`,
@@ -121,7 +118,7 @@ export const getNodeHandles = (nodeId: string, nodeType: WorkflowNodeType): Node
                     ...RIGHT_HANDLE_POSITION,
                 },
             ]
-        case 'condition':
+        case 'conditional_branch':
             return [
                 {
                     id: `${nodeId}_target`,
@@ -165,15 +162,20 @@ export const createNewNode = (
     toolbarNode: ToolbarNode,
     nodeId?: string,
     position?: XYPosition
-): Node<WorkflowNodeData> => {
+): Node<HogFlowAction> => {
     const id = nodeId || `${toolbarNode.type}_${Date.now()}`
     return {
         id,
         type: toolbarNode.type,
         data: {
-            label: toolbarNode.label,
+            id,
+            name: toolbarNode.name,
             description: '',
             config: null,
+            type: toolbarNode.type,
+            on_error: 'continue',
+            created_at: 0,
+            updated_at: 0,
         },
         handles: getNodeHandles(id, toolbarNode.type),
         position: {
@@ -186,9 +188,9 @@ export const createNewNode = (
 
 export const createEdgesForNewNode = (
     nodeId: string,
-    nodeType: WorkflowNodeType,
-    edgeToInsertNodeInto: Edge<WorkflowEdgeData>
-): Edge<WorkflowEdgeData>[] => {
+    nodeType: HogFlowAction['type'],
+    edgeToInsertNodeInto: Edge<HogFlowEdge>
+): Edge<HogFlowEdge>[] => {
     const handles = getNodeHandles(nodeId, nodeType)
 
     return handles.map((handle) => {
@@ -217,7 +219,7 @@ export const createEdgesForNewNode = (
     })
 }
 
-export const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
+export const DEFAULT_NODES: Node<HogFlowAction>[] = [
     {
         id: 'trigger_node',
         type: 'trigger',
@@ -239,7 +241,7 @@ export const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
     },
 ]
 
-export const DEFAULT_EDGES: Edge<WorkflowEdgeData>[] = [
+export const DEFAULT_EDGES: Edge<HogFlowEdge>[] = [
     {
         id: 'trigger_node->exit_node',
         source: 'trigger_node',

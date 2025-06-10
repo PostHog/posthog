@@ -2,10 +2,11 @@ import { IconDecisionTree, IconDrag, IconHourglass, IconRevert, IconSend } from 
 import { Panel } from '@xyflow/react'
 
 const TOOLBAR_NODES = [
-    { type: 'email', label: 'Email', icon: <IconSend /> },
-    { type: 'condition', label: 'Condition', icon: <IconDecisionTree /> },
-    { type: 'delay', label: 'Wait', icon: <IconHourglass /> },
-    { type: 'delay_until', label: 'Wait until', icon: <IconRevert /> },
+    { type: 'message', name: 'Message', icon: <IconSend /> },
+    { type: 'conditional_branch', name: 'Condition', icon: <IconDecisionTree /> },
+    { type: 'wait_for_condition', name: 'Wait', icon: <IconHourglass /> },
+    { type: 'hog_function', name: 'Function', icon: <IconRevert /> },
+    { type: 'exit', name: 'Exit', icon: <IconRevert /> },
 ] as const
 export type ToolbarNode = (typeof TOOLBAR_NODES)[number]
 
@@ -30,7 +31,7 @@ function ToolbarNode({
         >
             <div className="flex items-center gap-1">
                 {node.icon}
-                {node.label}
+                {node.name}
             </div>
             <IconDrag className="text-lg" />
         </div>

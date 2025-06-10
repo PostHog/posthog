@@ -20,24 +20,24 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import type { HogFlowAction, HogFlowEdge } from '../../../../../plugin-server/src/schema/hogflow'
 import { getFormattedNodes } from './autolayout'
 import { DEFAULT_EDGE_OPTIONS } from './constants'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
 import { StepDetailsPanel } from './Nodes/StepDetails'
 import { addDropzoneNodes, createEdgesForNewNode, createNewNode, DEFAULT_EDGES, DEFAULT_NODES } from './Nodes/utils'
-import { WorkflowEdgeData, WorkflowNodeData } from './temporary_workflow_types_for_dev_to_be_deleted'
 import { Toolbar, ToolbarNode } from './Toolbar'
 
 // Inner component that encapsulates React Flow
 function WorkflowEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<WorkflowNodeData>>(DEFAULT_NODES)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<WorkflowEdgeData>>(DEFAULT_EDGES)
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(DEFAULT_NODES)
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(DEFAULT_EDGES)
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
     const [toolbarNodeUsed, setToolbarNodeUsed] = useState<ToolbarNode>()
-    const [selectedNode, setSelectedNode] = useState<Node<WorkflowNodeData>>()
+    const [selectedNode, setSelectedNode] = useState<Node<HogFlowAction>>()
 
     const { screenToFlowPosition, deleteElements, setCenter, getIntersectingNodes, fitView } = useReactFlow()
 
@@ -77,7 +77,7 @@ function WorkflowEditorContent(): JSX.Element {
     }, [selectedNode, setCenter])
 
     const findIntersectingDropzone = useCallback(
-        (event: React.DragEvent): Node<WorkflowNodeData> | undefined => {
+        (event: React.DragEvent): Node<HogFlowAction> | undefined => {
             const position = screenToFlowPosition({
                 x: event.clientX,
                 y: event.clientY,
@@ -96,7 +96,7 @@ function WorkflowEditorContent(): JSX.Element {
             const intersectingDropzoneNode = intersectingNodes.find((node) =>
                 DROPZONE_NODE_TYPES.includes(node.type || '')
             )
-            return intersectingDropzoneNode as Node<WorkflowNodeData> | undefined
+            return intersectingDropzoneNode as Node<HogFlowAction> | undefined
         },
         [getIntersectingNodes, screenToFlowPosition]
     )
@@ -157,7 +157,7 @@ function WorkflowEditorContent(): JSX.Element {
 
     // When a node is deleted, connect the middle nodes to their incomers and outgoers to avoid orphaned nodes
     const onNodesDelete = useCallback(
-        (deleted: Node<WorkflowNodeData>[]) => {
+        (deleted: Node<HogFlowAction>[]) => {
             // Hide node details if any deleted node is the selected node
             if (deleted.some((node) => node.id === selectedNode?.id)) {
                 setSelectedNode(undefined)
@@ -186,7 +186,7 @@ function WorkflowEditorContent(): JSX.Element {
                                 targetHandle,
                                 label: sourceLabel,
                                 ...DEFAULT_EDGE_OPTIONS,
-                            } as Edge<WorkflowEdgeData>)
+                            } as Edge<HogFlowEdge>)
                     )
                 )
 
@@ -202,7 +202,7 @@ function WorkflowEditorContent(): JSX.Element {
 
     return (
         <div ref={reactFlowWrapper} className="h-full w-full">
-            <ReactFlow<Node<WorkflowNodeData>, Edge<WorkflowEdgeData>>
+            <ReactFlow<Node<HogFlowAction>, Edge<HogFlowEdge>>
                 fitView
                 nodes={nodes}
                 edges={edges}

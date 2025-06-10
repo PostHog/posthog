@@ -2,7 +2,7 @@ import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRev
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import { useEffect } from 'react'
 
-import { WorkflowNode, WorkflowNodeType } from '../temporary_workflow_types_for_dev_to_be_deleted'
+import type { HogFlowAction } from '../../../../../../plugin-server/src/schema/hogflow'
 import { getNodeHandles } from './utils'
 
 export const REACT_FLOW_NODE_TYPES = {
@@ -24,7 +24,7 @@ interface NodeProps {
     icon?: React.ReactNode
     selected?: boolean
     type?: string
-    data: WorkflowNode['data']
+    data: HogFlowAction
 }
 
 function DropzoneNode({ type }: NodeProps): JSX.Element {
@@ -43,7 +43,7 @@ function DropzoneNode({ type }: NodeProps): JSX.Element {
 
 function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.Element {
     const updateNodeInternals = useUpdateNodeInternals()
-    const handles = getNodeHandles(id, type as WorkflowNodeType)
+    const handles = getNodeHandles(id, type as HogFlowAction['type'])
 
     useEffect(() => {
         updateNodeInternals(id)
@@ -58,7 +58,7 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
         >
             <div className="flex items-center justify-center gap-1">
                 {icon}
-                <div className="text-xs">{data.label}</div>
+                <div className="text-xs">{data.name}</div>
             </div>
             {children}
             {handles?.map((handle) => (

@@ -3,7 +3,7 @@ import { LemonButton, LemonLabel } from '@posthog/lemon-ui'
 import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { WorkflowNodeData } from '../temporary_workflow_types_for_dev_to_be_deleted'
+import type { HogFlowAction } from '../../../../../../plugin-server/src/schema/hogflow'
 
 export function StepDetailsPanel({
     node,
@@ -11,9 +11,9 @@ export function StepDetailsPanel({
     onClose,
 }: {
     workflowId: string
-    node: Node<WorkflowNodeData>
-    onChange: (node: Node<WorkflowNodeData>) => void
-    onDelete: (node: Node<WorkflowNodeData>) => void
+    node: Node<HogFlowAction>
+    onChange: (node: Node<HogFlowAction>) => void
+    onDelete: (node: Node<HogFlowAction>) => void
     onClose: () => void
 }): JSX.Element {
     const nodes = useNodes()
@@ -32,7 +32,7 @@ export function StepDetailsPanel({
         <Panel position="top-right">
             <div className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 w-[300px]">
                 <div className="flex items-center justify-between">
-                    <h3 className="font-semibold">Edit {node.data.label} step</h3>
+                    <h3 className="font-semibold">Edit {node.data.name} step</h3>
                     <div className="flex items-center gap-1">
                         {node.deletable && (
                             <LemonButton
