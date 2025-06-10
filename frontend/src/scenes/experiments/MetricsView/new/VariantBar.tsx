@@ -26,18 +26,13 @@ export function VariantBar({
 
     const hasEnoughData = !!interval
 
-    const viewBoxWidth = VIEW_BOX_WIDTH
-    const svgEdgeMargin = SVG_EDGE_MARGIN
-    const barHeight = BAR_HEIGHT
-    const barPadding = BAR_SPACING
-
     const colors = useChartColors()
 
     // Positioning
-    const y = barPadding + (barHeight + barPadding) * index
-    const x1 = valueToXCoordinate(lower, chartRadius, viewBoxWidth, svgEdgeMargin)
-    const x2 = valueToXCoordinate(upper, chartRadius, viewBoxWidth, svgEdgeMargin)
-    const deltaX = valueToXCoordinate(delta, chartRadius, viewBoxWidth, svgEdgeMargin)
+    const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
+    const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     return (
         <g key={variant.key}>
@@ -46,7 +41,7 @@ export function VariantBar({
                     {/* Variant name */}
                     <text
                         x={x1 - 8}
-                        y={y + barHeight / 2}
+                        y={y + BAR_HEIGHT / 2}
                         fontSize="10"
                         textAnchor="end"
                         dominantBaseline="middle"
@@ -61,7 +56,7 @@ export function VariantBar({
                             x={x1}
                             y={y}
                             width={x2 - x1}
-                            height={barHeight}
+                            height={BAR_HEIGHT}
                             fill={colors.BAR_CONTROL}
                             stroke={colors.BOUNDARY_LINES}
                             strokeWidth={1}
@@ -104,7 +99,7 @@ export function VariantBar({
                                 x={x1}
                                 y={y}
                                 width={x2 - x1}
-                                height={barHeight}
+                                height={BAR_HEIGHT}
                                 fill={`url(#gradient-${metricIndex}-${variant.key}-${
                                     isSecondary ? 'secondary' : 'primary'
                                 })`}
@@ -117,7 +112,7 @@ export function VariantBar({
                         x1={deltaX}
                         y1={y}
                         x2={deltaX}
-                        y2={y + barHeight}
+                        y2={y + BAR_HEIGHT}
                         stroke={variant.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT}
                         strokeWidth={2}
                         shapeRendering="crispEdges"
@@ -127,8 +122,8 @@ export function VariantBar({
                 <>
                     {/* Variant name for no data case */}
                     <text
-                        x={valueToXCoordinate(0, chartRadius, viewBoxWidth, svgEdgeMargin) - 150}
-                        y={y + barHeight / 2}
+                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 150}
+                        y={y + BAR_HEIGHT / 2}
                         fontSize="10"
                         textAnchor="end"
                         dominantBaseline="middle"
@@ -139,8 +134,8 @@ export function VariantBar({
 
                     {/* "Not enough data" message */}
                     <rect
-                        x={valueToXCoordinate(0, chartRadius, viewBoxWidth, svgEdgeMargin) - 50}
-                        y={y + barHeight / 2 - 8}
+                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 50}
+                        y={y + BAR_HEIGHT / 2 - 8}
                         width="100"
                         height="16"
                         rx="3"
@@ -148,8 +143,8 @@ export function VariantBar({
                         fill="var(--border-light)"
                     />
                     <text
-                        x={valueToXCoordinate(0, chartRadius, viewBoxWidth, svgEdgeMargin)}
-                        y={y + barHeight / 2}
+                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                        y={y + BAR_HEIGHT / 2}
                         fontSize="10"
                         textAnchor="middle"
                         dominantBaseline="middle"

@@ -34,8 +34,6 @@ export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Ele
     const chartRadius = maxAbsValue + axisMargin
     const tickValues = getNiceTickValues(chartRadius)
 
-    const valueToX = (value: number): number => valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-
     const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
     return (
         <div className="flex border-t border-l border-r rounded-t">
@@ -58,7 +56,7 @@ export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Ele
                         style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
                     >
                         {tickValues.map((value) => {
-                            const x = valueToX(value)
+                            const x = valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
                             return (
                                 <g key={value}>
                                     <text

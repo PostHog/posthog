@@ -1,13 +1,17 @@
-import { ExperimentFunnelsQuery } from '~/queries/schema/schema-general'
+import { useValues } from 'kea'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+
+import { ExperimentFunnelsQuery, ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
 import { ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
 import { getNiceTickValues } from '../shared/utils'
-import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
-import { VariantBar } from './VariantBar'
+import { Chart } from './Chart'
+import { BAR_HEIGHT, BAR_SPACING } from './constants'
 
 export function MetricRow({
     metric,
@@ -24,9 +28,12 @@ export function MetricRow({
     metricType: InsightType
     isSecondary: boolean
 }): JSX.Element {
-    const variants = result?.variant_results || []
+    const { secondaryMetricResultsLoading, metricResultsLoading } = useValues(experimentLogic)
+    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+
+    const variantResults = result?.variant_results || []
     const maxAbsValue = Math.max(
-        ...variants.flatMap((variant: any) => {
+        ...variantResults.flatMap((variant: ExperimentVariantResultFrequentist) => {
             const interval = variant.confidence_interval
             return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : [] // Remove /100
         })
@@ -36,10 +43,10 @@ export function MetricRow({
     const chartRadius = maxAbsValue + axisMargin
     const tickValues = getNiceTickValues(chartRadius)
 
-    const chartHeight = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variants.length
+    const chartHeight = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length
 
     const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
-    const metricTitlePanelHeight = Math.max(chartSvgHeight, 60)
+    const panelHeight = Math.max(chartSvgHeight, 60)
 
     return (
         <div
@@ -50,7 +57,7 @@ export function MetricRow({
                     <div
                         className="p-2"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${metricTitlePanelHeight}px` }}
+                        style={{ height: `${panelHeight}px` }}
                     >
                         <MetricHeader
                             metricIndex={metricIndex}
@@ -66,30 +73,20 @@ export function MetricRow({
                 <div
                     className="w-4/5 min-w-[780px]"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: `${chartSvgHeight}px` }}
+                    style={{ height: `${panelHeight}px` }}
                 >
-                    <div className="relative w-full">
-                        <div className="flex justify-center">
-                            <svg
-                                ref={chartSvgRef}
-                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                                preserveAspectRatio="xMidYMid meet"
-                                className="ml-12 max-w-[1000px]"
-                            >
-                                {/* Variant bars */}
-                                {variants.map((variant: any, index: number) => (
-                                    <VariantBar
-                                        key={variant.key}
-                                        variant={variant}
-                                        index={index}
-                                        chartRadius={chartRadius}
-                                        metricIndex={metricIndex}
-                                        isSecondary={isSecondary}
-                                    />
-                                ))}
-                            </svg>
-                        </div>
-                    </div>
+                    {resultsLoading ? (
+                        <ChartLoadingState height={panelHeight} />
+                    ) : (
+                        <Chart
+                            chartSvgRef={chartSvgRef}
+                            chartHeight={chartHeight}
+                            variantResults={variantResults}
+                            chartRadius={chartRadius}
+                            metricIndex={metricIndex}
+                            isSecondary={isSecondary}
+                        />
+                    )}
                 </div>
             </div>
         </div>
