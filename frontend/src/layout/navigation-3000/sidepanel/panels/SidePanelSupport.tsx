@@ -69,10 +69,10 @@ const SupportResponseTimesTable = ({
     // Get support response time feature from plan
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name === planName)
+        const plan = supportPlans?.find((p: any) => p.name === planName)
 
         // Return the support_response_time feature if found
-        return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
+        return plan?.features?.find((f: any) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
     }
 
     // Create plans array from billing data - directly determine current_plan status here
@@ -214,7 +214,6 @@ export function SidePanelSupport(): JSX.Element {
             openEmailForm()
         }
     }
-
     // Define SupportFormBlock component here, with access to debugBilling
     const SupportFormBlock = ({
         onCancel,
@@ -328,6 +327,17 @@ export function SidePanelSupport(): JSX.Element {
                                         disabled={billingLoading}
                                     >
                                         {billingLoading ? 'Loading...' : 'Email our support engineers'}
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        fullWidth
+                                        center
+                                        to="https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml"
+                                        targetBlank
+                                        className="mt-2"
+                                        disabled={billingLoading}
+                                    >
+                                        {billingLoading ? 'Loading...' : 'Submit a bug on GitHub'}
                                     </LemonButton>
                                 </Section>
                             )}
