@@ -235,6 +235,10 @@ importers:
         version: 4.9.5
 
   common/shared-types:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.24.1
     devDependencies:
       typescript:
         specifier: ~4.9.5

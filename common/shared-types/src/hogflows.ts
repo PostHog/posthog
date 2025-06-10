@@ -1,71 +1,59 @@
-export type HogFlow = {
-    id: string
-    team_id: number
-    version: number
+import { z } from 'zod'
 
-    name: string
-    status: 'active' | 'draft' | 'archived'
+export const HogFlowSchema = z.object({
+    id: z.string(),
+    team_id: z.number(),
+    version: z.number(),
+    name: z.string(),
+    status: z.enum(['active', 'draft', 'archived']),
+    trigger: z.object({
+        type: z.literal('event'),
+        filters: z.any(),
+    }),
+    trigger_masking: z.object({
+        ttl: z.number(),
+        hash: z.string(),
+        threshold: z.number(),
+    }),
+    conversion: z.object({
+        window_minutes: z.number(),
+        filters: z.any(),
+    }),
+    exit_condition: z.enum([
+        'exit_on_conversion',
+        'exit_on_trigger_not_matched',
+        'exit_on_trigger_not_matched_or_conversion',
+        'exit_only_at_end',
+    ]),
+    edges: z.array(
+        z.object({
+            from: z.string(),
+            to: z.string(),
+            type: z.enum(['continue', 'branch']),
+            index: z.number(),
+        })
+    ),
+    actions: z.array(
+        z.object({
+            id: z.string(),
+            name: z.string(),
+            description: z.string(),
+            type: z.enum([
+                'exit_action',
+                'conditional_branch',
+                'delay',
+                'wait_for_condition',
+                'message',
+                'hog_function',
+            ]),
+            config: z.any(),
+            on_error: z.enum(['continue', 'abort', 'complete', 'branch']),
+            created_at: z.number(),
+            updated_at: z.number(),
+            position: z.number(),
+        })
+    ),
+    abort_action: z.string().optional(),
+})
 
-    trigger: {
-        type: 'event'
-        // TODO(team-messaging): use HogFunctionFilters instead of any
-        filters: any
-    }
-    // | {
-    //       type: 'pre-processed-event'
-    //       // TODO(team-messaging): use HogFunctionFilters instead of any
-    //       filters: any
-    //   }
-    // | {
-    //       type: 'schedule'
-    //       cron: string
-    //   }
-    // | {
-    //       type: 'webhook'
-    //       hog_function_id: string
-    //   }
-
-    trigger_masking: {
-        ttl: number
-        hash: string
-        // bytecode: HogBytecode
-        threshold: number
-    }
-
-    conversion: {
-        window_minutes: number
-        // cohort_id: number
-        filters: any // HogFunctionFilters
-    }
-    exit_condition:
-        | 'exit_on_conversion'
-        | 'exit_on_trigger_not_matched'
-        | 'exit_on_trigger_not_matched_or_conversion'
-        | 'exit_only_at_end'
-
-    // workflow graph
-    edges: {
-        from: string
-        to: string
-        type: 'continue' | 'branch'
-        index: number
-    }[]
-
-    actions: {
-        id: string
-        name: string
-        description: string
-        type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
-        // TODO(team-messaging): use HogFunctionInputSchemaType[] instead of any
-        config: any
-
-        // Maybe v1?
-        on_error: 'continue' | 'abort' | 'complete' | 'branch'
-
-        created_at: number
-        updated_at: number
-        position: number
-    }[]
-
-    abort_action?: string
-}
+export type HogFlow = z.infer<typeof HogFlowSchema>
