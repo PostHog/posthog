@@ -109,7 +109,7 @@ test.describe('Auth', () => {
         await secondPage.goto('/logout')
 
         // Now interact with the original page
-        await page.locator('[data-attr=menu-item-me]').click()
+        await page.locator('[data-attr=menu-item-settings]').click()
         await expect(page).toHaveURL('/login') // Should be redirected
     })
 })
