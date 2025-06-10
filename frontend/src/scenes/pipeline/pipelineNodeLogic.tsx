@@ -160,6 +160,15 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 actions.setCurrentTab(nodeTab as PipelineNodeTab)
             }
 
+            // Redirect managed sources to the new data warehouse source page
+            if (
+                values.node.backend === PipelineBackend.ManagedSource ||
+                values.node.backend === PipelineBackend.SelfManagedSource
+            ) {
+                router.actions.replace(urls.dataWarehouseSource(props.id.toString()))
+                return
+            }
+
             // Set the project tree ref from the URL
             // Use the wildcard 'hog/' type format to match against all possible types without a mapping from the URL
             const path = router.values.location.pathname

@@ -575,7 +575,7 @@ export const redirects: Record<
     '/messaging': urls.messagingBroadcasts(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
-    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id),
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
 
@@ -711,7 +711,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSource, 'dataWarehouseSourceNew'],
-    [urls.dataWarehouseSource(':id')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],

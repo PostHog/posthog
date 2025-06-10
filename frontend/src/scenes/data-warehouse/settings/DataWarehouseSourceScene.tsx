@@ -1,5 +1,5 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, urlToAction } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
@@ -26,6 +26,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     path((key) => ['scenes', 'data-warehouse', 'dataWarehouseSourceSceneLogic', key]),
     actions({
         setCurrentTab: (tab: DataWarehouseSourceSceneTab) => ({ tab }),
+        setBreadcrumbName: (name: string) => ({ name }),
     }),
     reducers(() => ({
         currentTab: [
@@ -34,12 +35,18 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                 setCurrentTab: (_, { tab }) => tab,
             },
         ],
+        breadcrumbName: [
+            'Source' as string,
+            {
+                setBreadcrumbName: (_, { name }) => name,
+            },
+        ],
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            (s, p) => [p.id],
-            (id): Breadcrumb[] => {
+            (s) => [s.breadcrumbName],
+            (breadcrumbName): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Pipeline,
@@ -53,37 +60,31 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                     },
                     {
                         key: Scene.DataWarehouseSource,
-                        name: id, // TODO: Make pretty
+                        name: breadcrumbName,
                     },
                 ]
             },
         ],
     }),
-    actionToUrl(({ values }) => ({
+    actionToUrl(({ props, values }) => ({
         setCurrentTab: () => {
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    tab: values.currentTab,
-                },
-                router.values.hashParams,
-            ]
+            return urls.dataWarehouseSource(props.id, values.currentTab)
         },
     })),
     urlToAction(({ actions, values }) => {
-        const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const possibleTab = (search.tab ?? 'configuration') as DataWarehouseSourceSceneTab
-
-            const tab = DATA_WAREHOUSE_SOURCE_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
-            if (tab !== values.currentTab) {
-                actions.setCurrentTab(tab)
-            }
-        }
-
         return {
-            // All possible routes for this scene need to be listed here
-            [urls.dataWarehouseSource(':id')]: reactToTabChange,
+            [urls.dataWarehouseSource(':id', ':tab')]: (params): void => {
+                let possibleTab = (params.tab ?? 'configuration') as DataWarehouseSourceSceneTab
+
+                if (params.id?.startsWith('self-managed-')) {
+                    possibleTab = 'configuration' // This only has one tab
+                }
+
+                const tab = DATA_WAREHOUSE_SOURCE_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
+                if (tab !== values.currentTab) {
+                    actions.setCurrentTab(tab)
+                }
+            },
         }
     }),
 ])
