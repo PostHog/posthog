@@ -162,6 +162,7 @@
         "lodash.uniqby": "^4.7.0",
         "maplibre-gl": "^3.5.1",
         "marked": "^15.0.11",
+        "mathjax-full": "3.2.2",
         "md5": "^2.3.0",
         "monaco-editor": "^0.49.0",
         "natural-orderby": "^3.0.2",
