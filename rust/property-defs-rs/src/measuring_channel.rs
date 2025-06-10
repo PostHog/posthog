@@ -9,12 +9,13 @@ use tokio::sync::mpsc::{
     Receiver, Sender,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug§)]
 pub struct MeasuringSender<T> {
     sender: Sender<T>,
     in_flight: Arc<AtomicUsize>,
 }
 
+#[derive(Debug)]
 pub struct MeasuringReceiver<T> {
     receiver: Receiver<T>,
     in_flight: Arc<AtomicUsize>,
@@ -80,10 +81,6 @@ impl<T> MeasuringReceiver<T> {
             self.in_flight.fetch_sub(res, Ordering::Relaxed);
         }
         res
-    }
-
-    pub fn inflight(&self) -> usize {
-        self.in_flight.load(Ordering::Relaxed)
     }
 
     pub fn inner(&self) -> &Receiver<T> {
