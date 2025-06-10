@@ -9,7 +9,6 @@ import { settingsSceneLogic } from './settingsSceneLogic'
 export const scene: SceneExport = {
     component: SettingsScene,
     logic: settingsSceneLogic,
-    settingSectionId: 'environment-replay',
 }
 
 export function SettingsScene(): JSX.Element {
