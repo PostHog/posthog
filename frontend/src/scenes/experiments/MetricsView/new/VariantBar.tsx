@@ -1,3 +1,5 @@
+import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
+
 import { useChartColors } from '../shared/colors'
 import { valueToXCoordinate } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
@@ -9,7 +11,7 @@ export function VariantBar({
     metricIndex,
     isSecondary,
 }: {
-    variant: any
+    variant: ExperimentVariantResultFrequentist
     index: number
     chartRadius: number
     metricIndex: number

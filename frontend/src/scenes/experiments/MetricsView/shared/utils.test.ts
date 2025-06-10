@@ -2,7 +2,7 @@ import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType } from '~/types'
 
-import { getDefaultMetricTitle, getMetricTag } from '../shared/utils'
+import { getDefaultMetricTitle, getMetricTag } from './utils'
 
 describe('getMetricTag', () => {
     it('handles different metric types correctly', () => {

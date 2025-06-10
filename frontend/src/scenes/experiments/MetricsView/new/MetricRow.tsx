@@ -68,7 +68,7 @@ export function MetricRow({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px` }}
                 >
-                    <div className="relative w-full max-w-screen">
+                    <div className="relative w-full">
                         <div className="flex justify-center">
                             <svg
                                 ref={chartSvgRef}

@@ -70,15 +70,15 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                     <div className="min-w-[1000px]">
                         <div className="rounded bg-[var(--bg-table)]">
                             <ConfidenceIntervalAxis results={results} />
-                            {metrics.map((_, metricIndex) => {
+                            {metrics.map((metric, metricIndex) => {
                                 return (
                                     <MetricRow
                                         key={metricIndex}
                                         metrics={metrics}
                                         metricIndex={metricIndex}
                                         result={results[metricIndex]}
-                                        metric={metrics[metricIndex]}
-                                        metricType={getInsightType(metrics[0])}
+                                        metric={metric}
+                                        metricType={getInsightType(metric)}
                                         isSecondary={!!isSecondary}
                                     />
                                 )
