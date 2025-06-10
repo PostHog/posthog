@@ -39,7 +39,7 @@ export interface AnnotationModalForm {
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
     dashboardId: AnnotationType['dashboard_id'] | null
-    recordingId: AnnotationType['recording'] | null
+    recordingId: AnnotationType['recording_id'] | null
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
