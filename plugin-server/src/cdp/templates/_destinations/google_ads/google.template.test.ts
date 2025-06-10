@@ -1,6 +1,6 @@
 import { DateTime, Settings } from 'luxon'
 
-import { createPayload, TemplateTester } from '../../test/test-helpers'
+import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
 
 jest.setTimeout(60 * 1000)
@@ -29,7 +29,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         $current_url: 'https://posthog.com/merch?product=tactical-black-t-shirt',
@@ -91,7 +91,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -132,7 +132,7 @@ describe('google template', () => {
                 conversionActionId: '123456789',
                 currencyCode: '{event.properties.currency}',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -174,7 +174,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            createPayload({
+            createAdDestinationPayload({
                 person: {
                     properties: {
                         gclid: null,

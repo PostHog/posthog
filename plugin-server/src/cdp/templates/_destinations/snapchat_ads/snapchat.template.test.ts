@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createPayload, TemplateTester } from '../../test/test-helpers'
+import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './snapchat.template'
 
 jest.setTimeout(2 * 60 * 1000)
@@ -26,7 +26,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         product_id: '1bdfef47c9724b58b6831933',
@@ -92,7 +92,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         checkout_id: 'e461659ed1714b9ebc3299ae',
@@ -175,7 +175,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -211,7 +211,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -250,7 +250,7 @@ describe('snapchat template', () => {
                 pixelId: 'pixel-id',
                 testEventMode: true,
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -286,7 +286,7 @@ describe('snapchat template', () => {
                 },
                 pixelId: 'pixel-id',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         $ip: '123.123.123.123',
@@ -339,7 +339,7 @@ describe('snapchat template', () => {
         ['missing pixel id', { oauth: { access_token: 'access-token' } }],
         ['missing access token', { pixelId: 'pixel-id' }],
     ])('handles %s', async (_, settings) => {
-        const response = await tester.invokeMapping('Order Completed', settings, createPayload())
+        const response = await tester.invokeMapping('Order Completed', settings, createAdDestinationPayload())
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)

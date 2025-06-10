@@ -248,7 +248,7 @@ export class TemplateTester {
     }
 }
 
-export const createPayload = (
+export const createAdDestinationPayload = (
     globals?: DeepPartialHogFunctionInvocationGlobals
 ): DeepPartialHogFunctionInvocationGlobals => {
     let defaultPayload = {

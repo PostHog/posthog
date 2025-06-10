@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createPayload, TemplateTester } from '../../test/test-helpers'
+import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './tiktok.template'
 
 jest.setTimeout(2 * 60 * 1000)
@@ -24,7 +24,7 @@ describe('tiktok template', () => {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         product_id: '1bdfef47c9724b58b6831933',
@@ -81,7 +81,7 @@ describe('tiktok template', () => {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         checkout_id: 'e461659ed1714b9ebc3299ae',
@@ -162,7 +162,7 @@ describe('tiktok template', () => {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -197,7 +197,7 @@ describe('tiktok template', () => {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -235,7 +235,7 @@ describe('tiktok template', () => {
                 pixelId: 'pixel-id',
                 testEventCode: 'test-event-code',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -270,7 +270,7 @@ describe('tiktok template', () => {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         $ip: '123.123.123.123',
@@ -310,7 +310,7 @@ describe('tiktok template', () => {
         ['missing pixel id', { accessToken: 'access-token' }],
         ['missing access token', { pixelId: 'pixel-id' }],
     ])('handles %s', async (_, settings) => {
-        const response = await tester.invokeMapping('Order Completed', settings, createPayload())
+        const response = await tester.invokeMapping('Order Completed', settings, createAdDestinationPayload())
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)
