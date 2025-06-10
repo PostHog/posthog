@@ -4,6 +4,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentStatsMethod } from '~/types'
 
+import { ResultsBreakdown } from '../components/ResultsBreakdown'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -17,11 +18,10 @@ import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTime
 import { isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
-    ExploreButton,
+    LegacyExploreButton,
     LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
-    ResultsQuery,
     StopExperimentModal,
 } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -43,9 +43,15 @@ const ResultsTab = (): JSX.Element => {
         hasMinimumExposureForResults,
         statsMethod,
     } = useValues(experimentLogic)
+    /**
+     * we still use the legacy metric results here. Frequentist results are loaded
+     * in the metricResults state key. We'll eventually move into using the new state.
+     */
     const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
+
+    const firstPrimaryMetricResult = legacyMetricResults?.[0]
 
     return (
         <>

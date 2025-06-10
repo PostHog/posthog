@@ -28,9 +28,7 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
-    CachedExperimentQueryResponse,
     ExperimentFunnelsQueryResponse,
-    ExperimentQueryResponse,
     ExperimentTrendsQueryResponse,
     FunnelsQuery,
     InsightQueryNode,
@@ -42,18 +40,17 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
+    Experiment as ExperimentType,
     ExperimentConclusion,
     ExperimentIdType,
-    Experiment as ExperimentType,
     InsightShortId,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
-import { experimentResultBreakdownLogic } from '../experimentResultBreakdownLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { getExperimentInsightColour, metricToQuery } from '../utils'
+import { getExperimentInsightColour } from '../utils'
 
 export function VariantTag({
     experimentId,
@@ -142,49 +139,6 @@ export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.E
 }
 
 /**
- * shows a breakdown of the results for ExperimentQueryResponse
- */
-export function ResultsQuery({
-    result,
-    experiment,
-}: {
-    result: CachedExperimentQueryResponse
-    experiment: Experiment
-}): JSX.Element | null {
-    /**
-     * we get the generated query and the results from the breakdown logic
-     */
-    const { breakdownResults } = useValues(experimentResultBreakdownLogic({ experiment, metric: result.metric }))
-
-    if (!breakdownResults) {
-        return null
-    }
-
-    const { query, results } = breakdownResults
-
-    const fakeInsightId = Math.random().toString(36).substring(2, 15)
-
-    return (
-        <Query
-            query={query}
-            context={{
-                insightProps: {
-                    dashboardItemId: fakeInsightId as InsightShortId,
-                    cachedInsight: {
-                        short_id: fakeInsightId as InsightShortId,
-                        query,
-                        result: results,
-                        disable_baseline: true,
-                    },
-                    doNotLoad: true,
-                },
-            }}
-            readOnly
-        />
-    )
-}
-
-/**
  * shows a breakdown query for legacy metrics
  * @deprecated use ResultsQuery
  */
@@ -232,31 +186,25 @@ export function LegacyResultsQuery({
     )
 }
 
-export function ExploreButton({
+/**
+ * @deprecated use ExploreButton instead
+ */
+export function LegacyExploreButton({
     result,
     size = 'small',
 }: {
-    result: ExperimentQueryResponse | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     size?: 'xsmall' | 'small' | 'large'
 }): JSX.Element {
     if (!result) {
         return <></>
     }
 
-    let query: InsightVizNode
-
-    if (result.kind === NodeKind.ExperimentQuery) {
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: metricToQuery(result.metric, true) as InsightQueryNode,
-        }
-    } else {
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: (result.kind === NodeKind.ExperimentTrendsQuery
-                ? result.count_query
-                : result.funnels_query) as InsightQueryNode,
-        }
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: (result.kind === NodeKind.ExperimentTrendsQuery
+            ? result.count_query
+            : result.funnels_query) as InsightQueryNode,
     }
 
     return (
@@ -292,7 +240,7 @@ export function ResultsHeader(): JSX.Element {
                     {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
                     {result &&
                         (result.kind === NodeKind.ExperimentTrendsQuery ||
-                            result.kind === NodeKind.ExperimentFunnelsQuery) && <ExploreButton result={result} />}
+                            result.kind === NodeKind.ExperimentFunnelsQuery) && <LegacyExploreButton result={result} />}
                 </div>
             </div>
         </div>

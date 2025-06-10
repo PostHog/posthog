@@ -12,6 +12,14 @@ import type {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
+import {
+    addExposureToMetric,
+    compose,
+    getExperimentDateRange,
+    getExposureConfigEventsNode,
+    getInsight,
+    getQuery,
+} from '~/scenes/experiments/metricQueryUtils'
 import type { Experiment, FunnelStep, TrendResult } from '~/types'
 import {
     BreakdownAttributionType,
@@ -22,15 +30,7 @@ import {
     StepOrderValue,
 } from '~/types'
 
-import type { experimentResultBreakdownLogicType } from './experimentResultBreakdownLogicType'
-import {
-    addExposureToMetric,
-    compose,
-    getExperimentDateRange,
-    getExposureConfigEventsNode,
-    getInsight,
-    getQuery,
-} from './metricQueryUtils'
+import type { resultsBreakdownLogicType } from './resultsBreakdownLogicType'
 
 export type ExperimentResultBreakdownLogicProps = {
     experiment: Experiment
@@ -46,7 +46,7 @@ export type BreakDownResults = {
  * This logic only works with modern engines, like bayesian and frequentist.
  * Legacy Funnels and Trends engine are resolved backend side.
  */
-export const experimentResultBreakdownLogic = kea<experimentResultBreakdownLogicType>([
+export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
     props({
         experiment: {} as Experiment,
         metric: {} as ExperimentMetric,

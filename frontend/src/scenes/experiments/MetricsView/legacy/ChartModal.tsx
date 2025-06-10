@@ -6,7 +6,8 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { ExploreButton, LegacyResultsQuery, ResultsQuery } from '~/scenes/experiments/ExperimentView/components'
+import { ResultsQuery } from '~/scenes/experiments/components/ResultsBreakdown'
+import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
 import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
 import type { Experiment, ExperimentIdType } from '~/types'
@@ -48,7 +49,7 @@ export function ChartModal({
         >
             {isLegacyResult && (
                 <div className="flex justify-end">
-                    <ExploreButton result={result} />
+                    <LegacyExploreButton result={result} />
                 </div>
             )}
             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
