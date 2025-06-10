@@ -4010,6 +4010,9 @@ export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
     UniqueSessions = 'unique_session',
+    Min = 'min',
+    Max = 'max',
+    Avg = 'avg',
 }
 
 export enum ActorGroupType {
@@ -5120,6 +5123,7 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: any
 }

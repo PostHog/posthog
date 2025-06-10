@@ -222,8 +222,8 @@ export function Playlist({
                         </div>
                     </div>
                 </div>
-                {(!featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] ||
-                    (featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && !isFiltersExpanded)) && (
+                {(featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] !== 'new' ||
+                    (featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' && !isFiltersExpanded)) && (
                     <div
                         className={clsx(
                             'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
@@ -241,9 +241,9 @@ export function Playlist({
                         )}
                     </div>
                 )}
-                {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] && isFiltersExpanded && filterContent && (
-                    <div className="bg-white border rounded-md p-2 w-full">{filterContent}</div>
-                )}
+                {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' &&
+                    isFiltersExpanded &&
+                    filterContent && <div className="bg-white border rounded-md p-2 w-full">{filterContent}</div>}
             </div>
         </>
     )

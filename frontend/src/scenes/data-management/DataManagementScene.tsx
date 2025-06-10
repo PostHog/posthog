@@ -1,11 +1,11 @@
 import { IconInfo } from '@posthog/icons'
-import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, connect, kea, path, reducers, selectors, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -211,40 +211,18 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     }),
 ])
 
-export function DataManagementScene(): JSX.Element {
+export function DataManagementScene(): JSX.Element | null {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
-    const { setTab } = useActions(dataManagementSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const lemonTabs: LemonTab<DataManagementTab>[] = enabledTabs.map((key) => ({
-        key: key as DataManagementTab,
-        label: <span data-attr={`data-management-${key}-tab`}>{tabs[key].label}</span>,
-        content: tabs[key].content,
-        tooltipDocLink: tabs[key].tooltipDocLink,
-    }))
-
-    if (featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) {
-        if (enabledTabs.includes(tab)) {
-            return (
-                <>
-                    <PageHeader buttons={<>{tabs[tab].buttons}</>} />
-                    {tabs[tab].content}
-                </>
-            )
-        }
+    if (enabledTabs.includes(tab)) {
+        return (
+            <>
+                <PageHeader buttons={<>{tabs[tab].buttons}</>} />
+                {tabs[tab].content}
+            </>
+        )
     }
-
-    return (
-        <>
-            <PageHeader
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-                buttons={<>{tabs[tab].buttons}</>}
-            />
-
-            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
-        </>
-    )
+    return null
 }
 
 export const scene: SceneExport = {

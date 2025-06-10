@@ -3,7 +3,6 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from dateutil import parser
 from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
@@ -24,9 +23,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.warehouse.types import IncrementalFieldType
 
 
 @dataclasses.dataclass
@@ -46,20 +44,6 @@ class ImportDataActivityInputs:
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
         }
-
-
-def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
-    if value is None or value == "None" or field_type is None:
-        return None
-
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
-        return value
-
-    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
-        return parser.parse(value)
-
-    if field_type == IncrementalFieldType.Date:
-        return parser.parse(value).date()
 
 
 def _trim_source_job_inputs(source: ExternalDataSource) -> None:
