@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::SingleTopicConsumer;
@@ -9,9 +9,10 @@ use property_defs_rs::{
     app_context::AppContext,
     config::Config,
     update_cache::Cache,
-    measuring_channel::MeasuringChannel,
     update_consumer_loop,
     update_producer_loop,
+    measuring_channel::measuring_channel,
+    metrics_consts::CHANNEL_CAPACITY,
 };
 
 use serve_metrics::{serve, setup_metrics_routes};
@@ -96,12 +97,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let handle = tokio::spawn(update_producer_loop(
             config.clone(),
             consumer.clone(),
-            tx.clone(),
             cache.clone(),
+            tx.clone(),
         ));
 
         handles.push(handle);
     }
+
+    // Publish the tx capacity metric every 10 seconds
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
+        }
+    });
 
     handles.push(tokio::spawn(update_consumer_loop(
         config.clone(),
