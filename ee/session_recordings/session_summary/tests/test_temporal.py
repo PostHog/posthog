@@ -5,7 +5,9 @@ from collections.abc import Callable
 import pytest
 import uuid
 from unittest.mock import patch
+from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryData
 from posthog.temporal.ai.session_summary.summarize_session import (
+    execute_summarize_session,
     stream_llm_summary_activity,
     SessionSummaryInputs,
     SummarizeSessionWorkflow,
@@ -153,6 +155,96 @@ class TestStreamLlmSummaryActivity:
 
 
 class TestSummarizeSessionWorkflow:
+    def test_execute_summarize_session(
+        self,
+        mocker,
+        mock_enriched_llm_json_response,
+        mock_user,
+        mock_team,
+        session_summary_inputs,
+        redis_test_setup,
+    ):
+        # Prepare input data
+        session_id = "test_session_id"
+        sample_session_summary_data = SingleSessionSummaryData(
+            session_id=session_id,
+            user_pk=mock_user.pk,
+            prompt_data=True,  # type: ignore
+            prompt=True,  # type: ignore
+            sse_error_msg=None,
+        )
+        input_data = session_summary_inputs(session_id)
+        # Simulate workflow states: RUNNING -> RUNNING with data -> COMPLETED
+        mock_workflow_handle = mocker.MagicMock()
+        workflow_states = [
+            mocker.MagicMock(status=mocker.MagicMock(name="RUNNING")),  # First poll - no data yet
+            mocker.MagicMock(status=mocker.MagicMock(name="RUNNING")),  # Second poll - with streaming data
+            mocker.MagicMock(status=mocker.MagicMock(name="COMPLETED")),  # Final poll - completed
+        ]
+        mock_workflow_handle.describe.side_effect = workflow_states
+        # Mock final result
+        expected_final_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
+        )
+        mock_workflow_handle.result.return_value = expected_final_summary
+        # Mock Redis data for streaming updates
+        intermediate_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=json.dumps({"partial": "data"})
+        )
+        # Track Redis calls to properly mock responses
+        redis_call_count = 0
+
+        def mock_redis_get(key):
+            nonlocal redis_call_count
+            # Return None for first poll, then intermediate data, then final data
+            if "output" in key:
+                current_call_number = redis_call_count
+                redis_call_count += 1
+                # First call - no data yet
+                if current_call_number == 0:
+                    return None
+                # Second call - stream chunk
+                elif current_call_number == 1:
+                    return json.dumps({"last_summary_state": intermediate_summary, "timestamp": 1234567890})
+                # Third call - final data
+                else:
+                    return json.dumps({"last_summary_state": expected_final_summary, "timestamp": 1234567891})
+            return None
+
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session.prepare_data_for_single_session_summary",
+                return_value=sample_session_summary_data,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session._prepare_single_session_summary_input",
+                return_value=input_data,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                return_value=mock_workflow_handle,
+            ),
+            patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
+            patch.object(redis_test_setup.redis_client, "setex"),  # Does nothing
+            patch.object(redis_test_setup.redis_client, "delete"),  # Does nothing
+        ):
+            result = list(
+                execute_summarize_session(
+                    session_id=session_id,
+                    user_pk=mock_user.pk,
+                    team=mock_team,
+                    extra_summary_context=None,
+                    local_reads_prod=False,
+                )
+            )
+            # Verify we got the expected streaming results
+            assert len(result) == 2  # intermediate + final, as the first empty result is skipped
+            assert result[0] == intermediate_summary
+            assert result[1] == expected_final_summary
+            # Verify workflow was started and polled properly
+            assert mock_workflow_handle.describe.call_count == 3
+            assert mock_workflow_handle.result.call_count == 1
+
     @pytest.mark.asyncio
     async def test_summarize_session_workflow(
         self,
