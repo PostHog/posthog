@@ -4,10 +4,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
-import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
-import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
-import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -61,38 +57,25 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     if (!stage) {
         return <NotFound object="pipeline stage" />
     }
-    const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> =
-        node.backend === PipelineBackend.ManagedSource
-            ? {
-                  [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
-                  [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
-                  [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} />,
-              }
-            : node.backend !== PipelineBackend.SelfManagedSource
-            ? {
-                  [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-                  [PipelineNodeTab.Metrics]:
-                      node.backend === PipelineBackend.HogFunction ? (
-                          <HogFunctionMetrics id={node.id} />
-                      ) : (
-                          <PipelineNodeMetrics id={id} />
-                      ),
-                  [PipelineNodeTab.Logs]:
-                      node.backend === PipelineBackend.HogFunction ? (
-                          <HogFunctionLogs hogFunctionId={id.toString().substring(4)} />
-                      ) : (
-                          <PipelineNodeLogs id={id} stage={stage} />
-                      ),
-              }
-            : {}
+    const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> = {
+        [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
+        [PipelineNodeTab.Metrics]:
+            node.backend === PipelineBackend.HogFunction ? (
+                <HogFunctionMetrics id={node.id} />
+            ) : (
+                <PipelineNodeMetrics id={id} />
+            ),
+        [PipelineNodeTab.Logs]:
+            node.backend === PipelineBackend.HogFunction ? (
+                <HogFunctionLogs hogFunctionId={id.toString().substring(4)} />
+            ) : (
+                <PipelineNodeLogs id={id} stage={stage} />
+            ),
+    }
 
     if (node.backend === PipelineBackend.BatchExport) {
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
         tabToContent[PipelineNodeTab.Backfills] = <BatchExportBackfills id={node.id} />
-    }
-
-    if (node.backend === PipelineBackend.SelfManagedSource) {
-        tabToContent[PipelineNodeTab.SourceConfiguration] = <DataPipelinesSelfManagedSource id={node.id.toString()} />
     }
 
     if (node.backend === PipelineBackend.Plugin) {

@@ -29,20 +29,8 @@ type HogFunctionNodeId = {
     backend: PipelineBackend.HogFunction
     id: string
 }
-type ManagedSourceId = {
-    backend: PipelineBackend.ManagedSource
-    id: string
-}
-type DataWarehouseId = {
-    backend: PipelineBackend.SelfManagedSource
-    id: number | string
-}
-export type PipelineNodeLimitedType =
-    | PluginNodeId
-    | BatchExportNodeId
-    | HogFunctionNodeId
-    | ManagedSourceId
-    | DataWarehouseId
+
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -122,14 +110,6 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                         return { backend: PipelineBackend.HogFunction, id: `${id}`.replace('hog-', '') }
                     }
 
-                    if (id.indexOf('managed') === 0) {
-                        return { backend: PipelineBackend.ManagedSource, id: `${id}`.replace('managed-', '') }
-                    }
-
-                    if (id.indexOf('self-managed') === 0) {
-                        return { backend: PipelineBackend.SelfManagedSource, id: `${id}`.replace('self-managed-', '') }
-                    }
-
                     return { backend: PipelineBackend.BatchExport, id }
                 }
 
@@ -162,8 +142,8 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
 
             // Redirect managed sources to the new data warehouse source page
             if (
-                values.node.backend === PipelineBackend.ManagedSource ||
-                values.node.backend === PipelineBackend.SelfManagedSource
+                typeof props.id === 'string' &&
+                (props.id.startsWith('managed-') || props.id.startsWith('self-managed-'))
             ) {
                 router.actions.replace(urls.dataWarehouseSource(props.id.toString()))
                 return
