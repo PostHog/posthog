@@ -1,7 +1,7 @@
-import { HogFlowAction, HogFlowEdge } from '@posthog/shared-types'
 import { Edge, Node, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
+import type { HogFlowAction, HogFlowEdge } from '../../../../../plugin-server/src/schema/hogflow'
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
 
 /**

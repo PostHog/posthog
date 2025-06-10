@@ -57,3 +57,5 @@ export const HogFlowSchema = z.object({
 })
 
 export type HogFlow = z.infer<typeof HogFlowSchema>
+export type HogFlowAction = HogFlow['actions'][number]
+export type HogFlowEdge = HogFlow['edges'][number]
