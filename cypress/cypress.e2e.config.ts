@@ -57,9 +57,9 @@ export default defineConfig({
             // @ts-expect-error - ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))
             try {
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
                 require('cypress-terminal-report/src/installLogsPrinter')(on)
-            } catch () { }
+            } catch (e) {}
 
             on('before:browser:launch', (browser, launchOptions) => {
                 if (browser.name === 'chrome') {
