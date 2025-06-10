@@ -10881,8 +10881,10 @@ class MaxContextShape(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dashboards: Optional[dict[str, MaxDashboardContext]] = None
-    insights: Optional[dict[str, MaxInsightContext]] = None
+    dashboards: Optional[list[MaxDashboardContext]] = None
+    filters_override: Optional[DashboardFilter] = None
+    insights: Optional[list[MaxInsightContext]] = None
+    variables_override: Optional[dict[str, HogQLVariable]] = None
 
 
 class MaxDashboardContext(BaseModel):

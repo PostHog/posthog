@@ -412,7 +412,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             // Add context data to maxContextLogic so hasData becomes true
-            maxContextLogicInstance.actions.addOrUpdateContextDashboard('1', {
+            maxContextLogicInstance.actions.addOrUpdateContextDashboard({
                 id: 1,
                 name: 'Test Dashboard',
                 description: 'Test description',

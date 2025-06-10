@@ -12525,10 +12525,25 @@
             "additionalProperties": false,
             "properties": {
                 "dashboards": {
-                    "$ref": "#/definitions/MultiDashboardContextContainer"
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
                 },
                 "insights": {
-                    "$ref": "#/definitions/MultiInsightContextContainer"
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
                 }
             },
             "type": "object"
@@ -12678,18 +12693,6 @@
                 }
             },
             "required": ["use_as_profile", "color", "accessories"],
-            "type": "object"
-        },
-        "MultiDashboardContextContainer": {
-            "additionalProperties": {
-                "$ref": "#/definitions/MaxDashboardContext"
-            },
-            "type": "object"
-        },
-        "MultiInsightContextContainer": {
-            "additionalProperties": {
-                "$ref": "#/definitions/MaxInsightContext"
-            },
             "type": "object"
         },
         "MultipleBreakdownOptions": {

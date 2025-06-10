@@ -2,14 +2,14 @@ import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { MultiDashboardContextContainer, MultiInsightContextContainer } from './maxTypes'
+import { MaxDashboardContext, MaxInsightContext } from './maxTypes'
 
 interface ContextTagsProps {
-    insights?: MultiInsightContextContainer
-    dashboards?: MultiDashboardContextContainer
+    insights?: MaxInsightContext[]
+    dashboards?: MaxDashboardContext[]
     useCurrentPageContext?: boolean
-    onRemoveInsight?: (key: string) => void
-    onRemoveDashboard?: (key: string) => void
+    onRemoveInsight?: (key: string | number) => void
+    onRemoveDashboard?: (key: string | number) => void
     onDisableCurrentPageContext?: () => void
     className?: string
 }
@@ -23,8 +23,8 @@ interface TagItem {
 }
 
 interface ContextSummaryProps {
-    insights?: MultiInsightContextContainer
-    dashboards?: MultiDashboardContextContainer
+    insights?: MaxInsightContext[]
+    dashboards?: MaxDashboardContext[]
     useCurrentPageContext?: boolean
 }
 
@@ -35,8 +35,8 @@ export function ContextSummary({
 }: ContextSummaryProps): JSX.Element | null {
     const contextCounts = useMemo(() => {
         const counts = {
-            insights: insights ? Object.keys(insights).length : 0,
-            dashboards: dashboards ? Object.keys(dashboards).length : 0,
+            insights: insights ? insights.length : 0,
+            dashboards: dashboards ? dashboards.length : 0,
             currentPage: useCurrentPageContext ? 1 : 0,
         }
         return counts
@@ -73,7 +73,7 @@ export function ContextSummary({
         }
 
         if (dashboards) {
-            Object.entries(dashboards).forEach(([, dashboard]) => {
+            dashboards.forEach((dashboard) => {
                 items.push({
                     type: 'dashboard',
                     name: dashboard.name || `Dashboard ${dashboard.id}`,
@@ -83,7 +83,7 @@ export function ContextSummary({
         }
 
         if (insights) {
-            Object.entries(insights).forEach(([, insight]) => {
+            insights.forEach((insight) => {
                 items.push({
                     type: 'insight',
                     name: insight.name || `Insight ${insight.id}`,
@@ -162,20 +162,20 @@ export function ContextTags({
 
         // Dashboards
         if (dashboards) {
-            Object.entries(dashboards).forEach(([key, dashboard]) => {
+            dashboards.forEach((dashboard: MaxDashboardContext) => {
                 const name = dashboard.name || `Dashboard ${dashboard.id}`
                 tags.push({
-                    key: `dashboard-${key}`,
+                    key: `dashboard-${dashboard.id}`,
                     type: 'dashboard',
                     name,
-                    onRemove: onRemoveDashboard ? () => onRemoveDashboard(key) : undefined,
+                    onRemove: onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined,
                     element: (
                         <LemonTag
-                            key={`dashboard-${key}`}
+                            key={`dashboard-${dashboard.id}`}
                             size="xsmall"
                             icon={<IconDashboard />}
                             closable={!!onRemoveDashboard}
-                            onClose={onRemoveDashboard ? () => onRemoveDashboard(key) : undefined}
+                            onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
                         >
                             {name}
                         </LemonTag>
@@ -186,20 +186,20 @@ export function ContextTags({
 
         // Insights
         if (insights) {
-            Object.entries(insights).forEach(([key, insight]) => {
+            insights.forEach((insight: MaxInsightContext) => {
                 const name = insight.name || `Insight ${insight.id}`
                 tags.push({
-                    key: `insight-${key}`,
+                    key: `insight-${insight.id}`,
                     type: 'insight',
                     name,
-                    onRemove: onRemoveInsight ? () => onRemoveInsight(key) : undefined,
+                    onRemove: onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined,
                     element: (
                         <LemonTag
-                            key={`insight-${key}`}
+                            key={`insight-${insight.id}`}
                             size="xsmall"
                             icon={<IconGraph />}
                             closable={!!onRemoveInsight}
-                            onClose={onRemoveInsight ? () => onRemoveInsight(key) : undefined}
+                            onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}
                         >
                             {name}
                         </LemonTag>

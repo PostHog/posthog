@@ -1,4 +1,4 @@
-import { DashboardFilter, QuerySchema } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 
 export interface MaxInsightContext {
     id: string | number
@@ -16,18 +16,12 @@ export interface MaxDashboardContext {
     filters: DashboardFilter
 }
 
-export interface MultiDashboardContextContainer {
-    [dashboardKey: string]: MaxDashboardContext
-}
-
-export interface MultiInsightContextContainer {
-    [insightKey: string]: MaxInsightContext
-}
-
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
-    dashboards?: MultiDashboardContextContainer
-    insights?: MultiInsightContextContainer
+    dashboards?: MaxDashboardContext[]
+    insights?: MaxInsightContext[]
+    filters_override?: DashboardFilter
+    variables_override?: Record<string, HogQLVariable>
 }
 
 // Taxonomic filter options

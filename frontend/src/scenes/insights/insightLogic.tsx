@@ -324,10 +324,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             () => [router.selectors.location],
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
-        isInEditMode: [
-            () => [router.selectors.location],
-            ({ pathname }) => /\/insights\/[a-zA-Z0-9]+\/edit$/.test(pathname),
-        ],
+        isInViewMode: [() => [router.selectors.location], ({ pathname }) => /\/insights\/[a-zA-Z0-9]+$/.test(pathname)],
         derivedName: [
             (s) => [s.query, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (query, aggregationLabel, cohortsById, mathDefinitions) =>
@@ -513,9 +510,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         setMaxContext: () => {
             // Set MaxAI context when insight changes
             if (values.insight && values.insight.query) {
-                maxContextLogic
-                    .findMounted()
-                    ?.actions.addOrUpdateActiveInsight(values.insight.short_id!, values.insight, !values.isInEditMode)
+                maxContextLogic.findMounted()?.actions.addOrUpdateActiveInsight(values.insight, values.isInViewMode)
             }
         },
     })),

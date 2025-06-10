@@ -37,6 +37,10 @@ from posthog.schema import (
     RetentionQuery,
     HogQLQuery,
 )
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
 
 from ..base import AssistantNode
 from .prompts import (
@@ -64,7 +68,12 @@ class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
     def _run_and_format_insight(
-        self, insight, query_runner: AssistantQueryExecutor, dashboard_filters: Optional[dict] = None
+        self,
+        insight,
+        query_runner: AssistantQueryExecutor,
+        dashboard_filters: Optional[dict] = None,
+        filters_override: Optional[dict] = None,
+        variables_override: Optional[dict] = None,
     ) -> str:
         """
         Run and format a single insight for AI consumption.
@@ -103,16 +112,20 @@ class RootNodeUIContextMixin(AssistantNode):
 
             # Apply dashboard filters if they exist
             if dashboard_filters:
-                from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
-
                 query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
+            # Apply filters override if they exist
+            if filters_override:
+                query_dict = apply_dashboard_filters_to_dict(query_dict, filters_override, self._team)
+            # Apply variables override if they exist
+            if variables_override:
+                query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
 
             query_class = query_class_map[query_kind]
-            if is_pydantic_model and not dashboard_filters:
-                # Use the original Pydantic model directly (only if no dashboard filters to apply)
+            if is_pydantic_model and not dashboard_filters and not filters_override and not variables_override:
+                # Use the original Pydantic model directly (only if no filters to apply)
                 query_obj = insight.query
             else:
-                # Validate from dict (always when dashboard filters are applied)
+                # Validate from dict (always when filters are applied)
                 query_obj = query_class.model_validate(query_dict)
 
             # Run the query and get raw results
@@ -144,12 +157,16 @@ class RootNodeUIContextMixin(AssistantNode):
 
         query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
 
+        # Extract global filters and variables override from UI context
+        filters_override = ui_context.filters_override.model_dump() if ui_context.filters_override else None
+        variables_override = ui_context.variables_override if ui_context.variables_override else None
+
         # Format dashboard context with insights
         dashboard_context = ""
         if ui_context.dashboards:
             dashboard_contexts = []
 
-            for _, dashboard in ui_context.dashboards.items():
+            for dashboard in ui_context.dashboards:
                 dashboard_text = f"# Dashboard: {dashboard.name or f'# Dashboard {dashboard.id}'}"
                 if dashboard.description:
                     dashboard_text += f"\nDescription: {dashboard.description}"
@@ -163,7 +180,9 @@ class RootNodeUIContextMixin(AssistantNode):
                             if hasattr(dashboard, "filters") and dashboard.filters
                             else None
                         )
-                        formatted_insight = self._run_and_format_insight(insight, query_runner, dashboard_filters)
+                        formatted_insight = self._run_and_format_insight(
+                            insight, query_runner, dashboard_filters, filters_override, variables_override
+                        )
                         if formatted_insight:
                             dashboard_text += f"\n{formatted_insight}"
 
@@ -177,8 +196,8 @@ class RootNodeUIContextMixin(AssistantNode):
         insights_context = ""
         if ui_context.insights:
             insights_results = []
-            for _, insight in ui_context.insights.items():
-                result = self._run_and_format_insight(insight, query_runner)
+            for insight in ui_context.insights:
+                result = self._run_and_format_insight(insight, query_runner, None, filters_override, variables_override)
                 if result:
                     insights_results.append(result)
 

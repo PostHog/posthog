@@ -818,7 +818,7 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards={"456": dashboard}, insights=None)
+        ui_context = MaxContextShape(dashboards=[dashboard], insights=None)
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -842,7 +842,7 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights={"123": insight})
+        ui_context = MaxContextShape(dashboards=None, insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -874,7 +874,7 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights={"123": insight})
+        ui_context = MaxContextShape(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -897,7 +897,7 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights={"123": insight})
+        ui_context = MaxContextShape(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
