@@ -50,10 +50,12 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdown_type: 'event',
-                breakdown: 'c',
-                breakdown_group_type_index: undefined,
-                breakdown_histogram_bin_count: undefined,
+                breakdowns: [
+                    {
+                        property: 'c',
+                        type: 'event',
+                    },
+                ],
             })
         })
 
@@ -105,9 +107,12 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdown_type: 'person',
-                breakdown: 'height',
-                breakdown_group_type_index: undefined,
+                breakdowns: [
+                    {
+                        property: 'height',
+                        type: 'person',
+                    },
+                ],
             })
         })
 
@@ -128,9 +133,13 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdown_type: 'group',
-                breakdown: '$lib_version',
-                breakdown_group_type_index: 0,
+                breakdowns: [
+                    {
+                        property: '$lib_version',
+                        type: 'group',
+                        group_type_index: 0,
+                    },
+                ],
             })
         })
 
@@ -155,8 +164,16 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
-                breakdown_type: 'event',
-                breakdown: 'c',
+                breakdowns: [
+                    {
+                        property: '$geoip_country_code',
+                        type: 'person',
+                    },
+                    {
+                        property: 'c',
+                        type: 'event',
+                    },
+                ],
             })
         })
 
@@ -211,23 +228,6 @@ describe('taxonomicBreakdownFilterLogic', () => {
             logic.mount()
             await expectLogic(logic).toMatchValues({
                 isAddBreakdownDisabled: false,
-            })
-        })
-
-        it('breakdown is selected', async () => {
-            logic = taxonomicBreakdownFilterLogic({
-                insightProps,
-                breakdownFilter: {
-                    breakdown: 'prop',
-                    breakdown_type: 'event',
-                },
-                isTrends: true,
-                updateBreakdownFilter,
-                updateDisplay,
-            })
-            logic.mount()
-            await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
             })
         })
 
