@@ -7,10 +7,10 @@ import { urls } from 'scenes/urls'
 import { setupFeatureFlags } from './decide'
 
 try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
     // eslint-disable-next-line no-empty
-} catch { }
+} catch {}
 
 const E2E_TESTING = Cypress.env('E2E_TESTING')
 
