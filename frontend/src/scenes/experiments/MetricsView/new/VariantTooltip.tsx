@@ -3,16 +3,6 @@ import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-gene
 import { formatPValue, valueToXCoordinate } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
-interface VariantTooltipProps {
-    variantResult: ExperimentVariantResultFrequentist
-    index: number
-    chartRadius: number
-    chartSvgRef: React.RefObject<SVGSVGElement>
-    isVisible: boolean
-    onMouseEnter?: () => void
-    onMouseLeave?: () => void
-}
-
 export function VariantTooltip({
     variantResult,
     index,
@@ -21,7 +11,15 @@ export function VariantTooltip({
     isVisible,
     onMouseEnter,
     onMouseLeave,
-}: VariantTooltipProps): JSX.Element | null {
+}: {
+    variantResult: ExperimentVariantResultFrequentist
+    index: number
+    chartRadius: number
+    chartSvgRef: React.RefObject<SVGSVGElement>
+    isVisible: boolean
+    onMouseEnter?: () => void
+    onMouseLeave?: () => void
+}): JSX.Element | null {
     if (!isVisible || !chartSvgRef.current) {
         return null
     }
