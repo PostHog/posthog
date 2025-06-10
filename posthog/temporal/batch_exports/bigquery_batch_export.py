@@ -301,7 +301,7 @@ class BigQueryClient(bigquery.Client):
 
             if table.time_partitioning is not None and table.time_partitioning.field == "timestamp":
                 today = dt.date.today()
-                query += f" AND timestamp = '{today.isoformat()}'"
+                query += f" AND DATE(timestamp) = '{today.isoformat()}'"
 
             query += " LIMIT 1"
 
