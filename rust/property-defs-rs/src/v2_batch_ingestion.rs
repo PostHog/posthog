@@ -306,27 +306,6 @@ pub async fn process_batch_v2(
                 }
             }
         }
-
-        // if any of the batches are full, execute them now
-        if handles.is_empty() {
-            continue;
-        }
-        let to_exec = handles;
-        handles = vec![];
-        for handle in to_exec {
-            match handle.await {
-                // metrics are statted in write_*_batch methods so we just log here
-                Ok(result) => match result {
-                    Ok(_) => continue,
-                    Err(db_err) => {
-                        error!("Batch write exhausted retries: {:?}", db_err);
-                    }
-                },
-                Err(join_err) => {
-                    warn!("Batch query JoinError: {:?}", join_err);
-                }
-            }
-        }
     }
 
     // ensure partial batches are flushed to Postgres too

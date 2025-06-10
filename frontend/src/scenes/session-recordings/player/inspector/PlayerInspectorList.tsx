@@ -8,8 +8,6 @@ import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
-import { FilterableInspectorListItemTypes } from '~/types'
-
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { playerInspectorLogic } from './playerInspectorLogic'
@@ -127,15 +125,15 @@ export function PlayerInspectorList(): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
-            ) : inspectorDataState[FilterableInspectorListItemTypes.EVENTS] === 'loading' ||
-              inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'loading' ||
-              inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'loading' ? (
+            ) : inspectorDataState['events'] === 'loading' ||
+              inspectorDataState['console'] === 'loading' ||
+              inspectorDataState['network'] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
-            ) : inspectorDataState[FilterableInspectorListItemTypes.EVENTS] === 'ready' ||
-              inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'ready' ||
-              inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'ready' ? (
+            ) : inspectorDataState['events'] === 'ready' ||
+              inspectorDataState['console'] === 'ready' ||
+              inspectorDataState['network'] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-secondary">No results matching your filters.</div>
             ) : null}

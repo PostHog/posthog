@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -65,14 +65,14 @@ describe('events dead letter queue', () => {
         const teamId = await createTeam(hub.postgres, orgId)
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
-        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'test', 'distinct_id')
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
             event,
             null,
             [],
-            personsStoreForDistinctId,
+            personsStoreForBatch,
             groupStoreForBatch
         ).runEventPipeline(event, team)
         expect(ingestResponse1).toEqual({

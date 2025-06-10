@@ -9,7 +9,7 @@ import {
 import { InspectorListItemEvent } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { FilterableInspectorListItemTypes, RecordingEventType } from '~/types'
+import { RecordingEventType } from '~/types'
 
 type Story = StoryObj<typeof ItemEvent>
 const meta: Meta<typeof ItemEvent> = {
@@ -47,7 +47,7 @@ function makeItem(
         search: '',
         timeInRecording: 0,
         timestamp: now(),
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         ...itemOverrides,
     }
 }
