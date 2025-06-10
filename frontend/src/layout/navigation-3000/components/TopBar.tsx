@@ -87,9 +87,7 @@ export function TopBar(): JSX.Element | null {
         return () => main.removeEventListener('scroll', handleScroll)
     }, [hasRenameState])
 
-    return breadcrumbs.length ||
-        ((featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) &&
-            projectTreeRefEntry) ? (
+    return breadcrumbs.length || (featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE] && projectTreeRefEntry) ? (
         <div
             className={clsx(
                 'TopBar3000',
@@ -102,26 +100,14 @@ export function TopBar(): JSX.Element | null {
             <div className="TopBar3000__content">
                 {mobileLayout && (
                     <FlaggedFeature
-                        flag={FEATURE_FLAGS.TREE_VIEW}
+                        flag={FEATURE_FLAGS.TREE_VIEW_RELEASE}
                         fallback={
-                            <FlaggedFeature
-                                flag={FEATURE_FLAGS.TREE_VIEW_RELEASE}
-                                fallback={
-                                    <LemonButton
-                                        size="small"
-                                        onClick={() => showNavOnMobile()}
-                                        icon={<IconMenu />}
-                                        className="TopBar3000__hamburger"
-                                    />
-                                }
-                            >
-                                <LemonButton
-                                    size="small"
-                                    onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
-                                    icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
-                                    className="TopBar3000__hamburger"
-                                />
-                            </FlaggedFeature>
+                            <LemonButton
+                                size="small"
+                                onClick={() => showNavOnMobile()}
+                                icon={<IconMenu />}
+                                className="TopBar3000__hamburger"
+                            />
                         }
                     >
                         <LemonButton
@@ -143,39 +129,38 @@ export function TopBar(): JSX.Element | null {
                                     </div>
                                 </React.Fragment>
                             ))}
-                            {(featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) &&
-                                projectTreeRefEntry && (
-                                    <>
-                                        <LemonButton
-                                            size="xsmall"
-                                            onClick={() => {
-                                                assureVisibility({ type: 'folder', ref: projectTreeRefEntry.path })
-                                                showLayoutPanel(true)
-                                                setActivePanelIdentifier('Project')
-                                            }}
-                                            icon={<IconFolderOpen />}
-                                            data-attr="top-bar-open-in-project-tree-button"
-                                            tooltip="Open in project tree"
-                                            disabledReason={renameState ? "Can't view in tree while renaming" : ''}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            onClick={() => openMoveToModal([projectTreeRefEntry])}
-                                            icon={<IconFolderMove />}
-                                            data-attr="top-bar-move-button"
-                                            tooltip="Move to another folder"
-                                            disabledReason={renameState ? "Can't move while renaming" : ''}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            onClick={() => addShortcutItem(projectTreeRefEntry)}
-                                            icon={<IconShortcut />}
-                                            data-attr="top-bar-add-to-shortcuts-button"
-                                            tooltip="Add to shortcuts panel"
-                                            disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
-                                        />
-                                    </>
-                                )}
+                            {featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE] && projectTreeRefEntry && (
+                                <>
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => {
+                                            assureVisibility({ type: 'folder', ref: projectTreeRefEntry.path })
+                                            showLayoutPanel(true)
+                                            setActivePanelIdentifier('Project')
+                                        }}
+                                        icon={<IconFolderOpen />}
+                                        data-attr="top-bar-open-in-project-tree-button"
+                                        tooltip="Open in project tree"
+                                        disabledReason={renameState ? "Can't view in tree while renaming" : ''}
+                                    />
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => openMoveToModal([projectTreeRefEntry])}
+                                        icon={<IconFolderMove />}
+                                        data-attr="top-bar-move-button"
+                                        tooltip="Move to another folder"
+                                        disabledReason={renameState ? "Can't move while renaming" : ''}
+                                    />
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => addShortcutItem(projectTreeRefEntry)}
+                                        icon={<IconShortcut />}
+                                        data-attr="top-bar-add-to-shortcuts-button"
+                                        tooltip="Add to shortcuts panel"
+                                        disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
+                                    />
+                                </>
+                            )}
                             <Breadcrumb
                                 breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
                                 here

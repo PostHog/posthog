@@ -223,7 +223,7 @@ export function DataManagementScene(): JSX.Element {
         tooltipDocLink: tabs[key].tooltipDocLink,
     }))
 
-    if (featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) {
+    if (featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) {
         if (enabledTabs.includes(tab)) {
             return (
                 <>

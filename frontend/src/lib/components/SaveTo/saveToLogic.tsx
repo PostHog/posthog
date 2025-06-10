@@ -61,8 +61,7 @@ export const saveToLogic = kea<saveToLogicType>([
     selectors({
         isFeatureEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) =>
-                featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE] || false,
+            (featureFlags) => featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE] || false,
         ],
     }),
     listeners(({ actions, values }) => ({
