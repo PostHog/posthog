@@ -809,7 +809,15 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     GoogleAds: {
         name: 'GoogleAds',
         label: 'Google Ads',
-        caption: '',
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
+                    documentation
+                </Link>
+                .
+            </>
+        ),
         fields: [
             {
                 name: 'customer_id',
