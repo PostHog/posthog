@@ -11,7 +11,7 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -189,7 +189,7 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
