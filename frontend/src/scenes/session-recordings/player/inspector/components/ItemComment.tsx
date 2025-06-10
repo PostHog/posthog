@@ -102,6 +102,7 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                             // relying on the click here to set the player timestamp
                             // so this shouldn't swallow the click
                             setStartingEdit(true)
+                            // have to set is commenting to mount the logic so we can edit the annotation
                             setIsCommenting(true)
 
                             // and we need a short wait until the logic is mounted after calling setIsCommenting

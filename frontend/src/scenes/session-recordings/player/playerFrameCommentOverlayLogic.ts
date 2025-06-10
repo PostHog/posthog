@@ -34,7 +34,12 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
-        actions: [annotationsModel, ['appendAnnotations', 'replaceAnnotation']],
+        actions: [
+            annotationsModel,
+            ['appendAnnotations', 'replaceAnnotation'],
+            sessionRecordingPlayerLogic(props),
+            ['setIsCommenting'],
+        ],
     })),
     actions({
         editAnnotation: (annotation: RecordingAnnotationForm) => ({ annotation }),
@@ -69,6 +74,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             actions.setRecordingAnnotationValue('recordingId', annotation.recordingId)
             actions.setRecordingAnnotationValue('annotationId', annotation.annotationId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
+            actions.setIsCommenting(true)
         },
     })),
     forms(({ props, values, actions }) => ({
@@ -112,7 +118,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 }
 
                 actions.resetRecordingAnnotation()
-                // how to indicate to user that the annotation was created or edited?
+                actions.setIsCommenting(false)
             },
         },
     })),
