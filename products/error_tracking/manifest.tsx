@@ -46,7 +46,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             category: 'Behavior',
-            iconType: 'warning',
+            iconType: 'errorTracking',
             href: urls.errorTracking(),
         },
     ],

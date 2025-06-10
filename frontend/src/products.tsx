@@ -531,7 +531,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
     },
-    { path: 'Error tracking', category: 'Behavior', iconType: 'warning', href: urls.errorTracking() },
+    { path: 'Error tracking', category: 'Behavior', iconType: 'errorTracking', href: urls.errorTracking() },
     { path: `Experiments`, category: 'Features', type: 'experiment', href: urls.experiments() },
     { path: `Feature flags`, category: 'Features', type: 'feature_flag', href: urls.featureFlags() },
     {
