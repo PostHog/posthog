@@ -58,7 +58,6 @@ from posthog.temporal.batch_exports.temporary_file import (
     UnsupportedFileFormatError,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.transformer import get_stream_transformer
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -972,9 +971,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             [field.with_nullable(True) for field in record_batch_schema]
         )
 
-        transformer = get_stream_transformer(
-            format=inputs.file_format, compression=inputs.compression, schema=record_batch_schema
-        )
         consumer = ConcurrentS3Consumer(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
@@ -988,8 +984,10 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
-            transformer=transformer,
             schema=record_batch_schema,
+            file_format=inputs.file_format,
+            compression=inputs.compression,
+            include_inserted_at=True,
             json_columns=("properties", "person_properties", "set", "set_once"),
         )
 

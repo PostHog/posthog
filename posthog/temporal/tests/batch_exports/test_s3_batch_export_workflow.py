@@ -1052,6 +1052,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
     clickhouse_client,
     minio_client,
@@ -1067,25 +1068,29 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
     data_interval_end,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage: bool,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and various compression and file formats."""
 
-    await _run_s3_batch_export_workflow(
-        model=model,
-        ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
-        bucket_name=bucket_name,
-        interval=interval,
-        compression=compression,
-        exclude_events=exclude_events,
-        s3_key_prefix=s3_key_prefix,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        clickhouse_client=clickhouse_client,
-        s3_client=minio_client,
-    )
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+    ):
+        await _run_s3_batch_export_workflow(
+            model=model,
+            ateam=ateam,
+            batch_export_id=str(s3_batch_export.id),
+            s3_destination_config=s3_batch_export.destination.config,
+            bucket_name=bucket_name,
+            interval=interval,
+            compression=compression,
+            exclude_events=exclude_events,
+            s3_key_prefix=s3_key_prefix,
+            file_format=file_format,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            clickhouse_client=clickhouse_client,
+            s3_client=minio_client,
+        )
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1093,6 +1098,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
     clickhouse_client,
     minio_client,
@@ -1108,28 +1114,32 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
     data_interval_end,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage: bool,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and excluding events."""
     if isinstance(model, BatchExportModel) and model.name in ["persons", "sessions"]:
         # Eventually, this setting should be part of the model via some "filters" attribute.
         pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
-    await _run_s3_batch_export_workflow(
-        model=model,
-        ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
-        bucket_name=bucket_name,
-        interval=interval,
-        compression=compression,
-        exclude_events=exclude_events,
-        s3_key_prefix=s3_key_prefix,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        clickhouse_client=clickhouse_client,
-        s3_client=minio_client,
-    )
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+    ):
+        await _run_s3_batch_export_workflow(
+            model=model,
+            ateam=ateam,
+            batch_export_id=str(s3_batch_export.id),
+            s3_destination_config=s3_batch_export.destination.config,
+            bucket_name=bucket_name,
+            interval=interval,
+            compression=compression,
+            exclude_events=exclude_events,
+            s3_key_prefix=s3_key_prefix,
+            file_format=file_format,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            clickhouse_client=clickhouse_client,
+            s3_client=minio_client,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1347,6 +1357,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     s3_client,
     clickhouse_client,
@@ -1363,6 +1374,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     data_interval_end,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage,
 ):
     """Test S3 Export Workflow end-to-end by using an S3 bucket with various file formats, compression, and
     encryption.
@@ -1374,22 +1386,25 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
         "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
     }
 
-    await _run_s3_batch_export_workflow(
-        model=model,
-        ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=destination_config,
-        bucket_name=bucket_name,
-        interval=interval,
-        compression=compression,
-        exclude_events=exclude_events,
-        s3_key_prefix=s3_key_prefix,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        clickhouse_client=clickhouse_client,
-        s3_client=s3_client,
-    )
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+    ):
+        await _run_s3_batch_export_workflow(
+            model=model,
+            ateam=ateam,
+            batch_export_id=str(s3_batch_export.id),
+            s3_destination_config=destination_config,
+            bucket_name=bucket_name,
+            interval=interval,
+            compression=compression,
+            exclude_events=exclude_events,
+            s3_key_prefix=s3_key_prefix,
+            file_format=file_format,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            clickhouse_client=clickhouse_client,
+            s3_client=s3_client,
+        )
 
 
 @pytest.mark.parametrize(

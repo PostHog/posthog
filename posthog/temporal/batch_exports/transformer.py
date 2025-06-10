@@ -36,15 +36,17 @@ def json_dumps_bytes(d) -> bytes:
 
 
 def get_stream_transformer(
-    format: str, compression: str | None = None, schema: pa.Schema | None = None
+    format: str, compression: str | None = None, schema: pa.Schema | None = None, include_inserted_at: bool = False
 ) -> "StreamTransformer":
     match format.lower():
         case "jsonlines":
-            return JSONLStreamTransformer(compression=compression)
+            return JSONLStreamTransformer(compression=compression, include_inserted_at=include_inserted_at)
         case "parquet":
             if schema is None:
                 raise ValueError("Schema is required for Parquet")
-            return ParquetStreamTransformer(compression=compression, schema=schema)
+            return ParquetStreamTransformer(
+                compression=compression, schema=schema, include_inserted_at=include_inserted_at
+            )
         case _:
             raise ValueError(f"Unsupported format: {format}")
 
@@ -52,14 +54,19 @@ def get_stream_transformer(
 class StreamTransformer:
     """Transforms PyArrow RecordBatches to different formats with compression"""
 
-    def __init__(self, compression: str | None = None):
+    def __init__(self, compression: str | None = None, include_inserted_at: bool = False):
         self.compression = compression.lower() if compression else None
+        self.include_inserted_at = include_inserted_at
 
         self._brotli_compressor = None
 
     def transform_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Transform a single batch and yield compressed bytes"""
-        yield from self._write_batch(batch)
+        column_names = batch.column_names
+        if not self.include_inserted_at:
+            column_names.pop(column_names.index("_inserted_at"))
+
+        yield from self._write_batch(batch.select(column_names))
 
     def finalize(self) -> typing.Generator[bytes | None, None, None]:
         """Finalize and yield any remaining data"""
@@ -169,8 +176,9 @@ class ParquetStreamTransformer(StreamTransformer):
         schema: pa.Schema,
         compression: str | None = None,
         compression_level: int | None = None,
+        include_inserted_at: bool = False,
     ):
-        super().__init__(compression=compression)
+        super().__init__(compression=compression, include_inserted_at=include_inserted_at)
         self.schema = schema
         self.compression_level = compression_level
 
@@ -191,6 +199,8 @@ class ParquetStreamTransformer(StreamTransformer):
 
     def finalize(self):
         """Ensure underlying Parquet writer is closed before flushing and closing temporary file."""
+        yield from super().finalize()
+
         if self._parquet_writer is not None:
             self._parquet_writer.close()
             self._parquet_writer = None
@@ -205,8 +215,6 @@ class ParquetStreamTransformer(StreamTransformer):
             self._parquet_buffer.close()
             self._parquet_buffer = BytesIO()
 
-        yield from super().finalize()
-
     def _write_batch(self, record_batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Write records to a temporary file as Parquet."""
 
@@ -215,10 +223,9 @@ class ParquetStreamTransformer(StreamTransformer):
         self._parquet_buffer.seek(0)
         data = self._parquet_buffer.read()
 
-        # Reset buffer and writer
+        # Reset buffer
         self._parquet_buffer.seek(0)
         self._parquet_buffer.truncate()
-        self._parquet_writer = None
 
         yield data
 

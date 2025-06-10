@@ -50,7 +50,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
     get_batch_export_writer,
 )
-from posthog.temporal.batch_exports.transformer import StreamTransformer
+from posthog.temporal.batch_exports.transformer import get_stream_transformer
 from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
@@ -1178,8 +1178,10 @@ class ConsumerFromStage:
         self,
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
-        transformer: StreamTransformer,
         schema: pa.Schema,
+        file_format: str,
+        compression: str | None,
+        include_inserted_at: bool = False,
         json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
     ) -> int:
         """Start consuming record batches from queue.
@@ -1198,14 +1200,13 @@ class ConsumerFromStage:
         """
 
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        # writer = get_batch_export_writer(
-        #     self.writer_format,
-        #     self.flush,
-        #     schema=schema,
-        #     max_bytes=max_bytes,
-        #     max_file_size_bytes=max_file_size_bytes,
-        #     **kwargs,
-        # )
+        transformer = get_stream_transformer(
+            format=file_format,
+            compression=compression,
+            schema=schema,
+            include_inserted_at=include_inserted_at,
+        )
+
         try:
             batch_count = 0
             async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
@@ -1299,8 +1300,10 @@ async def run_consumer_from_stage(
     queue: RecordBatchQueue,
     consumer: ConsumerFromStage,
     producer_task: asyncio.Task,
-    transformer: StreamTransformer,
     schema: pa.Schema,
+    file_format: str,
+    compression: str | None,
+    include_inserted_at: bool = False,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> int:
     """
@@ -1346,8 +1349,10 @@ async def run_consumer_from_stage(
                 consumer.start(
                     queue=queue,
                     producer_task=producer_task,
-                    transformer=transformer,
                     schema=schema,
+                    file_format=file_format,
+                    compression=compression,
+                    include_inserted_at=include_inserted_at,
                     json_columns=json_columns,
                 ),
                 name="record_batch_consumer",
