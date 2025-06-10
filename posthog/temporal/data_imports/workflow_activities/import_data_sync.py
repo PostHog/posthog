@@ -143,6 +143,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     db_incremental_field_earliest_value=processed_incremental_earliest_value
                     if schema.is_incremental
                     else None,
+                    logger=logger,
                 )
             else:
                 source = stripe_source(
