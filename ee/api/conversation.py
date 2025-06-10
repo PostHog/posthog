@@ -58,15 +58,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def get_throttles(self):
         if (
-            self.action == "create"
-            and not (
-                # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-                get_instance_region() == "US" and self.team_id in (2, 87921)
-            )
             # Do not apply limits in local development
-            and not settings.DEBUG
+            not settings.DEBUG
+            # Only for streaming
+            and self.action == "create"
+            # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
+            and not (get_instance_region() == "US" and self.team_id in (2, 87921))
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+
         return super().get_throttles()
 
     def get_serializer_class(self):
