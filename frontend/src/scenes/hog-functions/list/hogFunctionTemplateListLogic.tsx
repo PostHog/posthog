@@ -36,6 +36,7 @@ export type HogFunctionTemplateListLogicProps = {
     defaultFilters?: HogFunctionTemplateListFilters
     forceFilters?: HogFunctionTemplateListFilters
     syncFiltersWithUrl?: boolean
+    manualTemplates?: HogFunctionTemplateType[]
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -112,10 +113,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.rawTemplates, (_, props) => props],
             (
                 rawTemplates,
-                { subTemplateIds }: HogFunctionTemplateListLogicProps
+                { subTemplateIds, manualTemplates }: HogFunctionTemplateListLogicProps
             ): HogFunctionTemplateWithSubTemplateType[] => {
                 if (!subTemplateIds) {
-                    return rawTemplates
+                    return [...rawTemplates, ...(manualTemplates || [])] as HogFunctionTemplateWithSubTemplateType[]
                 }
 
                 const final: HogFunctionTemplateWithSubTemplateType[] = []
@@ -150,11 +151,16 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
-            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, s.user, s.featureFlags],
+            (filters, templates, templatesFuse, user, featureFlags): HogFunctionTemplateType[] => {
                 const { search } = filters
-                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter((x) =>
-                    shouldShowHogFunctionTemplate(x, user)
+
+                const flagComingSoon = !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS]
+
+                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
+                    (x) =>
+                        shouldShowHogFunctionTemplate(x, user) &&
+                        (x.status === 'coming_soon' ? search && flagComingSoon : true)
                 )
             },
         ],
@@ -172,6 +178,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             () => [(_, props) => props],
             ({ forceFilters }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
+                    if (template.status === 'coming_soon') {
+                        return `https://posthog.com/docs/cdp/${template.type}s/${template.id}`
+                    }
+
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
                         : null

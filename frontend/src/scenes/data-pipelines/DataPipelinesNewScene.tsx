@@ -1,5 +1,4 @@
 import { kea, path, props, selectors, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
@@ -10,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
+import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
 export type DataPipelinesNewSceneProps = {
     kind: 'transformation' | 'destination' | 'source' | 'site_app'
@@ -66,16 +66,23 @@ export function DataPipelinesNewScene(): JSX.Element {
         return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
     }
     if (kind === 'source') {
-        return (
-            <>
-                <FlaggedFeature flag="cdp-hog-sources">
-                    <h2>Event sources</h2>
-                    <HogFunctionTemplateList defaultFilters={{}} type="source_webhook" />
-                </FlaggedFeature>
-                <NewSourceWizardScene />
-            </>
-        )
+        return <DataPipelinesNewSceneSources />
     }
 
     return <NotFound object="Data pipeline new options" />
+}
+
+function DataPipelinesNewSceneSources(): JSX.Element {
+    const { hogFunctionTemplatesDataWarehouseSources } = useValues(nonHogFunctionTemplatesLogic)
+
+    return (
+        <>
+            <HogFunctionTemplateList
+                defaultFilters={{}}
+                type="source_webhook"
+                manualTemplates={hogFunctionTemplatesDataWarehouseSources}
+            />
+            <NewSourceWizardScene />
+        </>
+    )
 }

@@ -710,7 +710,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
-    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSource, 'dataWarehouseSourceNew'],
+    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],

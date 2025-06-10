@@ -94,4 +94,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
     [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
+    [Scene.DataWarehouseSourceNew]: () => import('./data-warehouse/new/NewSourceWizard'),
 }

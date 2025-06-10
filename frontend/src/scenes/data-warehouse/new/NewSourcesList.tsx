@@ -1,12 +1,13 @@
 import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { urls } from 'scenes/urls'
 
-import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
+import { SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { MANUAL_SOURCE_LINK_MAP, sourceWizardLogic } from './sourceWizardLogic'
 
@@ -15,22 +16,8 @@ export type NewSourcesListProps = {
 }
 
 export function NewSourcesList({ disableConnectedSources }: NewSourcesListProps): JSX.Element {
-    const { connectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
-    const { selectConnector, onNext, setManualLinkingProvider } = useActions(sourceWizardLogic)
+    const { connectors } = useValues(sourceWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const onClick = (sourceConfig: SourceConfig): void => {
-        if (sourceConfig.name == 'Hubspot') {
-            window.open(addToHubspotButtonUrl() as string, '_self')
-        } else {
-            selectConnector(sourceConfig)
-        }
-        onNext()
-    }
-
-    const onManualLinkClick = (manualLinkSource: ManualLinkSourceType): void => {
-        setManualLinkingProvider(manualLinkSource)
-    }
 
     const filteredConnectors = connectors.filter((n) => {
         return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
@@ -107,7 +94,7 @@ export function NewSourcesList({ disableConnectedSources }: NewSourcesListProps)
                                     )}
                                     {!isConnected && !sourceConfig.unreleasedSource && (
                                         <LemonButton
-                                            onClick={() => onClick(sourceConfig)}
+                                            to={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.name}
                                             className="my-2"
                                             type="primary"
                                             disabledReason={
@@ -158,7 +145,7 @@ export function NewSourcesList({ disableConnectedSources }: NewSourcesListProps)
                         render: (_, sourceConfig) => (
                             <div className="flex flex-row justify-end p-1">
                                 <LemonButton
-                                    onClick={() => onManualLinkClick(sourceConfig.type)}
+                                    to={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.type}
                                     className="my-2"
                                     type="primary"
                                 >

@@ -1,4 +1,4 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -82,6 +82,19 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
+                            if (template.status === 'coming_soon') {
+                                return (
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr={`request-${PipelineStage.Destination}`}
+                                        icon={<IconMegaphone />}
+                                        className="whitespace-nowrap"
+                                        to={`https://posthog.com/docs/cdp/${template.type}s/${template.id}`}
+                                    >
+                                        Notify me
+                                    </LemonButton>
+                                )
+                            }
                             return canEnableHogFunction(template) ? (
                                 <LemonButton
                                     type="primary"
