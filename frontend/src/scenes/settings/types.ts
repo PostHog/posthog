@@ -52,6 +52,7 @@ export type SettingSectionId =
     | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
+    | 'user-notifications'
     | 'user-api-keys'
     | 'user-customization'
     | 'user-danger-zone'

@@ -5772,6 +5772,9 @@
                 "showLegend": {
                     "type": "boolean"
                 },
+                "showTotalRow": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
