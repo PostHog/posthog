@@ -871,6 +871,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -2307,6 +2308,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -2958,6 +2960,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -3646,6 +3649,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -4400,6 +4404,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -5126,6 +5131,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -5462,6 +5468,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -6120,6 +6127,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -6802,6 +6810,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -7272,6 +7281,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -7461,6 +7471,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
@@ -8187,6 +8198,7 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."progress",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name"
   FROM "posthog_datawarehousesavedquery"
