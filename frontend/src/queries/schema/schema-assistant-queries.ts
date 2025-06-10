@@ -429,7 +429,7 @@ export interface AssistantFunnelsFilter {
      * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
      * @default null
      */
-    funnelAggregateByHogQL: 'properties.$session_id' | null
+    funnelAggregateByHogQL?: 'properties.$session_id' | null
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>

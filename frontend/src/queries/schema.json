@@ -913,7 +913,6 @@
                     "description": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally."
                 }
             },
-            "required": ["funnelAggregateByHogQL"],
             "type": "object"
         },
         "AssistantFunnelsMath": {
