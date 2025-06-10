@@ -9540,7 +9540,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
