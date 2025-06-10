@@ -50,7 +50,8 @@ pub async fn update_consumer_loop(
         while batch.len() < config.update_batch_size {
             context.worker_liveness.report_healthy().await;
 
-            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT).set(channel.len() as f64);
+            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT)
+                .set(channel.get_inflight_messages_count() as f64);
             metrics::gauge!(CHANNEL_CAPACITY).set(channel.capacity() as f64);
 
             let remaining_capacity = config.update_batch_size - batch.len();
