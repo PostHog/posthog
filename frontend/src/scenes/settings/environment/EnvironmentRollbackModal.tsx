@@ -6,18 +6,14 @@ import { environmentRollbackModalLogic, type ProjectWithEnvironments } from './e
 
 function ModalDescription(): JSX.Element {
     return (
-        <div className="space-y-4">
-            <p>
+        <div className="space-y-2">
+            <p className="mt-2">
                 We noticed you're using multiple environments per project. As we're moving towards a simpler
                 project-based approach, we're offering a way to consolidate your environments.
             </p>
+            <p>For each project below, select which environment you'd like to keep as the primary one.</p>
+            <p>The following data will be migrated from other environments to your selected one:</p>
             <div>
-                <p className="mb-2">
-                    For each project below, select which environment you'd like to keep as the primary one.
-                </p>
-                <p className="mb-2">
-                    The following data will be migrated from other environments to your selected one:
-                </p>
                 <ul className="list-disc pl-8">
                     <li>Insights & Dashboards</li>
                     <li>Feature Flags</li>
@@ -50,6 +46,7 @@ function ProjectEnvironmentSelector({ project }: { project: ProjectWithEnvironme
                 value={selectedEnvironments[project.id]}
                 onChange={(value) => setProjectEnvironment(project.id, value)}
                 options={environmentOptions}
+                className="w-[250px]"
                 placeholder="Select primary environment"
             />
         </div>
@@ -94,10 +91,10 @@ export function EnvironmentRollbackModal(): JSX.Element {
             description={<ModalDescription />}
             onClose={closeModal}
             isOpen={isOpen}
-            width={800}
+            width="large"
         >
             <div className="space-y-4">
-                <div>
+                <div className="flex flex-col items-center gap-2">
                     {currentOrganizationLoading ? (
                         <div className="p-4">
                             <Spinner />

@@ -158,7 +158,10 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                     values.selectedEnvironments
                 )
 
-                lemonToast.success('Environment rollback initiated successfully')
+                lemonToast.warning(
+                    'Environment rollback in progress. You will receive an email when it is completed.',
+                    { closeButton: true, autoClose: false }
+                )
                 actions.closeModal()
                 teamLogic.actions.loadCurrentTeam()
             } catch (error: any) {
