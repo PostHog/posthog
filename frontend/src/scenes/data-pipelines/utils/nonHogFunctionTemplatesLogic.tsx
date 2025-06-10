@@ -21,7 +21,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 const managed = connectors.map(
                     (connector: SourceConfig): HogFunctionTemplateType => ({
                         id: `managed-${connector.name}`,
-                        type: 'source_webhook',
+                        type: 'source',
                         name: connector.name,
                         icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[connector.name],
                         status: connector.unreleasedSource ? 'coming_soon' : 'stable',
@@ -42,7 +42,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 const selfManaged = Object.entries(MANUAL_SOURCE_LINK_MAP).map(
                     ([type, name]): HogFunctionTemplateType => ({
                         id: `self-managed-${type}`,
-                        type: 'source_webhook',
+                        type: 'source',
                         name,
                         icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[type],
                         status: 'stable',
@@ -63,5 +63,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 return [...managed, ...selfManaged]
             },
         ],
+
+        // Add another for plugin destinations
+
+        // Add another for batch exports
     }),
 ])
