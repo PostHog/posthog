@@ -5,7 +5,7 @@ from django.conf import settings
 
 from posthog.models.team.team import Team
 import structlog
-from celery import shared_task
+from celery import shared_task, chain
 from dateutil.relativedelta import relativedelta
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
@@ -17,7 +17,8 @@ from datetime import timedelta
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
-from posthog.models.cohort.util import get_static_cohort_size
+from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.util import get_static_cohort_size, get_dependent_cohorts, sort_cohorts_topologically
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 
@@ -34,22 +35,16 @@ COHORT_STALENESS_HOURS_GAUGE = Gauge(
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
-CALCULATE_COHORT_TIME_LIMIT_MINUTES = 60 * 60 * 10
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
     return Cohort.objects.filter(
         Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
         | Q(last_calculation__isnull=True),
-        Q(deleted=False),
-        # Include cohorts that are either not calculating,
-        # OR are calculating but stuck (>24 hours)
-        # This will help us catch cohorts where they failed to calculate and
-        # never had is_calculating set back False due to the process crashing
-        Q(is_calculating=False)
-        | Q(is_calculating=True, last_calculation__lte=timezone.now() - relativedelta(hours=24)),
-        Q(errors_calculating__lte=20),
-    ).exclude(Q(is_static=True))
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
 
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
@@ -81,6 +76,40 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+    dependent_cohorts = get_dependent_cohorts(cohort)
+    if dependent_cohorts:
+        logger.info("cohort_has_dependencies", cohort_id=cohort.id, dependent_count=len(dependent_cohorts))
+
+        all_cohort_ids = {dep.id for dep in dependent_cohorts}
+        all_cohort_ids.add(cohort.id)
+
+        # Sort cohorts (dependencies first)
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache[cohort.id] = cohort
+        sorted_cohort_ids = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
+
+        # Create a chain of tasks to ensure sequential execution
+        task_chain = []
+        for cohort_id in sorted_cohort_ids:
+            current_cohort = seen_cohorts_cache[cohort_id]
+            if current_cohort and not current_cohort.is_static:
+                _prepare_cohort_for_calculation(current_cohort)
+                task_chain.append(
+                    calculate_cohort_ch.si(
+                        current_cohort.id,
+                        current_cohort.pending_version,
+                        initiating_user.id if initiating_user else None,
+                    )
+                )
+
+        if task_chain:
+            chain(*task_chain).apply_async()
+    else:
+        logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
+        _enqueue_single_cohort_calculation(cohort, initiating_user)
+
+
+def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
@@ -92,15 +121,15 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
     cohort.save(update_fields=update_fields)
     cohort.refresh_from_db()
+
+
+def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
+    """Helper function to enqueue a single cohort for calculation"""
+    _prepare_cohort_for_calculation(cohort)
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
-@shared_task(
-    ignore_result=True,
-    max_retries=2,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    time_limit=CALCULATE_COHORT_TIME_LIMIT_MINUTES,
-)
+@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 

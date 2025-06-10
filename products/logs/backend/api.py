@@ -79,7 +79,7 @@ WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minu
 AND team_id = %(team_id)s
 AND attribute_key LIKE %(search)s
 GROUP BY team_id
-LIMIT 1;
+LIMIT 1
 """,
             args={"search": f"%{search}%", "team_id": self.team.id},
             workload=Workload.LOGS,
@@ -113,7 +113,7 @@ AND team_id = %(team_id)s
 AND attribute_key = %(key)s
 AND attribute_value LIKE %(search)s
 GROUP BY team_id
-LIMIT 1;
+LIMIT 1
 """,
             args={"key": key, "search": f"%{search}%", "team_id": self.team.id},
             workload=Workload.LOGS,

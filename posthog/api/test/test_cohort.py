@@ -1,10 +1,9 @@
 import json
 from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
 from typing import Optional, Any
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
@@ -787,14 +786,25 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 2, response)
 
     @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_and_calculating_with_cycle(self, patch_calculate_cohort, patch_capture):
+    def test_creating_update_and_calculating_with_cycle(
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+    ):
+        mock_chain_instance = MagicMock()
+        patch_chain.return_value = mock_chain_instance
+
+        # Count total calculation calls (both delay and chain)
+        def get_total_calculation_calls():
+            return patch_calculate_cohort_delay.call_count + patch_chain.call_count
+
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        self.assertEqual(get_total_calculation_calls(), 1)
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -814,7 +824,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 2)
+        self.assertEqual(get_total_calculation_calls(), 2)
 
         # Cohort C that depends on Cohort B
         response_c = self.client.post(
@@ -834,7 +844,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
         # Update Cohort A to depend on Cohort C
         response = self.client.patch(
@@ -862,7 +872,7 @@ email@example.org,
             },
             response.json(),
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
         # Update Cohort A to depend on Cohort A itself
         response = self.client.patch(
@@ -890,17 +900,28 @@ email@example.org,
             },
             response.json(),
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
     @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_with_non_directed_cycle(self, patch_calculate_cohort, patch_capture):
+    def test_creating_update_with_non_directed_cycle(
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+    ):
+        mock_chain_instance = MagicMock()
+        patch_chain.return_value = mock_chain_instance
+
+        # Count total calculation calls (both delay and chain)
+        def get_total_calculation_calls():
+            return patch_calculate_cohort_delay.call_count + patch_chain.call_count
+
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        self.assertEqual(get_total_calculation_calls(), 1)
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -920,7 +941,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 2)
+        self.assertEqual(get_total_calculation_calls(), 2)
 
         # Cohort C that depends on both Cohort A & B
         response_c = self.client.post(
@@ -945,7 +966,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
         # Update Cohort C
         response = self.client.patch(
@@ -956,7 +977,7 @@ email@example.org,
         )
         # it's not a loop because C depends on A & B, B depends on A, and A depends on nothing.
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(patch_calculate_cohort.call_count, 4)
+        self.assertEqual(get_total_calculation_calls(), 4)
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -2189,73 +2210,6 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
-
-    def test_get_cohort_calculation_candidates_includes_stuck_calculations(self):
-        from freezegun import freeze_time
-
-        # Test that cohorts stuck in calculating state for >24 hours are included
-        with freeze_time("2023-01-01 12:00:00"):
-            # Create a cohort that's been calculating for 25 hours (stuck)
-            stuck_cohort = Cohort.objects.create(
-                team=self.team,
-                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-                name="stuck_cohort",
-                is_calculating=True,
-                last_calculation=timezone.now() - relativedelta(hours=25),
-                deleted=False,
-                is_static=False,
-                errors_calculating=0,
-            )
-
-            # Create a cohort that's been calculating for 10 hours (not stuck yet)
-            recent_calculating_cohort = Cohort.objects.create(
-                team=self.team,
-                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-                name="recent_calculating_cohort",
-                is_calculating=True,
-                last_calculation=timezone.now() - relativedelta(hours=10),
-                deleted=False,
-                is_static=False,
-                errors_calculating=0,
-            )
-
-            # Create a normal cohort that's not calculating
-            normal_cohort = Cohort.objects.create(
-                team=self.team,
-                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-                name="normal_cohort",
-                is_calculating=False,
-                last_calculation=timezone.now() - relativedelta(hours=25),
-                deleted=False,
-                is_static=False,
-                errors_calculating=0,
-            )
-
-            # Create a static cohort (should be excluded)
-            static_cohort = Cohort.objects.create(
-                team=self.team,
-                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-                name="static_cohort",
-                is_calculating=True,
-                last_calculation=timezone.now() - relativedelta(hours=25),
-                deleted=False,
-                is_static=True,
-                errors_calculating=0,
-            )
-
-            candidates = get_cohort_calculation_candidates_queryset()
-
-            # Stuck cohort (calculating for >24h) should be included for recalculation
-            assert stuck_cohort in candidates, "Stuck cohort should be included"
-
-            # Recent calculating cohort should NOT be included (still actively calculating)
-            assert recent_calculating_cohort not in candidates, "Recent calculating cohort should not be included"
-
-            # Normal cohort should be included (not calculating and old enough)
-            assert normal_cohort in candidates, "Normal cohort should be included"
-
-            # Static cohort should NOT be included (excluded by is_static filter)
-            assert static_cohort not in candidates, "Static cohort should not be included"
 
 
 class TestCalculateCohortCommand(APIBaseTest):
