@@ -694,7 +694,7 @@ export function getFreshQuery<T = any>(node: T): T {
 
     if ('kind' in cloned) {
         const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
-        cloned.version = latest || 1
+        cloned.v = latest || 1
     }
 
     for (const [key, value] of Object.entries(cloned)) {
