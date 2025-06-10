@@ -434,11 +434,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            if (newPathname === undefined) {
+            const isChanged = metadataChanged || queryChanged
+
+            if (!isChanged) {
                 return false
             }
 
-            return metadataChanged || queryChanged
+            // Do not show confirmation if newPathname is undefined; this usually means back button in browser
+            if (newPathname === undefined) {
+                const savedQuery = values.insightDataLogicRef?.logic.values.savedInsight.query
+                values.insightDataLogicRef?.logic.actions.setQuery(savedQuery || null)
+                return false
+            }
+
+            return true
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {
