@@ -277,6 +277,7 @@ const featureFlagActionsMapping: Record<
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
+    updated_at: () => null,
     created_by: () => null,
     is_simple_flag: () => null,
     experiment_set: () => null,
