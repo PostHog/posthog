@@ -434,6 +434,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
+            if (newPathname === undefined) {
+                return false
+            }
+
             return metadataChanged || queryChanged
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
