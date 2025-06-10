@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 #[cfg(test)] // Only used in the tests
@@ -500,6 +500,11 @@ impl FeatureFlagMatcher {
                             "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
                         );
+                    } else {
+                        warn!(
+                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                            flag.key, self.distinct_id, e
+                        );
                     }
 
                     inc(
@@ -584,6 +589,11 @@ impl FeatureFlagMatcher {
                         if !matches!(e, FlagError::CohortNotFound(_)) {
                             error!(
                                 "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
+                                flag_key, self.distinct_id, e
+                            );
+                        } else {
+                            warn!(
+                                "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
                                 flag_key, self.distinct_id, e
                             );
                         }
