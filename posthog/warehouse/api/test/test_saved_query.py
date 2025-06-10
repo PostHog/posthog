@@ -170,6 +170,27 @@ class TestSavedQuery(APIBaseTest):
 
         assert json["count"] == 1
 
+    def test_listing_many_queries(self):
+        for i in range(150):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"saved_query_{i}",
+                query={
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+        )
+
+        assert response.status_code == 200
+        json = response.json()
+
+        assert json["count"] == 150
+        assert len(json["results"]) == 150
+
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(
             team=self.team,

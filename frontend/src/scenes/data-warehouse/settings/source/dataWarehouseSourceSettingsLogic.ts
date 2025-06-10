@@ -6,7 +6,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
@@ -208,7 +208,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
-            clonedSource.schemas[schemaIndex].status = 'Running'
+            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
 
@@ -229,7 +229,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
-            clonedSource.schemas[schemaIndex].status = 'Running'
+            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
 

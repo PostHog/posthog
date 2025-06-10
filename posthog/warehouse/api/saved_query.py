@@ -50,6 +50,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     recreate_model_paths,
 )
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 import uuid
 
 logger = structlog.get_logger(__name__)
@@ -356,6 +357,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return name
 
 
+class DataWarehouseSavedQueryPagination(PageNumberPagination):
+    page_size = 1000
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -364,6 +369,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
+    pagination_class = DataWarehouseSavedQueryPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"

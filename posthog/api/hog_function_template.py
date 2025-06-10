@@ -151,7 +151,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
                 continue
 
             if request.path.startswith("/api/public_hog_function_templates"):
-                if template.status == "alpha":
+                if template.status == "hidden":
                     continue
 
             matching_templates.append(template)

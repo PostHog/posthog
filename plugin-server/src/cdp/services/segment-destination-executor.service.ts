@@ -3,11 +3,11 @@ import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
 import { PluginsServerConfig } from '~/src/types'
-import { tryCatch } from '~/src/utils/try-catch'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { tryCatch } from '../../utils/try-catch'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'

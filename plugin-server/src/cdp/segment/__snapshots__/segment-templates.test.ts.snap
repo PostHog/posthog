@@ -341,7 +341,7 @@ exports[`segment templates template segment-absmartly matches expected result 1`
     },
   ],
   "name": "ABsmartly",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -783,7 +783,7 @@ exports[`segment templates template segment-accoil-analytics matches expected re
     },
   ],
   "name": "Accoil Analytics",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -1076,7 +1076,7 @@ Last-Modified: 02.01.2024 10.30.43
     },
   ],
   "name": "Acoustic",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -1412,7 +1412,7 @@ Last-Modified: 06.28.2023 16.15.37
     },
   ],
   "name": "Acoustic Campaign",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -1627,7 +1627,7 @@ exports[`segment templates template segment-airship matches expected result 1`] 
     },
   ],
   "name": "Airship",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -2348,7 +2348,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
     },
   ],
   "name": "Algolia Insights",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -2395,7 +2395,7 @@ exports[`segment templates template segment-amazon-amc matches expected result 1
   ],
   "mapping_templates": [],
   "name": "Amazon Ads DSP and AMC",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -4563,7 +4563,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
     },
   ],
   "name": "Amplitude",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -7899,7 +7899,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
     },
   ],
   "name": "Angler AI",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -8015,7 +8015,7 @@ exports[`segment templates template segment-attentive matches expected result 1`
     },
   ],
   "name": "Attentive",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -8130,7 +8130,7 @@ exports[`segment templates template segment-blend-ai matches expected result 1`]
     },
   ],
   "name": "Blend Ai",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -8641,7 +8641,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
     },
   ],
   "name": "Calliper Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -8811,7 +8811,7 @@ exports[`segment templates template segment-canny matches expected result 1`] = 
     },
   ],
   "name": "Canny",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -9406,7 +9406,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
     },
   ],
   "name": "Canvas",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -9582,7 +9582,7 @@ exports[`segment templates template segment-clevertap matches expected result 1`
     },
   ],
   "name": "CleverTap",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -9736,7 +9736,7 @@ exports[`segment templates template segment-cloud-gwen matches expected result 1
     },
   ],
   "name": "GWEN",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -9953,7 +9953,7 @@ exports[`segment templates template segment-drip matches expected result 1`] = `
     },
   ],
   "name": "Drip",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -10668,7 +10668,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
     },
   ],
   "name": "Encharge",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -10744,7 +10744,7 @@ exports[`segment templates template segment-equals matches expected result 1`] =
     },
   ],
   "name": "Equals",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -10943,7 +10943,7 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
     },
   ],
   "name": "Fullstory Cloud Mode",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -11168,7 +11168,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
     },
   ],
   "name": "Gainsight Px Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -11760,7 +11760,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
     },
   ],
   "name": "Gameball",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -11968,7 +11968,7 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
     },
   ],
   "name": "Heap Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -12383,7 +12383,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
     },
   ],
   "name": "Hilo",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -13113,7 +13113,7 @@ exports[`segment templates template segment-hyperengage matches expected result 
     },
   ],
   "name": "Hyperengage",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -13783,7 +13783,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
     },
   ],
   "name": "Inleads AI",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -14048,7 +14048,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
     },
   ],
   "name": "Insider Cloud Mode",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -14124,7 +14124,7 @@ exports[`segment templates template segment-iqm matches expected result 1`] = `
     },
   ],
   "name": "Iqm",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -14528,7 +14528,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
     },
   ],
   "name": "Iterable",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -14561,7 +14561,7 @@ exports[`segment templates template segment-iterable-lists matches expected resu
   ],
   "mapping_templates": [],
   "name": "Iterable Lists",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -15033,7 +15033,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
     },
   ],
   "name": "Kameleoon",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -15259,7 +15259,7 @@ exports[`segment templates template segment-koala-cloud matches expected result 
     },
   ],
   "name": "Koala (Cloud)",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -15458,7 +15458,7 @@ exports[`segment templates template segment-launchdarkly matches expected result
     },
   ],
   "name": "LaunchDarkly",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -16009,7 +16009,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
     },
   ],
   "name": "Launchpad",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -16367,7 +16367,7 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
     },
   ],
   "name": "LiveLike",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -16569,7 +16569,7 @@ exports[`segment templates template segment-m3ter matches expected result 1`] = 
     },
   ],
   "name": "m3ter",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -16629,7 +16629,7 @@ exports[`segment templates template segment-marketo-static-lists matches expecte
   ],
   "mapping_templates": [],
   "name": "Marketo Static Lists",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -16741,7 +16741,7 @@ exports[`segment templates template segment-metronome-actions matches expected r
     },
   ],
   "name": "Metronome",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -18758,7 +18758,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
     },
   ],
   "name": "Mixpanel",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -20669,7 +20669,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
     },
   ],
   "name": "Moloco MCM",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -20772,7 +20772,7 @@ exports[`segment templates template segment-movable-ink matches expected result 
     },
   ],
   "name": "Movable Ink",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -21711,7 +21711,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
     },
   ],
   "name": "Optimizely Data Platform",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -22069,7 +22069,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
     },
   ],
   "name": "Outfunnel",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -24328,7 +24328,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
     },
   ],
   "name": "Pinterest Conversions API",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -24794,7 +24794,7 @@ exports[`segment templates template segment-pipedrive matches expected result 1`
     },
   ],
   "name": "Pipedrive",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -24894,7 +24894,7 @@ exports[`segment templates template segment-playerzero-cloud matches expected re
     },
   ],
   "name": "PlayerZero Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -25295,7 +25295,7 @@ exports[`segment templates template segment-podscribe matches expected result 1`
     },
   ],
   "name": "Podscribe",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -25686,7 +25686,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
     },
   ],
   "name": "Prodeology",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -25987,7 +25987,7 @@ exports[`segment templates template segment-pushwoosh matches expected result 1`
     },
   ],
   "name": "Pushwoosh",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -27208,7 +27208,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
     },
   ],
   "name": "Recombee",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -27504,7 +27504,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
     },
   ],
   "name": "RevX Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -27967,7 +27967,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
     },
   ],
   "name": "Ripe Cloud Mode",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -28027,7 +28027,7 @@ exports[`segment templates template segment-s3-csv matches expected result 1`] =
   ],
   "mapping_templates": [],
   "name": "AWS S3 CSV",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -28536,7 +28536,7 @@ exports[`segment templates template segment-saleswings matches expected result 1
     },
   ],
   "name": "Saleswings",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -28746,7 +28746,7 @@ exports[`segment templates template segment-schematic matches expected result 1`
     },
   ],
   "name": "Schematic",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -28951,7 +28951,7 @@ exports[`segment templates template segment-sprig matches expected result 1`] = 
     },
   ],
   "name": "Sprig Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -29161,7 +29161,7 @@ exports[`segment templates template segment-stackadapt-cloud matches expected re
     },
   ],
   "name": "StackAdapt",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -29222,7 +29222,7 @@ exports[`segment templates template segment-taboola-actions matches expected res
   ],
   "mapping_templates": [],
   "name": "Taboola",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -29472,7 +29472,7 @@ exports[`segment templates template segment-toplyne-cloud matches expected resul
     },
   ],
   "name": "Toplyne Cloud Mode",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -29887,7 +29887,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
     },
   ],
   "name": "Topsort",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -30822,7 +30822,7 @@ exports[`segment templates template segment-usermaven matches expected result 1`
     },
   ],
   "name": "Usermaven",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -31072,7 +31072,7 @@ exports[`segment templates template segment-usermotion matches expected result 1
     },
   ],
   "name": "UserMotion",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -31295,7 +31295,7 @@ exports[`segment templates template segment-userpilot-cloud matches expected res
     },
   ],
   "name": "Userpilot Cloud",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -31842,7 +31842,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
     },
   ],
   "name": "Voucherify",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -32062,7 +32062,7 @@ exports[`segment templates template segment-voyage matches expected result 1`] =
     },
   ],
   "name": "Voyage",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -32467,7 +32467,7 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
     },
   ],
   "name": "VWO Cloud Mode",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;
@@ -32685,7 +32685,7 @@ exports[`segment templates template segment-xtremepush matches expected result 1
     },
   ],
   "name": "Xtremepush",
-  "status": "alpha",
+  "status": "hidden",
   "type": "destination",
 }
 `;

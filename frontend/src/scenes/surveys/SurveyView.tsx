@@ -306,7 +306,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <div>
                                         <p>Get notified whenever a survey result is submitted</p>
                                         <LinkedHogFunctions
-                                            logicKey="survey"
                                             type="destination"
                                             subTemplateIds={['survey-response']}
                                             filters={{
@@ -465,7 +464,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
-    if (isAnyResultsLoading) {
+    if (isAnyResultsLoading && !isNewQuestionVizEnabled) {
         lemonToast.info('Loading survey results...', {
             toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
             hideProgressBar: true,

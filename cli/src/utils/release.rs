@@ -40,7 +40,8 @@ pub fn create_release(
         return Ok(None);
     };
 
-    let Some(project) = project.or(git_info.as_ref().map(|g| g.repo_name.clone())) else {
+    let project = project.or_else(|| git_info.as_ref().and_then(|g| g.repo_name.clone()));
+    let Some(project) = project else {
         warn!("Could not create release - no project name provided, and one could not be derived via git");
         return Ok(None);
     };

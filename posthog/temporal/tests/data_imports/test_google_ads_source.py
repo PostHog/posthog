@@ -5,7 +5,11 @@ import pyarrow as pa
 import pytest
 from django.test import override_settings
 
-from posthog.temporal.data_imports.pipelines.google_ads import GoogleAdsServiceAccountSourceConfig, get_schemas
+from posthog.temporal.data_imports.pipelines.google_ads import (
+    GoogleAdsServiceAccountSourceConfig,
+    get_schemas,
+    google_ads_source,
+)
 
 SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS" not in os.environ
@@ -129,19 +133,47 @@ def test_get_schemas(customer_id: str, developer_token: str, service_account_con
     assert "ad" in schemas
 
     campaign = schemas["campaign"]
-    assert campaign["id"].to_arrow_field() == pa.field("id", pa.int64())
-    assert campaign["name"].to_arrow_field() == pa.field("name", pa.string())
-    assert campaign["status"].to_arrow_field() == pa.field("status", pa.string())
-    assert campaign["start_date"].to_arrow_field() == pa.field("start_date", pa.date32())
+    assert campaign["campaign_id"].to_arrow_field() == pa.field("campaign_id", pa.int64())
+    assert campaign["campaign_name"].to_arrow_field() == pa.field("campaign_name", pa.string())
+    assert campaign["campaign_status"].to_arrow_field() == pa.field("campaign_status", pa.string())
+    assert campaign["campaign_start_date"].to_arrow_field() == pa.field("campaign_start_date", pa.date32())
 
     ad_group = schemas["ad_group"]
-    assert ad_group["id"].to_arrow_field() == pa.field("id", pa.int64())
-    assert ad_group["name"].to_arrow_field() == pa.field("name", pa.string())
-    assert ad_group["status"].to_arrow_field() == pa.field("status", pa.string())
-    assert ad_group["type"].to_arrow_field() == pa.field("type", pa.string())
-    assert ad_group["campaign"].to_arrow_field() == pa.field("campaign", pa.string())
+    assert ad_group["ad_group_id"].to_arrow_field() == pa.field("ad_group_id", pa.int64())
+    assert ad_group["campaign_id"].to_arrow_field() == pa.field("campaign_id", pa.int64())
+    assert ad_group["ad_group_name"].to_arrow_field() == pa.field("ad_group_name", pa.string())
+    assert ad_group["ad_group_status"].to_arrow_field() == pa.field("ad_group_status", pa.string())
+    assert ad_group["ad_group_type"].to_arrow_field() == pa.field("ad_group_type", pa.string())
 
     ad = schemas["ad"]
-    assert ad["id"].to_arrow_field() == pa.field("id", pa.int64())
-    assert ad["name"].to_arrow_field() == pa.field("name", pa.string())
-    assert ad["type"].to_arrow_field() == pa.field("type", pa.string())
+    assert ad["ad_group_ad_ad_id"].to_arrow_field() == pa.field("ad_group_ad_ad_id", pa.int64())
+    assert ad["ad_group_ad_ad_name"].to_arrow_field() == pa.field("ad_group_ad_ad_name", pa.string())
+    assert ad["ad_group_ad_ad_type"].to_arrow_field() == pa.field("ad_group_ad_ad_type", pa.string())
+
+
+@SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
+def test_google_ads_source(customer_id: str, developer_token: str, service_account_config: dict[str, str]):
+    """Test google_ads_source can iterate rows.
+
+    This test is not exhaustive and merely limits itself to attempting to
+    iterate a few sources.
+    """
+    cfg = GoogleAdsServiceAccountSourceConfig(
+        resource_name="", customer_id=customer_id, developer_token=developer_token, **service_account_config
+    )
+    for resource in (
+        "campaign",
+        "campaign_stats",
+        "ad_group",
+        "ad_group_stats",
+        "ad",
+        "ad_stats",
+        "keyword",
+        "keyword_stats",
+        "video",
+        "video_stats",
+    ):
+        cfg.resource_name = resource
+        source = google_ads_source(cfg)
+
+        _ = list(source.items)

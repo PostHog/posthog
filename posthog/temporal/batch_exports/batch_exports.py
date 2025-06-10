@@ -1,4 +1,3 @@
-import collections
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -7,7 +6,6 @@ import typing
 import uuid
 
 import pyarrow as pa
-import structlog
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -45,8 +43,6 @@ from posthog.temporal.common.logger import (
     get_internal_logger,
 )
 from posthog.warehouse.util import database_sync_to_async
-
-logger = structlog.get_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -247,7 +243,9 @@ def iter_records(
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
 
-    query_str = query.safe_substitute(fields=query_fields, filters=filters_str or "")
+    query_str = query.safe_substitute(
+        fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+    )
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
@@ -700,7 +698,7 @@ async def execute_batch_export_insert_activity(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=2)
+        start_to_close_timeout = dt.timedelta(hours=6)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):

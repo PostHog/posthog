@@ -5,7 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-hubspot",
@@ -99,7 +99,7 @@ if (res.status == 200) {
 )
 
 template_event: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     id="template-hubspot-event",
     type="destination",

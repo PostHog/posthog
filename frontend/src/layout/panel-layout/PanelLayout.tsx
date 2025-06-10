@@ -163,10 +163,10 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
                     {activePanelIdentifier === 'Data' && (
-                        <ProjectTree root="data-management://" searchPlaceholder="Search data" />
+                        <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}
                     {activePanelIdentifier === 'People' && (
-                        <ProjectTree root="persons://" searchPlaceholder="Search persons" />
+                        <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
                     )}
                 </PanelLayoutNavBar>
             </div>
@@ -177,7 +177,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
                 />
             )}
 
@@ -187,7 +187,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         // Return to tree mode when clicking outside the table view
                         setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
                 />
             )}
         </>

@@ -101,6 +101,7 @@ test.describe('CRUD Survey', () => {
         await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').fill('50')
 
         await page.locator('[data-attr="save-survey"]').nth(0).click()
+        await page.locator('[data-attr="save-to-modal-save-button"]').click()
         await expectNoToastErrors(page)
 
         await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
@@ -149,6 +150,8 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr=survey-name]').click()
 
         await page.locator('[data-attr=save-survey]').first().click()
+        await page.locator('[data-attr="save-to-modal-save-button"]').click()
+
         await expect(page.locator('button[data-attr="launch-survey"]')).toContainText('Launch')
 
         await page.reload()

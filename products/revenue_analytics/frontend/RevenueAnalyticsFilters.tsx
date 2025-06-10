@@ -3,7 +3,11 @@ import { LemonButton, LemonDropdown, LemonSwitch, Link, Tooltip } from '@posthog
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -75,10 +79,13 @@ const buildDataWarehouseSources = (sources: ExternalDataSource[], state: ParsedR
 export const RevenueAnalyticsFilters = (): JSX.Element => {
     const { mobileLayout } = useValues(navigationLogic)
     const {
+        revenueAnalyticsFilter,
         dateFilter: { dateTo, dateFrom },
     } = useValues(revenueAnalyticsLogic)
 
-    const { setDates } = useActions(revenueAnalyticsLogic)
+    const { setDates, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+
+    const revenueAnalyticsFiltersEnabled = useFeatureFlag('REVENUE_ANALYTICS_FILTERS')
 
     return (
         <div
@@ -89,6 +96,10 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
         >
             <div className="flex flex-row w-full justify-between gap-1">
                 <div className="flex flex-row gap-1">
+                    <Tooltip title="Refresh data">
+                        <ReloadAll iconOnly />
+                    </Tooltip>
+
                     <DateFilter
                         dateFrom={dateFrom}
                         dateTo={dateTo}
@@ -96,9 +107,16 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         dateOptions={DATE_FILTER_DATE_OPTIONS}
                     />
 
-                    <Tooltip title="Refresh data">
-                        <ReloadAll iconOnly />
-                    </Tooltip>
+                    {revenueAnalyticsFiltersEnabled && (
+                        <PropertyFilters
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
+                            onChange={(filters) =>
+                                setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
+                            }
+                            propertyFilters={revenueAnalyticsFilter}
+                            pageKey="revenue-analytics"
+                        />
+                    )}
                 </div>
 
                 <RevenueAnalyticsFiltersModal />

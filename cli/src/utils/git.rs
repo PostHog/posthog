@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
-    pub repo_name: String,
+    pub repo_name: Option<String>,
     pub branch: String,
     pub commit_id: String,
 }
@@ -17,7 +17,7 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
         None => return Ok(None),
     };
 
-    let repo_name = get_repo_name(&git_dir).context("Failed to determine repository name")?;
+    let repo_name = get_repo_name(&git_dir);
     let branch = get_current_branch(&git_dir).context("Failed to determine current branch")?;
     let commit = get_head_commit(&git_dir, &branch).context("Failed to determine commit ID")?;
 
@@ -43,12 +43,14 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     }
 }
 
-fn get_repo_name(git_dir: &Path) -> Result<String> {
+fn get_repo_name(git_dir: &Path) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
     let config_path = git_dir.join("config");
     if config_path.exists() {
-        let config_content = fs::read_to_string(&config_path)
-            .with_context(|| format!("Failed to read git config at {:?}", config_path))?;
+        let config_content = match fs::read_to_string(&config_path) {
+            Ok(content) => content,
+            Err(_) => return None,
+        };
 
         for line in config_content.lines() {
             let line = line.trim();
@@ -56,7 +58,7 @@ fn get_repo_name(git_dir: &Path) -> Result<String> {
                 let url = line.trim_start_matches("url = ");
                 if let Some(repo_name) = url.split('/').last() {
                     let clean_name = repo_name.trim_end_matches(".git");
-                    return Ok(clean_name.to_string());
+                    return Some(clean_name.to_string());
                 }
             }
         }
@@ -64,11 +66,11 @@ fn get_repo_name(git_dir: &Path) -> Result<String> {
 
     if let Some(parent) = git_dir.parent() {
         if let Some(name) = parent.file_name() {
-            return Ok(name.to_string_lossy().to_string());
+            return Some(name.to_string_lossy().to_string());
         }
     }
 
-    anyhow::bail!("Could not determine repository name")
+    None
 }
 
 fn get_current_branch(git_dir: &Path) -> Result<String> {

@@ -29,10 +29,11 @@ export const manifest: ProductManifest = {
             href: urls.createAction(),
         },
     ],
-    treeItemsDataManagement: [
+    treeItemsMetadata: [
         {
             path: 'Actions',
-            iconType: 'rocket',
+            category: 'Definitions',
+            iconType: 'cursor',
             href: urls.actions(),
         },
     ],

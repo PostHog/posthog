@@ -7,16 +7,14 @@ import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
-    logicKey?: string
     type: HogFunctionTypeType
-    filters: HogFunctionFiltersType
+    filters?: HogFunctionFiltersType
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
 }
 
 export function LinkedHogFunctions({
-    logicKey,
     type,
     filters,
     subTemplateIds,
@@ -46,7 +44,6 @@ export function LinkedHogFunctions({
         />
     ) : (
         <HogFunctionList
-            logicKey={logicKey}
             forceFilters={{ filters }}
             type={type}
             hideFeedback={hideFeedback}

@@ -218,6 +218,24 @@ export function BatchExportsEditFields({
                         >
                             <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
                         </LemonField>
+
+                        <LemonField
+                            name="use_virtual_style_addressing"
+                            label="Virtual style addressing"
+                            showOptional
+                            info={
+                                <>
+                                    Some non-AWS S3-compatible destinations may require this setting enabled. Check your
+                                    destination's documentation if "virtual hosted style" is required, otherwise leave
+                                    unchecked
+                                </>
+                            }
+                        >
+                            <LemonCheckbox
+                                bordered
+                                label={<span className="flex items-center gap-2">Use virtual style addressing</span>}
+                            />
+                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (
                     <>

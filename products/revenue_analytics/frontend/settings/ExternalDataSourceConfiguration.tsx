@@ -82,7 +82,9 @@ export function ExternalDataSourceConfiguration({
                                 ref={buttonRef}
                                 type="primary"
                                 onClick={() => {
-                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { kind: 'stripe' }))
+                                    router.actions.push(
+                                        urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' })
+                                    )
                                 }}
                             >
                                 Add new source

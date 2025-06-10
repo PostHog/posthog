@@ -3,7 +3,6 @@ from posthog.hogql import ast
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.parser import parse_select
-from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.schema import HogQLFilters, PropertyGroupsMode
 
 from products.logs.backend.logs_query_runner import (
@@ -25,8 +24,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             timings=self.timings,
             limit_context=self.limit_context,
             filters=HogQLFilters(dateRange=self.query.dateRange),
-            # needed for CH cloud
-            settings=HogQLGlobalSettings(allow_experimental_object_type=False),
+            settings=self.settings,
         )
 
         results = []

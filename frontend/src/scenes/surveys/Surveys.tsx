@@ -39,6 +39,7 @@ import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    settingSectionId: 'environment-surveys',
 }
 
 export function Surveys(): JSX.Element {
@@ -126,7 +127,6 @@ export function Surveys(): JSX.Element {
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
-                        logicKey="surveys"
                         type="destination"
                         subTemplateIds={['survey-response']}
                         filters={{

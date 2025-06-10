@@ -437,7 +437,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             destination,
             template: {
                 free: false,
-                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
+                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'hidden',
                 type: 'destination',
                 id,
                 name,

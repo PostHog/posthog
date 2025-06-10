@@ -1,6 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
@@ -87,6 +88,13 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     groups?: Record<string, GroupType>
+
+    // Unique to sources - will be modified later
+    request?: {
+        headers: Record<string, string | undefined>
+        ip?: string
+        body: Record<string, any>
+    }
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
@@ -263,7 +271,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
-    capturedPostHogEvents?: HogFunctionCapturedEvent[]
+    capturedPostHogEvents: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
 
@@ -288,73 +296,6 @@ export type HogFlowInvocationContext = {
     currentActionId?: string
 }
 
-export type HogFlow = {
-    // Primary key is id + version
-    id: string
-    name: string
-    description: string
-    team_id: number
-    version: number
-    status: 'active' | 'draft' | 'archived'
-
-    trigger:
-        | {
-              type: 'event'
-              filters: HogFunctionFilters
-          }
-        | {
-              type: 'schedule'
-              cron: string
-          }
-        | {
-              type: 'webhook'
-              hog_function_id: string
-          }
-
-    trigger_masking: {
-        ttl: number
-        hash: string
-        // bytecode: HogBytecode
-        threshold: number
-    }
-
-    conversion: {
-        window: number
-        // cohort_id: number
-        filters: any // HogFunctionFilters
-    }
-    exit_condition:
-        | 'exit_on_conversion'
-        | 'exit_on_trigger_not_matched'
-        | 'exit_on_trigger_not_matched_or_conversion'
-        | 'exit_only_at_end'
-
-    // workflow graph
-    edges: {
-        from: string
-        to: string
-        type: 'continue' | 'branch'
-        index: number
-    }[]
-
-    actions: {
-        id: string
-        name: string
-        description: string
-        type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
-        config: any // HogFunctionInputSchemaType[] // Try to type this strongly to the "type"
-
-        // Maybe v1?
-        on_error: 'continue' | 'abort' | 'complete' | 'branch'
-
-        created: number
-        updated: Date
-        position: number
-    }[]
-
-    abort_action?: string
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
@@ -374,7 +315,12 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'source_webhook'
+    | 'broadcast'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -406,6 +352,7 @@ export type HogFunctionType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: HogBytecode | object
     order?: number

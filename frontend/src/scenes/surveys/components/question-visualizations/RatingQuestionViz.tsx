@@ -378,10 +378,6 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     const barColor = CHART_INSIGHTS_COLORS[0]
 
     const { data } = processedData
-
-    // if scale is not 10, we need to skip the 0
-    const normalizeScaleData = question.scale !== 10 ? data.slice(1) : data
-
     const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
 
     return (
@@ -409,7 +405,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                         label: 'Number of responses',
                                         barPercentage: 0.8,
                                         minBarLength: 2,
-                                        data: normalizeScaleData.map((d) => d.value),
+                                        data: data.map((d) => d.value),
                                         backgroundColor: barColor,
                                         borderColor: barColor,
                                         hoverBackgroundColor: barColor,

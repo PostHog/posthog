@@ -69,7 +69,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         isLayoutPanelPinned: [
-            true,
+            false,
             { persist: true },
             {
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,

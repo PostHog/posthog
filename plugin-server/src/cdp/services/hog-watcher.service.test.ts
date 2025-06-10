@@ -16,6 +16,7 @@ import { delay } from '../../../src/utils/utils'
 import { createExampleInvocation } from '../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../_tests/redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
@@ -33,16 +34,16 @@ const createResult = (options: {
         },
     ]
 
-    return {
-        invocation: {
-            ...invocation,
+    return createInvocationResult(
+        invocation,
+        {
+            queue: 'hog',
         },
-
-        finished: options.finished ?? true,
-        error: options.error,
-        logs: [],
-        metrics: [],
-    }
+        {
+            finished: options.finished ?? true,
+            error: options.error,
+        }
+    )
 }
 
 describe('HogWatcher', () => {

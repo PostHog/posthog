@@ -39,6 +39,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
             "prefix": "posthog-events/",
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
+            "use_virtual_style_addressing": True,
         },
     }
 
@@ -123,6 +124,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
         assert args["prefix"] == "posthog-events/"
         assert args["aws_access_key_id"] == "abc123"
         assert args["aws_secret_access_key"] == "secret"
+        assert args["use_virtual_style_addressing"]
 
 
 @pytest.mark.parametrize(

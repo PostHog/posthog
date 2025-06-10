@@ -6,7 +6,6 @@ export function SidePanelActivitySubscriptions(): JSX.Element {
             <p>Get notified of your team's activity</p>
 
             <LinkedHogFunctions
-                logicKey="activity-log"
                 type="internal_destination"
                 subTemplateIds={['activity-log']}
                 filters={{

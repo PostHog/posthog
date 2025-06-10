@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.client.connection import Workload
@@ -17,6 +18,8 @@ from posthog.schema import (
     LogsQueryResponse,
     IntervalType,
     PropertyGroupsMode,
+    PropertyOperator,
+    LogPropertyFilter,
 )
 
 
@@ -35,6 +38,52 @@ class LogsQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
+        def get_property_type(value):
+            try:
+                value = float(value)
+                return "float"
+            except ValueError:
+                pass
+            # todo: datetime?
+            return "str"
+
+        if len(self.query.filterGroup.values) > 0:
+            filter_keys = []
+            # dynamically detect type of the given property values
+            # if they all convert cleanly to float, use the __float property mapping instead
+            # we keep multiple attribute maps for different types:
+            # attribute_map_str
+            # attribute_map_float
+            # attribute_map_datetime
+            #
+            # for now we'll just check str and float as we need a decent UI for datetime filtering.
+            for property_filter in self.query.filterGroup.values[0].values:
+                if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
+                    property_type = "str"
+                    if isinstance(property_filter.value, list):
+                        property_types = {get_property_type(v) for v in property_filter.value}
+                        # only use the detected type if all given values have the same type
+                        # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
+                        if len(property_types) == 1:
+                            property_type = property_types.pop()
+                    else:
+                        property_type = get_property_type(property_filter.value)
+                    property_filter.key += f"__{property_type}"
+                    # for all operators except SET and NOT_SET we add an IS_SET operator to force
+                    # the property key bloom filter index to be used.
+                    if property_filter.operator not in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
+                        filter_keys.append(property_filter.key)
+
+            for filter_key in filter_keys:
+                self.query.filterGroup.values[0].values.insert(
+                    0,
+                    LogPropertyFilter(
+                        key=filter_key,
+                        operator=PropertyOperator.IS_SET,
+                        type="log",
+                    ),
+                )
+
     def calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
@@ -47,8 +96,7 @@ class LogsQueryRunner(QueryRunner):
             timings=self.timings,
             limit_context=self.limit_context,
             filters=HogQLFilters(dateRange=self.query.dateRange),
-            # needed for CH cloud
-            settings=HogQLGlobalSettings(allow_experimental_object_type=False),
+            settings=self.settings,
         )
 
         results = []
@@ -59,7 +107,7 @@ class LogsQueryRunner(QueryRunner):
                     "trace_id": result[1],
                     "span_id": result[2],
                     "body": result[3],
-                    "attributes": result[4],
+                    "attributes": {k: json.loads(v) for k, v in result[4].items()},
                     "timestamp": result[5],
                     "observed_timestamp": result[6],
                     "severity_text": result[7],
@@ -78,8 +126,8 @@ class LogsQueryRunner(QueryRunner):
             """
             SELECT
             uuid,
-            trace_id,
-            span_id,
+            hex(trace_id),
+            hex(span_id),
             body,
             attributes,
             timestamp,
@@ -139,6 +187,14 @@ class LogsQueryRunner(QueryRunner):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
     @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(
+            allow_experimental_object_type=False,
+            allow_experimental_join_condition=False,
+            transform_null_in=False,
+        )
+
+    @cached_property
     def query_date_range(self) -> QueryDateRange:
         qdr = QueryDateRange(
             date_range=self.query.dateRange,
@@ -154,17 +210,18 @@ class LogsQueryRunner(QueryRunner):
 
         _step = dt.timedelta(seconds=int(60 * round(_step.total_seconds() / 60)))
         interval_type = IntervalType.MINUTE
-        interval_count = _step.total_seconds() // 60
 
-        if _step > dt.timedelta(minutes=30):
-            _step = dt.timedelta(seconds=int(3600 * round(_step.total_seconds() / 3600)))
-            interval_type = IntervalType.HOUR
-            interval_count = _step.total_seconds() // 3600
+        def find_closest(target, arr):
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
 
-        if _step > dt.timedelta(days=1):
-            _step = dt.timedelta(seconds=int(86400 * round(_step.total_seconds() / 86400)))
-            interval_type = IntervalType.DAY
-            interval_count = _step.total_seconds() // 86400
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(_step.total_seconds() // 60, [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440])
 
         return QueryDateRange(
             date_range=self.query.dateRange,

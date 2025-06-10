@@ -68,7 +68,7 @@ export function SurveyFormAppearance({
             </LemonField.Pure>
         </div>
     ) : (
-        <div className="flex flex-col">
+        <div className="flex flex-col max-w-sm">
             <h4 className="text-center">API survey response</h4>
             <SurveyAPIEditor survey={survey} />
         </div>
