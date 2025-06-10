@@ -48,6 +48,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_steps_to_filter,
     funnel_steps_to_window_funnel_expr,
+    funnel_steps_to_aggregate_funnel_array_expr,
     get_funnel_step_level_expr,
 )
 from rest_framework.exceptions import ValidationError
@@ -411,6 +412,7 @@ class ExperimentQueryRunner(QueryRunner):
                         ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
+                        ast.Field(chain=["events", "uuid"]),
                         ast.Alias(alias="funnel_step", expr=get_funnel_step_level_expr(self.team, metric)),
                     ],
                     select_from=ast.JoinExpr(
@@ -456,7 +458,7 @@ class ExperimentQueryRunner(QueryRunner):
                     case _:
                         return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
-                return funnel_steps_to_window_funnel_expr(self.metric)
+                return funnel_steps_to_aggregate_funnel_array_expr(self.team, self.metric)
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery

@@ -65,3 +65,78 @@ def get_funnel_step_level_expr(team: Team, funnel_metric: ExperimentFunnelMetric
     multi_if_args.append(ast.Constant(value="step_unknown"))
 
     return ast.Call(name="multiIf", args=multi_if_args)
+
+
+def funnel_steps_to_aggregate_funnel_array_expr(team: Team, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
+    """
+    Returns the expression using aggregate_funnel_array UDF for funnel analysis.
+    This handles cases with duplicate events that windowFunnel cannot process.
+    """
+    num_steps = len(funnel_metric.series)
+
+    if funnel_metric.conversion_window is not None and funnel_metric.conversion_window_unit is not None:
+        conversion_window_seconds = conversion_window_to_seconds(
+            funnel_metric.conversion_window, funnel_metric.conversion_window_unit
+        )
+    else:
+        # Default to include all events selected, so we just set a large value here (3 years)
+        conversion_window_seconds = 3 * 365 * 24 * 60 * 60
+
+    # Build step conditions - each event can match multiple steps
+    step_conditions = []
+    for i, funnel_step in enumerate(funnel_metric.series):
+        filter_expr = event_or_action_to_filter(team, funnel_step)
+        # Build multiply(step_number, if(condition, 1, 0))
+        step_condition = ast.Call(
+            name="multiply",
+            args=[
+                ast.Constant(value=i + 1),
+                ast.Call(name="if", args=[filter_expr, ast.Constant(value=1), ast.Constant(value=0)]),
+            ],
+        )
+        step_conditions.append(step_condition)
+
+    # Create array of step conditions
+    step_conditions_array = ast.Array(exprs=step_conditions)
+
+    # Filter out zero values: arrayFilter(x -> ifNull(notEquals(x, 0), 1), [step_conditions])
+    step_filters_expr = ast.Call(
+        name="arrayFilter", args=[parse_expr("x -> ifNull(notEquals(x, 0), 1)"), step_conditions_array]
+    )
+
+    # Build the event array for aggregate_funnel_array
+    # Format: tuple(toFloat(timestamp), uuid, '', [step_indicators])
+    event_tuple = ast.Call(
+        name="tuple",
+        args=[
+            ast.Call(name="toFloat", args=[ast.Field(chain=["timestamp"])]),
+            ast.Field(chain=["uuid"]),
+            ast.Constant(value=""),
+            step_filters_expr,
+        ],
+    )
+
+    event_array_expr = ast.Call(
+        name="arraySort", args=[parse_expr("t -> t.1"), ast.Call(name="groupArray", args=[event_tuple])]
+    )
+
+    # Call aggregate_funnel_array UDF
+    udf_call = ast.Call(
+        name="aggregate_funnel_array",
+        args=[
+            ast.Constant(value=num_steps),
+            ast.Constant(value=conversion_window_seconds),
+            ast.Constant(value="first_touch"),
+            ast.Constant(value="ordered"),
+            ast.Array(exprs=[ast.Constant(value="")]),
+            event_array_expr,
+        ],
+    )
+
+    # Extract completion status: arraySum(arrayMap(x -> if(x.1 >= num_steps - 1, 1, 0), result))
+    completion_check = ast.Call(
+        name="arraySum",
+        args=[ast.Call(name="arrayMap", args=[parse_expr(f"x -> if(x.1 >= {num_steps - 1}, 1, 0)"), udf_call])],
+    )
+
+    return ast.Call(name="toFloat", args=[completion_check])
