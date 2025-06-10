@@ -19,7 +19,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-    QueryTimeout,
+    QueryTimeoutException,
+    TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
@@ -256,6 +257,11 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
 
+        if "temporary file size exceeds temp_file_limit" in str(e):
+            raise TemporaryFileSizeExceedsLimitException(
+                f"Error: {e}. Please ensure your incremental field has an appropriate index created"
+            )
+
         return 0
 
 
@@ -483,7 +489,7 @@ def postgres_source(
                     has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
             except psycopg.errors.QueryCanceled:
                 if is_incremental:
-                    raise QueryTimeout(
+                    raise QueryTimeoutException(
                         f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
                     )
                 raise
