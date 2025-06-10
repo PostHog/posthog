@@ -41,7 +41,6 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
-common/shared-types/dist
 common/tailwind/dist
 coverage-*.xml
 cypress/**/*.diff.png
