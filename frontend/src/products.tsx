@@ -541,11 +541,4 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.revenueSettings(),
         flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
     },
-    {
-        path: 'Marketing settings',
-        category: 'Definitions',
-        iconType: 'definitions',
-        href: urls.marketingAnalytics(),
-        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-    },
 ]
