@@ -1,8 +1,8 @@
 import { Edge, Node, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
-import type { HogFlowAction, HogFlowEdge } from '../../../../../plugin-server/src/schema/hogflow'
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
+import type { HogFlowAction, HogFlowEdge } from './types'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm

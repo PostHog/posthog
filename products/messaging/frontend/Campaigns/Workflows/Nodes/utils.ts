@@ -2,7 +2,6 @@ import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xy
 
 import { Optional } from '~/types'
 
-import type { HogFlowAction, HogFlowEdge } from '../../../../../../plugin-server/src/schema/hogflow'
 import {
     BOTTOM_HANDLE_POSITION,
     DEFAULT_EDGE_OPTIONS,
@@ -14,6 +13,7 @@ import {
     TOP_HANDLE_POSITION,
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
+import type { HogFlowAction, HogFlowEdge } from '../types'
 
 // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
 export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] => {

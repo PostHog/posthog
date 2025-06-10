@@ -3,7 +3,7 @@ import { LemonButton, LemonLabel } from '@posthog/lemon-ui'
 import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import type { HogFlowAction } from '../../../../../../plugin-server/src/schema/hogflow'
+import type { HogFlowAction } from '../types'
 
 export function StepDetailsPanel({
     node,

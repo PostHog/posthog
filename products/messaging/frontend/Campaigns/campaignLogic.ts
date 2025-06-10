@@ -2,8 +2,8 @@ import { afterMount, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-import type { HogFlow } from '../../../../plugin-server/src/schema/hogflow'
 import type { campaignLogicType } from './campaignLogicType'
+import type { HogFlow } from './Workflows/types'
 
 export interface CampaignLogicProps {
     id?: string

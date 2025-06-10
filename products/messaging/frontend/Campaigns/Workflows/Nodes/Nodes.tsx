@@ -2,7 +2,7 @@ import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRev
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import { useEffect } from 'react'
 
-import type { HogFlowAction } from '../../../../../../plugin-server/src/schema/hogflow'
+import type { HogFlowAction } from '../types'
 import { getNodeHandles } from './utils'
 
 export const REACT_FLOW_NODE_TYPES = {

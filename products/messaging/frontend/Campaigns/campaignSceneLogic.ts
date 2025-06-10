@@ -5,9 +5,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { HogFlow } from '../../../../plugin-server/src/schema/hogflow'
 import { campaignLogic } from './campaignLogic'
 import type { campaignSceneLogicType } from './campaignSceneLogicType'
+import type { HogFlow } from './Workflows/types'
 
 export const CampaignTabs = ['overview', 'workflow'] as const
 export type CampaignTab = (typeof CampaignTabs)[number]

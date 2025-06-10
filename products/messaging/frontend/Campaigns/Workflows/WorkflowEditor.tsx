@@ -20,13 +20,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import type { HogFlowAction, HogFlowEdge } from '../../../../../plugin-server/src/schema/hogflow'
 import { getFormattedNodes } from './autolayout'
 import { DEFAULT_EDGE_OPTIONS } from './constants'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
 import { StepDetailsPanel } from './Nodes/StepDetails'
 import { addDropzoneNodes, createEdgesForNewNode, createNewNode, DEFAULT_EDGES, DEFAULT_NODES } from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
+import type { HogFlowAction, HogFlowEdge } from './types'
 
 // Inner component that encapsulates React Flow
 function WorkflowEditorContent(): JSX.Element {
