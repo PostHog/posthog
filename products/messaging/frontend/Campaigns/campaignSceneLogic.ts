@@ -53,6 +53,7 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                         key: 'campaign',
                         name: campaign.name || 'Untitled Campaign',
                         onRename: async (name: string): Promise<void> => {
+                            // TODO(team-messaging): use campaignLogic action
                             alert(`Renaming campaign to ${name}`)
                         },
                     },
