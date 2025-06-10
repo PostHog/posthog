@@ -71,6 +71,7 @@ COPY ./patches ./patches
 COPY ./rust ./rust
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
+COPY ./common/shared_types/ ./common/shared_types/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
