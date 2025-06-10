@@ -19,18 +19,24 @@ impl<T> MeasuringChannel<T> {
     }
 
     pub async fn send(&self, item: T) -> Result<(), SendError<T>> {
-        self.in_flight_message.fetch_add(1, Ordering::Relaxed);
-        self.sender.send(item).await
-    }
+        let result = self.sender.send(item).await;
+        if result.is_ok() {
+            self.in_flight_message.fetch_add(1, Ordering::Relaxed);
+        }
+        result
 
     pub async fn recv(&mut self) -> Option<T> {
-        self.in_flight_message.fetch_sub(1, Ordering::Relaxed);
-        self.receiver.recv().await
+        let result = self.receiver.recv().await;
+        if result.is_some() {
+            self.in_flight_message.fetch_sub(1, Ordering::Relaxed);
+        }
+        result
     }
 
     pub async fn recv_many(&mut self, buffer: &mut Vec<T>, limit: usize) -> usize {
-        self.in_flight_message.fetch_sub(limit, Ordering::Relaxed);
-        self.receiver.recv_many(buffer, limit).await
+        let received_count = self.receiver.recv_many(buffer, limit).await;
+        self.in_flight_message.fetch_sub(received_count, Ordering::Relaxed);
+        received_count
     }
 
     pub fn len(&self) -> usize {
