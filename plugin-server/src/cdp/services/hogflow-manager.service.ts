@@ -1,5 +1,4 @@
-import { HogFlow } from '@posthog/shared-types'
-
+import { HogFlow } from '../../schema/hogflow'
 import { Hub, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'

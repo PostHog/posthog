@@ -52,16 +52,6 @@ class Migration(migrations.Migration):
                 ("actions", models.JSONField(default=dict)),
                 ("abort_action", models.CharField(blank=True, max_length=400, null=True)),
                 (
-                    "checked_out_by",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="checked_out_hogflows",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
                     "created_by",
                     models.ForeignKey(
                         blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL

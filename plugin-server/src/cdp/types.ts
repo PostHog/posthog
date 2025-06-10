@@ -2,6 +2,7 @@ import { VMState } from '@posthog/hogvm'
 import { HogFlow } from '@posthog/shared-types'
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
@@ -352,6 +353,7 @@ export type HogFunctionType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: HogBytecode | object
     order?: number
