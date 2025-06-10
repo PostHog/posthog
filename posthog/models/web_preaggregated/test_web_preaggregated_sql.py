@@ -1,8 +1,12 @@
+import re
 from unittest.mock import patch
 from parameterized import parameterized
 from posthog.models.web_preaggregated.sql import (
     WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
+    WEB_ANALYTICS_DIMENSIONS,
+    WEB_STATS_DIMENSIONS,
+    WEB_BOUNCES_DIMENSIONS,
 )
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
@@ -51,6 +55,55 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
     def _get_web_bounces_sql(self, table_name: str | None = None) -> str:
         return WEB_BOUNCES_DAILY_SQL(table_name=table_name or self.TEST_TABLE_BOUNCES, on_cluster=False)
 
+    def _extract_columns_from_sql(self, sql: str) -> list[str]:
+        # Find the columns section between ( and ) ENGINE =
+        pattern = r"\(\s*(.*?)\s*\)\s*ENGINE\s*="
+        match = re.search(pattern, sql, re.DOTALL)
+        if not match:
+            return []
+
+        columns_text = match.group(1)
+        lines = [line.strip().rstrip(",") for line in columns_text.split("\n") if line.strip()]
+
+        # Filter out updated_at and aggregate functions only
+        columns_to_ignore = {"updated_at"}
+        aggregate_suffixes = {"_uniq_state", "_count_state", "_duration_state"}
+
+        dimension_columns = []
+        for line in lines:
+            if not line:
+                continue
+            # Extract column name (first word)
+            col_name = line.split()[0]
+            # Skip updated_at and aggregate functions
+            if col_name not in columns_to_ignore and not any(
+                col_name.endswith(suffix) for suffix in aggregate_suffixes
+            ):
+                dimension_columns.append(col_name)
+
+        return dimension_columns
+
+    def _extract_order_by_from_sql(self, sql: str) -> list[str]:
+        pattern = r"ORDER\s+BY\s+\((.*?)\)"
+        match = re.search(pattern, sql, re.DOTALL)
+        if not match:
+            return []
+
+        order_by_text = match.group(1)
+        columns = [col.strip() for col in order_by_text.split(",")]
+
+        return columns
+
+    def _get_expected_full_columns(self, dimensions: list[str]) -> set[str]:
+        """Get the expected full column set including base columns and dimensions"""
+        base_columns = {"period_bucket", "team_id", "host", "device_type"}
+        return base_columns | set(dimensions)
+
+    def _get_expected_order_by_columns(self, dimensions: list[str], bucket_column: str = "period_bucket") -> set[str]:
+        """Get the expected ORDER BY columns including base columns and dimensions"""
+        base_columns = {"team_id", bucket_column, "host", "device_type"}
+        return base_columns | set(dimensions)
+
     @parameterized.expand(
         [
             ("web_stats", _get_web_stats_sql),
@@ -76,6 +129,39 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         ]
 
         self._assert_sql_contains_aggregate_functions(table_sql, bounces_specific_functions)
+
+    def test_dimensions_consistency(self):
+        stats_sql = self._get_web_stats_sql()
+        stats_columns = self._extract_columns_from_sql(stats_sql)
+        stats_order_by = self._extract_order_by_from_sql(stats_sql)
+
+        expected_stats_columns = self._get_expected_full_columns(WEB_STATS_DIMENSIONS)
+        expected_stats_order_by = self._get_expected_order_by_columns(WEB_STATS_DIMENSIONS)
+
+        assert set(stats_columns) == expected_stats_columns
+        assert set(stats_order_by) == expected_stats_order_by
+
+        bounces_sql = self._get_web_bounces_sql()
+        bounces_columns = self._extract_columns_from_sql(bounces_sql)
+        bounces_order_by = self._extract_order_by_from_sql(bounces_sql)
+
+        expected_bounces_columns = self._get_expected_full_columns(WEB_BOUNCES_DIMENSIONS)
+        expected_bounces_order_by = self._get_expected_order_by_columns(WEB_BOUNCES_DIMENSIONS)
+
+        assert set(bounces_columns) == expected_bounces_columns
+        assert set(bounces_order_by) == expected_bounces_order_by
+
+    def test_dimension_structure_hierarchy(self):
+        expected_web_stats = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
+        assert WEB_STATS_DIMENSIONS == expected_web_stats
+
+        assert WEB_BOUNCES_DIMENSIONS == WEB_ANALYTICS_DIMENSIONS
+
+        assert "referring_domain" in WEB_ANALYTICS_DIMENSIONS
+        assert "end_pathname" in WEB_ANALYTICS_DIMENSIONS
+
+        assert "pathname" in WEB_STATS_DIMENSIONS
+        assert "pathname" not in WEB_BOUNCES_DIMENSIONS
 
     @patch("posthog.clickhouse.client.sync_execute")
     def test_queries_use_final_keyword(self, mock_sync_execute):

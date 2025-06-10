@@ -46,7 +46,12 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
                     />
                 ))}
             </div>
-            <LemonButton className="rounded-none" onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
+            <LemonButton
+                className="rounded-none"
+                onClick={() => onAdd()}
+                icon={<IconPlus fontSize={14} />}
+                data-attr="sql-editor-new-tab-button"
+            />
         </>
     )
 }

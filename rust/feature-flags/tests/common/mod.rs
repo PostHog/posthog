@@ -159,12 +159,21 @@ impl ServerHandle {
         &self,
         body: T,
         version: Option<&str>,
+        config: Option<&str>,
     ) -> reqwest::Response {
         let client = reqwest::Client::new();
-        let url = match version {
-            Some(v) => format!("http://{:?}/flags?v={}", self.addr, v),
-            None => format!("http://{:?}/flags", self.addr),
-        };
+        let mut url = format!("http://{}/flags", self.addr);
+        let mut params = vec![];
+        if let Some(v) = version {
+            params.push(format!("v={}", v));
+        }
+        if let Some(c) = config {
+            params.push(format!("config={}", c));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
         client
             .post(url)
             .body(body)

@@ -1,15 +1,17 @@
-import { IconRevert, IconX } from '@posthog/icons'
+import { IconBolt, IconLightBulb, IconRevert, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataModelingJob, DataWarehouseSyncInterval, OrNever } from '~/types'
+import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -59,8 +61,11 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView } = useValues(multitabEditorLogic)
+    const { editingView, upstream } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
     const {
         dataWarehouseSavedQueryMapById,
@@ -88,7 +93,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     }
 
     return (
-        <div className="overflow-auto">
+        <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
             <div className="flex flex-col flex-1 p-4 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
@@ -333,70 +338,161 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     ]}
                     dataSource={savedQuery?.columns || []}
                 />
-                <div>
-                    <h3>Dependencies</h3>
-                    <p>
-                        Dependencies are tables that this query uses. See when a source or materialized table was last
-                        run.
-                    </p>
-                </div>
-                <LemonTable
-                    columns={[
-                        {
-                            key: 'Name',
-                            title: 'Name',
-                            render: (_, { name }) => name,
-                        },
-                        {
-                            key: 'Type',
-                            title: 'Type',
-                            render: (_, { type }) => type,
-                        },
-                        {
-                            key: 'Status',
-                            title: 'Status',
-                            render: (_, { type, status, last_run_at }) => {
-                                if (type === 'source') {
-                                    return (
-                                        <Tooltip title="This is a source table, so it doesn't have a status">
-                                            <span className="text-secondary">N/A</span>
-                                        </Tooltip>
-                                    )
-                                }
-                                if (last_run_at === 'never' && !status) {
-                                    return (
-                                        <Tooltip title="This is a view, so it's always available with the latest data">
-                                            <span className="text-secondary">Available</span>
-                                        </Tooltip>
-                                    )
-                                }
-                                return status
-                            },
-                        },
-                        {
-                            key: 'Last run at',
-                            title: 'Last run at',
-                            render: (_, { type, last_run_at, status }) => {
-                                if (type === 'source') {
-                                    return (
-                                        <Tooltip title="This is a source table, so it is never run">
-                                            <span className="text-secondary">N/A</span>
-                                        </Tooltip>
-                                    )
-                                }
-                                if (last_run_at === 'never' && !status) {
-                                    return (
-                                        <Tooltip title="This is a view, so it is never run">
-                                            <span className="text-secondary">N/A</span>
-                                        </Tooltip>
-                                    )
-                                }
-                                return humanFriendlyDetailedTime(last_run_at)
-                            },
-                        },
-                    ]}
-                    dataSource={sourceTableItems}
-                />
+                {!isLineageDependencyViewEnabled && (
+                    <>
+                        <div>
+                            <h3>Dependencies</h3>
+                            <p>Dependencies are tables that this query uses.</p>
+                        </div>
+                        <LemonTable
+                            columns={[
+                                {
+                                    key: 'Name',
+                                    title: 'Name',
+                                    render: (_, { name }) => name,
+                                },
+                                {
+                                    key: 'Type',
+                                    title: 'Type',
+                                    render: (_, { type }) => type,
+                                },
+                                {
+                                    key: 'Status',
+                                    title: 'Status',
+                                    render: (_, { type, status, last_run_at }) => {
+                                        if (type === 'source') {
+                                            return (
+                                                <Tooltip title="This is a source table, so it doesn't have a status">
+                                                    <span className="text-secondary">N/A</span>
+                                                </Tooltip>
+                                            )
+                                        }
+                                        if (last_run_at === 'never' && !status) {
+                                            return (
+                                                <Tooltip title="This is a view, so it's always available with the latest data">
+                                                    <span className="text-secondary">Available</span>
+                                                </Tooltip>
+                                            )
+                                        }
+                                        return status
+                                    },
+                                },
+                                {
+                                    key: 'Last run at',
+                                    title: 'Last run at',
+                                    render: (_, { type, last_run_at, status }) => {
+                                        if (type === 'source') {
+                                            return (
+                                                <Tooltip title="This is a source table, so it is never run">
+                                                    <span className="text-secondary">N/A</span>
+                                                </Tooltip>
+                                            )
+                                        }
+                                        if (last_run_at === 'never' && !status) {
+                                            return (
+                                                <Tooltip title="This is a view, so it is never run">
+                                                    <span className="text-secondary">N/A</span>
+                                                </Tooltip>
+                                            )
+                                        }
+                                        return humanFriendlyDetailedTime(last_run_at)
+                                    },
+                                },
+                            ]}
+                            dataSource={sourceTableItems}
+                        />
+                    </>
+                )}
+
+                {upstream && isLineageDependencyViewEnabled && (
+                    <>
+                        <div>
+                            <h3>Upstream Dependencies</h3>
+                            <p>Tables and views that this query depends on.</p>
+                        </div>
+                        <LemonTable
+                            columns={[
+                                {
+                                    key: 'name',
+                                    title: 'Name',
+                                    render: (_, { name, last_run_at }) => (
+                                        <div className="flex items-center gap-1">
+                                            {name === editingView?.name && (
+                                                <Tooltip placement="right" title="This is the currently viewed query">
+                                                    <IconLightBulb className="text-warning" />
+                                                </Tooltip>
+                                            )}
+                                            {last_run_at && (
+                                                <Tooltip placement="right" title="This view is materialized">
+                                                    <IconBolt className="text-warning" />
+                                                </Tooltip>
+                                            )}
+                                            {name}
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    key: 'type',
+                                    title: 'Type',
+                                    render: (_, { type, last_run_at }) => {
+                                        if (type === 'view') {
+                                            return last_run_at ? 'Mat. View' : 'View'
+                                        }
+                                        return 'Table'
+                                    },
+                                },
+                                {
+                                    key: 'upstream',
+                                    title: 'Direct Upstream',
+                                    render: (_, node) => {
+                                        const upstreamNodes = upstream.edges
+                                            .filter((edge) => edge.target === node.id)
+                                            .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
+                                            .filter((n): n is LineageNode => n !== undefined)
+
+                                        if (upstreamNodes.length === 0) {
+                                            return <span className="text-secondary">None</span>
+                                        }
+
+                                        return (
+                                            <div className="flex flex-wrap gap-1">
+                                                {upstreamNodes.map((upstreamNode) => (
+                                                    <LemonTag key={upstreamNode.id} type="primary">
+                                                        {upstreamNode.name}
+                                                    </LemonTag>
+                                                ))}
+                                            </div>
+                                        )
+                                    },
+                                },
+                                {
+                                    key: 'last_run_at',
+                                    title: 'Last Run At',
+                                    render: (_, { last_run_at, sync_frequency }) => {
+                                        if (!last_run_at) {
+                                            return 'On demand'
+                                        }
+                                        const numericSyncFrequency = Number(sync_frequency)
+                                        const frequencyMap: Record<string, string> = {
+                                            300: '5 mins',
+                                            1800: '30 mins',
+                                            3600: '1 hour',
+                                            21600: '6 hours',
+                                            43200: '12 hours',
+                                            86400: '24 hours',
+                                            604800: '1 week',
+                                        }
+
+                                        return `${humanFriendlyDetailedTime(last_run_at)} every ${
+                                            frequencyMap[numericSyncFrequency]
+                                        }`
+                                    },
+                                },
+                            ]}
+                            dataSource={upstream.nodes}
+                        />
+                    </>
+                )}
             </div>
         </div>
     )

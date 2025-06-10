@@ -178,7 +178,7 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
 }
 
 export function formatAggregationValue(
-    property: string | undefined,
+    property: string | undefined | null,
     propertyValue: number | null,
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction

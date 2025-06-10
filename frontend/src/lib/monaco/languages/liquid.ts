@@ -4,8 +4,7 @@ import { languages } from 'monaco-editor'
 export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^`~!@#$%^&*()\-=+[\]{}|;:'",.<>/?\s]+)/g,
     comments: {
-        lineComment: '//',
-        blockComment: ['/*', '*/'],
+        blockComment: ['{% comment %}', '{% endcomment %}'],
     },
     brackets: [
         ['{', '}'],

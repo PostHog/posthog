@@ -8,6 +8,7 @@ import IconBigQuery from 'public/services/bigquery.png'
 import IconBraze from 'public/services/braze.png'
 import IconChargebee from 'public/services/chargebee.png'
 import IconCloudflare from 'public/services/cloudflare.png'
+import IconDoIt from 'public/services/doit.svg'
 import IconGoogleSheets from 'public/services/Google_Sheets.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
@@ -94,6 +95,7 @@ export function DataWarehouseSourceIcon({
         GoogleSheets: IconGoogleSheets,
         Mongodb: IconMongodb,
         TemporalIO: IconTemporalIO,
+        DoIt: IconDoIt,
     }[type]
 
     if (disableTooltip) {

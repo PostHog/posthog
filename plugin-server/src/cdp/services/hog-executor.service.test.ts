@@ -741,9 +741,9 @@ describe('Hog Executor', () => {
             const result = executor.execute(createExampleInvocation(fn))
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
                 {
-                  "body": "{"Messages":[{"From":{"Email":"info@posthog.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
+                  "body": "{"Messages":[{"From":{"Email":"info@foobar.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
                   "headers": {
-                    "Authorization": "Basic dGVzdF9hcGlfa2V5OnRlc3Rfc2VjcmV0X2tleQ==",
+                    "Authorization": "Basic Og==",
                     "Content-Type": "application/json",
                   },
                   "method": "POST",

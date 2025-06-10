@@ -62,7 +62,7 @@ const ExportsContent = (): JSX.Element => {
 
                         return (
                             <div
-                                className="flex justify-between mt-2 gap-2 border rounded bg-white items-center"
+                                className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center"
                                 key={asset.id}
                             >
                                 <div className="flex items-center justify-between flex-auto p-2">
@@ -81,8 +81,6 @@ const ExportsContent = (): JSX.Element => {
                                             <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
                                         )}
                                     </div>
-                                    <div>{stillCalculating && <Spinner />}</div>
-                                    <div>{asset.exception && <IconWarning className="text-link" />}</div>
                                 </div>
                                 <div className="flex gap-2 mr-2">
                                     <LemonButton
@@ -106,7 +104,13 @@ const ExportsContent = (): JSX.Element => {
                                             void downloadExportedAsset(asset)
                                         }}
                                         sideIcon={
-                                            asset.has_content ? <IconDownload className="text-link" /> : undefined
+                                            stillCalculating ? (
+                                                <Spinner />
+                                            ) : asset.has_content ? (
+                                                <IconDownload className="text-link" />
+                                            ) : (
+                                                <IconWarning className="text-link" />
+                                            )
                                         }
                                     />
                                 </div>

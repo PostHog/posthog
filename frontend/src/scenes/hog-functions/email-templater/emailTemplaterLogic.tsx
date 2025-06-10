@@ -1,9 +1,10 @@
+import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
-import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
 
 import { PropertyDefinition, PropertyDefinitionType } from '~/types'
@@ -41,7 +42,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
-        cancelChanges: true,
+        closeWithConfirmation: true,
     }),
     reducers({
         emailEditorRef: [
@@ -175,9 +176,25 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             actions.setEmailTemplateValues(emailTemplateContent)
         },
 
-        cancelChanges: () => {
-            actions.resetEmailTemplate(props.value ?? undefined)
-            actions.setIsModalOpen(false)
+        closeWithConfirmation: () => {
+            if (values.emailTemplateChanged) {
+                LemonDialog.open({
+                    title: 'Discard changes',
+                    description: 'Are you sure you want to discard your changes?',
+                    primaryButton: {
+                        onClick: () => {
+                            actions.resetEmailTemplate(props.value ?? undefined)
+                            actions.setIsModalOpen(false)
+                        },
+                        children: 'Discard',
+                    },
+                    secondaryButton: {
+                        children: 'Keep editing',
+                    },
+                })
+            } else {
+                actions.setIsModalOpen(false)
+            }
         },
     })),
 

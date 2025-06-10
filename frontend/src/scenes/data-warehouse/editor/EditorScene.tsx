@@ -123,6 +123,7 @@ export function EditorScene(): JSX.Element {
                                             props={{ key: codeEditorKey, monaco, editor }}
                                         >
                                             <div
+                                                data-attr="editor-scene"
                                                 className="EditorScene w-full h-full flex flex-row overflow-hidden"
                                                 ref={ref}
                                             >

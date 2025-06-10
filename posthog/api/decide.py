@@ -12,6 +12,7 @@ from statshog.defaults.django import statsd
 from typing import Optional
 
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
+from posthog.api.error_tracking import get_suppression_rules
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -145,13 +146,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     )
 
     response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-    response["autocaptureExceptions"] = (
-        {
-            "endpoint": "/e/",
-        }
-        if team.autocapture_exceptions_opt_in
-        else False
-    )
+    response["autocaptureExceptions"] = True if team.autocapture_exceptions_opt_in else False
 
     # this not settings.DEBUG check is a lazy workaround because
     # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
@@ -182,6 +177,20 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+
+    suppression_rules = []
+    # errors mean the database is unavailable, no-op in this case
+    if team.autocapture_exceptions_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                suppression_rules = get_suppression_rules(team)
+        except Exception:
+            pass
+
+    response["errorTracking"] = {
+        "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
+        "suppressionRules": suppression_rules,
+    }
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case

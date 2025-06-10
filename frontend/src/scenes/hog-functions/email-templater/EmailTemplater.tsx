@@ -1,5 +1,5 @@
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { BindLogic, props, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -106,20 +106,25 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
 }
 
 function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady } = useValues(emailTemplaterLogic)
-    const { cancelChanges, submitEmailTemplate } = useActions(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, emailTemplateChanged } = useValues(emailTemplaterLogic)
+    const { closeWithConfirmation, submitEmailTemplate } = useActions(emailTemplaterLogic)
 
     return (
-        <LemonModal isOpen={isModalOpen} width="90vw" onClose={() => cancelChanges()}>
+        <LemonModal
+            isOpen={isModalOpen}
+            width="90vw"
+            onClose={() => closeWithConfirmation()}
+            hasUnsavedInput={emailTemplateChanged}
+        >
             <div className="h-[80vh] flex">
                 <div className="flex flex-col flex-1">
                     <div className="shrink-0">
                         <h2>Editing email template</h2>
                     </div>
-                    <EmailTemplaterForm {...props} mode="full" />
+                    <EmailTemplaterForm mode="full" />
                     <div className="flex gap-2 items-center mt-2">
                         <div className="flex-1" />
-                        <LemonButton onClick={() => cancelChanges()}>Cancel</LemonButton>
+                        <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
                         <LemonButton
                             type="primary"
                             onClick={() => submitEmailTemplate()}

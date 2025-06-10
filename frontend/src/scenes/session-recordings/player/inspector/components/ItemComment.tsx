@@ -1,15 +1,23 @@
+import { IconInfo } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { toSentenceCase } from 'lib/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
-import { InspectorListItemComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import {
+    InspectorListItemAnnotationComment,
+    InspectorListItemComment,
+    InspectorListItemNotebookComment,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { urls } from 'scenes/urls'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment
 }
 
-export function ItemComment({ item }: ItemCommentProps): JSX.Element {
+function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
     return (
-        <div data-attr="item-comment" className="font-light w-full">
+        <div data-attr="item-notebook-comment" className="font-light w-full">
             <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
                 <div className="font-medium truncate">{item.data.comment}</div>
             </div>
@@ -17,11 +25,33 @@ export function ItemComment({ item }: ItemCommentProps): JSX.Element {
     )
 }
 
-export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
+function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+    return (
+        <div data-attr="item-annotation-comment" className="font-light w-full">
+            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
+                <div className="font-medium truncate">{item.data.content}</div>
+            </div>
+        </div>
+    )
+}
+
+function isInspectorListItemNotebookComment(x: ItemCommentProps['item']): x is InspectorListItemNotebookComment {
+    return 'comment' in x.data
+}
+
+export function ItemComment({ item }: ItemCommentProps): JSX.Element {
+    return isInspectorListItemNotebookComment(item) ? (
+        <ItemNotebookComment item={item} />
+    ) : (
+        <ItemAnnotationComment item={item} />
+    )
+}
+
+function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     return (
-        <div data-attr="item-comment" className="font-light w-full">
+        <div data-attr="item-notebook-comment" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-end">
                 <LemonButton
                     type="secondary"
@@ -42,5 +72,37 @@ export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
                 </div>
             </div>
         </div>
+    )
+}
+
+function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+    return (
+        <div data-attr="item-annotation-comment" className="font-light w-full">
+            <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
+                <Tooltip title="Annotations can be scoped to the project or organization, or to individual insights or dashboards. Project and organization scoped annotations are shown in the recording timeline.">
+                    <div className="flex flex-row items-center gap-2">
+                        <IconInfo className="text-muted text-xs" />
+                        Scope: {toSentenceCase(item.data.scope)}
+                    </div>
+                </Tooltip>
+                <LemonButton type="secondary" to={urls.annotation(item.data.id)} size="xsmall">
+                    Edit annotation
+                </LemonButton>
+            </div>
+
+            <div className="p-2 text-xs border-t">
+                <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer truncate">
+                    <div className="font-medium shrink-0">{item.data.content}</div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
+    return isInspectorListItemNotebookComment(item) ? (
+        <ItemCommentNotebookDetail item={item} />
+    ) : (
+        <ItemCommentAnnotationDetail item={item} />
     )
 }

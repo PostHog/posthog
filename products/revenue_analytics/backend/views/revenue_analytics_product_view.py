@@ -19,22 +19,23 @@ SOURCE_VIEW_SUFFIX = "product_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
+    "source_label": StringDatabaseField(name="source_label"),
     "name": StringDatabaseField(name="name"),
 }
 
 
 class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
-    @staticmethod
-    def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:
+    @classmethod
+    def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT
 
     # NOTE: Products are not supported for events
-    @staticmethod
-    def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    @classmethod
+    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
         return []
 
-    @staticmethod
-    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    @classmethod
+    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -52,11 +53,17 @@ class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
 
         product_table = cast(DataWarehouseTable, product_schema.table)
 
+        prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
+
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and
         # avoid manual interpolation of constants, leaving that to the HogQL printer
         query = ast.SelectQuery(
-            select=[ast.Field(chain=["id"]), ast.Field(chain=["name"])],
+            select=[
+                ast.Field(chain=["id"]),
+                ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
+                ast.Field(chain=["name"]),
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[product_table.name])),
         )
 
@@ -64,7 +71,7 @@ class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
             RevenueAnalyticsProductView(
                 id=str(product_table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
-                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
+                prefix=prefix,
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

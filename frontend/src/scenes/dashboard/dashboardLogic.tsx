@@ -1480,7 +1480,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         actions.setRefreshError(insight.short_id)
                                         break // Exit retry loop
                                     }
-                                    const delay = initialDelay * Math.pow(2, attempt - 1) // Exponential backoff
+                                    const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
                                     await wait(delay)
                                     continue // Retry
                                 }
@@ -1741,9 +1741,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
-            const { currentTeamId } = values
+            const { currentTeamId, featureFlags } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                if (featureFlags[FEATURE_FLAGS.DASHBOARD_SYNC_INSIGHT_LOADING]) {
+                    await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
+                } else {
+                    await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                }
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
