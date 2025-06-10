@@ -1,15 +1,22 @@
 import { IconInfo } from '@posthog/icons'
-import { useActions } from 'kea'
+import { BuiltLogic, useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toSentenceCase } from 'lib/utils'
+import { useState } from 'react'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import {
     InspectorListItemAnnotationComment,
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { urls } from 'scenes/urls'
+import {
+    playerCommentOverlayLogic,
+    RecordingAnnotationForm,
+} from 'scenes/session-recordings/player/playerFrameCommentOverlayLogic'
+import { playerCommentOverlayLogicType } from 'scenes/session-recordings/player/playerFrameCommentOverlayLogicType'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment
@@ -76,6 +83,8 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
 }
 
 function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
+    const [startingEdit, setStartingEdit] = useState(false)
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
@@ -85,7 +94,52 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                         Scope: {toSentenceCase(item.data.scope)}
                     </div>
                 </Tooltip>
-                <LemonButton type="secondary" to={urls.annotation(item.data.id)} size="xsmall">
+                <LemonButton
+                    type="secondary"
+                    loading={startingEdit}
+                    onClick={() => {
+                        void (async () => {
+                            // relying on the click here to set the player timestamp
+                            // so this shouldn't swallow the click
+                            setStartingEdit(true)
+                            setIsCommenting(true)
+
+                            // and we need a short wait until the logic is mounted after calling setIsCommenting
+                            const waitForLogic =
+                                async (): Promise<BuiltLogic<playerCommentOverlayLogicType> | null> => {
+                                    for (let attempts = 0; attempts < 5; attempts++) {
+                                        const theMountedLogic = playerCommentOverlayLogic.findMounted()
+                                        if (theMountedLogic) {
+                                            return theMountedLogic
+                                        }
+                                        await new Promise((resolve) => setTimeout(resolve, 100))
+                                    }
+                                    return null
+                                }
+
+                            const theMountedLogic = await waitForLogic()
+
+                            if (theMountedLogic) {
+                                const annotationEditPayload: RecordingAnnotationForm = {
+                                    annotationId: item.data.id,
+                                    scope: item.data.scope,
+                                    content: item.data.content ?? '',
+                                    dateForTimestamp: item.data.date_marker,
+                                    recordingId: item.data.recording_id ?? null,
+                                    timeInRecording: null,
+                                    timestampInRecording: item.timeInRecording,
+                                }
+                                theMountedLogic.actions.editAnnotation(annotationEditPayload)
+                            } else {
+                                lemonToast.error(
+                                    'Could not start editing annotation 😓, please refresh the page and try again.'
+                                )
+                            }
+                            setStartingEdit(false)
+                        })()
+                    }}
+                    size="xsmall"
+                >
                     Edit annotation
                 </LemonButton>
             </div>

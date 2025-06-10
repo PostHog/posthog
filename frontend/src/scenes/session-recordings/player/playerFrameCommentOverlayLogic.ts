@@ -1,4 +1,4 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -14,14 +14,14 @@ import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '.
 export interface RecordingAnnotationForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
     // this is a string because we want to be able to display the time in the recording
-    timeInRecording: string
+    timeInRecording: string | null
     // number of seconds into recording
     timestampInRecording?: number | null
     // the date that the timeInRecording represents
     dateForTimestamp?: Dayjs | null
     content: string
     scope: AnnotationScope
-    recordingId: number | null
+    recordingId: string | null
     annotationId: AnnotationType['id'] | null
 }
 
@@ -36,6 +36,9 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
         actions: [annotationsModel, ['appendAnnotations', 'replaceAnnotation']],
     })),
+    actions({
+        editAnnotation: (annotation: RecordingAnnotationForm) => ({ annotation }),
+    }),
     selectors({
         timestampUnits: [
             (s) => [s.sessionPlayerData],
@@ -59,6 +62,15 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             actions.setRecordingAnnotationValue('dateForTimestamp', dayjs(values.currentTimestamp))
         },
     })),
+    listeners(({ actions }) => ({
+        editAnnotation: ({ annotation }) => {
+            actions.setRecordingAnnotationValue('content', annotation.content)
+            actions.setRecordingAnnotationValue('scope', annotation.scope)
+            actions.setRecordingAnnotationValue('recordingId', annotation.recordingId)
+            actions.setRecordingAnnotationValue('annotationId', annotation.annotationId)
+            // opening to edit also sets the player timestamp, which will update the timestamps in the form
+        },
+    })),
     forms(({ props, values, actions }) => ({
         recordingAnnotation: {
             defaults: {
@@ -78,7 +90,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     : 'Invalid scope.',
             }),
             submit: async (data) => {
-                const { content, scope, dateForTimestamp } = data
+                const { annotationId, content, scope, dateForTimestamp } = data
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -91,17 +103,13 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     recording_id: scope === AnnotationScope.Recording ? props.recordingId : null,
                 }
 
-                // if (values.existingModalAnnotation) {
-                //     const updatedAnnotation = await api.annotations.update(
-                //         values.existingModalAnnotation.id,
-                //         apiPayload
-                //     )
-                //     actions.replaceAnnotation(updatedAnnotation)
-                // } else {
-                const createdAnnotation = await api.annotations.create(apiPayload)
-
-                actions.appendAnnotations([createdAnnotation])
-                // }
+                if (annotationId) {
+                    const updatedAnnotation = await api.annotations.update(annotationId, apiPayload)
+                    actions.replaceAnnotation(updatedAnnotation)
+                } else {
+                    const createdAnnotation = await api.annotations.create(apiPayload)
+                    actions.appendAnnotations([createdAnnotation])
+                }
 
                 actions.resetRecordingAnnotation()
                 // how to indicate to user that the annotation was created or edited?

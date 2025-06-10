@@ -16,9 +16,10 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
         sessionPlayerData: { sessionRecordingId },
         logicProps,
     } = useValues(sessionRecordingPlayerLogic)
-    const { submitRecordingAnnotation } = useActions(
-        playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
-    )
+
+    const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
+    const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
+    const { submitRecordingAnnotation } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
         <div className="absolute bottom-4 left-4 z-20 w-60">
@@ -31,8 +32,8 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     className="gap-y-2"
                 >
                     <div className="flex flex-row gap-2">
-                        <LemonField name="annotationId" className='hidden'>
-                        <input type="hidden"  />
+                        <LemonField name="annotationId" className="hidden">
+                            <input type="hidden" />
                         </LemonField>
                         <LemonField name="timeInRecording" label={<span>Comment at</span>} className="flex-1">
                             <LemonInput disabled={true} />
@@ -71,8 +72,9 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             onClick={submitRecordingAnnotation}
                             data-attr="create-recording-annotation-submit"
                             size="small"
+                            loading={isRecordingAnnotationSubmitting}
                         >
-                            Create
+                            {recordingAnnotation.annotationId ? 'Update' : 'Save'}
                         </LemonButton>
                     </div>
                 </Form>
