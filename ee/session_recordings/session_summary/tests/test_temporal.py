@@ -2,9 +2,13 @@ from collections.abc import AsyncGenerator
 import dataclasses
 import json
 from collections.abc import Callable
+from typing import Any
+from collections.abc import Generator
 import pytest
 import uuid
 from unittest.mock import MagicMock, patch
+
+from pytest_mock import MockerFixture
 from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryData
 from posthog.temporal.ai.session_summary.summarize_session import (
     execute_summarize_session,
@@ -21,6 +25,8 @@ from posthog.temporal.ai.session_summary import WORKFLOWS, ACTIVITIES
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 from posthog import constants
 from unittest.mock import AsyncMock
+from temporalio.exceptions import ApplicationError
+from temporalio.client import WorkflowFailureError
 
 
 def _create_chunk(content: str) -> ChatCompletionChunk:
@@ -80,34 +86,34 @@ def session_summary_inputs(
     return _create_inputs
 
 
+class RedisTestContext:
+    def __init__(self):
+        self.redis_client = get_client()
+        self.keys_to_cleanup = []
+
+    def setup_input_data(self, input_key: str, output_key: str, input_data: SessionSummaryInputs):
+        """Set up Redis input data and track keys for cleanup."""
+        self.redis_client.setex(
+            input_key,
+            900,  # 15 minutes TTL
+            json.dumps(
+                {
+                    "input_data": dataclasses.asdict(input_data),
+                    "output_key": output_key,
+                }
+            ),
+        )
+        self.keys_to_cleanup.extend([input_key, output_key])
+
+    def cleanup(self):
+        """Clean up all tracked Redis keys."""
+        for key in self.keys_to_cleanup:
+            self.redis_client.delete(key)
+
+
 @pytest.fixture
-def redis_test_setup():
+def redis_test_setup() -> Generator[RedisTestContext, None, None]:
     """Context manager for Redis test setup and cleanup."""
-
-    class RedisTestContext:
-        def __init__(self):
-            self.redis_client = get_client()
-            self.keys_to_cleanup = []
-
-        def setup_input_data(self, input_key: str, output_key: str, input_data: SessionSummaryInputs):
-            """Set up Redis input data and track keys for cleanup."""
-            self.redis_client.setex(
-                input_key,
-                900,  # 15 minutes TTL
-                json.dumps(
-                    {
-                        "input_data": dataclasses.asdict(input_data),
-                        "output_key": output_key,
-                    }
-                ),
-            )
-            self.keys_to_cleanup.extend([input_key, output_key])
-
-        def cleanup(self):
-            """Clean up all tracked Redis keys."""
-            for key in self.keys_to_cleanup:
-                self.redis_client.delete(key)
-
     context = RedisTestContext()
     try:
         yield context
@@ -119,11 +125,11 @@ class TestStreamLlmSummaryActivity:
     @pytest.mark.asyncio
     async def test_stream_llm_summary_activity_standalone(
         self,
-        mocker,
-        mock_enriched_llm_json_response,
-        mock_stream_llm,
-        session_summary_inputs,
-        redis_test_setup,
+        mocker: Generator[MockerFixture, None, None],
+        mock_enriched_llm_json_response: dict[str, Any],
+        mock_stream_llm: Callable,
+        session_summary_inputs: Callable,
+        redis_test_setup: Generator[RedisTestContext, None, None],
     ):
         # Prepare Redis data
         session_id = "test_session_id"
@@ -158,11 +164,11 @@ class TestStreamLlmSummaryActivity:
 class TestSummarizeSessionWorkflow:
     def test_execute_summarize_session(
         self,
-        mock_enriched_llm_json_response,
-        mock_user,
-        mock_team,
-        session_summary_inputs,
-        redis_test_setup,
+        mock_enriched_llm_json_response: dict[str, Any],
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        session_summary_inputs: Callable,
+        redis_test_setup: Generator[RedisTestContext, None, None],
     ):
         # Prepare input data
         session_id = "test_session_id"
@@ -250,20 +256,24 @@ class TestSummarizeSessionWorkflow:
             assert mock_workflow_handle.describe.call_count == 3
             assert mock_workflow_handle.result.call_count == 1
 
+    # TODO: Add test that would force workflow to fail and restart
     @pytest.mark.asyncio
     async def test_summarize_session_workflow(
         self,
-        mocker,
-        mock_enriched_llm_json_response,
-        mock_stream_llm,
-        session_summary_inputs,
-        redis_test_setup,
+        mocker: Generator[MockerFixture, None, None],
+        mock_enriched_llm_json_response: dict[str, Any],
+        mock_stream_llm: Callable,
+        session_summary_inputs: Callable,
+        redis_test_setup: Generator[RedisTestContext, None, None],
     ):
         # Prepare test data
         session_id = "test_workflow_session_id"
         input_data = session_summary_inputs(session_id)
         redis_input_key = f"test_workflow_input_key_{uuid.uuid4()}"
         redis_output_key = f"test_workflow_output_key_{uuid.uuid4()}"
+        # Set up spies to track Redis operations
+        spy_get = mocker.spy(redis_test_setup.redis_client, "get")
+        spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         # Store input data in Redis
         redis_test_setup.setup_input_data(redis_input_key, redis_output_key, input_data)
         expected_final_summary = serialize_to_sse_event(
@@ -290,3 +300,122 @@ class TestSummarizeSessionWorkflow:
                     )
                     # Verify the workflow returns the expected result
                     assert result == expected_final_summary
+                    # Verify Redis operations count
+                    assert spy_get.call_count == 1  # Get input data
+                    # Initial setup and number of valid chunks (unparseable chunks are skipped)
+                    assert spy_setex.call_count == 1 + 8
+
+    @pytest.mark.asyncio
+    async def test_summarize_session_workflow_with_activity_retry(
+        self,
+        mock_enriched_llm_json_response: dict[str, Any],
+        mock_stream_llm: Callable,
+        session_summary_inputs: Callable,
+        redis_test_setup: Generator[RedisTestContext, None, None],
+    ):
+        """Test that the workflow retries when stream_llm_summary_activity fails initially, but succeeds eventually."""
+        # Prepare test data
+        session_id = "test_retry_workflow_session_id"
+        input_data = session_summary_inputs(session_id)
+        redis_input_key = f"test_retry_workflow_input_key_{uuid.uuid4()}"
+        redis_output_key = f"test_retry_workflow_output_key_{uuid.uuid4()}"
+        # Store input data in Redis
+        redis_test_setup.setup_input_data(redis_input_key, redis_output_key, input_data)
+        expected_final_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
+        )
+        # Track Redis get calls to simulate failure on first attempt
+        redis_get_call_count = 0
+        original_get = redis_test_setup.redis_client.get
+
+        def mock_redis_get_with_failure(key):
+            nonlocal redis_get_call_count
+            redis_get_call_count += 1
+            if redis_get_call_count in (1, 2):
+                # First two calls fail with a retryable exception
+                raise ApplicationError("Simulated stream_llm_session_summary failure", non_retryable=False)
+            else:
+                # Subsequent calls succeed - return actual data
+                return original_get(key)
+
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ) as worker:
+                with (
+                    patch(
+                        "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
+                    ),
+                    patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure),
+                ):
+                    # Wait for workflow to complete and get result
+                    workflow_id = f"test_retry_workflow_{uuid.uuid4()}"
+                    result = await activity_environment.client.execute_workflow(
+                        SummarizeSessionWorkflow.run,
+                        redis_input_key,
+                        id=workflow_id,
+                        task_queue=worker.task_queue,
+                    )
+
+                    # Verify the workflow eventually succeeds after retry
+                    assert result == expected_final_summary
+                    # Verify that Redis get was called at least three times (first two failures + success)
+                    assert redis_get_call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_summarize_session_workflow_exceeds_retries(
+        self,
+        mock_stream_llm: Callable,
+        session_summary_inputs: Callable,
+        redis_test_setup: Generator[RedisTestContext, None, None],
+    ):
+        """Test that the workflow retries when stream_llm_summary_activity and fails, as it exceeds the retries limit."""
+        # Prepare test data
+        session_id = "test_retry_workflow_session_id"
+        input_data = session_summary_inputs(session_id)
+        redis_input_key = f"test_retry_workflow_input_key_{uuid.uuid4()}"
+        redis_output_key = f"test_retry_workflow_output_key_{uuid.uuid4()}"
+        # Store input data in Redis
+        redis_test_setup.setup_input_data(redis_input_key, redis_output_key, input_data)
+        # Track Redis get calls to simulate failure on first attempt
+        redis_get_call_count = 0
+        original_get = redis_test_setup.redis_client.get
+
+        def mock_redis_get_with_failure(key):
+            nonlocal redis_get_call_count
+            redis_get_call_count += 1
+            # Retries limit is 3, so failing 3 times should lead to workflow failure
+            if redis_get_call_count in (1, 2, 3):
+                # First two calls fail with a retryable exception
+                raise ApplicationError("Simulated stream_llm_session_summary failure", non_retryable=False)
+            else:
+                # Subsequent calls succeed - return actual data
+                return original_get(key)
+
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ) as worker:
+                with (
+                    patch(
+                        "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
+                    ),
+                    patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure),
+                ):
+                    # Wait for workflow to complete and get result
+                    workflow_id = f"test_retry_workflow_{uuid.uuid4()}"
+                    with pytest.raises(WorkflowFailureError):
+                        await activity_environment.client.execute_workflow(
+                            SummarizeSessionWorkflow.run,
+                            redis_input_key,
+                            id=workflow_id,
+                            task_queue=worker.task_queue,
+                        )
