@@ -149,6 +149,7 @@ const selectedItemHasPopover = (
 ): boolean => {
     return (
         // NB: also update "renderItemContents" above
+        TaxonomicFilterGroupType.EventMetadata,
         (!!item &&
             !!group?.getValue?.(item) &&
             !!listGroupType &&
@@ -163,6 +164,7 @@ const selectedItemHasPopover = (
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.EventMetadata,
+                TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                 TaxonomicFilterGroupType.NumericalEventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
                 TaxonomicFilterGroupType.Cohorts,
@@ -171,9 +173,9 @@ const selectedItemHasPopover = (
                 TaxonomicFilterGroupType.SessionProperties,
             ].includes(listGroupType) ||
                 listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))) ||
-        (!!item &&
-            listGroupType === TaxonomicFilterGroupType.MaxAIContext &&
-            (item as MaxContextOption).value === 'current_page')
+            (!!item &&
+                listGroupType === TaxonomicFilterGroupType.MaxAIContext &&
+                (item as MaxContextOption).value === 'current_page')
     )
 }
 

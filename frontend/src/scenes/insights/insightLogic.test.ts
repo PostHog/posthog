@@ -813,13 +813,13 @@ describe('insightLogic', () => {
 
             // Verify that addOrUpdateActiveInsight was called with the correct parameters
             expect(mockAddOrUpdateActiveInsight).toHaveBeenCalledWith(
-                logic.key,
                 expect.objectContaining({
                     id: 42,
                     short_id: Insight42,
                     name: 'Test Insight',
                     query: { kind: NodeKind.DataTableNode },
-                })
+                }),
+                false
             )
         })
 

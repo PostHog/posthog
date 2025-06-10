@@ -65,7 +65,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, metricResults, getInsightType } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyMetricResults, getInsightType } = useValues(experimentLogic({ experimentId }))
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -75,7 +75,7 @@ export function VariantTag({
         )
     }
 
-    if (!metricResults) {
+    if (!legacyMetricResults) {
         return <></>
     }
 
@@ -87,7 +87,11 @@ export function VariantTag({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         backgroundColor: getExperimentInsightColour(
-                            getIndexForVariant(metricResults[0], variantKey, getInsightType(experiment.metrics[0]))
+                            getIndexForVariant(
+                                legacyMetricResults[0],
+                                variantKey,
+                                getInsightType(experiment.metrics[0])
+                            )
                         ),
                     }}
                 />
@@ -210,9 +214,9 @@ export function ExploreButton({
 }
 
 export function ResultsHeader(): JSX.Element {
-    const { metricResults } = useValues(experimentLogic)
+    const { legacyMetricResults } = useValues(experimentLogic)
 
-    const result = metricResults?.[0]
+    const result = legacyMetricResults?.[0]
 
     return (
         <div className="flex">

@@ -196,12 +196,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             if (generationAttempt === 0) {
-                actions.addMessage({
+                const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: prompt,
                     status: 'completed',
-                    ui_context: values.compiledContext,
-                } as ThreadMessage)
+                }
+                if (values.compiledContext) {
+                    message.ui_context = values.compiledContext
+                }
+                actions.addMessage(message)
             }
 
             try {
@@ -328,7 +331,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                         if (e.status === 400 && e.data?.attr === 'content') {
                             relevantErrorMessage.content =
-                                'Oops! Your message is too long. Ensure it has no more than 6000 characters.'
+                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
                         }
                     } else {
                         posthog.captureException(e)

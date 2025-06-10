@@ -125,6 +125,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
+        isVirtual,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -272,6 +273,22 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                         }
                                     >
                                         {hasSentAsLabel}
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
+                {isVirtual ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Virtual"
+                                value={
+                                    <span className="text-xs">
+                                        Virtual properties are computed from other properties, and are not sent
+                                        directly.
                                     </span>
                                 }
                             />

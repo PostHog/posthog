@@ -145,6 +145,7 @@ export enum TaxonomicFilterGroupType {
     Logs = 'logs',
     // Misc
     Replay = 'replay',
+    RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     // Max AI Context
     MaxAIContext = 'max_ai_context',

@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { humanFriendlyNumber, range } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -61,7 +61,7 @@ export function RevenueAnalyticsOverviewNode(props: {
 }
 
 const ItemCell = ({ item }: { item?: RevenueAnalyticsOverviewItem }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const {
         dateFilter: { dateFrom, dateTo },
     } = useValues(revenueAnalyticsLogic)
@@ -92,12 +92,12 @@ const ItemCell = ({ item }: { item?: RevenueAnalyticsOverviewItem }): JSX.Elemen
     )
 }
 
-const formatItem = (item: RevenueAnalyticsOverviewItem, currency?: CurrencyCode): string => {
+const formatItem = (item: RevenueAnalyticsOverviewItem, currency: CurrencyCode): string => {
     if (item.key === 'paying_customer_count') {
         return item.value.toLocaleString()
     }
 
-    const { symbol, isPrefix } = getCurrencySymbol(currency ?? CurrencyCode.USD)
+    const { symbol, isPrefix } = getCurrencySymbol(currency)
     return `${isPrefix ? symbol : ''}${humanFriendlyNumber(item.value, 2, 2)}${isPrefix ? '' : ' ' + symbol}`
 }
 

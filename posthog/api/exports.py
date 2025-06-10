@@ -61,7 +61,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return data
 
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
-        return self._create_asset(self.validated_data, user=None, reason=reason)
+        # force_async here to avoid blocking patches to the /sharing endpoint
+        return self._create_asset(self.validated_data, user=None, reason=reason, force_async=True)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
@@ -72,6 +73,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         validated_data: dict,
         user: User | None,
         reason: str | None,
+        force_async: bool = False,
     ) -> ExportedAsset:
         if user is not None:
             validated_data["created_by"] = user
@@ -103,7 +105,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
-        if blocking_exports:
+        if blocking_exports and not force_async:
             exporter.export_asset(instance.id)
         else:
             exporter.export_asset.delay(instance.id)

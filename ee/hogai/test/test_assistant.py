@@ -5,6 +5,9 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from azure.ai.inference import EmbeddingsClient
+from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
+from azure.core.credentials import AzureKeyCredential
 from django.test import override_settings
 from langchain_core import messages
 from langchain_core.agents import AgentAction
@@ -17,7 +20,7 @@ from pydantic import BaseModel
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts
+from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
@@ -44,7 +47,6 @@ from posthog.schema import (
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
 
-from ee.hogai.graph.memory import prompts as onboarding_prompts
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
 
@@ -66,6 +68,28 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             initial_text="Initial memory.",
             scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
         )
+
+        # Azure embeddings mocks
+        self.azure_client_mock = patch(
+            "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
+            return_value=EmbeddingsClient(
+                endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
+            ),
+        ).start()
+        self.embed_query_mock = patch(
+            "azure.ai.inference.EmbeddingsClient.embed",
+            return_value=EmbeddingsResult(
+                id="test",
+                model="test",
+                usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
+                data=[],
+            ),
+        ).start()
+
+    def tearDown(self):
+        self.azure_client_mock.stop()
+        self.embed_query_mock.stop()
+        super().tearDown()
 
     def _set_up_onboarding_tests(self):
         self.core_memory.delete()

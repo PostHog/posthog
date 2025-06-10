@@ -1,7 +1,7 @@
-use crate::{api::errors::FlagError, config::TeamIdsToTrack};
+use crate::{api::errors::FlagError, config::TeamIdCollection};
 
 pub fn team_id_label_filter(
-    team_ids_to_track: TeamIdsToTrack,
+    team_ids_to_track: TeamIdCollection,
 ) -> impl Fn(&[(String, String)]) -> Vec<(String, String)> {
     move |labels: &[(String, String)]| {
         labels
@@ -11,8 +11,9 @@ pub fn team_id_label_filter(
                     match value.parse::<i32>() {
                         Ok(team_id) => {
                             let filtered_value = match &team_ids_to_track {
-                                TeamIdsToTrack::All => value.clone(),
-                                TeamIdsToTrack::TeamIds(ids) => {
+                                TeamIdCollection::All => value.clone(),
+                                TeamIdCollection::None => "none".to_string(),
+                                TeamIdCollection::TeamIds(ids) => {
                                     if ids.contains(&team_id) {
                                         value.clone()
                                     } else {
@@ -62,7 +63,7 @@ pub fn parse_exception_for_prometheus_label(err: &FlagError) -> &'static str {
 #[cfg(test)]
 #[test]
 fn test_all_team_ids_pass_through() {
-    let filter = team_id_label_filter(TeamIdsToTrack::All);
+    let filter = team_id_label_filter(TeamIdCollection::All);
 
     let labels = vec![
         ("env".to_string(), "production".to_string()),
@@ -77,7 +78,7 @@ fn test_all_team_ids_pass_through() {
 
 #[test]
 fn test_specific_team_id_matches() {
-    let filter = team_id_label_filter(TeamIdsToTrack::TeamIds(vec![123]));
+    let filter = team_id_label_filter(TeamIdCollection::TeamIds(vec![123]));
 
     let labels = vec![
         ("env".to_string(), "production".to_string()),
@@ -92,7 +93,7 @@ fn test_specific_team_id_matches() {
 
 #[test]
 fn test_specific_team_id_does_not_match() {
-    let filter = team_id_label_filter(TeamIdsToTrack::TeamIds(vec![456]));
+    let filter = team_id_label_filter(TeamIdCollection::TeamIds(vec![456]));
 
     let labels = vec![
         ("env".to_string(), "production".to_string()),
@@ -113,7 +114,7 @@ fn test_specific_team_id_does_not_match() {
 
 #[test]
 fn test_invalid_team_id_value() {
-    let filter = team_id_label_filter(TeamIdsToTrack::TeamIds(vec![123]));
+    let filter = team_id_label_filter(TeamIdCollection::TeamIds(vec![123]));
 
     let labels = vec![
         ("env".to_string(), "production".to_string()),
@@ -134,7 +135,7 @@ fn test_invalid_team_id_value() {
 
 #[test]
 fn test_missing_team_id_label() {
-    let filter = team_id_label_filter(TeamIdsToTrack::TeamIds(vec![123]));
+    let filter = team_id_label_filter(TeamIdCollection::TeamIds(vec![123]));
 
     let labels = vec![
         ("env".to_string(), "production".to_string()),
@@ -148,7 +149,7 @@ fn test_missing_team_id_label() {
 
 #[test]
 fn test_multiple_team_ids() {
-    let filter = team_id_label_filter(TeamIdsToTrack::TeamIds(vec![123, 456]));
+    let filter = team_id_label_filter(TeamIdCollection::TeamIds(vec![123, 456]));
 
     let labels = vec![
         ("env".to_string(), "staging".to_string()),

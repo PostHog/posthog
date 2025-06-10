@@ -19,6 +19,8 @@ use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
 
+use crate::metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT;
+
 pub mod api;
 pub mod app_context;
 pub mod config;
@@ -42,6 +44,8 @@ pub async fn update_consumer_loop(
         let batch_time = common_metrics::timing_guard(BATCH_ACQUIRE_TIME, &[]);
         while batch.len() < config.update_batch_size {
             context.worker_liveness.report_healthy().await;
+
+            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT).set(channel.len() as f64);
 
             let remaining_capacity = config.update_batch_size - batch.len();
             // We race these two, so we can escape this loop and do a small batch if we've been waiting too long

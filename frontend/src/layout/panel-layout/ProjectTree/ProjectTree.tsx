@@ -32,17 +32,19 @@ import { RefObject, useEffect, useRef, useState } from 'react'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { DashboardsMenu } from './menus/DashboardsMenu'
-import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
-import { SessionReplayMenu } from './menus/SessionReplayMenu'
+import { BrowserLikeMenuItems } from './menus/BrowserLikeMenuItems'
+import { ProductAnalyticsMenuItems } from './menus/ProductAnalyticsMenuItems'
+import { SessionReplayMenuItems } from './menus/SessionReplayMenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
+import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -123,6 +125,7 @@ export function ProjectTree({
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const showFilterDropdown = root === 'project://'
+    const showSortDropdown = root === 'project://'
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -166,14 +169,20 @@ export function ProjectTree({
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
-                <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
-            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
                 <>
-                    <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <ProductAnalyticsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
             ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
-                <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                <>
+                    <SessionReplayMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
+            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
+                <>
+                    <DashboardsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
             ) : null
 
         return (
@@ -191,33 +200,13 @@ export function ProjectTree({
                         >
                             <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                         </MenuItem>
-
                         <MenuSeparator />
                     </>
                 ) : null}
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <>
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                window.open(item.record?.href, '_blank')
-                            }}
-                            data-attr="tree-item-menu-open-link-button"
-                        >
-                            <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
-                        </MenuItem>
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                void navigator.clipboard.writeText(document.location.origin + item.record?.href)
-                            }}
-                            data-attr="tree-item-menu-copy-link-button"
-                        >
-                            <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
-                        </MenuItem>
+                        <BrowserLikeMenuItems href={item.record?.href} MenuItem={MenuItem} />
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -248,7 +237,6 @@ export function ProjectTree({
                                 Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
                             </ButtonPrimitive>
                         </MenuItem>
-
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -267,7 +255,6 @@ export function ProjectTree({
                                 <NewMenu type={type} item={item} createFolder={createFolder} />
                             </MenuSubContent>
                         </MenuSub>
-
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -712,15 +699,18 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
+            searchField={
+                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                </BindLogic>
+            }
             filterDropdown={
                 showFilterDropdown ? (
                     <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 ) : null
             }
-            searchField={
-                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
-                </BindLogic>
+            sortDropdown={
+                showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
             panelActions={
                 root === 'project://' ? (
@@ -792,29 +782,6 @@ export function ProjectTree({
                 <>
                     <div role="status" aria-live="polite" className="sr-only">
                         Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
-                    </div>
-
-                    <div className="flex gap-1 items-center p-1 border-b border-tertiary">
-                        <ButtonPrimitive
-                            variant="default"
-                            size="sm"
-                            onClick={() => setSortMethod('folder')}
-                            aria-label="Sort by alphabetical order"
-                            tooltip="Sort by alphabetical order"
-                            className={cn('border-transparent', { 'text-accent': sortMethod === 'folder' })}
-                        >
-                            Alphabetical
-                        </ButtonPrimitive>
-                        <ButtonPrimitive
-                            variant="default"
-                            size="sm"
-                            onClick={() => setSortMethod('recent')}
-                            aria-label="Sort by creation date"
-                            tooltip="Sort by creation date"
-                            className={cn('border-transparent', { 'text-accent': sortMethod === 'recent' })}
-                        >
-                            Recent
-                        </ButtonPrimitive>
                     </div>
                 </>
             ) : null}
