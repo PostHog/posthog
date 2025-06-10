@@ -6,7 +6,7 @@ import { logger } from '~/src/utils/logger'
 import { defaultConfig } from '../../config/config'
 import { promisifyCallback } from '../../utils/utils'
 import {
-    HogFunctionInvocation,
+    CyclotronJobInvocationHogFunction,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from '../types'
@@ -56,15 +56,18 @@ describe('FetchExecutorService', () => {
         })
     })
 
-    const createInvocation = (params: HogFunctionQueueParametersFetchRequest): HogFunctionInvocation => ({
+    const createInvocation = (params: HogFunctionQueueParametersFetchRequest): CyclotronJobInvocationHogFunction => ({
         id: 'test-id',
-        globals: {} as any,
+        state: {
+            globals: {} as any,
+            timings: [],
+        },
         teamId: 1,
+        functionId: 'test-function-id',
         hogFunction: {} as any,
         queue: 'fetch',
         queueParameters: params,
         queuePriority: 0,
-        timings: [],
     })
 
     it('completes successful fetch', async () => {

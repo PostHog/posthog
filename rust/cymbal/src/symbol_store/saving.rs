@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 
 use sha2::{Digest, Sha512};
 use sqlx::PgPool;
@@ -41,6 +41,7 @@ pub struct SymbolSetRecord {
     pub failure_reason: Option<String>,
     pub created_at: DateTime<Utc>,
     pub content_hash: Option<String>,
+    pub last_used: Option<DateTime<Utc>>,
 }
 
 // This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer
@@ -92,6 +93,7 @@ impl<F> Saving<F> {
             failure_reason: None,
             created_at: Utc::now(),
             content_hash: Some(format!("{:x}", content_hasher.finalize())),
+            last_used: Some(Utc::now()),
         };
 
         self.s3_client.put(&self.bucket, &key, data).await?;
@@ -135,6 +137,7 @@ impl<F> Saving<F> {
             failure_reason: Some(serde_json::to_string(&reason)?),
             created_at: Utc::now(),
             content_hash: None,
+            last_used: Some(Utc::now()),
         }
         .save(&self.pool)
         .await?;
@@ -254,26 +257,57 @@ where
 }
 
 impl SymbolSetRecord {
-    pub async fn load<'c, E>(
-        e: E,
+    pub async fn load(
+        pool: &sqlx::PgPool,
         team_id: i32,
         set_ref: &str,
-    ) -> Result<Option<Self>, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        let record = sqlx::query_as!(
+    ) -> Result<Option<Self>, UnhandledError> {
+        let mut record = sqlx::query_as!(
             SymbolSetRecord,
-            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash
+            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash, last_used
             FROM posthog_errortrackingsymbolset
             WHERE team_id = $1 AND ref = $2"#,
             team_id,
             set_ref
         )
-        .fetch_optional(e)
+        .fetch_optional(pool)
         .await?;
 
+        if let Some(r) = &mut record {
+            r.set_last_used(pool).await?;
+        }
+
         Ok(record)
+    }
+
+    // Set the last used timestamp. This isn't used anywhere in cymbal right now, but is
+    // used by retention cleanup jobs to determine which symbol sets are still in use.
+    async fn set_last_used<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        // If the elapsed time is less than 12 hours, do nothing
+        if self
+            .last_used
+            .map(|l| Utc::now() - l < Duration::hours(12))
+            .unwrap_or_default()
+        {
+            return Ok(());
+        }
+
+        let now = Utc::now();
+
+        sqlx::query!(
+            r#"UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1"#,
+            self.id,
+            now
+        )
+        .execute(e)
+        .await?;
+
+        self.last_used = Some(now);
+
+        Ok(())
     }
 
     // Save the current record to the database. If the record already exists, it will be updated

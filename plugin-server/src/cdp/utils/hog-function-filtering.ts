@@ -5,12 +5,7 @@ import { Histogram } from 'prom-client'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
-import {
-    HogFunctionAppMetric,
-    HogFunctionFilterGlobals,
-    HogFunctionInvocationLogEntry,
-    HogFunctionType,
-} from '../types'
+import { HogFlow, HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -20,35 +15,35 @@ const hogFunctionFilterDuration = new Histogram({
     labelNames: ['type'],
 })
 
-interface HogFunctionFilterResult {
+interface HogFilterResult {
     match: boolean
     error?: unknown
-    logs: HogFunctionInvocationLogEntry[]
-    metrics: HogFunctionAppMetric[]
+    logs: LogEntry[]
+    metrics: MinimalAppMetric[]
 }
 
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
  */
-export function checkHogFunctionFilters(options: {
-    hogFunction: HogFunctionType
+export function filterFunctionInstrumented(options: {
+    fn: HogFunctionType | HogFlow
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
-    filters?: HogFunctionType['filters']
+    filters: HogFunctionType['filters']
     /** Whether to enable telemetry for this function at the hogvm level */
     enabledTelemetry?: boolean
     /** The event UUID to use for logging */
     eventUuid?: string
-}): HogFunctionFilterResult {
-    const { hogFunction, filterGlobals, enabledTelemetry, eventUuid } = options
-    const filters = options.filters ?? hogFunction.filters
+}): HogFilterResult {
+    const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
+    const type = 'type' in fn ? fn.type : 'hogflow'
     const start = performance.now()
-    const logs: HogFunctionInvocationLogEntry[] = []
-    const metrics: HogFunctionAppMetric[] = []
+    const logs: LogEntry[] = []
+    const metrics: MinimalAppMetric[] = []
 
     let execResult: ExecResult | undefined
-    const result: HogFunctionFilterResult = {
+    const result: HogFilterResult = {
         match: false,
         logs,
         metrics,
@@ -73,8 +68,8 @@ export function checkHogFunctionFilters(options: {
 
         if (!result.match) {
             metrics.push({
-                team_id: hogFunction.team_id,
-                app_source_id: hogFunction.id,
+                team_id: fn.team_id,
+                app_source_id: fn.id,
                 metric_kind: 'other',
                 metric_name: 'filtered',
                 count: 1,
@@ -82,16 +77,16 @@ export function checkHogFunctionFilters(options: {
         }
     } catch (error) {
         logger.error('🦔', `[HogFunction] Error filtering function`, {
-            hogFunctionId: hogFunction.id,
-            hogFunctionName: hogFunction.name,
-            teamId: hogFunction.team_id,
+            functionId: fn.id,
+            functionName: fn.name,
+            teamId: fn.team_id,
             error: error.message,
             result: execResult,
         })
 
         metrics.push({
-            team_id: hogFunction.team_id,
-            app_source_id: hogFunction.id,
+            team_id: fn.team_id,
+            app_source_id: fn.id,
             metric_kind: 'other',
             metric_name: 'filtering_failed',
             count: 1,
@@ -99,9 +94,9 @@ export function checkHogFunctionFilters(options: {
 
         if (eventUuid) {
             logs.push({
-                team_id: hogFunction.team_id,
+                team_id: fn.team_id,
                 log_source: 'hog_function',
-                log_source_id: hogFunction.id,
+                log_source_id: fn.id,
                 instance_id: new UUIDT().toString(),
                 timestamp: DateTime.now(),
                 level: 'error',
@@ -115,13 +110,13 @@ export function checkHogFunctionFilters(options: {
         // Re-using the constant from hog-executor.service.ts
         const DEFAULT_TIMEOUT_MS = 100
 
-        hogFunctionFilterDuration.observe({ type: hogFunction.type }, duration)
+        hogFunctionFilterDuration.observe({ type }, duration)
 
         if (duration > DEFAULT_TIMEOUT_MS) {
             logger.error('🦔', `[HogFunction] Filter took longer than expected`, {
-                hogFunctionId: hogFunction.id,
-                hogFunctionName: hogFunction.name,
-                teamId: hogFunction.team_id,
+                functionId: fn.id,
+                functionName: fn.name,
+                teamId: fn.team_id,
                 duration,
                 eventId: options?.eventUuid,
             })

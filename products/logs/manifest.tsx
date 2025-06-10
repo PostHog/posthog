@@ -24,9 +24,11 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Logs',
+            category: 'Tools',
             iconType: 'live',
             href: urls.logs(),
             flag: FEATURE_FLAGS.LOGS,
+            tags: ['alpha'],
         },
     ],
 }

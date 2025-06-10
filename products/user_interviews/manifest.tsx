@@ -1,4 +1,5 @@
 import { IconChat } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -29,18 +30,22 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         user_interview: {
+            name: 'User interview',
             icon: <IconChat />,
             href: (ref: string) => urls.userInterview(ref),
+            iconColor: ['var(--product-user-interviews-light)'],
+            filterKey: 'user_interview',
+            flag: FEATURE_FLAGS.USER_INTERVIEWS,
         },
     },
     treeItemsProducts: [
         {
             path: 'User interviews',
+            category: 'Behavior',
             href: urls.userInterviews(),
             type: 'user_interview',
+            flag: FEATURE_FLAGS.USER_INTERVIEWS,
+            tags: ['alpha'],
         },
     ],
-    fileSystemFilterTypes: {
-        user_interview: { name: 'User interviews' },
-    },
 }

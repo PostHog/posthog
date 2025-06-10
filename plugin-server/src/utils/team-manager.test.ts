@@ -57,7 +57,7 @@ describe('TeamManager()', () => {
                   "anonymize_ips": false,
                   "api_token": "THIS IS NOT A TOKEN FOR TEAM 2",
                   "available_features": [],
-                  "cookieless_server_hash_mode": null,
+                  "cookieless_server_hash_mode": 2,
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,

@@ -412,19 +412,7 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
             "toDateTime64",
             "toTimeZone",
             "assumeNotNull",
-            "toIntervalYear",
-            "toIntervalMonth",
-            "toIntervalWeek",
-            "toIntervalDay",
-            "toIntervalHour",
-            "toIntervalMinute",
-            "toIntervalSecond",
-            "toStartOfDay",
-            "toStartOfWeek",
-            "toStartOfMonth",
-            "toStartOfQuarter",
-            "toStartOfYear",
-        ]:
+        ] or any(node.name.startswith(prefix) for prefix in ["toInterval", "toStartOf"]):
             return self.visit(node.args[0])
 
         if node.name in ["minus", "add"]:

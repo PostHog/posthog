@@ -23,6 +23,10 @@ import type { newDestinationsLogicType } from './newDestinationsLogicType'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
+export const getDestinationDocPath = (url: string): string => {
+    return url.split('/').pop()?.replace('hog-', '') || ''
+}
+
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     props({} as PipelineDestinationsLogicProps),

@@ -3,6 +3,7 @@ import json
 
 from django.test import TestCase
 from django.test.client import RequestFactory
+from unittest.mock import patch
 
 from posthog.api.csp import (
     process_csp_report,
@@ -451,3 +452,126 @@ class TestCSPModule(TestCase):
             else:
                 # Non-empty document_url should use it for sampling
                 assert result1 == sample_on_property(case["document_url"], rate)
+
+    def test_process_csp_report_with_sampling_out(self):
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+
+        # Test with 0% sampling rate (should be sampled out)
+        result = sample_csp_report(properties, 0.0, True)
+        assert not result
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_invalid_content_type(self, mock_logger):
+        """Test that invalid content type is logged"""
+        request = self.factory.post(
+            "/report/",
+            data='{"test": "data"}',
+            content_type="application/json",  # Invalid content type
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is None
+        mock_logger.warning.assert_called_once_with(
+            "CSP report skipped - invalid content type",
+            content_type="application/json",
+            expected_types=["application/csp-report", "application/reports+json"],
+        )
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_sampling_out_report_uri(self, mock_logger):
+        """Test that sampling out is logged for report-uri format"""
+        csp_data = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        request = self.factory.post(
+            "/report/?sample_rate=0.0",  # 0% sampling rate
+            data=json.dumps(csp_data),
+            content_type="application/csp-report",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is None
+        mock_logger.warning.assert_called_with(
+            "CSP report sampled out - report-uri format",
+            document_url="https://example.com/foo/bar",
+            sample_rate=0.0,
+        )
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_sampling_out_report_to(self, mock_logger):
+        """Test that sampling out is logged for report-to format"""
+        report_to_data = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/foo/bar",
+                    "effectiveDirective": "script-src",
+                },
+            }
+        ]
+
+        request = self.factory.post(
+            "/report/?sample_rate=0.0",  # 0% sampling rate
+            data=json.dumps(report_to_data),
+            content_type="application/reports+json",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is None
+        mock_logger.warning.assert_called_with(
+            "CSP report sampled out - report-to format",
+            total_violations=1,
+            sample_rate=0.0,
+        )
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_json_decode_error(self, mock_logger):
+        """Test that JSON decode errors are logged as exceptions"""
+        request = self.factory.post(
+            "/report/",
+            data="invalid json",
+            content_type="application/csp-report",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is not None  # Should return error response
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "Invalid CSP report JSON format"
+        assert "error" in call_args[1]
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_value_error(self, mock_logger):
+        """Test that value errors are logged as exceptions"""
+        # Create invalid CSP data that will trigger ValueError
+        invalid_data = {"invalid": "data"}
+
+        request = self.factory.post(
+            "/report/",
+            data=json.dumps(invalid_data),
+            content_type="application/csp-report",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is not None  # Should return error response
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "Invalid CSP report properties"
+        assert "error" in call_args[1]

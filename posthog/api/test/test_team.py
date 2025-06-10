@@ -1733,6 +1733,7 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
         completed_snippet_onboarding=True,
         is_demo=True,
         timezone=timezone,
+        base_currency="USD",
     )
 
 

@@ -10,13 +10,14 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { RevenueEventsSettings } from 'products/revenue_analytics/frontend/settings/RevenueEventsSettings'
+import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
@@ -34,7 +35,9 @@ export enum DataManagementTab {
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
+    MarketingAnalytics = 'marketing-analytics',
 }
+
 const tabs: Record<
     DataManagementTab,
     {
@@ -113,7 +116,7 @@ const tabs: Record<
                 </LemonTag>
             </>
         ),
-        content: <RevenueEventsSettings />,
+        content: <RevenueAnalyticsSettings />,
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
@@ -121,6 +124,19 @@ const tabs: Record<
         content: <IngestionWarningsView />,
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
+    },
+    [DataManagementTab.MarketingAnalytics]: {
+        url: urls.marketingAnalytics(),
+        label: (
+            <>
+                Marketing{' '}
+                <LemonTag type="warning" size="small" className="ml-2">
+                    BETA
+                </LemonTag>
+            </>
+        ),
+        content: <MarketingAnalyticsSettings />,
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
 }
 
@@ -178,7 +194,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 // otherwise we can't use a url with parameters as a landing page
                 return
             }
-            return tabUrl
+            return [tabUrl, router.values.searchParams, router.values.hashParams]
         },
     })),
     urlToAction(({ actions, values }) => {
@@ -198,6 +214,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
 export function DataManagementScene(): JSX.Element {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
     const { setTab } = useActions(dataManagementSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const lemonTabs: LemonTab<DataManagementTab>[] = enabledTabs.map((key) => ({
         key: key as DataManagementTab,
@@ -205,6 +222,17 @@ export function DataManagementScene(): JSX.Element {
         content: tabs[key].content,
         tooltipDocLink: tabs[key].tooltipDocLink,
     }))
+
+    if (featureFlags[FEATURE_FLAGS.TREE_VIEW] || featureFlags[FEATURE_FLAGS.TREE_VIEW_RELEASE]) {
+        if (enabledTabs.includes(tab)) {
+            return (
+                <>
+                    <PageHeader buttons={<>{tabs[tab].buttons}</>} />
+                    {tabs[tab].content}
+                </>
+            )
+        }
+    }
 
     return (
         <>

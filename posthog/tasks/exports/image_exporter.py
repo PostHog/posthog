@@ -1,5 +1,7 @@
 import json
 import os
+import tempfile
+import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
@@ -56,6 +58,18 @@ def get_driver() -> webdriver.Chrome:
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
+
+    # Create a unique prefix for the temporary directory
+    pid = os.getpid()
+    timestamp = int(time.time() * 1000)
+    unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
+
+    # Use TemporaryDirectory which will automatically clean up when the context manager exits
+    temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
+    options.add_argument(f"--user-data-dir={temp_dir.name}")
+
+    # Necessary to let the nobody user run chromium
+    os.environ["HOME"] = temp_dir.name
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
@@ -166,14 +180,16 @@ def _screenshot_asset(
                 capture_exception()
 
         # Get the height of the visualization container specifically
-        height = driver.execute_script("""
+        height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # For example funnels use a table that can get very wide, so try to get its width
         width = driver.execute_script(
@@ -196,14 +212,16 @@ def _screenshot_asset(
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
         # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script("""
+        final_height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)

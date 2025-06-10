@@ -24,8 +24,9 @@ use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
     utils::{
-        decode_base64, decode_form, extract_compression, extract_lib_version, is_likely_base64,
-        is_likely_urlencoded_form, uuid_v7, Base64Option, FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
+        decode_base64, decode_form, extract_and_verify_token, extract_compression,
+        extract_lib_version, is_likely_base64, is_likely_urlencoded_form, uuid_v7, Base64Option,
+        FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
     v0_request::{EventFormData, EventQuery},
 };
@@ -102,7 +103,7 @@ async fn handle_legacy(
         );
     }
 
-    warn!("entering handle_legacy");
+    debug!("entering handle_legacy");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -111,8 +112,9 @@ async fn handle_legacy(
     } else if !body.is_empty() {
         body
     } else {
+        let err = CaptureError::EmptyPayload;
         error!("missing payload on {:?} request", method);
-        return Err(CaptureError::EmptyPayload);
+        return Err(err);
     };
 
     // first round of processing: is this byte payload entirely base64 encoded?
@@ -152,9 +154,10 @@ async fn handle_legacy(
                     form_data = form_data_snippet,
                     "expected form data in {} request payload", *method
                 );
-                return Err(CaptureError::RequestDecodingError(String::from(
+                let err = CaptureError::RequestDecodingError(String::from(
                     "expected form data in request payload",
-                )));
+                ));
+                return Err(err);
             }
         }
 
@@ -172,7 +175,7 @@ async fn handle_legacy(
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
-    warn!("payload processed: passing to RawRequest::from_bytes");
+    debug!("payload processed: passing to RawRequest::from_bytes");
 
     // if the "data" attribute is populated in the form, process it.
     // otherwise, pass the (possibly decoded) byte payload
@@ -182,30 +185,42 @@ async fn handle_legacy(
         compression,
         request_id,
         state.event_size_limit,
-        state.is_mirror_deploy,
+        path.as_str().to_string(),
     )?;
 
     let sent_at = request.sent_at().or(query_params.sent_at());
-    let token = match request.extract_and_verify_token() {
-        Ok(token) => token,
-        Err(err) => {
-            report_dropped_events("token_shape_invalid", request.events().len() as u64);
-            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
-            return Err(err);
-        }
-    };
-    Span::current().record("token", &token);
-
     let historical_migration = request.historical_migration();
     Span::current().record("historical_migration", historical_migration);
 
-    let events = request.events(); // Takes ownership of request
+    // if this was a batch request, retrieve this now for later validation
+    let maybe_batch_token = request.get_batch_token();
+
+    // consumes the parent request, so it's no longer in scope to extract metadata from
+    let events = match request.events(path.as_str()) {
+        Ok(events) => events,
+        Err(e) => {
+            // at the moment, the only way this can fail on RequestParsingError is
+            // when an unnamed event (no "event" attrib) is submitted to an
+            // endpoint other than /engage, or the whole payload is malformed
+            error!("event hydration from request failed: {}", e);
+            return Err(e);
+        }
+    };
     Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
         warn!("rejected empty batch");
-        return Err(CaptureError::EmptyBatch);
+        let err = CaptureError::EmptyBatch;
+        return Err(err);
     }
+
+    let token = match extract_and_verify_token(&events, maybe_batch_token) {
+        Ok(token) => token,
+        Err(err) => {
+            return Err(err);
+        }
+    };
+    Span::current().record("token", &token);
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
@@ -216,7 +231,8 @@ async fn handle_legacy(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
-        is_mirror_deploy: true, // TODO(eli): temporary, can remove after migration
+        path: path.as_str().to_string(),
+        is_mirror_deploy: false,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
@@ -231,7 +247,7 @@ async fn handle_legacy(
         return Err(CaptureError::BillingLimit);
     }
 
-    warn!(context=?context,
+    debug!(context=?context,
         event_count=?events.len(),
         "handle_legacy: successfully hydrated events");
     Ok((context, events))
@@ -309,7 +325,7 @@ async fn handle_common(
                 Compression::Unsupported,
                 request_id,
                 state.event_size_limit,
-                state.is_mirror_deploy,
+                path.as_str().to_string(),
             )
         }
         ct => {
@@ -320,31 +336,43 @@ async fn handle_common(
                 Compression::Unsupported,
                 request_id,
                 state.event_size_limit,
-                state.is_mirror_deploy,
+                path.as_str().to_string(),
             )
         }
     }?;
 
     let sent_at = request.sent_at().or(meta.sent_at());
-    let token = match request.extract_and_verify_token() {
-        Ok(token) => token,
-        Err(err) => {
-            report_dropped_events("token_shape_invalid", request.events().len() as u64);
-            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
-            return Err(err);
+    let historical_migration = request.historical_migration();
+    Span::current().record("historical_migration", historical_migration);
+
+    // if this was a batch request, retrieve this now for later validation
+    let maybe_batch_token = request.get_batch_token();
+
+    // consumes the parent request, so it's no longer in scope to extract metadata from
+    let events = match request.events(path.as_str()) {
+        Ok(events) => events,
+        Err(e) => {
+            // at the moment, the only way this can fail on RequestParsingError is
+            // when an unnamed event (no "event" attrib) is submitted to an
+            // endpoint other than /engage, or the whole payload is malformed
+            error!("event hydration from request failed: {}", e);
+            return Err(e);
         }
     };
-    let historical_migration = request.historical_migration();
-    let events = request.events(); // Takes ownership of request
-
-    Span::current().record("token", &token);
-    Span::current().record("historical_migration", historical_migration);
     Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
         warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
+
+    let token = match extract_and_verify_token(&events, maybe_batch_token) {
+        Ok(token) => token,
+        Err(err) => {
+            return Err(err);
+        }
+    };
+    Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);
 
@@ -355,7 +383,8 @@ async fn handle_common(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
-        is_mirror_deploy: false, // TODO(eli): temporary, can remove after migration
+        path: path.as_str().to_string(),
+        is_mirror_deploy: false,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
@@ -508,7 +537,7 @@ pub async fn event(
                 };
                 report_dropped_events(cause, events.len() as u64);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                tracing::log::warn!("rejected invalid payload: {}", err);
+                warn!("rejected invalid payload: {}", err);
                 return Err(err);
             }
 
@@ -700,14 +729,10 @@ pub async fn process_events<'a>(
         }
     });
 
-    if context.is_mirror_deploy {
-        warn!(
-            event_count = events.len(),
-            "process_event: batch successful"
-        )
-    }
-    // TODO(eli): post-migration, land on something appropriately chatty (this is too much!)
-    debug!(events=?events, "processed {} events", events.len());
+    debug!(
+        event_count = events.len(),
+        "process_event: batch successful"
+    );
 
     if events.len() == 1 {
         sink.send(events[0].clone()).await

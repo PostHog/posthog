@@ -18,6 +18,9 @@ from posthog.schema import (
     WebOverviewQuery,
 )
 from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
@@ -59,7 +62,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             assert response.results
 
             return response
-        except Exception:
+        except Exception as e:
+            logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
     def calculate(self) -> WebOverviewQueryResponse:
@@ -198,7 +202,7 @@ HAVING {inside_start_timestamp_period}
                 parsed_select.select.append(
                     ast.Alias(
                         alias="session_revenue",
-                        expr=revenue_sum_expression_for_events(self.team.revenue_analytics_config),
+                        expr=revenue_sum_expression_for_events(self.team),
                     )
                 )
 

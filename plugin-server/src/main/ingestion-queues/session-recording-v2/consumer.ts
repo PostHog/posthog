@@ -1,15 +1,15 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/src/kafka/producer'
-import { PostgresRouter } from '~/src/utils/db/postgres'
-
 import { buildIntegerMatcher } from '../../../config/config'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { logger as logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
 import {
@@ -21,7 +21,6 @@ import {
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
-import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
@@ -309,7 +308,7 @@ export class SessionRecordingIngester {
 
         void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
 
-        const promiseResults = await this.promiseScheduler.waitForAll()
+        const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 

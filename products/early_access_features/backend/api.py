@@ -1,5 +1,6 @@
 from django.http import JsonResponse
 from rest_framework.response import Response
+import structlog
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
@@ -22,6 +23,8 @@ from posthog.utils_cors import cors_response
 from typing import Any
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.api.shared import UserBasicSerializer
+
+logger = structlog.get_logger(__name__)
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -69,7 +72,21 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
+        logger.info(
+            f"[EARLY ACCESS FEATURE] Updating early access feature stage for feature preview",
+            instance_id=instance.id,
+            instance_name=instance.name,
+            previous_stage=instance.stage,
+            new_stage=stage,
+        )
         if instance.stage != stage:
+            logger.info(
+                "[EARLY ACCESS FEATURE] Scheduling celery task to send events",
+                instance_id=instance.id,
+                previous_stage=instance.stage,
+                new_stage=stage,
+            )
+
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:

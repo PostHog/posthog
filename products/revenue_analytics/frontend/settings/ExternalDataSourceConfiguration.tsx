@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
@@ -16,8 +16,8 @@ export function ExternalDataSourceConfiguration({
 }: {
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { dataWarehouseSources } = useValues(revenueEventsSettingsLogic)
-    const { updateSource } = useActions(revenueEventsSettingsLogic)
+    const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
+    const { updateSource } = useActions(revenueAnalyticsSettingsLogic)
 
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
@@ -82,7 +82,9 @@ export function ExternalDataSourceConfiguration({
                                 ref={buttonRef}
                                 type="primary"
                                 onClick={() => {
-                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { kind: 'stripe' }))
+                                    router.actions.push(
+                                        urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' })
+                                    )
                                 }}
                             >
                                 Add new source

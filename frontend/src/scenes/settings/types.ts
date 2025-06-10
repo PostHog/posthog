@@ -31,6 +31,7 @@ export type SettingSectionId =
     | 'environment-role-based-access-control'
     | 'environment-danger-zone'
     | 'environment-max'
+    | 'environment-marketing-analytics'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -83,6 +84,8 @@ export type SettingId =
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
@@ -123,6 +126,7 @@ export type SettingId =
     | 'session-join-mode'
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
+    | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'session-table-version'
@@ -137,6 +141,8 @@ export type SettingId =
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
+    | 'marketing-analytics-external-data-sources'
+    | 'base-currency'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

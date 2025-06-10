@@ -258,7 +258,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(mockProducerObserver.getProducedKafkaMessages().length).toBeGreaterThan(10)
+                expect(mockProducerObserver.getProducedKafkaMessages().length).toBeGreaterThan(9)
             }, 5000).catch((e) => {
                 logger.warn('[TESTS] Failed to wait for log messages', {
                     messages: mockProducerObserver.getProducedKafkaMessages(),

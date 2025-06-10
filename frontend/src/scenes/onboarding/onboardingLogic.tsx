@@ -231,12 +231,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
-        hasIngestedEvent: [
-            (s) => [s.currentTeam],
-            (currentTeam) => {
-                return currentTeam?.ingested_event
-            },
-        ],
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {

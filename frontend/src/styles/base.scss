@@ -321,6 +321,32 @@
     --primitive-posthog-brand-yellow-saturation: 94%;
     --primitive-posthog-brand-yellow-lightness: 57%;
 
+    // Product specific colors
+    --product-data-pipeline-light: rgb(46 162 211);
+    --product-product-analytics-light: rgb(47 128 250);
+    --product-messaging-light: rgb(47 128 250);
+    --product-web-analytics-light: rgb(52 175 102);
+    --product-web-analytics-dark: rgb(54 196 111); // original color
+    --product-session-replay-light: rgb(235 162 18);
+    --product-session-replay-dark: rgb(247 165 1);
+    --product-heatmaps-light: rgb(220 152 16);
+    --product-heatmaps-dark: rgb(247 165 1);
+    --product-logs-light: rgb(214 37 123);
+    --product-feature-flags-light: rgb(48 171 198);
+    --product-experiments-light: rgb(182 42 217);
+    --product-error-tracking-light: rgb(211 148 24);
+    --product-error-tracking-dark: rgb(247 165 1);
+    --product-surveys-light: rgb(243 84 84);
+    --product-data-warehouse-light: rgb(133 103 255);
+    --product-max-ai-light: rgb(182 42 217);
+    --product-links-light: rgb(143 7 255);
+    --product-revenue-analytics-light: rgb(52 175 102);
+    --product-revenue-analytics-dark: rgb(54 196 111);
+    --product-user-interviews-light: rgb(0 140 255);
+    --product-dashboards-light: rgb(255 139 7);
+    --product-early-access-features-light: rgb(39 171 151);
+    --product-early-access-features-dark: rgb(53 213 189);
+
     // Generic brand color assignments
     // Change these to change the brand colors
     // //////////////////////////////////////////////////////////
@@ -593,13 +619,13 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-resizer: 761;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
     --z-layout-navbar-under: 755;
     --z-main-nav: 750;
+    --z-resizer: 701;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
     --z-mobile-nav-overlay: 600;
@@ -1577,7 +1603,7 @@
         overflow: hidden;
         color: var(--text-primary);
         background-color: var(--bg-surface-primary);
-        border: 1px solid var(--border-secondary);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius-md);
         box-shadow: var(--shadow-elevation-3000);
     }

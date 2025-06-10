@@ -20,7 +20,7 @@ pub async fn internal_redirect_url(
 ) -> impl IntoResponse {
     let redirect_service = InternalRedirectService::new(
         state.db_reader_client.clone(),
-        state.internal_redis_client.clone(),
+        state.internal_link_cache.clone(),
     );
     match redirect_service.redirect_url(&short_code, &hostname).await {
         Ok(redirect_url) => {
@@ -48,7 +48,7 @@ pub async fn external_redirect_url(
     let host = lowcase_host.strip_prefix("www.").unwrap_or(&lowcase_host);
 
     let redirect_service = ExternalRedirectService::new(
-        state.external_redis_client.clone(),
+        state.external_link_cache.clone(),
         state.default_domain_for_public_store.clone(),
     );
 
@@ -95,7 +95,7 @@ pub async fn external_store_url(
 ) -> impl IntoResponse {
     let short_string = generate_base62_string();
     let redirect_service = ExternalRedirectService::new(
-        state.external_redis_client.clone(),
+        state.external_link_cache.clone(),
         state.default_domain_for_public_store.clone(),
     );
 

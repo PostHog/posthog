@@ -110,7 +110,7 @@ def validate_schema_and_update_table_sync(
 
     # Check
     try:
-        logger.info(f"Row count for {_schema_name} ({_schema_id}) are {row_count}")
+        logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
 
         table_params = {
             "credential": credential,

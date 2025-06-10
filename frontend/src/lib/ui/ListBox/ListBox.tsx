@@ -53,13 +53,24 @@ export const ListBox = ({
     function recalculateFocusableElements(): void {
         focusableElements.current = Array.from(
             containerRef.current?.querySelectorAll<HTMLElement>('[data-listbox-item]') || []
-        ).filter((el) => !(el.hidden || window.getComputedStyle(el).display === 'none'))
+        ).filter(
+            (el) =>
+                !(el.hidden || window.getComputedStyle(el).display === 'none') &&
+                el.getAttribute('aria-disabled') !== 'true' &&
+                el.getAttribute('data-virtual-focus-ignore') !== 'true'
+        )
     }
 
     /** Handle Arrow navigation */
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        // Only handle keyboard navigation if the ListBox or one of its children has focus
+        if (!containerRef.current?.contains(document.activeElement)) {
+            return
+        }
+
         recalculateFocusableElements()
         const elements = focusableElements.current
+
         if (!elements.length) {
             return
         }
@@ -78,21 +89,16 @@ export const ListBox = ({
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
             nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
-            if (virtualFocus) {
-                setVirtualFocusedElement(elements[nextIndex])
-                elements[nextIndex]?.setAttribute('data-focused', 'true')
-            } else {
-                elements[nextIndex]?.focus()
-            }
         } else if (e.key === 'Home' || e.key === 'End') {
             e.preventDefault()
             nextIndex = e.key === 'Home' ? 0 : elements.length - 1
-            if (virtualFocus) {
-                setVirtualFocusedElement(elements[nextIndex])
-                elements[nextIndex]?.setAttribute('data-focused', 'true')
-            } else {
-                elements[nextIndex]?.focus()
-            }
+        }
+
+        if (virtualFocus) {
+            setVirtualFocusedElement(elements[nextIndex])
+            elements[nextIndex]?.setAttribute('data-focused', 'true')
+        } else {
+            elements[nextIndex]?.focus()
         }
 
         if (e.key === 'Enter') {
@@ -138,10 +144,11 @@ ListBox.displayName = 'ListBox'
 interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
     children: ReactNode
     asChild?: boolean
+    virtualFocusIgnore?: boolean
 }
 
 ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    ({ children, asChild, onClick, ...props }, ref): JSX.Element => {
+    ({ children, asChild, onClick, virtualFocusIgnore, ...props }, ref): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -184,6 +191,7 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
             onFocus: handleFocus,
             onBlur: handleBlur,
             ref,
+            ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
             ...props,
         }
 

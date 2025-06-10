@@ -35,6 +35,8 @@ pub enum CaptureError {
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(String),
+    #[error("failed to hydrate events from request: {0}")]
+    RequestHydrationError(String),
 
     #[error("request holds no event")]
     EmptyBatch,
@@ -87,6 +89,7 @@ impl CaptureError {
         match self {
             CaptureError::RequestDecodingError(_) => "req_decoding",
             CaptureError::RequestParsingError(_) => "req_parsing",
+            CaptureError::RequestHydrationError(_) => "req_hydration",
             CaptureError::EmptyBatch => "empty_batch",
             CaptureError::EmptyPayload => "empty_payload",
             CaptureError::MissingEventName => "no_event_name",
@@ -113,6 +116,7 @@ impl IntoResponse for CaptureError {
         match self {
             CaptureError::RequestDecodingError(_)
             | CaptureError::RequestParsingError(_)
+            | CaptureError::RequestHydrationError(_)
             | CaptureError::EmptyBatch
             | CaptureError::EmptyPayload
             | CaptureError::MissingEventName

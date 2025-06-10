@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from dateutil import parser
+from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
@@ -142,6 +143,31 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.all_values()[4], parser.isoparse("2021-08-24T23:34:00.000000Z"))
         self.assertEqual(query_date_range.all_values()[5], parser.isoparse("2021-08-24T23:44:00.000000Z"))
         self.assertEqual(query_date_range.all_values()[6], parser.isoparse("2021-08-24T23:54:00.000000Z"))
+
+    def test_explicit_timezone(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="-1d", date_to=None, explicitDate=False)
+        self.team.timezone = "Europe/Berlin"
+
+        query_date_range = QueryDateRange(
+            team=self.team, date_range=date_range, interval=IntervalType.MINUTE, interval_count=10, now=now
+        )
+        query_date_range_utc = QueryDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.MINUTE,
+            interval_count=10,
+            now=now,
+            timezone_info=ZoneInfo("UTC"),
+        )
+
+        # the tz shouldn't affect the actual time, should both be equal
+        date_to = query_date_range.date_to()
+        date_to_utc = query_date_range_utc.date_to()
+        self.assertEqual(date_to, date_to_utc)
+        assert date_to.tzinfo != date_to_utc.tzinfo
+        self.assertEqual(date_to.tzinfo, ZoneInfo("Europe/Berlin"))
+        self.assertEqual(date_to_utc.tzinfo, ZoneInfo("UTC"))
 
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):

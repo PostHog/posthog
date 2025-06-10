@@ -28,7 +28,7 @@ export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
     ...SEARCHABLE_EXCEPTION_PROPERTIES,
 ]
 
-const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
+const volumePeriods: 'volumeRange'[] = ['volumeRange']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
@@ -55,7 +55,9 @@ export const mergeIssues = (
         volumePeriods.forEach((period) => {
             const volume = aggregations[period]
             if (volume) {
-                const mergingVolumes = mergingIssues.map((issue) => issue.aggregations?.[period]).filter((v) => !!v)
+                const mergingVolumes: number[][] = mergingIssues
+                    .map((issue) => (issue.aggregations ? issue.aggregations[period] : undefined))
+                    .filter((volume) => volume != undefined) as number[][]
                 aggregations[period] = sumVolumes(...mergingVolumes, volume)
             }
         })

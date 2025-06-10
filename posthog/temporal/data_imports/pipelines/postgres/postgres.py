@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import math
 from collections.abc import Iterator
 from typing import Any, LiteralString, Optional, cast
@@ -18,13 +19,70 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    QueryTimeout,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.warehouse.models import IncrementalFieldType
-from posthog.warehouse.types import PartitionSettings
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+
+@config.config
+class PostgreSQLSourceConfig(config.Config):
+    host: str
+    user: str
+    password: str
+    database: str
+    schema: str
+    port: int = config.value(converter=int)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+def get_schemas(config: PostgreSQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    """Get all tables from PostgreSQL source schemas to sync."""
+
+    def inner(postgres_host: str, postgres_port: int):
+        connection = psycopg.connect(
+            host=postgres_host,
+            port=postgres_port,
+            dbname=config.database,
+            user=config.user,
+            password=config.password,
+            sslmode="prefer",
+            connect_timeout=5,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = collections.defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+
+        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            if tunnel is None:
+                raise ConnectionError("Can't open tunnel to SSH server")
+
+            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return inner(config.host, config.port)
 
 
 class JsonAsStringLoader(Loader):
@@ -116,9 +174,36 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
     return None
 
 
-def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> int:
+def _has_duplicate_primary_keys(
+    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None
+) -> bool:
+    if not primary_keys or len(primary_keys) == 0:
+        return False
+
+    try:
+        sql_query = cast(
+            LiteralString,
+            f"""
+            SELECT {", ".join(["{}" for _ in primary_keys])}
+            FROM {{}}.{{}}
+            GROUP BY {", ".join([str(i + 1) for i, _ in enumerate(primary_keys)])}
+            HAVING COUNT(*) > 1
+            LIMIT 1
+        """,
+        )
+        query = sql.SQL(sql_query).format(
+            *[sql.Identifier(key) for key in primary_keys], sql.Identifier(schema), sql.Identifier(table_name)
+        )
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        return row is not None
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
+def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
             SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
@@ -146,6 +231,32 @@ def _get_table_chunk_size(
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
+
+
+def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+    try:
+        query = sql.SQL("""
+            SELECT COUNT(t.*) FROM ({}) as t
+        """).format(inner_query)
+
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
 
 
 def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
@@ -335,7 +446,7 @@ def postgres_source(
         sslkey="/tmp/no.txt",
     ) as connection:
         with connection.cursor() as cursor:
-            inner_query = _build_query(
+            inner_query_with_limit = _build_query(
                 schema,
                 table_name,
                 is_incremental,
@@ -345,14 +456,39 @@ def postgres_source(
                 add_limit=True,
             )
 
-            primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table = _get_table(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
-            partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+            inner_query_without_limit = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+            cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                )
+            )
+            try:
+                primary_keys = _get_primary_keys(cursor, schema, table_name)
+                table = _get_table(cursor, schema, table_name)
+                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+                has_duplicate_primary_keys = False
 
-            # Fallback on checking for an `id` field on the table
-            if primary_keys is None and "id" in table:
-                primary_keys = ["id"]
+                # Fallback on checking for an `id` field on the table
+                if primary_keys is None and "id" in table:
+                    primary_keys = ["id"]
+                    has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
+            except psycopg.errors.QueryCanceled:
+                if is_incremental:
+                    raise QueryTimeout(
+                        f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+                    )
+                raise
+            except Exception:
+                raise
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
@@ -409,4 +545,6 @@ def postgres_source(
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
+        rows_to_sync=rows_to_sync,
+        has_duplicate_primary_keys=has_duplicate_primary_keys,
     )

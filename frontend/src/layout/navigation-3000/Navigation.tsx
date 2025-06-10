@@ -55,7 +55,14 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.TREE_VIEW}
+                fallback={
+                    <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_RELEASE} fallback={<Navbar />}>
+                        <PanelLayout mainRef={mainRef} />
+                    </FlaggedFeature>
+                }
+            >
                 <PanelLayout mainRef={mainRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>

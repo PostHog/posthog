@@ -1,4 +1,4 @@
-import { IconTestTube } from '@posthog/icons'
+import { IconFlask } from '@posthog/icons'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -11,19 +11,27 @@ export const manifest: ProductManifest = {
     urls: {
         experiment: (
             id: string | number,
+            formMode?: string | null,
             options?: {
                 metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
                 name?: string
             }
-        ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
+        ): string => {
+            const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
+            return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+        },
         experiments: (): string => '/experiments',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
-        experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
+        experimentsSharedMetric: (id: string | number, action?: string): string =>
+            action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     },
     fileSystemTypes: {
         experiment: {
-            icon: <IconTestTube />,
+            name: 'Experiment',
+            icon: <IconFlask />,
             href: (ref: string) => urls.experiment(ref),
+            iconColor: ['var(--product-experiments-light)'],
+            filterKey: 'experiment',
         },
     },
     treeItemsNew: [
@@ -36,11 +44,9 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Experiments`,
+            category: 'Features',
             type: 'experiment',
             href: urls.experiments(),
         },
     ],
-    fileSystemFilterTypes: {
-        experiment: { name: 'Experiments' },
-    },
 }

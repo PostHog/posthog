@@ -1,6 +1,7 @@
 import { IconInfo, IconTrash } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,11 +10,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
-import { CurrencyDropdown } from './CurrencyDropdown'
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
-    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueEventsSettingsLogic)
+    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueAnalyticsSettingsLogic)
     const {
         addEvent,
         deleteEvent,
@@ -21,7 +21,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
         updateEventRevenueCurrencyProperty,
         updateEventCurrencyAwareDecimalProperty,
         save,
-    } = useActions(revenueEventsSettingsLogic)
+    } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>
@@ -79,7 +79,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                             groupType={TaxonomicFilterGroupType.EventProperties}
                                             onChange={(newPropertyName) =>
                                                 updateEventRevenueCurrencyProperty(item.eventName, {
-                                                    property: newPropertyName!,
+                                                    property: newPropertyName,
                                                 })
                                             }
                                             value={item.revenueCurrencyProperty.property ?? null}

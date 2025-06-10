@@ -18,7 +18,6 @@ class FileSystem(models.Model):
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
     depth = models.IntegerField(null=True, blank=True)
@@ -29,6 +28,9 @@ class FileSystem(models.Model):
     meta = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    # DEPRECATED/UNUSED. It's all based on just the team_id.
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
 
     class Meta:
         indexes = [

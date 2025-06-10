@@ -106,6 +106,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
+    if modifiers.convertToProjectTimezone is None:
+        modifiers.convertToProjectTimezone = True
+
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
     if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.AUTO:

@@ -370,6 +370,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }
             },
         ],
+
+        sampleGlobalsLoadingAndNotCancelled: [
+            (s) => [s.sampleGlobalsLoading, s.fetchCancelled],
+            (sampleGlobalsLoading, fetchCancelled) => sampleGlobalsLoading && !fetchCancelled,
+        ],
     })),
 
     afterMount(({ actions, values }) => {

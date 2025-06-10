@@ -313,7 +313,7 @@ export function cleanFilters(
             show_mean: filters.show_mean,
             ...(filters.mean_retention_calculation && filters.mean_retention_calculation !== RETENTION_MEAN_NONE
                 ? { mean_retention_calculation: filters.mean_retention_calculation }
-                : {}),
+                : { mean_retention_calculation: 'simple' }),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined

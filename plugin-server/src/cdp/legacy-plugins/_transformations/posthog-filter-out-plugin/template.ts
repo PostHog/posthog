@@ -6,7 +6,7 @@ export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'stable',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-posthog-filter-out-plugin',
         name: 'Filter Out Plugin',

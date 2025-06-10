@@ -2,10 +2,12 @@ pub mod api;
 pub mod cohorts;
 pub mod config;
 pub mod flags;
+pub mod handler;
 pub mod metrics;
 pub mod properties;
 pub mod router;
 pub mod server;
+pub mod site_apps;
 pub mod team;
 
 // Test modules don't need to be compiled with main binary

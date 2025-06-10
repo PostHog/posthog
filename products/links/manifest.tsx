@@ -34,8 +34,12 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         link: {
+            name: 'Link',
             icon: <IconExternal />,
             href: (ref: string) => urls.link(ref),
+            iconColor: ['var(--product-links-light)'],
+            filterKey: 'link',
+            flag: FEATURE_FLAGS.LINKS,
         },
     },
     treeItemsNew: [
@@ -49,12 +53,11 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Links',
+            category: 'Tools',
             type: 'link',
             href: urls.links(),
             flag: FEATURE_FLAGS.LINKS,
+            tags: ['alpha'],
         },
     ],
-    fileSystemFilterTypes: {
-        link: { name: 'Links', flag: FEATURE_FLAGS.LINKS },
-    },
 }

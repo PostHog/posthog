@@ -5,7 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 from posthog.hogql.escape_sql import escape_hogql_string
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-posthog-replicator",

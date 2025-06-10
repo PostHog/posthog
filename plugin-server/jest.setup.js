@@ -14,6 +14,12 @@ jest.mock('node-fetch', () => ({
     default: jest.fn(),
 }))
 
+jest.mock('undici', () => ({
+    __esModule: true,
+    ...jest.requireActual('undici'), // Only mock fetch(), leave Request, Response, FetchError, etc. alone
+    fetch: jest.spyOn(jest.requireActual('undici'), 'fetch'),
+}))
+
 beforeEach(() => {
     jest.spyOn(logger, 'info')
     jest.spyOn(logger, 'warn')

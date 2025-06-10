@@ -1,5 +1,9 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
+import api from 'lib/api'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+
+import { splitProtocolPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import type { pinnedFolderLogicType } from './pinnedFolderLogicType'
 
@@ -11,10 +15,25 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
         setPinnedFolder: (id: string) => ({ id }),
         setSelectedFolder: (id: string) => ({ id }),
     }),
-    reducers(() => ({
+    lazyLoaders(() => ({
         pinnedFolder: [
-            'products://',
-            { persist: true, prefix: `${getCurrentTeamId()}__` },
+            'loading://',
+            {
+                loadPinnedFolder: async () => {
+                    const folders = await api.persistedFolder.list()
+                    const pinned = folders.results.find((folder) => folder.type === 'pinned')
+                    if (pinned) {
+                        return `${pinned.protocol || 'products://'}${pinned.path}`
+                    }
+                    return 'products://'
+                },
+            },
+        ],
+    })),
+    reducers(() => ({
+        pinnedFolderSource: [
+            'loading://',
+            { persist: true, prefix: `${getCurrentTeamIdOrNone()}__${getCurrentUserIdOrNone()}__` },
             {
                 setPinnedFolder: (_, { id }) => id,
             },
@@ -33,6 +52,12 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
                 setPinnedFolder: () => false,
             },
         ],
+    })),
+    listeners(() => ({
+        setPinnedFolder: async ({ id }) => {
+            const [protocol, path] = splitProtocolPath(id)
+            await api.persistedFolder.create({ protocol, path, type: 'pinned' })
+        },
     })),
     afterMount(({ actions, values }) => {
         if (values.selectedFolder !== values.pinnedFolder) {

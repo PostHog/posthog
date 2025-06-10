@@ -4,6 +4,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { InsightType, TrendExperimentVariant } from '~/types'
 import { ExperimentIdType } from '~/types'
 
+import { calculateDelta } from '../experimentCalculations'
 import { VariantTag } from '../ExperimentView/components'
 
 interface VariantTooltipProps {
@@ -114,44 +115,15 @@ export function VariantTooltip({
                             <em className="text-secondary">Baseline</em>
                         ) : (
                             (() => {
-                                if (metricType === InsightType.TRENDS) {
-                                    const controlVariant = result.variants.find(
-                                        (v: TrendExperimentVariant) => v.key === 'control'
-                                    )
-                                    const variant = result.variants.find(
-                                        (v: TrendExperimentVariant) => v.key === tooltipData.variant
-                                    )
-
-                                    if (
-                                        !variant?.count ||
-                                        !variant?.absolute_exposure ||
-                                        !controlVariant?.count ||
-                                        !controlVariant?.absolute_exposure
-                                    ) {
-                                        return '—'
-                                    }
-
-                                    const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                                    const variantMean = variant.count / variant.absolute_exposure
-                                    const delta = (variantMean - controlMean) / controlMean
-                                    return delta ? (
-                                        <span className={delta > 0 ? 'text-success' : 'text-danger'}>
-                                            {`${delta > 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`}
-                                        </span>
-                                    ) : (
-                                        '—'
-                                    )
+                                const deltaResult = calculateDelta(result, tooltipData.variant, metricType)
+                                if (!deltaResult) {
+                                    return '—'
                                 }
 
-                                const variantRate = conversionRateForVariant(result, tooltipData.variant)
-                                const controlRate = conversionRateForVariant(result, 'control')
-                                const delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
-                                return delta ? (
-                                    <span className={delta > 0 ? 'text-success' : 'text-danger'}>
-                                        {`${delta > 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`}
+                                return (
+                                    <span className={deltaResult.isPositive ? 'text-success' : 'text-danger'}>
+                                        {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
                                     </span>
-                                ) : (
-                                    '—'
                                 )
                             })()
                         )}

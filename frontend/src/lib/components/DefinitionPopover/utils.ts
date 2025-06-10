@@ -53,6 +53,7 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
         case TaxonomicFilterGroupType.PersonProperties:
         case TaxonomicFilterGroupType.GroupsPrefix: // Group properties
         case TaxonomicFilterGroupType.SessionProperties:
+        case TaxonomicFilterGroupType.Logs:
             return 'property'
         case TaxonomicFilterGroupType.EventFeatureFlags:
             return 'feature'

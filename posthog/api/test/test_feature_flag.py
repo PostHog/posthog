@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import json
 from typing import Optional
 from unittest.mock import call, patch
@@ -10,6 +10,7 @@ from django.test import TransactionTestCase
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 from freezegun.api import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
@@ -124,6 +125,56 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "type": "validation_error",
                 "code": "unique",
                 "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("foo?bar=baz",),
+            ("foo/bar",),
+            ("foo\\bar",),
+            ("foo.bar",),
+            ("foo bar",),
+        ]
+    )
+    def test_cant_create_flag_with_key_with_invalid_characters(self, key):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        count = FeatureFlag.objects.count()
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {"name": "Beta feature", "key": key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_key",
+                "detail": "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
+                "attr": "key",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    def test_cant_create_flag_with_key_too_long(self):
+        key = "a" * 400 + "b"
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        count = FeatureFlag.objects.count()
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {"name": "Beta feature", "key": key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "max_length",
+                "detail": "Ensure this field has no more than 400 characters.",
                 "attr": "key",
             },
         )
@@ -538,6 +589,58 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Invalid variant definitions: Variant rollout percentages must sum to 100.",
         )
 
+    def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
+        # Create initial flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        feature_flag_id = response.json()["id"]
+
+        # Try to update with invalid percentages
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 40},
+                        ]
+                    },
+                }
+            },
+            format="json",
+        )
+
+        # Verify error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(
+            response.json().get("detail"),
+            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+        )
+
+        # Verify flag wasn't updated
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"], 50)
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"][1]["rollout_percentage"], 50)
+
     def test_cant_create_feature_flag_without_key(self):
         count = FeatureFlag.objects.count()
         response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", format="json")
@@ -664,7 +767,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "key": "third-variant",
                                 "name": "Third Variant",
-                                "rollout_percentage": 0,
+                                "rollout_percentage": 25,
                             },
                         ]
                     },
@@ -5469,6 +5572,104 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Special Folder/Flags" in fs_entry.path
         ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_key_updates_super_groups(self, mock_capture):
+        # Create a feature flag with super_groups
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="old-key",
+            name="Test Flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 0}],
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/old-key",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+
+        # Update the feature flag key
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag.id}",
+            {"key": "new-key"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Refresh the feature flag from the database
+        feature_flag.refresh_from_db()
+
+        # Verify the super_groups were updated
+        self.assertEqual(feature_flag.filters["super_groups"][0]["properties"][0]["key"], "$feature_enrollment/new-key")
+
+        # Verify the old key is not present
+        self.assertNotIn("$feature_enrollment/old-key", str(feature_flag.filters))
+
+    def test_feature_flag_experiment_set(self):
+        # Create a feature flag
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            name="Test Flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Initially, experiment_set should be empty
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == []
+
+        # Create an active experiment linked to the flag
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Experiment",
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # experiment_set should now include the experiment ID
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == [experiment.id]
+
+        # Create a deleted experiment - should not be included
+        experiment2 = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Another Experiment",
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC),
+        )
+
+        # experiment_set should include both experiments
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == [experiment.id, experiment2.id]
+
+        # Delete the active experiments
+        experiment.deleted = True
+        experiment.save()
+        experiment2.deleted = True
+        experiment2.save()
+
+        # experiment_set should now be empty again
+        response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
+        assert response.status_code == 200
+        assert response.json()["experiment_set"] == []
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -6060,11 +6261,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
+        # Just to shake things up, we're using integers for the group property
         for i in range(10):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
-                properties={"group": f"{i}"},
+                properties={"group": i},
             )
 
         cohort1 = Cohort.objects.create(
@@ -6077,7 +6279,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                             ],
                         }
                     ],
@@ -6139,7 +6341,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                             ],
                         }
                     ],
@@ -6159,7 +6361,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "values": [
                                 {
                                     "key": "group",
-                                    "value": [1, 2, 4, 5, 6],
+                                    "value": ["1", "2", "4", "5", "6"],
                                     "type": "person",
                                 },
                             ],
@@ -6216,7 +6418,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "values": [
                                 {
                                     "key": "group",
-                                    "value": [1, 2, 4, 5, 6],
+                                    "value": ["1", "2", "4", "5", "6"],
                                     "type": "person",
                                 },
                             ],

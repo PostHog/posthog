@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
+import { delay } from 'lib/utils'
 
 import { initKeaTests } from '~/test/init'
 
@@ -24,7 +25,8 @@ describe('eventIngestionRestrictionLogic', () => {
         ])
 
         logic.mount()
-
+        logic.values.eventIngestionRestrictions
+        await delay(1)
         const hasMatchingCall = (api.get as jest.Mock).mock.calls.some(
             (call) => call[0] === 'api/environments/@current/event_ingestion_restrictions/'
         )
@@ -53,6 +55,7 @@ describe('eventIngestionRestrictionLogic', () => {
         ])
 
         logic.mount()
+        logic.values.eventIngestionRestrictions
 
         await expectLogic(logic)
             .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
@@ -76,6 +79,7 @@ describe('eventIngestionRestrictionLogic', () => {
         ])
 
         logic.mount()
+        logic.values.eventIngestionRestrictions
 
         await expectLogic(logic)
             .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
@@ -94,6 +98,7 @@ describe('eventIngestionRestrictionLogic', () => {
         jest.spyOn(api, 'get').mockResolvedValue([])
 
         logic.mount()
+        logic.values.eventIngestionRestrictions
 
         await expectLogic(logic)
             .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])

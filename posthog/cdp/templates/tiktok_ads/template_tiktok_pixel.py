@@ -17,7 +17,7 @@ def build_inputs(multiProductEvent=False):
                 else "{[{ 'content_id': event.properties.product_id, 'price': event.properties.price, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand, 'quantity': event.properties.quantity }]}",
                 "currency": "{event.properties.currency ?? 'USD'}",
                 "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
-                "num_items": "{length(event.properties.products ?? [])}"
+                "num_items": "{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}"
                 if multiProductEvent
                 else "{event.properties.quantity}",
                 "search_string": "{event.properties.query}",
@@ -283,9 +283,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Place an Order",
+            name="Order Placed",
             include_by_default=True,
-            filters={"events": [{"id": "Place an Order", "type": "events"}]},
+            filters={"events": [{"id": "Order Placed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",

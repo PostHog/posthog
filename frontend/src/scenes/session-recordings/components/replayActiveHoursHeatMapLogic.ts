@@ -1,5 +1,5 @@
-import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { kea, key, listeners, path, props, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, now } from 'lib/dayjs'
@@ -70,7 +70,7 @@ export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicTy
     path(['scenes', 'session-recordings', 'components', 'replayActiveHoursHeatMapLogic']),
     props({} as ReplayActiveHoursHeatMapLogicProps),
     key((props) => props.scene || 'default'),
-    loaders(() => ({
+    lazyLoaders(() => ({
         recordingsPerHour: {
             loadRecordingsPerHour: async (_, breakpoint): Promise<number[][]> => {
                 const q = hogql`
@@ -196,7 +196,4 @@ export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicTy
             lemonToast.error('Failed to load recordings activity for heatmap')
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadRecordingsPerHour(undefined)
-    }),
 ])

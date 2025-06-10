@@ -1,5 +1,5 @@
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
@@ -29,7 +29,9 @@ type SelectedDataType =
     | null
 
 export const Metadata = (): JSX.Element => {
-    const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
+    const { aggregations, issueId, selectedEvent, firstSeenEvent, summaryLoading, issueLoading, firstSeen, lastSeen } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
     const sparklineEvents = useSparklineEvents()
@@ -105,7 +107,13 @@ export const Metadata = (): JSX.Element => {
                     className="h-full pt-0"
                 />
             </div>
-            <EventsTable />
+            <EventsTable
+                issueId={issueId}
+                selectedEvent={selectedEvent}
+                onEventSelect={(selectedEvent) =>
+                    selectedEvent ? selectEvent(selectedEvent) : selectEvent(firstSeenEvent)
+                }
+            />
         </LemonCard>
     )
 }
