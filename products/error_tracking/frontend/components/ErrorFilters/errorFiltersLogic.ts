@@ -1,12 +1,12 @@
 import equal from 'fast-deep-equal'
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { syncSearchParams, updateSearchParams } from 'scenes/error-tracking/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { errorFiltersLogicType } from './errorFiltersLogicType'
 
 const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }

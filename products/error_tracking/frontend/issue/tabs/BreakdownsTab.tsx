@@ -3,10 +3,10 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useState } from 'react'
-import { errorFiltersLogic } from 'scenes/error-tracking/components/ErrorFilters/errorFiltersLogic'
 
 import { Query } from '~/queries/Query/Query'
 
+import { errorFiltersLogic } from '../../components/ErrorFilters/errorFiltersLogic'
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 
 const gridColumnsMap = {

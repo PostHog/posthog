@@ -1,8 +1,8 @@
 import { BindLogic } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'
-import { exceptionCardLogic } from 'scenes/error-tracking/components/ExceptionCard/exceptionCardLogic'
 
+import { exceptionCardLogic } from '../../components/ExceptionCard/exceptionCardLogic'
 import javascript_empty from './javascript_empty.json'
 import javascript_resolved from './javascript_resolved.json'
 import javascript_unresolved from './javascript_unresolved.json'

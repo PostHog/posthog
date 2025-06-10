@@ -3,15 +3,11 @@ import { LemonButton, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-u
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
 import { useEffect } from 'react'
-import {
-    AssigneeIconDisplay,
-    AssigneeLabelDisplay,
-    AssigneeResolver,
-} from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
-import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
+import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../../components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
 

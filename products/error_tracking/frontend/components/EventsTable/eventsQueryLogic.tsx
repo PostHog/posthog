@@ -1,9 +1,9 @@
 import { connect, kea, key, LogicWrapper, path, props, selectors } from 'kea'
 import { uuid } from 'lib/utils'
-import { errorTrackingIssueEventsQuery } from 'scenes/error-tracking/queries'
 
 import { ErrorTrackingRelationalIssue, EventsQuery } from '~/queries/schema/schema-general'
 
+import { errorTrackingIssueEventsQuery } from '../../queries'
 import { DataQueryLogic } from '../DataSourceTable'
 import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
 import type { eventsQueryLogicType } from './eventsQueryLogicType'
