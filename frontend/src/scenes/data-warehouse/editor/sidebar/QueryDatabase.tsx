@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconCopy, IconEllipsis, IconPlusSmall, IconServer } from '@posthog/icons'
+import { IconArrowLeft, IconCopy, IconEllipsis, IconFolderPlus, IconPlusSmall, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -27,7 +28,7 @@ import { editorSceneLogic, renderTableCount } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { DatabaseSearchField } from './DatabaseSearchField'
-import { queryDatabaseLogic } from './queryDatabaseLogic'
+import { queryDatabaseLogic, UNFILED_SAVED_QUERIES_PATH } from './queryDatabaseLogic'
 
 export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -40,9 +41,19 @@ export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
 }
 
 const QueryDatabaseTreeView = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm } = useValues(queryDatabaseLogic)
-    const { setExpandedFolders, toggleFolderOpen, setTreeRef, setExpandedSearchFolders, selectSourceTable } =
-        useActions(queryDatabaseLogic)
+    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, viableItems, editingItemId } =
+        useValues(queryDatabaseLogic)
+    const {
+        setExpandedFolders,
+        toggleFolderOpen,
+        setTreeRef,
+        setExpandedSearchFolders,
+        selectSourceTable,
+        moveItem,
+        addFolder,
+        setEditingItemId,
+        rename,
+    } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
 
@@ -50,6 +61,13 @@ const QueryDatabaseTreeView = (): JSX.Element => {
     useEffect(() => {
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
+
+    // Helper function to find any file in the unfiled tree by ID
+    const findFileById = (fileId: string): FileSystemEntry | undefined => {
+        return viableItems.find(
+            (item) => item.path.startsWith(UNFILED_SAVED_QUERIES_PATH) && `file-${item.id}` === fileId
+        )
+    }
 
     return (
         <div className="h-full">
@@ -60,12 +78,22 @@ const QueryDatabaseTreeView = (): JSX.Element => {
             >
                 <DatabaseSearchField placeholder="Search database" />
             </div>
-            <div className="h-full overflow-y-auto">
+            <div className="h-full overflow-y-auto flex">
                 <LemonTree
                     ref={treeRef}
                     data={treeData}
                     expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                     onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+                    isItemEditing={(item) => {
+                        return editingItemId === item.id
+                    }}
+                    onItemNameChange={(item, name) => {
+                        if (item.name !== name && item.record?.file) {
+                            rename(name, item.record.file)
+                        }
+                        // Clear the editing item id when the name changes
+                        setEditingItemId('')
+                    }}
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
                             toggleFolderOpen(folder.id, isExpanded)
@@ -76,6 +104,76 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                         if (item && item.record?.type === 'column') {
                             void copyToClipboard(item.record.columnName, item.record.columnName)
                         }
+
+                        // Handle file clicks - open the file
+                        if (item && item.record?.type === 'file' && item.record.file?.href) {
+                            window.open(item.record.file.href, '_blank')
+                        }
+                    }}
+                    enableDragAndDrop={!searchTerm}
+                    onDragEnd={(dragEvent) => {
+                        const oldId = dragEvent.active.id as string
+                        const newId = dragEvent.over?.id as string
+
+                        if (oldId === newId || !newId) {
+                            return false
+                        }
+
+                        // Only allow drag and drop within Files section
+                        const isFileItem = (id: string): boolean => id.startsWith('file-') || id === 'files'
+
+                        if (!isFileItem(oldId) || !isFileItem(newId)) {
+                            return false
+                        }
+
+                        // Find the dragged file
+                        const draggedFile = findFileById(oldId)
+
+                        if (!draggedFile) {
+                            return false
+                        }
+
+                        // Determine target folder
+                        let targetFolderPath = UNFILED_SAVED_QUERIES_PATH
+
+                        if (newId.startsWith('file-') && newId !== oldId) {
+                            // Find the target item
+                            const targetFile = findFileById(newId)
+
+                            if (targetFile?.type === 'folder') {
+                                // Dropping on a folder
+                                targetFolderPath = targetFile.path
+                            } else if (targetFile) {
+                                // Dropping on a file - move to same folder as target file
+                                const targetPathParts = targetFile.path.split('/')
+                                targetPathParts.pop() // Remove filename
+                                targetFolderPath = targetPathParts.join('/')
+                            }
+                        }
+
+                        // Calculate new path for the dragged file
+                        const draggedFileNameParts = draggedFile.path.split('/')
+                        const fileName = draggedFileNameParts.pop() || 'untitled'
+                        const newPath = targetFolderPath ? `${targetFolderPath}/${fileName}` : fileName
+
+                        // Move the file using projectTreeDataLogic
+                        moveItem(draggedFile, newPath, false, 'query-database')
+
+                        return true
+                    }}
+                    isItemDraggable={(item) => {
+                        // Only files in the Files section are draggable (not folders)
+                        const draggable =
+                            item.id.startsWith('file-') && item.record?.type === 'file' && item.record?.file
+                        return draggable
+                    }}
+                    isItemDroppable={(item) => {
+                        // Can drop on the Files folder itself or on file/folder items within Files
+                        const droppable =
+                            item.id === 'files' ||
+                            (item.id.startsWith('file-') && item.record?.type === 'folder') ||
+                            (item.id.startsWith('file-') && item.record?.type === 'file')
+                        return droppable
                     }}
                     renderItem={(item) => {
                         // Check if item has search matches for highlighting
@@ -188,9 +286,65 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                             )
                         }
 
-                        if (item.record?.type === 'sources') {
+                        if (item.record?.type === 'sources' || item.record?.type === 'files-folder') {
                             // used to override default icon behavior
                             return null
+                        }
+
+                        // Show menu for files
+                        if (item.record?.type === 'file') {
+                            return (
+                                <DropdownMenuGroup>
+                                    {item.record?.file?.href && (
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (item.record?.file?.href) {
+                                                    window.open(item.record.file.href, '_blank')
+                                                }
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem>Open file</ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            const fileName = item.record?.file?.path?.split('/').pop() || 'file'
+                                            void copyToClipboard(fileName)
+                                        }}
+                                    >
+                                        <ButtonPrimitive menuItem>Copy file name</ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </DropdownMenuGroup>
+                            )
+                        }
+
+                        // Show menu for files
+                        if (item.record?.type === 'folder') {
+                            return (
+                                <DropdownMenuGroup>
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            setEditingItemId(item.id)
+                                        }}
+                                    >
+                                        <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                        }}
+                                    >
+                                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </DropdownMenuGroup>
+                            )
                         }
 
                         return undefined
@@ -208,6 +362,21 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                     }}
                                 >
                                     <IconPlusSmall className="text-tertiary" />
+                                </ButtonPrimitive>
+                            )
+                        }
+                        if (item.record?.type === 'files-folder') {
+                            return (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    isSideActionRight
+                                    className="z-2"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        addFolder()
+                                    }}
+                                >
+                                    <IconFolderPlus className="text-tertiary" />
                                 </ButtonPrimitive>
                             )
                         }
