@@ -11,14 +11,12 @@ use property_defs_rs::{
     update_cache::Cache,
     measuring_channel::MeasuringChannel,
     update_consumer_loop,
-    update_producer_loop
+    update_producer_loop,
 };
 
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
-use tokio::{
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
