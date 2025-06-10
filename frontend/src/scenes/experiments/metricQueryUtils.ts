@@ -132,7 +132,7 @@ export const getQuery =
 
                 // Return undefined if this is not an EventsNode and has no math specified
                 if (!isEventMetricSource(source) && !source.math) {
-                    throw new Error('TrendsQuery requires an EventsNode with math')
+                    return undefined
                 }
 
                 /**
