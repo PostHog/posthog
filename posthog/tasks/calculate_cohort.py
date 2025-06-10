@@ -31,15 +31,19 @@ COHORT_STALENESS_HOURS_GAUGE = Gauge(
     "Cohort's count of hours since last calculation",
 )
 
+COHORTS_STALE_24H_GAUGE = Gauge(
+    "cohorts_stale_24h",
+    "Number of cohorts that haven't been calculated in more than 24 hours",
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 
 
-def get_cohort_calculation_candidates_queryset() -> QuerySet:
+def get_cohort_calculation_candidates_queryset(minutes=MAX_AGE_MINUTES) -> QuerySet:
     return Cohort.objects.filter(
-        Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
-        | Q(last_calculation__isnull=True),
+        Q(last_calculation__lte=timezone.now() - relativedelta(minutes=minutes)) | Q(last_calculation__isnull=True),
         deleted=False,
         is_calculating=False,
         errors_calculating__lte=20,
@@ -72,6 +76,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+    COHORTS_STALE_24H_GAUGE.set(get_cohort_calculation_candidates_queryset(minutes=24 * 60).count())
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
