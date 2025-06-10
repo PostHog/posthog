@@ -6,6 +6,8 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
+    inputs: z.record(z.string(), z.any()),
+    inputs_schema: z.array(z.any()),
     trigger: z.object({
         type: z.literal('event'),
         filters: z.any(),

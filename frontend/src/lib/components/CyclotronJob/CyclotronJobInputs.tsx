@@ -24,34 +24,37 @@ import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-    HogFunctionConfigurationType,
-    HogFunctionInputSchemaType,
-    HogFunctionInputType,
-    HogFunctionMappingType,
+    CyclotronJobConfigurationType,
+    CyclotronJobInputSchemaType,
+    CyclotronJobInputType,
+    CyclotronJobMappingType,
 } from '~/types'
 
-import { EmailTemplater } from '../email-templater/EmailTemplater'
-import { HogFunctionInputIntegration } from '../integrations/HogFunctionInputIntegration'
-import { HogFunctionInputIntegrationField } from '../integrations/HogFunctionInputIntegrationField'
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
-import { formatJsonValue, hogFunctionInputLogic } from './HogFunctionInputLogic'
+import { hogFunctionConfigurationLogic } from '../../../scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import {
+    formatJsonValue,
+    hogFunctionInputLogic,
+} from '../../../scenes/hog-functions/configuration/HogFunctionInputLogic'
+import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
+import { HogFunctionInputIntegration } from '../../../scenes/hog-functions/integrations/HogFunctionInputIntegration'
+import { HogFunctionInputIntegrationField } from '../../../scenes/hog-functions/integrations/HogFunctionInputIntegrationField'
 
-export type HogFunctionInputProps = {
-    schema: HogFunctionInputSchemaType
-    input: HogFunctionInputType
-    onChange?: (value: HogFunctionInputType) => void
+export type CyclotronJobInputProps = {
+    schema: CyclotronJobInputSchemaType
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
 }
 
-export interface HogFunctionInputsProps {
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType
+export interface CyclotronJobInputsProps {
+    configuration: CyclotronJobConfigurationType | CyclotronJobMappingType
     setConfigurationValue: (key: string, value: any) => void
 }
 
-export type HogFunctionInputWithSchemaProps = {
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType
+export type CyclotronJobInputWithSchemaProps = {
+    configuration: CyclotronJobConfigurationType | CyclotronJobMappingType
     setConfigurationValue: (key: string, value: any) => void
-    schema: HogFunctionInputSchemaType
+    schema: CyclotronJobInputSchemaType
 }
 
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
@@ -114,7 +117,7 @@ function EmailTemplateField({
     value,
     onChange,
 }: {
-    schema: HogFunctionInputSchemaType
+    schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
 }): JSX.Element {
@@ -126,8 +129,8 @@ function EmailTemplateField({
 function HogFunctionTemplateInput(props: {
     className?: string
     templating: boolean
-    onChange?: (value: HogFunctionInputType) => void
-    input: HogFunctionInputType
+    onChange?: (value: CyclotronJobInputType) => void
+    input: CyclotronJobInputType
 }): JSX.Element {
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
@@ -157,8 +160,8 @@ function DictionaryField({
     onChange,
     templating,
 }: {
-    input: HogFunctionInputType
-    onChange?: (value: HogFunctionInputType) => void
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
     templating: boolean
 }): JSX.Element {
     const value = input.value ?? {}
@@ -232,7 +235,7 @@ function DictionaryField({
     )
 }
 
-export function HogFunctionInputRenderer({ onChange, schema, disabled, input }: HogFunctionInputProps): JSX.Element {
+export function CyclotronJobInputRenderer({ onChange, schema, disabled, input }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
     const onValueChange = (value: any): void => onChange?.({ ...input, value })
@@ -287,20 +290,20 @@ export function HogFunctionInputRenderer({ onChange, schema, disabled, input }: 
     }
 }
 
-type HogFunctionInputSchemaControlsProps = {
-    value: HogFunctionInputSchemaType
-    onChange: (value: HogFunctionInputSchemaType | null) => void
+type CyclotronJobInputSchemaControlsProps = {
+    value: CyclotronJobInputSchemaType
+    onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
     supportsSecrets: boolean
 }
 
-function HogFunctionInputSchemaControls({
+function CyclotronJobInputSchemaControls({
     value,
     onChange,
     onDone,
     supportsSecrets,
-}: HogFunctionInputSchemaControlsProps): JSX.Element {
-    const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
+}: CyclotronJobInputSchemaControlsProps): JSX.Element {
+    const _onChange = (data: Partial<CyclotronJobInputSchemaType> | null): void => {
         if (data?.key?.length === 0) {
             setLocalVariableError('Input variable name cannot be empty')
             return
@@ -407,7 +410,7 @@ function HogFunctionInputSchemaControls({
             )}
 
             <LemonField.Pure label="Default value">
-                <HogFunctionInputRenderer
+                <CyclotronJobInputRenderer
                     schema={value}
                     input={{ value: value.default }}
                     onChange={(val) => _onChange({ default: val.value })}
@@ -417,24 +420,26 @@ function HogFunctionInputSchemaControls({
     )
 }
 
-export function HogFunctionInputWithSchema({
+export function CyclotronJobInputWithSchema({
     schema,
     configuration,
     setConfigurationValue,
-}: HogFunctionInputWithSchemaProps): JSX.Element {
+}: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const { showSource } = useValues(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key] ?? { value: null }
 
-    const onSchemaChange = (newSchema: HogFunctionInputSchemaType | null): void => {
+    const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
         let inputsSchema = configuration.inputs_schema || []
         if (!newSchema) {
-            inputsSchema = inputsSchema.filter((s) => s.key !== schema.key)
+            inputsSchema = inputsSchema.filter((s: CyclotronJobInputSchemaType) => s.key !== schema.key)
         } else {
             const modifiedSchema = { ...schema, ...newSchema }
-            inputsSchema = inputsSchema.map((s) => (s.key === schema.key ? modifiedSchema : s))
+            inputsSchema = inputsSchema.map((s: CyclotronJobInputSchemaType) =>
+                s.key === schema.key ? modifiedSchema : s
+            )
         }
 
         if (newSchema?.key) {
@@ -473,10 +478,10 @@ export function HogFunctionInputWithSchema({
                         value,
                         onChange: _onChange,
                     }: {
-                        value?: HogFunctionInputType
-                        onChange: (val: HogFunctionInputType) => void
+                        value?: CyclotronJobInputType
+                        onChange: (val: CyclotronJobInputType) => void
                     }) => {
-                        const onChange = (newValue: HogFunctionInputType): void => {
+                        const onChange = (newValue: CyclotronJobInputType): void => {
                             _onChange({
                                 // Keep the existing parts if they exist
                                 ...value,
@@ -560,7 +565,7 @@ export function HogFunctionInputWithSchema({
                                         </LemonButton>
                                     </div>
                                 ) : (
-                                    <HogFunctionInputRenderer
+                                    <CyclotronJobInputRenderer
                                         schema={schema}
                                         input={value ?? { value: '' }}
                                         onChange={onChange}
@@ -572,7 +577,7 @@ export function HogFunctionInputWithSchema({
                 </LemonField>
             ) : (
                 <div className="p-2 rounded border border-dashed deprecated-space-y-4">
-                    <HogFunctionInputSchemaControls
+                    <CyclotronJobInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}
                         onDone={() => setEditing(false)}
@@ -584,22 +589,24 @@ export function HogFunctionInputWithSchema({
     )
 }
 
-export function HogFunctionInputs({
+export function CyclotronJobInputs({
     configuration,
     setConfigurationValue,
-}: HogFunctionInputsProps): JSX.Element | null {
+}: CyclotronJobInputsProps): JSX.Element | null {
     const { showSource } = useValues(hogFunctionConfigurationLogic)
 
-    if (!configuration?.inputs_schema?.length) {
-        if (!('type' in configuration)) {
-            // If this is a mapping, don't show any error message.
+    const config = configuration
+
+    if (!config.inputs_schema?.length) {
+        if (!('type' in config)) {
+            // If this is a mapping or hog flow, don't show any error message.
             return null
         }
         return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
-    const inputSchemas = configuration.inputs_schema
-    const inputSchemaIds = inputSchemas.map((schema) => schema.key)
+    const inputSchemas = config.inputs_schema
+    const inputSchemaIds = inputSchemas.map((schema: CyclotronJobInputSchemaType) => schema.key)
 
     return (
         <>
@@ -615,14 +622,14 @@ export function HogFunctionInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema
-                        ?.filter((i) => !i.hidden)
-                        .map((schema) => {
+                    {config.inputs_schema
+                        ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                        .map((schema: CyclotronJobInputSchemaType) => {
                             return (
-                                <HogFunctionInputWithSchema
+                                <CyclotronJobInputWithSchema
                                     key={schema.key}
                                     schema={schema}
-                                    configuration={configuration}
+                                    configuration={config}
                                     setConfigurationValue={setConfigurationValue}
                                 />
                             )
