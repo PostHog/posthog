@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { memo, MutableRefObject } from 'react'
 import {
@@ -40,13 +41,6 @@ function PlayerSeekbarTick({
     return (
         <div
             className={clsx('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
-            title={
-                isEventItem(item)
-                    ? item.data.event
-                    : isNotebookComment(item)
-                    ? item.data.comment
-                    : item.data.content ?? undefined
-            }
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 left: `${position}%`,
@@ -54,35 +48,40 @@ function PlayerSeekbarTick({
             }}
             onClick={onClick}
         >
-            <div className="PlayerSeekbarTick__info">
-                {isEventItem(item) ? (
-                    <>
-                        {item.data.event === '$autocapture' ? (
-                            <>{autoCaptureEventToDescription(item.data)}</>
-                        ) : (
-                            <PropertyKeyInfo
-                                className="font-medium"
-                                disableIcon
-                                disablePopover
-                                ellipsis={true}
-                                type={TaxonomicFilterGroupType.Events}
-                                value={item.data.event}
-                            />
-                        )}
-                        {item.data.event === '$pageview' &&
-                        (item.data.properties.$pathname || item.data.properties.$current_url) ? (
-                            <span className="ml-2 opacity-75">
-                                {item.data.properties.$pathname || item.data.properties.$current_url}
-                            </span>
-                        ) : null}
-                    </>
-                ) : isNotebookComment(item) ? (
-                    item.data.comment
-                ) : (
-                    item.data.content
-                )}
-            </div>
-            <div className="PlayerSeekbarTick__line" />
+            <Tooltip
+                placement="top"
+                delayMs={50}
+                title={
+                    isEventItem(item) ? (
+                        <>
+                            {item.data.event === '$autocapture' ? (
+                                <>{autoCaptureEventToDescription(item.data)}</>
+                            ) : (
+                                <PropertyKeyInfo
+                                    className="font-medium"
+                                    disableIcon
+                                    disablePopover
+                                    ellipsis={true}
+                                    type={TaxonomicFilterGroupType.Events}
+                                    value={item.data.event}
+                                />
+                            )}
+                            {item.data.event === '$pageview' &&
+                            (item.data.properties.$pathname || item.data.properties.$current_url) ? (
+                                <span className="ml-2 opacity-75">
+                                    {item.data.properties.$pathname || item.data.properties.$current_url}
+                                </span>
+                            ) : null}
+                        </>
+                    ) : isNotebookComment(item) ? (
+                        item.data.comment
+                    ) : (
+                        item.data.content
+                    )
+                }
+            >
+                <div className="PlayerSeekbarTick__line" />
+            </Tooltip>
         </div>
     )
 }
