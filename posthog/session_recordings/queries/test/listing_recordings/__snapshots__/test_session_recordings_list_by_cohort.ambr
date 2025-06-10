@@ -440,7 +440,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = NULL
+    AND version = 0
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.3
