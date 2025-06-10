@@ -314,10 +314,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
-        reportAIHogTransformationPrompted: true,
-        reportAIHogTransformationAccepted: true,
-        reportAIHogTransformationRejected: true,
-        reportAIHogTransformationPromptOpen: true,
+        reportAIHogFunctionPrompted: true,
+        reportAIHogFunctionAccepted: true,
+        reportAIHogFunctionRejected: true,
+        reportAIHogFunctionPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -1164,17 +1164,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
 
     listeners(({ actions, values, cache }) => ({
-        reportAIHogTransformationPrompted: () => {
-            posthog.capture('ai_hog_transformation_prompted')
+        reportAIHogFunctionPrompted: () => {
+            posthog.capture('ai_hog_function_prompted', { type: values.type })
         },
-        reportAIHogTransformationAccepted: () => {
-            posthog.capture('ai_hog_transformation_accepted')
+        reportAIHogFunctionAccepted: () => {
+            posthog.capture('ai_hog_function_accepted', { type: values.type })
         },
-        reportAIHogTransformationRejected: () => {
-            posthog.capture('ai_hog_transformation_rejected')
+        reportAIHogFunctionRejected: () => {
+            posthog.capture('ai_hog_function_rejected', { type: values.type })
         },
-        reportAIHogTransformationPromptOpen: () => {
-            posthog.capture('ai_hog_transformation_prompt_open')
+        reportAIHogFunctionPromptOpen: () => {
+            posthog.capture('ai_hog_function_prompt_open', { type: values.type })
         },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
