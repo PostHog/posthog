@@ -17560,12 +17560,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "properties", "revenueSources"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse>": {
@@ -17586,12 +17583,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "properties", "revenueSources"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse>": {
@@ -17612,12 +17606,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "properties", "revenueSources"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
@@ -17638,12 +17629,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "properties", "revenueSources"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsConfig": {
@@ -17726,12 +17714,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "properties", "revenueSources"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
@@ -17796,12 +17781,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "interval", "kind", "properties", "revenueSources"],
+            "required": ["groupBy", "interval", "kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
@@ -17881,12 +17863,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "properties", "revenueSources"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsOverviewQueryResponse": {
@@ -17980,12 +17959,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
-                },
-                "revenueSources": {
-                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "kind", "properties", "revenueSources"],
+            "required": ["groupBy", "kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -18179,25 +18155,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "RevenueSources": {
-            "additionalProperties": false,
-            "properties": {
-                "dataWarehouseSources": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "events": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["dataWarehouseSources", "events"],
             "type": "object"
         },
         "RootAssistantMessage": {

@@ -3846,6 +3846,11 @@
             "description": "The product of the revenue event.",
             "label": "Product",
             "type": "String"
+        },
+        "source": {
+            "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
+            "label": "Source",
+            "type": "String"
         }
     },
     "session_properties": {

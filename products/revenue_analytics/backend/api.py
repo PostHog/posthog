@@ -21,6 +21,7 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         database = create_hogql_database(team=self.team)
 
         query = None
+        values = []
         if key == "product":  # All products available from revenue analytics
             revenue_selects = revenue_selects_from_database(database)
             product_selects = [
@@ -47,8 +48,10 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 select_from=ast.JoinExpr(table=customer_selects_union),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["cohort"]), order="ASC")],
             )
+        elif key == "source":  # All sources available from revenue analytics
+            revenue_selects = revenue_selects_from_database(database)
+            values = list(revenue_selects.keys())
 
-        values = []
         if query is not None:
             try:
                 result = execute_hogql_query(query, team=self.team)

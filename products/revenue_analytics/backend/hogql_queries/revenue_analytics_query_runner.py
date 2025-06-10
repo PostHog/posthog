@@ -105,7 +105,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     @cached_property
     def revenue_selects(self) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
-        return revenue_selects_from_database(self.database, self.query.revenueSources)
+        return revenue_selects_from_database(self.database)
 
     @cached_property
     def revenue_subqueries(
