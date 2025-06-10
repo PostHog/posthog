@@ -87,36 +87,32 @@
             "stylelint --fix",
             "prettier --write"
         ],
-        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
         "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "products/*/manifest.tsx": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "common/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "frontend/*.mjs": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "eslint --cache --cache-strategy content --cache-location .eslintcache -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
