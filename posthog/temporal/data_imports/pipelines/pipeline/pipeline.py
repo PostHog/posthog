@@ -48,6 +48,7 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from posthog.warehouse.models.external_data_schema import process_incremental_value
 
 
 class PipelineNonDLT:
@@ -103,6 +104,9 @@ class PipelineNonDLT:
         self._internal_schema = HogQLSchema()
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
+        self._earliest_incremental_field_value: Any = process_incremental_value(
+            schema.incremental_field_earliest_value, schema.incremental_field_type
+        )
 
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
@@ -275,12 +279,20 @@ class PipelineNonDLT:
         if last_value is not None:
             if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
                 self._last_incremental_field_value = last_value
+
             if self._resource.sort_mode == "asc":
                 self._logger.debug(f"Updating incremental_field_last_value with {self._last_incremental_field_value}")
                 self._schema.update_incremental_field_value(self._last_incremental_field_value)
+
             if self._resource.sort_mode == "desc":
                 earliest_value = _get_incremental_field_value(self._schema, pa_table, aggregate="min")
-                if earliest_value < self._schema.incremental_field_earliest_value:
+
+                if (
+                    self._earliest_incremental_field_value is None
+                    or earliest_value < self._earliest_incremental_field_value
+                ):
+                    self._earliest_incremental_field_value = earliest_value
+
                     self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
                     self._schema.update_incremental_field_value(earliest_value, type="earliest")
 
