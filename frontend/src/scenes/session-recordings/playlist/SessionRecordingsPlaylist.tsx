@@ -124,7 +124,7 @@ export function SessionRecordingsPlaylist({
                     filterActions={
                         notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : featureFlags[
                               FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST
-                          ] ? (
+                          ] === 'new' ? (
                             <RecordingsUniversalFiltersEmbedButton
                                 filters={filters}
                                 setFilters={setFilters}
@@ -184,7 +184,7 @@ export function SessionRecordingsPlaylist({
                         )
                     }
                     filterContent={
-                        featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] ? (
+                        featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' ? (
                             <RecordingsUniversalFiltersEmbed
                                 resetFilters={resetFilters}
                                 filters={filters}
