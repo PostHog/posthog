@@ -7,7 +7,7 @@ from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -22,6 +22,8 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+import products.revenue_analytics.backend.api as revenue_analytics
+from posthog.warehouse.api.lineage import LineageViewSet
 import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -645,6 +647,13 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+register_grandfathered_environment_nested_viewset(
+    r"hog_flows",
+    hog_flow.HogFlowViewSet,
+    "environment_hog_flows",
+    ["team_id"],
+)
+
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
@@ -704,6 +713,8 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
+
 environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
 environments_router.register(
@@ -727,5 +738,12 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/taxonomy",
+    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
+    "environment_revenue_analytics_taxonomy",
     ["team_id"],
 )

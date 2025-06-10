@@ -13,6 +13,7 @@ class CoreFilterDefinition(TypedDict):
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
+    virtual: NotRequired[bool]
 
 
 """
@@ -104,7 +105,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# synced with frontend/src/lib/taxonomy.tsx and core-filter-definitions-by-group.json
+# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -317,6 +318,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$config_defaults": {
+            "label": "Config defaults",
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "type": "String",
+        },
         "$python_runtime": {
             "label": "Python runtime",
             "description": "The Python runtime that was used to capture the event.",
@@ -973,6 +979,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$timezone": {
             "label": "Timezone",
             "description": "The timezone as reported by the device",
+        },
+        "$timezone_offset": {
+            "label": "Timezone offset",
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "type": "Numeric",
         },
         "$touch_x": {
             "label": "Touch X",
@@ -1894,7 +1905,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$csp_script_sample": {
             "label": "Script sample",
-            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
             "examples": ["eval('alert(1)')"],
         },
         "$csp_report_type": {
@@ -1917,7 +1928,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "numerical_event_properties": {},
-    "person_properties": {},
+    "person_properties": {
+        "email": {
+            "label": "Email address",
+            "description": "The email address of the user.",
+            "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
+            "type": "String",
+        },
+        "$virt_initial_channel_type": {
+            "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
+            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "label": "Initial channel type",
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_initial_referring_domain_type": {
+            "description": "What type of referring domain this user initially came from.",
+            "examples": ["Search", "Video", "Direct"],
+            "label": "Initial referring domain type",
+            "type": "String",
+            "virtual": True,
+        },
+    },
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
@@ -2068,6 +2100,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
     },
+    "revenue_analytics_properties": {
+        "amount": {
+            "label": "Amount",
+            "description": "The amount of the revenue event.",
+            "type": "Numeric",
+        },
+        "product": {
+            "label": "Product",
+            "description": "The product of the revenue event.",
+            "type": "String",
+        },
+        "cohort": {
+            "label": "Cohort",
+            "description": "The cohort of the customer connected to the revenue event.",
+            "type": "String",
+        },
+        "source": {
+            "label": "Source",
+            "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
+            "type": "String",
+        },
+    },
 }
 
 # copy distinct_id to event properties (needs to be done before copying to person properties, so it exists in person properties as well)
@@ -2136,6 +2190,7 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         "description": (
             f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']} Captured at the start of the session and remains constant for the duration of the session."
         ),
+        "ignored_in_assistant": True,
     }
 
 

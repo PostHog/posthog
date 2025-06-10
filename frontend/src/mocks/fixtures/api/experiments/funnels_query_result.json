@@ -1,0 +1,208 @@
+{
+    "cache_key": "cache_d595959a405bf8002f791577a6806453",
+    "cache_target_age": "2025-06-04T14:20:11.819746Z",
+    "calculation_trigger": null,
+    "credible_intervals": {
+        "control": [0.10385703759823513, 0.14632977457890145],
+        "test-1": [0.15399819805182086, 0.20513822790568542],
+        "test-2": [0.21266251721549914, 0.26028822153768866]
+    },
+    "expected_loss": 0.00010051784352294164,
+    "funnels_query": {
+        "aggregation_group_type_index": null,
+        "breakdownFilter": {
+            "breakdown": "$feature/experiment-funnels-query",
+            "breakdown_group_type_index": null,
+            "breakdown_hide_other_aggregation": null,
+            "breakdown_histogram_bin_count": null,
+            "breakdown_limit": null,
+            "breakdown_normalize_url": null,
+            "breakdown_type": "event",
+            "breakdowns": null
+        },
+        "dataColorTheme": null,
+        "dateRange": {
+            "date_from": "2025-05-20T14:16:00+00:00",
+            "date_to": null,
+            "explicitDate": true
+        },
+        "filterTestAccounts": true,
+        "funnelsFilter": {
+            "binCount": null,
+            "breakdownAttributionType": "first_touch",
+            "breakdownAttributionValue": null,
+            "exclusions": [],
+            "funnelAggregateByHogQL": null,
+            "funnelFromStep": null,
+            "funnelOrderType": "ordered",
+            "funnelStepReference": "total",
+            "funnelToStep": null,
+            "funnelVizType": "steps",
+            "funnelWindowInterval": 14,
+            "funnelWindowIntervalUnit": "day",
+            "hiddenLegendBreakdowns": null,
+            "layout": "vertical",
+            "resultCustomizations": null,
+            "useUdf": null
+        },
+        "interval": null,
+        "kind": "FunnelsQuery",
+        "modifiers": null,
+        "properties": [],
+        "response": null,
+        "samplingFactor": null,
+        "series": [
+            {
+                "custom_name": null,
+                "event": "signup started",
+                "fixedProperties": null,
+                "kind": "EventsNode",
+                "limit": null,
+                "math": null,
+                "math_group_type_index": null,
+                "math_hogql": null,
+                "math_property": null,
+                "math_property_revenue_currency": null,
+                "math_property_type": null,
+                "name": "signup started",
+                "orderBy": null,
+                "properties": null,
+                "response": null
+            },
+            {
+                "custom_name": null,
+                "event": "signup completed",
+                "fixedProperties": null,
+                "kind": "EventsNode",
+                "limit": null,
+                "math": null,
+                "math_group_type_index": null,
+                "math_hogql": null,
+                "math_property": null,
+                "math_property_revenue_currency": null,
+                "math_property_type": null,
+                "name": "signup completed",
+                "orderBy": null,
+                "properties": null,
+                "response": null
+            }
+        ]
+    },
+    "insight": [
+        [
+            {
+                "action_id": "signup started",
+                "name": "signup started",
+                "custom_name": null,
+                "order": 0,
+                "people": [],
+                "count": 859,
+                "type": "events",
+                "average_conversion_time": null,
+                "median_conversion_time": null,
+                "breakdown": ["test-1"],
+                "breakdown_value": ["test-1"]
+            },
+            {
+                "action_id": "signup completed",
+                "name": "signup completed",
+                "custom_name": null,
+                "order": 1,
+                "people": [],
+                "count": 153,
+                "type": "events",
+                "average_conversion_time": 0.0,
+                "median_conversion_time": 0.0,
+                "breakdown": ["test-1"],
+                "breakdown_value": ["test-1"]
+            }
+        ],
+        [
+            {
+                "action_id": "signup started",
+                "name": "signup started",
+                "custom_name": null,
+                "order": 0,
+                "people": [],
+                "count": 1218,
+                "type": "events",
+                "average_conversion_time": null,
+                "median_conversion_time": null,
+                "breakdown": ["test-2"],
+                "breakdown_value": ["test-2"]
+            },
+            {
+                "action_id": "signup completed",
+                "name": "signup completed",
+                "custom_name": null,
+                "order": 1,
+                "people": [],
+                "count": 287,
+                "type": "events",
+                "average_conversion_time": 0.0,
+                "median_conversion_time": 0.0,
+                "breakdown": ["test-2"],
+                "breakdown_value": ["test-2"]
+            }
+        ],
+        [
+            {
+                "action_id": "signup started",
+                "name": "signup started",
+                "custom_name": null,
+                "order": 0,
+                "people": [],
+                "count": 923,
+                "type": "events",
+                "average_conversion_time": null,
+                "median_conversion_time": null,
+                "breakdown": ["control"],
+                "breakdown_value": ["control"]
+            },
+            {
+                "action_id": "signup completed",
+                "name": "signup completed",
+                "custom_name": null,
+                "order": 1,
+                "people": [],
+                "count": 114,
+                "type": "events",
+                "average_conversion_time": 0.0,
+                "median_conversion_time": 0.0,
+                "breakdown": ["control"],
+                "breakdown_value": ["control"]
+            }
+        ]
+    ],
+    "is_cached": true,
+    "kind": "ExperimentFunnelsQuery",
+    "last_refresh": "2025-06-03T14:20:11.819746Z",
+    "next_allowed_client_refresh": "2025-06-03T14:21:11.819746Z",
+    "probability": {
+        "control": 0.0,
+        "test-1": 0.9996,
+        "test-2": 1.0
+    },
+    "query_status": null,
+    "significance_code": "significant",
+    "significant": true,
+    "stats_version": 2,
+    "timezone": "UTC",
+    "variants": [
+        {
+            "failure_count": 809.0,
+            "key": "control",
+            "success_count": 114.0
+        },
+        {
+            "failure_count": 706.0,
+            "key": "test-1",
+            "success_count": 153.0
+        },
+        {
+            "failure_count": 931.0,
+            "key": "test-2",
+            "success_count": 287.0
+        }
+    ]
+}

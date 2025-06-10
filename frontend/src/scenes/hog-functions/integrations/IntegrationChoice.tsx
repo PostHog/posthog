@@ -1,5 +1,5 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -8,8 +8,6 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
-
-import { getIntegrationSetupModalProps } from './getIntegrationSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -53,7 +51,7 @@ export function IntegrationChoice({
             : kind == 'linkedin-ads'
             ? 'LinkedIn Ads'
             : kind == 'email'
-            ? 'Mailjet'
+            ? 'email'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -68,22 +66,6 @@ export function IntegrationChoice({
             newGoogleCloudKey(kind, file, (integration) => onChange?.(integration.id))
         }
         input.click()
-    }
-
-    function showIntegrationSetupModal(): void {
-        if (!kind) {
-            return
-        }
-
-        const modalProps = getIntegrationSetupModalProps({
-            integration: kind,
-            integrationName: kindName,
-            onComplete: onChange,
-        })
-
-        if (modalProps) {
-            LemonDialog.openForm(modalProps)
-        }
     }
 
     const button = (
@@ -114,8 +96,8 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: showIntegrationSetupModal,
-                                  label: 'Configure Mailjet API key',
+                                  to: urls.messagingSenders(),
+                                  label: 'Configure new email sender domain',
                               },
                           ],
                       }

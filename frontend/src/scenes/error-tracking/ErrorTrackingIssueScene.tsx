@@ -19,6 +19,7 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
+import { ISSUE_STATUS_OPTIONS } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -27,6 +28,7 @@ export const scene: SceneExport = {
         params: { id },
         searchParams: { fingerprint },
     }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
+    settingSectionId: 'environment-error-tracking',
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
@@ -72,7 +74,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             <GenericSelect
                                 size="small"
                                 current={issue?.status}
-                                values={['active', 'resolved', 'suppressed']}
+                                values={ISSUE_STATUS_OPTIONS}
                                 placeholder="Mark as"
                                 renderValue={(value) => (
                                     <StatusIndicator status={value as IssueStatus} size="small" withTooltip={true} />

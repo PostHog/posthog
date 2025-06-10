@@ -133,11 +133,11 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(experimentLogic)
-    const { experimentId, experiment, metricResults } = useValues(experimentLogic)
+    const { experimentId, experiment, legacyMetricResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const result = metricResults?.[0]
+    const result = legacyMetricResults?.[0]
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({

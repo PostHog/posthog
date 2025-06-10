@@ -537,7 +537,7 @@ pub async fn event(
                 };
                 report_dropped_events(cause, events.len() as u64);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                tracing::log::warn!("rejected invalid payload: {}", err);
+                warn!("rejected invalid payload: {}", err);
                 return Err(err);
             }
 
@@ -729,14 +729,10 @@ pub async fn process_events<'a>(
         }
     });
 
-    if context.is_mirror_deploy {
-        warn!(
-            event_count = events.len(),
-            "process_event: batch successful"
-        )
-    }
-    // TODO(eli): post-migration, land on something appropriately chatty (this is too much!)
-    debug!(events=?events, "processed {} events", events.len());
+    debug!(
+        event_count = events.len(),
+        "process_event: batch successful"
+    );
 
     if events.len() == 1 {
         sink.send(events[0].clone()).await

@@ -1,6 +1,7 @@
 from typing import cast
 
 import pydantic
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
@@ -19,13 +20,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import HumanMessage
 from posthog.utils import get_instance_region
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=1000)
+    content = serializers.CharField(required=True, max_length=40000)  ## roughly 10k tokens
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
@@ -57,17 +57,17 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
 
     def get_throttles(self):
-        if self.action == "create" and not (
+        if (
+            # Do not apply limits in local development
+            not settings.DEBUG
+            # Only for streaming
+            and self.action == "create"
             # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-            get_instance_region() == "US" and self.team_id in (2, 87921)
+            and not (get_instance_region() == "US" and self.team_id in (2, 87921))
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        return super().get_throttles()
 
-    def get_renderers(self):
-        if self.action == "create":
-            return [ServerSentEventRenderer()]
-        return super().get_renderers()
+        return super().get_throttles()
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -100,7 +100,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,
         )
-        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
+        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):

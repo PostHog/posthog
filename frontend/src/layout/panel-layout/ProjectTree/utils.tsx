@@ -235,6 +235,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.children.push({
                     id: `${root}-load-more/${item.path}`,
                     name: 'Load more...',
+                    displayName: <>Load more...</>,
                     icon: <IconPlus />,
                     disableSelect: true,
                 })
@@ -242,6 +243,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.children.push({
                     id: `${root}-loading/${item.path}`,
                     name: 'Loading...',
+                    displayName: <>Loading...</>,
                     icon: <Spinner />,
                     disableSelect: true,
                     type: 'loading-indicator',
@@ -254,6 +256,11 @@ export function convertFileSystemEntryToTreeDataItem({
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
+            // If they have a category, sort by that
+            if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
+                return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
+            }
+
             if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
                 return 1
             }
@@ -277,7 +284,7 @@ export function convertFileSystemEntryToTreeDataItem({
         }
     }
 
-    if (root !== 'products://' && root !== 'persons://') {
+    if (root !== 'persons://') {
         sortNodes(rootNodes)
     }
 
@@ -294,6 +301,24 @@ export function convertFileSystemEntryToTreeDataItem({
         if (indeterminateFolders[folderNode.id] && !folderNode.checked) {
             folderNode.checked = 'indeterminate'
         }
+    }
+
+    if (rootNodes.find((node) => node.record?.category)) {
+        const newRootNodes: TreeDataItem[] = []
+        let lastCategory: string | null = null
+        for (const node of rootNodes) {
+            if (node.record?.category && node.record.category !== lastCategory) {
+                newRootNodes.push({
+                    id: `${node.id}-category`,
+                    name: node.record.category,
+                    displayName: <>{node.record.category}</>,
+                    type: 'category',
+                })
+                lastCategory = node.record.category
+            }
+            newRootNodes.push(node)
+        }
+        return newRootNodes
     }
 
     return rootNodes

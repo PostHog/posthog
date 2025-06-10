@@ -11,12 +11,13 @@ use crate::utils::release::{create_release, CreateReleaseResponse};
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
 
 pub fn upload(
-    host: &str,
+    host: Option<String>,
     directory: &PathBuf,
     project: Option<String>,
     version: Option<String>,
 ) -> Result<()> {
     let token = load_token().context("While starting upload command")?;
+    let host = token.get_host(host.as_deref());
 
     let capture_handle = capture_command_invoked("sourcemap_upload", Some(&token.env_id));
 
@@ -36,7 +37,7 @@ pub fn upload(
     //        or we could even just allow adding new chunks to an existing release, but for now I'm
     //        leaving it like this... Reviewers, lets chat about the right approach here
     let release = create_release(
-        host,
+        &host,
         &token,
         Some(directory.clone()),
         Some(content_hash(&uploads)),

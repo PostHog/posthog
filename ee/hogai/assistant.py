@@ -234,7 +234,7 @@ class Assistant:
                     logger.exception("Error in assistant stream", error=e)
                     # This is an unhandled error, so we just stop further generation at this point
                     yield self._serialize_message(FailureMessage())
-                    raise  # Re-raise, so that the error is printed or goes into Sentry
+                    raise  # Re-raise, so that the error is printed or goes into error tracking
 
     @property
     def _initial_state(self) -> AssistantState:

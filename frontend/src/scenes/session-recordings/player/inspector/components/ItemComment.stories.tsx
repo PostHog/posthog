@@ -7,11 +7,13 @@ import {
     ItemCommentProps,
 } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import {
-    InspectorListItemComment,
+    InspectorListItemAnnotationComment,
+    InspectorListItemNotebookComment,
     RecordingComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import { AnnotationScope, AnnotationType } from '~/types'
 
 type Story = StoryObj<typeof ItemComment>
 const meta: Meta<typeof ItemComment> = {
@@ -25,10 +27,10 @@ const meta: Meta<typeof ItemComment> = {
 }
 export default meta
 
-function makeItem(
-    itemOverrides: Partial<InspectorListItemComment> = {},
+function makeNotebookItem(
+    itemOverrides: Partial<InspectorListItemNotebookComment> = {},
     dataOverrides: Partial<RecordingComment> = {}
-): InspectorListItemComment {
+): InspectorListItemNotebookComment {
     return {
         data: {
             id: 'id',
@@ -41,13 +43,37 @@ function makeItem(
         timeInRecording: 0,
         timestamp: now(),
         type: 'comment',
+        source: 'notebook',
+        search: '',
+        ...itemOverrides,
+    }
+}
+
+function makeAnnotationItem(
+    itemOverrides: Partial<InspectorListItemAnnotationComment> = {},
+    dataOverrides: Partial<AnnotationType> = {}
+): InspectorListItemAnnotationComment {
+    return {
+        data: {
+            id: 0,
+            created_at: now(),
+            date_marker: now(),
+            updated_at: now().toISOString(),
+            scope: AnnotationScope.Project,
+            content: '🪓😍🪓😍🪓😍🪓😍',
+            ...dataOverrides,
+        },
+        timeInRecording: 0,
+        timestamp: now(),
+        type: 'comment',
+        source: 'annotation',
         search: '',
         ...itemOverrides,
     }
 }
 
 const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentProps>) => {
-    props.item = props.item || makeItem()
+    props.item = props.item || makeNotebookItem()
 
     const propsToUse = props as ItemCommentProps
 
@@ -67,5 +93,12 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
     )
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+export const NotebookComment: Story = BasicTemplate.bind({})
+NotebookComment.args = {
+    item: makeNotebookItem(),
+}
+
+export const AnnotationComment: Story = BasicTemplate.bind({})
+AnnotationComment.args = {
+    item: makeAnnotationItem(),
+}

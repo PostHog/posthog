@@ -134,20 +134,12 @@ impl RawRequest {
         Span::current().record("path", path.clone());
         Span::current().record("request_id", request_id);
 
-        debug!(
-            path = &path,
-            payload_len = bytes.len(),
-            "from_bytes: decoding new event"
-        );
+        debug!(payload_len = bytes.len(), "from_bytes: decoding new event");
 
         let mut payload = if cmp_hint == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
         {
             let len = bytes.len();
-            debug!(
-                path = &path,
-                payload_len = len,
-                "from_bytes: matched GZIP compression"
-            );
+            debug!(payload_len = len, "from_bytes: matched GZIP compression");
 
             let mut zipstream = GzDecoder::new(bytes.reader());
             let chunk = &mut [0; 1024];
@@ -191,7 +183,6 @@ impl RawRequest {
             }
         } else if cmp_hint == Compression::LZString {
             debug!(
-                path = &path,
                 payload_len = bytes.len(),
                 "from_bytes: matched LZ64 compression"
             );
@@ -238,8 +229,7 @@ impl RawRequest {
                             Ok(unwrapped_payload) => {
                                 let unwrapped_size = unwrapped_payload.len();
                                 if unwrapped_size > limit {
-                                    error!(path = &path,
-                                        unwrapped_size,
+                                    error!(unwrapped_size,
                                         "from_bytes: request size limit exceeded after post-decode base64 unwrap");
                                     report_dropped_events("event_too_big", 1);
                                     return Err(CaptureError::EventTooBig(format!(
@@ -250,7 +240,7 @@ impl RawRequest {
                                 unwrapped_payload
                             }
                             Err(e) => {
-                                error!(path = &path, "from_bytes: failed UTF8 conversion after post-decode base64: {}", e);
+                                error!("from_bytes: failed UTF8 conversion after post-decode base64: {}", e);
                                 payload
                             }
                         }
@@ -264,10 +254,7 @@ impl RawRequest {
                     }
                 }
             } else {
-                warn!(
-                    path = &path,
-                    "from_bytes: payload may be LZ64 or other after decoding step"
-                );
+                debug!("from_bytes: payload may be LZ64 or other after decoding step");
             }
         }
 
