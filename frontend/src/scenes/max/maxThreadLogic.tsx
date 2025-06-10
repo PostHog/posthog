@@ -323,7 +323,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                         if (e.status === 400 && e.data?.attr === 'content') {
                             relevantErrorMessage.content =
-                                'Oops! Your message is too long. Ensure it has no more than 6000 characters.'
+                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
                         }
                     } else {
                         posthog.captureException(e)

@@ -572,7 +572,8 @@ class _Printer(Visitor):
 
         elif self.dialect == "hogql":
             join_strings.append(self.visit(node.table))
-
+            if node.alias is not None:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"

@@ -16,6 +16,7 @@ import {
     IconPiggyBank,
     IconPlusSmall,
     IconRetention,
+    IconRetentionHeatmap,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -89,7 +90,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
         name: 'Calendar Heatmap',
         description: 'Visualize total or unique users broken down by day and hour.',
-        icon: IconHogQL,
+        icon: IconRetentionHeatmap,
         inMenu: true,
         // tooltipDescription TODO: Add tooltip description
     },

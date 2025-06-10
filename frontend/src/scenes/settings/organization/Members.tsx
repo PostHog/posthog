@@ -189,6 +189,9 @@ export function Members(): JSX.Element | null {
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const membersCanInviteRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     useEffect(() => {
         ensureAllMembersLoaded()
@@ -335,6 +338,23 @@ export function Members(): JSX.Element | null {
                     checked={!!currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
                     disabledReason={twoFactorRestrictionReason}
+                />
+            </PayGateMini>
+
+            <h3 className="mt-4">Invite settings</h3>
+            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
+                <p>Control who can send organization invites.</p>
+                <LemonSwitch
+                    label={
+                        <span>
+                            Members can invite others to join <i>{currentOrganization?.name}</i>
+                        </span>
+                    }
+                    bordered
+                    data-attr="org-members-can-invite-toggle"
+                    checked={!!currentOrganization?.members_can_invite}
+                    onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
+                    disabledReason={membersCanInviteRestrictionReason}
                 />
             </PayGateMini>
         </>

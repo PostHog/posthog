@@ -99,7 +99,7 @@ class TestConversation(APIBaseTest):
     def test_content_too_long(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
-            {"content": "x" * 8000, "trace_id": str(uuid.uuid4())},  # Very long message
+            {"content": "x" * 50000, "trace_id": str(uuid.uuid4())},  # Very long message
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", response.json())

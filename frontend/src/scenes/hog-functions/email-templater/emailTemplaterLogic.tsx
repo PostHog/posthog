@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
-import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
 
 import { PropertyDefinition, PropertyDefinitionType } from '~/types'

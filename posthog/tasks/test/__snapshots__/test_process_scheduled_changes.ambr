@@ -159,7 +159,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -358,7 +359,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -452,7 +454,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -527,7 +530,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -658,7 +662,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -803,6 +808,7 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -942,7 +948,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1024,7 +1031,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1166,7 +1174,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1344,7 +1353,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1447,7 +1457,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1541,7 +1552,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1672,7 +1684,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -1826,6 +1839,7 @@
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
+         "posthog_organization"."session_cookie_age",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -1953,7 +1967,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2035,7 +2050,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2175,6 +2191,24 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.63
   '''
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.64
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -2299,7 +2333,8 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config"
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"

@@ -11,31 +11,20 @@ import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
-from django.conf import settings
+from azure.core import exceptions as azure_exceptions
 from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from ee.hogai.utils.embeddings import aembed_documents, get_async_cohere_client
+from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
-from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
-
-
-async def _get_orgs_from_the_feature_flag() -> list[str]:
-    payload = posthoganalytics.get_feature_flag_payload("max-rag", "temporal_worker")
-    try:
-        orgs = json.loads(cast(str, payload))["organizations"]
-        if isinstance(orgs, list):
-            return orgs
-    except:
-        pass
-    return []
 
 
 async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
@@ -54,11 +43,6 @@ async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_si
         # order with list slices would be non-deterministic, as the queryset would remove already processed actions.
         | Q(last_summarized_at=start_dt)
     )
-
-    # Include only orgs from the feature flag in non-development environments
-    if not settings.DEBUG:
-        orgs = await _get_orgs_from_the_feature_flag()
-        filter_conditions &= Q(team__organization__in=orgs)
 
     actions_to_summarize = Action.objects.filter(filter_conditions).order_by("id", "team_id", "updated_at")
     if offset is None and batch_size is None:
@@ -147,26 +131,33 @@ async def batch_embed_actions(
     Returns:
         List of tuples containing the action and its embedding.
     """
-
     logger.info(
         "Preparing to embed actions",
         actions_count=len(actions),
     )
-    cohere_client = get_async_cohere_client()
+    embeddings_client = get_async_azure_embeddings_client()
 
     filtered_batches = [
         [action for action in actions[i : i + batch_size] if action["summary"]]
         for i in range(0, len(actions), batch_size)
     ]
     embedding_requests = [
-        aembed_documents(cohere_client, [cast(str, action["summary"]) for action in action_batch])
+        aembed_documents(embeddings_client, [cast(str, action["summary"]) for action in action_batch])
         for action_batch in filtered_batches
     ]
     responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
 
     successful_batches = []
     for action_batch, maybe_vector in zip(filtered_batches, responses):
+        # Authentication exception is not retryable.
+        if isinstance(maybe_vector, azure_exceptions.ClientAuthenticationError):
+            raise maybe_vector
+        # Rate limit raised, wait for a timeout.
+        if isinstance(maybe_vector, azure_exceptions.HttpResponseError) and maybe_vector.status_code == 429:
+            raise maybe_vector
+
         if isinstance(maybe_vector, BaseException):
+            posthoganalytics.capture_exception(maybe_vector, additional_properties={"tag": "max_ai"})
             logger.exception("Error embedding actions", error=maybe_vector)
             continue
         for action, embedding in zip(action_batch, maybe_vector):
@@ -193,18 +184,27 @@ async def sync_action_vectors(
     for i in range(0, len(actions_with_embeddings), insert_batch_size):
         batch = actions_with_embeddings[i : i + insert_batch_size]
 
-        rows = [
-            (
-                "action",
-                action["team_id"],
-                action["id"],
-                embedding,
-                action["summary"],
-                json.dumps({"name": action["name"], "description": action["description"]}),
-                1 if action["deleted"] else 0,
+        rows: list[tuple] = []
+        for action, embedding in batch:
+            properties = {
+                "name": action["name"],
+                "description": action["description"],
+            }
+            if embedding_version is not None:
+                properties["embedding_version"] = embedding_version
+
+            rows.append(
+                (
+                    "action",
+                    action["team_id"],
+                    action["id"],
+                    embedding,
+                    action["summary"],
+                    json.dumps(properties),
+                    1 if action["deleted"] else 0,
+                )
             )
-            for (action, embedding) in batch
-        ]
+
         if not rows:
             break
 
@@ -323,6 +323,13 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
 
 
 @dataclass
+class EmbeddingVersion:
+    """The version of the embedding model to use per a domain."""
+
+    actions: int
+
+
+@dataclass
 class SyncVectorsInputs:
     start_dt: str | None = None
     """Start date for the sync if the workflow is not triggered by a schedule."""
@@ -337,7 +344,9 @@ class SyncVectorsInputs:
     delay_between_batches: int = 60
     """How many seconds to wait between batches."""
     embedding_version: int | None = None
-    """The version of the embedding model to use. Update in the schedule."""
+    """DEPRECATED: use `embedding_versions` instead. Kept for backward compatibility."""
+    embedding_versions: EmbeddingVersion | None = None
+    """The versions of the embedding model to use per a domain."""
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
@@ -390,10 +399,14 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     insert_batch_size=inputs.insert_batch_size,
                     embeddings_batch_size=inputs.embed_batch_size,
                     max_parallel_requests=inputs.max_parallel_requests,
-                    embedding_version=inputs.embedding_version,
+                    embedding_version=inputs.embedding_versions.actions if inputs.embedding_versions else None,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=timedelta(seconds=30),
+                    maximum_attempts=3,
+                    non_retryable_error_types=("ClientAuthenticationError",),
+                ),
             )
             if not res.has_more:
                 break

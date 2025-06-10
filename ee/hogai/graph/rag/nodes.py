@@ -3,17 +3,21 @@ import xml.etree.ElementTree as ET
 from typing import Any, Literal, cast
 
 import posthoganalytics
-from cohere.core.api_error import ApiError as BaseCohereApiError
+from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.embeddings import embed_search_query, get_cohere_client
-from ..base import AssistantNode
+from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
+from posthog.hogql_queries.ai.vector_search_query_runner import (
+    LATEST_ACTIONS_EMBEDDING_VERSION,
+    VectorSearchQueryRunner,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.schema import CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
+
+from ..base import AssistantNode
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
@@ -35,9 +39,9 @@ class InsightRagContextNode(AssistantNode):
         self._prewarm_queries()
 
         try:
-            client = get_cohere_client()
-            vector = embed_search_query(client, plan)
-        except (BaseCohereApiError, ValueError) as e:
+            embeddings_client = get_azure_embeddings_client()
+            vector = embed_search_query(embeddings_client, plan)
+        except (AzureHttpResponseError, ValueError) as e:
             posthoganalytics.capture_exception(e, distinct_id, {"tag": "max"})
             return None
         return PartialAssistantState(
@@ -55,7 +59,7 @@ class InsightRagContextNode(AssistantNode):
     ) -> str:
         runner = VectorSearchQueryRunner(
             team=self._team,
-            query=VectorSearchQuery(embedding=embedding),
+            query=VectorSearchQuery(embedding=embedding, embeddingVersion=LATEST_ACTIONS_EMBEDDING_VERSION),
         )
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not isinstance(response, CachedVectorSearchQueryResponse) or not response.results:

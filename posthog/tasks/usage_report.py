@@ -52,6 +52,7 @@ from posthog.models import BatchExport
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
 
 logger = structlog.get_logger(__name__)
@@ -171,6 +172,8 @@ class UsageReportCounters:
     php_events_count_in_period: int
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
+    active_hog_destinations_in_period: int
+    active_hog_transformations_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -472,11 +475,11 @@ def get_teams_with_billable_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -498,11 +501,11 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
+    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
 
 
 @timed_log()
@@ -555,7 +558,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp BETWEEN %(begin)s AND %(end)s
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
     """
@@ -599,13 +602,13 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 4 splits
+    # Execute the split query with 3 splits
     return _execute_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
         params={},
-        num_splits=2,
+        num_splits=3,
         combine_results_func=combine_event_metrics_results,
     )
 
@@ -1026,6 +1029,34 @@ def get_teams_with_recording_bytes_in_period(
     return result
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_hog_destinations_in_period() -> list:
+    return list(
+        HogFunction.objects.filter(
+            type=HogFunctionType.DESTINATION,
+            enabled=True,
+            deleted=False,
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_hog_transformations_in_period() -> list:
+    return list(
+        HogFunction.objects.filter(
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=False,
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
@@ -1282,6 +1313,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
+        "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
+        "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
     }
 
 
@@ -1386,6 +1419,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
+        active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
+            team.id, 0
+        ),
     )
 
 

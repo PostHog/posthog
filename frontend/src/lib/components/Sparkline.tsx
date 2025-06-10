@@ -1,5 +1,5 @@
-import { ScaleOptions } from 'chart.js'
 import clsx from 'clsx'
+import { ScaleOptions } from 'lib/Chart'
 import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'

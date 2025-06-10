@@ -9,6 +9,8 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 
 
 class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
@@ -53,18 +55,20 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
         # If there's a way to join with the customer table, then do it
-        _, customer_subquery, _, _ = self.revenue_subqueries()
+        _, customer_subquery, _, _ = self.revenue_subqueries
         if customer_subquery is not None:
-            base_query.select[0] = ast.Alias(alias="name", expr=ast.Field(chain=["customers", "name"]))
+            base_query.select[0] = ast.Alias(
+                alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
+            )
             select_from = cast(ast.JoinExpr, base_query.select_from)
             select_from.next_join = ast.JoinExpr(
                 table=customer_subquery,
-                alias="customers",
+                alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
                 join_type="INNER JOIN",
                 constraint=ast.JoinConstraint(
                     constraint_type="ON",
                     expr=ast.CompareOperation(
-                        left=ast.Field(chain=["customers", "id"]),
+                        left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
                         right=ast.Field(chain=["inner", "customer_id"]),
                         op=ast.CompareOperationOp.Eq,
                     ),
@@ -74,9 +78,9 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         return base_query
 
     def inner_query(self) -> ast.SelectQuery:
-        charge_subquery, _, _, _ = self.revenue_subqueries()
-        if charge_subquery is None:
-            # Empty query because there are no charges, but still include the right columns
+        _, _, invoice_subquery, _ = self.revenue_subqueries
+        if invoice_subquery is None:
+            # Empty query because there are no invoice items, but still include the right columns
             # to make sure the outer query works
             return ast.SelectQuery(
                 select=[
@@ -109,9 +113,12 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
                     ),
                 ),
             ],
-            select_from=ast.JoinExpr(table=charge_subquery),
+            select_from=self.append_joins(
+                ast.JoinExpr(alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), table=invoice_subquery),
+                self.joins_for_properties,
+            ),
+            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
             group_by=[ast.Field(chain=["customer_id"]), ast.Field(chain=["month"])],
-            where=self.timestamp_where_clause(),
             # Top 20 by month only to avoid too many rows
             limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )

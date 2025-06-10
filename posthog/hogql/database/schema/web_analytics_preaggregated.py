@@ -9,16 +9,13 @@ from posthog.hogql.database.models import (
 
 DEVICE_BROWSER_FIELDS = {
     "browser": StringDatabaseField(name="browser", nullable=True),
-    "browser_version": StringDatabaseField(name="browser_version", nullable=True),
     "os": StringDatabaseField(name="os", nullable=True),
-    "os_version": StringDatabaseField(name="os_version", nullable=True),
     "viewport_width": IntegerDatabaseField(name="viewport_width", nullable=True),
     "viewport_height": IntegerDatabaseField(name="viewport_height", nullable=True),
 }
 
 GEOIP_FIELDS = {
     "country_code": StringDatabaseField(name="country_code", nullable=True),
-    "country_name": StringDatabaseField(name="country_name", nullable=True),
     "city_name": StringDatabaseField(name="city_name", nullable=True),
     "region_code": StringDatabaseField(name="region_code", nullable=True),
     "region_name": StringDatabaseField(name="region_name", nullable=True),
@@ -34,27 +31,6 @@ UTM_FIELDS = {
     "referring_domain": StringDatabaseField(name="referring_domain", nullable=True),
 }
 
-ATTRIBUTION_TRACKING_FIELDS = {
-    "gclid": StringDatabaseField(name="gclid", nullable=True),
-    "gad_source": StringDatabaseField(name="gad_source", nullable=True),
-    "gclsrc": StringDatabaseField(name="gclsrc", nullable=True),
-    "dclid": StringDatabaseField(name="dclid", nullable=True),
-    "gbraid": StringDatabaseField(name="gbraid", nullable=True),
-    "wbraid": StringDatabaseField(name="wbraid", nullable=True),
-    "fbclid": StringDatabaseField(name="fbclid", nullable=True),
-    "msclkid": StringDatabaseField(name="msclkid", nullable=True),
-    "twclid": StringDatabaseField(name="twclid", nullable=True),
-    "li_fat_id": StringDatabaseField(name="li_fat_id", nullable=True),
-    "mc_cid": StringDatabaseField(name="mc_cid", nullable=True),
-    "igshid": StringDatabaseField(name="igshid", nullable=True),
-    "ttclid": StringDatabaseField(name="ttclid", nullable=True),
-    "epik": StringDatabaseField(name="epik", nullable=True),
-    "qclid": StringDatabaseField(name="qclid", nullable=True),
-    "sccid": StringDatabaseField(name="sccid", nullable=True),
-    "_kx": StringDatabaseField(name="_kx", nullable=True),
-    "irclid": StringDatabaseField(name="irclid", nullable=True),
-}
-
 PATH_FIELDS = {
     "entry_pathname": StringDatabaseField(name="entry_pathname", nullable=True),
     "end_pathname": StringDatabaseField(name="end_pathname", nullable=True),
@@ -64,7 +40,6 @@ SHARED_SCHEMA_FIELDS = {
     **DEVICE_BROWSER_FIELDS,
     **GEOIP_FIELDS,
     **UTM_FIELDS,
-    **ATTRIBUTION_TRACKING_FIELDS,
     **PATH_FIELDS,
 }
 
