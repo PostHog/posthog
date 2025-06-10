@@ -1,4 +1,4 @@
-import { IconPageChart } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -185,6 +185,7 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextOptions: [
                     {
+                        id: 'current_page',
                         name: 'Current page',
                         value: 'current_page',
                         icon: IconPageChart,
@@ -192,6 +193,13 @@ describe('maxContextLogic', () => {
                             insights: [expectedTransformedInsight],
                             dashboards: [],
                         },
+                    },
+                    {
+                        id: 'insight-1',
+                        name: 'Test Insight',
+                        value: 'insight-1',
+                        type: 'insight',
+                        icon: IconGraph,
                     },
                 ],
             })
@@ -201,6 +209,7 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextOptions: [
                     {
+                        id: 'current_page',
                         name: 'Current page',
                         value: 'current_page',
                         icon: IconPageChart,
@@ -208,6 +217,20 @@ describe('maxContextLogic', () => {
                             insights: [expectedTransformedInsight],
                             dashboards: [expectedTransformedDashboard],
                         },
+                    },
+                    {
+                        id: '1',
+                        name: 'Test Dashboard',
+                        value: 1,
+                        type: 'dashboard',
+                        icon: IconDashboard,
+                    },
+                    {
+                        id: 'insight-1',
+                        name: 'Test Insight',
+                        value: 'insight-1',
+                        type: 'insight',
+                        icon: IconGraph,
                     },
                 ],
             })
@@ -325,11 +348,12 @@ describe('maxContextLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.handleTaxonomicFilterChange(
-                    'current_page',
-                    TaxonomicFilterGroupType.MaxAIContext,
-                    'current_page'
-                )
+                logic.actions.handleTaxonomicFilterChange('current_page', TaxonomicFilterGroupType.MaxAIContext, {
+                    id: 'current_page',
+                    name: 'Current page',
+                    value: 'current_page',
+                    icon: IconPageChart,
+                })
             }).toMatchValues({
                 useCurrentPageContext: true,
             })

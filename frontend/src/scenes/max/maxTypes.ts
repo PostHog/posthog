@@ -26,9 +26,11 @@ export interface MaxContextShape {
 
 // Taxonomic filter options
 export interface MaxContextOption {
-    value: string
+    id: string
+    value: string | number
     name: string
     icon: React.ReactNode
+    type?: 'dashboard' | 'insight'
     items?: {
         insights?: MaxInsightContext[]
         dashboards?: MaxDashboardContext[]

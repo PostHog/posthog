@@ -626,8 +626,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Replay',
                     },
                     {
-                        name: 'Max AI',
-                        searchPlaceholder: 'Max AI',
+                        name: 'In this page',
+                        searchPlaceholder: 'elements from this page',
                         type: TaxonomicFilterGroupType.MaxAIContext,
                         options: maxContextOptions,
                         getName: (option: MaxContextOption) => option.name,
@@ -639,7 +639,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                             return <></>
                         },
-                        getPopoverHeader: () => 'Max AI',
+                        getPopoverHeader: () => 'In this page',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

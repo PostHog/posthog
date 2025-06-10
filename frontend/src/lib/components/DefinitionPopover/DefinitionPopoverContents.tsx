@@ -359,6 +359,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (group.type === TaxonomicFilterGroupType.MaxAIContext) {
         const _definition = definition as MaxContextOption
+        if (_definition.value !== 'current_page') {
+            return <></>
+        }
         return (
             <>
                 {sharedComponents}

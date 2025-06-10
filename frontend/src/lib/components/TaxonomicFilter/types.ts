@@ -184,3 +184,4 @@ export type TaxonomicDefinitionTypes =
     | ActionType
     | PersonProperty
     | DataWarehouseTableForInsight
+    | MaxContextOption

@@ -1,15 +1,13 @@
-import { IconPageChart } from '@posthog/icons'
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
-import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import { MaxContextOption, MaxContextShape, MaxDashboardContext, MaxInsightContext } from './maxTypes'
@@ -54,10 +52,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
         clearActiveInsights: true,
         setActiveDashboard: (dashboardContext: DashboardType<QueryBasedInsightModel>) => ({ dashboardContext }),
         clearActiveDashboard: true,
+        setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
             groupType: TaxonomicFilterGroupType,
-            item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | string
+            item: DashboardType | QueryBasedInsightModel | MaxContextOption
         ) => ({ value, groupType, item }),
         resetContext: true,
     }),
@@ -151,83 +150,139 @@ export const maxContextLogic = kea<maxContextLogicType>([
             }: {
                 value: string | number
                 groupType: TaxonomicFilterGroupType
-                item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | string
+                item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
             },
             breakpoint
         ) => {
-            let dashboardLogicInstance: BuiltLogic<dashboardLogicType> | null = null
-            let insightLogicInstance: BuiltLogic<insightLogicType> | null = null
-            if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
-                if (value === 'current_page') {
-                    // Set current page context
+            try {
+                // Handle current page context selection
+                if (groupType === TaxonomicFilterGroupType.MaxAIContext && value === 'current_page') {
                     actions.enableCurrentPageContext()
+                    return
                 }
-            } else if (groupType === TaxonomicFilterGroupType.Dashboards) {
-                let dashboard = item as DashboardType<QueryBasedInsightModel>
-                if (!dashboard.tiles) {
-                    dashboardLogicInstance = dashboardLogic.build({
-                        id: dashboard.id,
-                    })
-                    dashboardLogicInstance.mount()
 
-                    // Wait for the dashboard to load
-                    dashboardLogicInstance.actions.loadDashboard({
-                        action: 'initial_load',
-                    })
-
-                    // Use breakpoint for proper async handling instead of while loop
-                    await breakpoint(50)
-                    while (!dashboardLogicInstance.values.dashboard) {
-                        await breakpoint(50)
+                // Parse item information based on selection type
+                const itemInfo = (() => {
+                    // Handle MaxAI context with string values like "insight_123" or "dashboard_456"
+                    if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
+                        const _item = item as MaxContextOption
+                        if (_item.type === 'insight') {
+                            return {
+                                type: 'insight',
+                                id: _item.value,
+                                preloaded: null,
+                            }
+                        }
+                        if (_item.type === 'dashboard') {
+                            return isNaN(_item.value as number)
+                                ? null
+                                : {
+                                      type: 'dashboard',
+                                      id: _item.value,
+                                      preloaded: null,
+                                  }
+                        }
                     }
 
-                    dashboard = dashboardLogicInstance.values.dashboard!
-                }
-                actions.addOrUpdateContextDashboard(dashboard)
-            } else if (groupType === TaxonomicFilterGroupType.Insights) {
-                let insight = item as Partial<QueryBasedInsightModel>
-                if (!insight.query) {
-                    insightLogicInstance = insightLogic.build({
-                        dashboardItemId: undefined,
-                    })
-                    insightLogicInstance.mount()
-                    insightLogicInstance.actions.loadInsight(insight.short_id!)
-
-                    // Use breakpoint for proper async handling
-                    await breakpoint(50)
-                    while (!insightLogicInstance.values.insight.query) {
-                        await breakpoint(50)
+                    // Handle direct selections
+                    if (groupType === TaxonomicFilterGroupType.Dashboards) {
+                        const dashboard = item as DashboardType
+                        return {
+                            type: 'dashboard',
+                            id: dashboard.id,
+                            preloaded: dashboard as DashboardType<QueryBasedInsightModel>,
+                        }
                     }
-                    insight = insightLogicInstance.values.insight!
+
+                    if (groupType === TaxonomicFilterGroupType.Insights) {
+                        const insight = item as QueryBasedInsightModel
+                        return {
+                            type: 'insight',
+                            id: insight.short_id,
+                            preloaded: insight,
+                        }
+                    }
+
+                    return null
+                })()
+
+                if (!itemInfo) {
+                    return
                 }
-                actions.addOrUpdateContextInsight(insight)
-            }
-            if (insightLogicInstance) {
-                insightLogicInstance.unmount()
-            }
-            if (dashboardLogicInstance) {
-                // wait until all dashboard items are refreshed
-                // this allows Max to query cached insights and speed up the response
-                while (
-                    Object.values(dashboardLogicInstance.values.refreshStatus).some(
-                        (status: RefreshStatus) => status.loading
-                    )
-                ) {
-                    await breakpoint(50)
+
+                // Handle dashboard selection
+                if (itemInfo.type === 'dashboard') {
+                    let dashboard = itemInfo.preloaded as DashboardType<QueryBasedInsightModel> | null
+
+                    if (!dashboard || !dashboard.tiles) {
+                        const dashboardLogicInstance = dashboardLogic.build({ id: itemInfo.id as number })
+                        dashboardLogicInstance.mount()
+
+                        try {
+                            dashboardLogicInstance.actions.loadDashboard({ action: 'initial_load' })
+
+                            await breakpoint(50)
+                            while (!dashboardLogicInstance.values.dashboard) {
+                                await breakpoint(50)
+                            }
+
+                            dashboard = dashboardLogicInstance.values.dashboard
+
+                            // Wait for dashboard items to refresh for cached insights
+                            while (
+                                Object.values(dashboardLogicInstance.values.refreshStatus).some(
+                                    (status: RefreshStatus) => status.loading
+                                )
+                            ) {
+                                await breakpoint(50)
+                            }
+                        } finally {
+                            dashboardLogicInstance.unmount()
+                        }
+                    }
+
+                    actions.addOrUpdateContextDashboard(dashboard)
                 }
-                dashboardLogicInstance.unmount()
+
+                // Handle insight selection
+                if (itemInfo.type === 'insight') {
+                    let insight = itemInfo.preloaded as QueryBasedInsightModel | null
+
+                    if (!insight || !insight.query) {
+                        const insightLogicInstance = insightLogic.build({ dashboardItemId: undefined })
+                        insightLogicInstance.mount()
+
+                        try {
+                            insightLogicInstance.actions.loadInsight(itemInfo.id as InsightShortId)
+
+                            await breakpoint(50)
+                            while (!insightLogicInstance.values.insight.query) {
+                                await breakpoint(50)
+                            }
+
+                            insight = insightLogicInstance.values.insight as QueryBasedInsightModel
+                        } finally {
+                            insightLogicInstance.unmount()
+                        }
+                    }
+
+                    actions.addOrUpdateContextInsight(insight)
+                }
+            } catch (error) {
+                console.error('Error handling taxonomic filter change:', error)
             }
         },
     })),
     selectors({
         contextOptions: [
-            (s: any) => [s.activeInsights, s.activeDashboard],
+            (s: any) => [s.activeInsights, s.activeDashboard, s.contextInsights, s.contextDashboards],
             (activeInsights: MaxInsightContext[], activeDashboard: MaxDashboardContext | null): MaxContextOption[] => {
-                if (activeInsights.length === 0 && !activeDashboard) {
-                    return []
-                }
-                return [
-                    {
+                const options: MaxContextOption[] = []
+
+                // Add Current page option if there are active items
+                if (activeInsights.length > 0 || activeDashboard) {
+                    options.push({
+                        id: 'current_page',
                         name: 'Current page',
                         value: 'current_page',
                         icon: IconPageChart,
@@ -235,8 +290,34 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             insights: activeInsights,
                             dashboards: activeDashboard ? [activeDashboard] : [],
                         },
-                    },
-                ]
+                    })
+                }
+
+                // Add individual dashboards from context
+                if (activeDashboard) {
+                    options.push({
+                        id: activeDashboard.id.toString(),
+                        name: activeDashboard.name || `Dashboard ${activeDashboard.id}`,
+                        value: activeDashboard.id,
+                        type: 'dashboard',
+                        icon: IconDashboard,
+                    })
+                }
+
+                // Add individual insights from context
+                if (activeInsights.length > 0) {
+                    activeInsights.forEach((insight) => {
+                        options.push({
+                            id: insight.id.toString(),
+                            name: insight.name || `Insight ${insight.id}`,
+                            value: insight.id,
+                            type: 'insight',
+                            icon: IconGraph,
+                        })
+                    })
+                }
+
+                return options
             },
         ],
         mainTaxonomicGroupType: [
