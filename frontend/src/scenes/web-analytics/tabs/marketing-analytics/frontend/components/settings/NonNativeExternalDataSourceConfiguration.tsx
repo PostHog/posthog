@@ -1,15 +1,11 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSource, PipelineStage } from '~/types'
 
 import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import {
-    SharedExternalDataSourceConfiguration,
-    SimpleDataWarehouseTable,
-} from './SharedExternalDataSourceConfiguration'
+import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
 
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']
 
@@ -34,12 +30,7 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
             tables={tables}
             loading={loading}
             validSources={VALID_MARKETING_SOURCES}
-            renderSourceIcon={renderSourceIcon}
             onSourceAdd={handleSourceAdd}
         />
     )
 }
-
-const renderSourceIcon = (item: SimpleDataWarehouseTable): JSX.Element => (
-    <DataWarehouseSourceIcon type={item.source_type} />
-)

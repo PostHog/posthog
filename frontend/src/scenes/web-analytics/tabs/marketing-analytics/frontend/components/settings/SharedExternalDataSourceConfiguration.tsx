@@ -28,7 +28,6 @@ interface SharedExternalDataSourceConfigurationProps {
     tables: ExternalTable[]
     loading: boolean
     validSources: ExternalDataSource['source_type'][] | ManualLinkSourceType[]
-    renderSourceIcon: (item: SimpleDataWarehouseTable) => JSX.Element
     onSourceAdd: (source: any) => void // Need any because self-managed and non-native sources have different types
 }
 
@@ -38,7 +37,6 @@ export function SharedExternalDataSourceConfiguration({
     tables,
     loading,
     validSources,
-    renderSourceIcon,
     onSourceAdd,
 }: SharedExternalDataSourceConfigurationProps): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
@@ -151,7 +149,7 @@ export function SharedExternalDataSourceConfiguration({
                         key: 'source_icon',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalTable) => renderSourceIcon(item),
+                        render: (_, item: ExternalTable) => <DataWarehouseSourceIcon type={item.source_type} />,
                     },
                     {
                         key: 'source',

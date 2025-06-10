@@ -104,7 +104,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         validExternalTables: [
             (s) => [s.externalTables, s.sources_map],
             (externalTables: ExternalTable[], sources_map: SourceMap): ExternalTable[] => {
-                const validSourcesMap = sources_map
+                const validSourcesMap = sources_map ?? {}
                 Object.keys(MARKETING_ANALYTICS_SCHEMA)
                     .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
                     .forEach((column_name: string) => {

@@ -1,16 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
-import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { ManualLinkSourceType, PipelineStage } from '~/types'
 
 import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import {
-    SharedExternalDataSourceConfiguration,
-    SimpleDataWarehouseTable,
-} from './SharedExternalDataSourceConfiguration'
+import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
 
 const VALID_MANUAL_LINK_SOURCES: ManualLinkSourceType[] = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
@@ -39,12 +35,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
             tables={tables}
             loading={loading}
             validSources={VALID_MANUAL_LINK_SOURCES}
-            renderSourceIcon={renderSourceIcon}
             onSourceAdd={handleSourceAdd}
         />
     )
 }
-
-const renderSourceIcon = (item: SimpleDataWarehouseTable): JSX.Element => (
-    <DataWarehouseSourceIcon type={mapUrlToProvider(item.url_pattern!)} />
-)
