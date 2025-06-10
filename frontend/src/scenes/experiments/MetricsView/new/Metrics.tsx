@@ -3,6 +3,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
+import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { MAX_PRIMARY_METRICS } from '../shared/const'
@@ -32,6 +34,20 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     if (sharedMetrics) {
         metrics = [...metrics, ...sharedMetrics]
     }
+
+    // Calculate shared chartRadius across all metrics
+    const maxAbsValue = Math.max(
+        ...results.flatMap((result: NewExperimentQueryResponse) => {
+            const variantResults = result?.variant_results || []
+            return variantResults.flatMap((variant: any) => {
+                const interval = variant.confidence_interval
+                return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
+            })
+        })
+    )
+
+    const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
+    const chartRadius = maxAbsValue + axisMargin
 
     return (
         <div className="mb-4 -mt-2">
@@ -69,7 +85,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                 <div className="w-full overflow-x-auto">
                     <div className="min-w-[1000px]">
                         <div className="rounded bg-[var(--bg-table)]">
-                            <ConfidenceIntervalAxis results={results} />
+                            <ConfidenceIntervalAxis chartRadius={chartRadius} />
                             {metrics.map((metric, metricIndex) => {
                                 return (
                                     <MetricRow
@@ -80,6 +96,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                         metric={metric}
                                         metricType={getInsightType(metric)}
                                         isSecondary={!!isSecondary}
+                                        chartRadius={chartRadius}
                                     />
                                 )
                             })}

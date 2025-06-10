@@ -6,32 +6,15 @@ import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } fr
 /**
  * ConfidenceIntervalAxis renders the horizontal axis for experiment confidence interval charts, rendered at the top of the metrics results view.
  *
- * This component analyzes confidence intervals from experiment results to create an appropriately
- * scaled axis with tick marks and percentage labels. It:
+ * This component renders an appropriately scaled axis with tick marks and percentage labels using
+ * the chartRadius calculated by the parent Metrics component. It:
  *
- * 1. Extracts all confidence intervals from variant_results across all metrics
- * 2. Calculates the maximum absolute value to determine chart bounds
- * 3. Adds padding to ensure intervals don't touch chart edges
- * 4. Generates nicely rounded tick values using getNiceTickValues()
- * 5. Renders an SVG axis with tick marks showing percentage changes
+ * 1. Receives chartRadius from parent (calculated from all confidence intervals across metrics)
+ * 2. Generates nicely rounded tick values using getNiceTickValues()
+ * 3. Renders an SVG axis with tick marks showing percentage changes
  *
  */
-export function ConfidenceIntervalAxis({ results }: { results: any[] }): JSX.Element {
-    // Extract all confidence intervals from variant_results to find the maximum absolute value
-    const maxAbsValue = Math.max(
-        ...results.flatMap((result) => {
-            if (!result?.variant_results) {
-                return []
-            }
-            return result.variant_results.flatMap((variant: any) => {
-                const interval = variant.confidence_interval
-                return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
-            })
-        })
-    )
-
-    const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartRadius = maxAbsValue + axisMargin
+export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number }): JSX.Element {
     const tickValues = getNiceTickValues(chartRadius)
 
     const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])

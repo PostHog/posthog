@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { ExperimentFunnelsQuery, ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery } from '~/queries/schema/schema-general'
 import { ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
@@ -20,6 +20,7 @@ export function MetricRow({
     isSecondary,
     metrics,
     metricIndex,
+    chartRadius,
 }: {
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metricIndex: number
@@ -27,22 +28,14 @@ export function MetricRow({
     result: any
     metricType: InsightType
     isSecondary: boolean
+    chartRadius: number
 }): JSX.Element {
     const { secondaryMetricResultsLoading, metricResultsLoading } = useValues(experimentLogic)
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
 
     const variantResults = result?.variant_results || []
-    const maxAbsValue = Math.max(
-        ...variantResults.flatMap((variant: ExperimentVariantResultFrequentist) => {
-            const interval = variant.confidence_interval
-            return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : [] // Remove /100
-        })
-    )
 
-    const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartRadius = maxAbsValue + axisMargin
     const tickValues = getNiceTickValues(chartRadius)
-
     const chartHeight = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length
 
     const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
@@ -84,6 +77,7 @@ export function MetricRow({
                             variantResults={variantResults}
                             chartRadius={chartRadius}
                             metricIndex={metricIndex}
+                            tickValues={tickValues}
                             isSecondary={isSecondary}
                         />
                     )}
