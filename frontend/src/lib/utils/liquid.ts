@@ -10,8 +10,6 @@ export class LiquidRenderer {
     private static get liquid(): Liquid {
         if (!this._liquid) {
             this._liquid = new Liquid({
-                strictFilters: false,
-                strictVariables: false,
                 outputEscape: 'escape',
             })
         }
