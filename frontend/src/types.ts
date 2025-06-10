@@ -5121,6 +5121,7 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: any
 }
