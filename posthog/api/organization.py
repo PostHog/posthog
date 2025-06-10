@@ -28,7 +28,6 @@ from posthog.models import (
     Survey,
     Experiment,
     Cohort,
-    FileSystemSyncMixin,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -336,7 +335,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
         """
         organization = Organization.objects.get(id=kwargs["id"])
-        environment_mappings = request.data
+        environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
         user = cast(User, request.user)
         membership = user.organization_memberships.get(organization=organization)
 
@@ -344,7 +343,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError("Environment mappings are required")
 
         # Verify all environments exist and belong to this organization
-        all_environment_ids = set(map(int, environment_mappings.keys())) | set(map(int, environment_mappings.values()))
+        all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
         teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
         found_team_ids = set(teams.values_list("id", flat=True))
 
@@ -352,7 +351,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if missing_team_ids:
             raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
 
-        models_to_update: list[FileSystemSyncMixin] = [
+        models_to_update = [
             Insight,
             Dashboard,
             FeatureFlag,
@@ -364,16 +363,15 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             # Update all models to point to their target teams
-            for source_id, target_id in environment_mappings.items():
-                source_id = int(source_id)
-                target_id = int(target_id)
+            for source_id_str, target_id in environment_mappings.items():
+                source_id = int(source_id_str)
 
                 if source_id == target_id:
                     continue  # Skip if source and target are the same
 
                 # Update all models from source to target
                 for model in models_to_update:
-                    model.objects.filter(team_id=source_id).update(team_id=target_id)
+                    model.objects.filter(team_id=source_id).update(team_id=target_id)  # type: ignore[attr-defined]
 
                 # Create a new project for the source team
                 source_team = teams.get(id=source_id)
