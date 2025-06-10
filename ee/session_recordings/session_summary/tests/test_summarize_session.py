@@ -17,22 +17,8 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     execute_summarize_session,
     stream_recording_summary,
 )
-from posthog.models import Team, User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
-
-
-@pytest.fixture
-def mock_user() -> MagicMock:
-    user = MagicMock(spec=User)
-    user.pk = 123
-    return user
-
-
-@pytest.fixture
-def mock_team() -> MagicMock:
-    team = MagicMock(spec=Team)
-    return team
 
 
 class TestSummarizeSession:
@@ -134,14 +120,13 @@ class TestSummarizeSession:
                     limit=3000,
                 )
 
-    # TODO: Add no-ASGI test
     # TODO: Add temporal tests (instead of mocking the whole workflow)
     @pytest.mark.asyncio
     async def test_stream_recording_summary_asgi(
         self,
         mock_user: MagicMock,
         mock_team: MagicMock,
-        mock_loaded_llm_json_response: str,
+        mock_loaded_llm_json_response: dict[str, Any],
     ):
         """Test the ASGI streaming path."""
         session_id = "test_session_id"
@@ -172,7 +157,7 @@ class TestSummarizeSession:
         self,
         mock_user: MagicMock,
         mock_team: MagicMock,
-        mock_loaded_llm_json_response: str,
+        mock_loaded_llm_json_response: dict[str, Any],
     ):
         """Test the WSGI (non-ASGI) streaming path."""
         session_id = "test_session_id"
