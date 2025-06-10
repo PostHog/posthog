@@ -65,7 +65,7 @@ def update_stale_cohort_metrics() -> None:
 
     stale_24h = stale_36h = stale_48h = 0
     for last_calc in stale_cohorts:
-        if last_calc is None or last_calc <= now - relativedelta(hours=48):
+        if last_calc <= now - relativedelta(hours=48):
             stale_48h += 1
             stale_36h += 1
             stale_24h += 1
