@@ -45,6 +45,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
     const normalizeValue = (value: string) => {
         let modifiedVal = value
 
+        if (modifiedVal === 'event.') {
+            return 'event'
+        }
         if (modifiedVal.includes('event.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.traits', 'person.properties')
         }
