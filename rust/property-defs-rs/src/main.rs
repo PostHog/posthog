@@ -5,14 +5,18 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 
 use futures::future::ready;
 use property_defs_rs::{
-    api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
-    config::Config, update_cache::Cache, update_consumer_loop, update_producer_loop,
+    api::v1::{query::Manager, routing::apply_routes},
+    app_context::AppContext,
+    config::Config,
+    update_cache::Cache,
+    measuring_channel::MeasuringChannel,
+    update_consumer_loop,
+    update_producer_loop
 };
 
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{
-    sync::mpsc::{self},
     task::JoinHandle,
 };
 use tracing::{info, warn};
@@ -82,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     start_server(&config, context.clone());
 
-    let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
+    let channel = MeasuringChannel::new(config.update_batch_size * config.channel_slots_per_worker);
 
     let cache = Cache::new(config.cache_capacity);
 
@@ -94,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let handle = tokio::spawn(update_producer_loop(
             config.clone(),
             consumer.clone(),
-            tx.clone(),
+            channel.tx().clone(),
             cache.clone(),
         ));
 
@@ -105,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.clone(),
         cache,
         context,
-        rx,
+        channel,
     )));
 
     // if any handle returns, abort the other ones, and then return an error
