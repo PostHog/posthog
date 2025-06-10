@@ -41,6 +41,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
     OrganizationInviteSettingsPermission,
+    OrganizationMemberPermissions,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -84,6 +85,16 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         return (
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
             >= min_level
+        )
+
+
+class OrganizationPermissionsWithEnvRollback(OrganizationAdminWritePermissions):
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        organization = extract_organization(object, view)
+
+        return (
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
+            >= OrganizationMembership.Level.ADMIN
         )
 
 
@@ -326,7 +337,11 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["POST"],
         detail=True,
         url_path="environments_rollback",
-        permission_classes=[permissions.IsAuthenticated, OrganizationAdminWritePermissions],
+        permission_classes=[
+            permissions.IsAuthenticated,
+            OrganizationMemberPermissions,
+            OrganizationPermissionsWithEnvRollback,
+        ],
     )
     def environments_rollback(self, request: Request, **kwargs) -> Response:
         """
@@ -334,7 +349,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         The request data should be a mapping of source environment IDs to target environment IDs.
         Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
         """
-        organization = Organization.objects.get(id=kwargs["id"])
+        organization = self.get_object()
         environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
         user = cast(User, request.user)
         membership = user.organization_memberships.get(organization=organization)

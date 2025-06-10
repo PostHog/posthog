@@ -409,7 +409,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "Your organization access level is insufficient.")
+        self.assertEqual(response.json()["detail"], "You do not have admin access to this resource.")
 
     def test_environments_rollback_wrong_organization(self):
         other_org = Organization.objects.create(name="Other Org")
