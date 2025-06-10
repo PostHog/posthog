@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import logging
 import random
+import sys
 import time
 import uuid
 import json
@@ -8,8 +9,34 @@ from typing import Any, Literal, Union
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from posthog.models import Team, User
 import posthoganalytics
 from pydantic import BaseModel, ValidationError, Field
+
+
+def initialize_self_capture():
+    """Initialize self-capture for posthoganalytics in management command context"""
+    try:
+        user = (
+            User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
+        )
+        team = None
+        if user and getattr(user, "current_team", None):
+            team = user.current_team
+        else:
+            team = Team.objects.only("api_token").first()
+
+        if team:
+            posthoganalytics.disabled = False
+            posthoganalytics.api_key = team.api_token
+            posthoganalytics.host = settings.SITE_URL
+            logging.info(f"Self-capture initialized with team {team.name} (API key: {team.api_token[:10]}...)")
+        else:
+            logging.warning("No team found for self-capture initialization. Aborting")
+            sys.exit(1)
+    except Exception as e:
+        logging.warning(f"Failed to initialize self-capture: {e}")
+        sys.exit(1)
 
 
 class NormalDistributionParams(BaseModel):
@@ -169,6 +196,8 @@ class Command(BaseCommand):
         # Make sure this runs in development environment only
         if not settings.DEBUG:
             raise ValueError("This command should only be run in development! DEBUG must be True.")
+
+        initialize_self_capture()
 
         experiment_type = options.get("type")
 

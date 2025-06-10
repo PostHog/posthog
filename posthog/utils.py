@@ -355,10 +355,6 @@ def render_template(
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = sentry_dsn
-    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
-        context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
 

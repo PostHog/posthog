@@ -18,12 +18,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/Library/MessageLibrary'),
+            import: () => import('./frontend/TemplateLibrary/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/Library/MessageTemplate'),
+            import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
             name: 'Messaging',
             projectBased: true,
         },

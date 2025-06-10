@@ -7,7 +7,6 @@ export DEBIAN_FRONTEND=noninteractive
 # this gets around needrestart command halting for user input
 export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
-export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
@@ -142,7 +141,6 @@ EOF
 envsubst > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
-SENTRY_DSN=$SENTRY_DSN
 DOMAIN=$DOMAIN
 EOF
 
