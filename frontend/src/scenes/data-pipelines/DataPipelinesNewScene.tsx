@@ -56,33 +56,36 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
+    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } =
+        useValues(nonHogFunctionTemplatesLogic)
+
     if (kind === 'transformation') {
         return <HogFunctionTemplateList defaultFilters={{}} type="transformation" />
     }
     if (kind === 'destination') {
-        return <HogFunctionTemplateList defaultFilters={{}} type="destination" />
+        return (
+            <HogFunctionTemplateList
+                defaultFilters={{}}
+                type="destination"
+                manualTemplates={hogFunctionTemplatesBatchExports}
+            />
+        )
     }
     if (kind === 'site_app') {
         return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
     }
     if (kind === 'source') {
-        return <DataPipelinesNewSceneSources />
+        return (
+            <>
+                <HogFunctionTemplateList
+                    defaultFilters={{}}
+                    type="source_webhook"
+                    manualTemplates={hogFunctionTemplatesDataWarehouseSources}
+                />
+                <NewSourceWizardScene />
+            </>
+        )
     }
 
     return <NotFound object="Data pipeline new options" />
-}
-
-function DataPipelinesNewSceneSources(): JSX.Element {
-    const { hogFunctionTemplatesDataWarehouseSources } = useValues(nonHogFunctionTemplatesLogic)
-
-    return (
-        <>
-            <HogFunctionTemplateList
-                defaultFilters={{}}
-                type="source_webhook"
-                manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-            />
-            <NewSourceWizardScene />
-        </>
-    )
 }

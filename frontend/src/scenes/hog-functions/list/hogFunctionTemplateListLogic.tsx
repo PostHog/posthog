@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -16,12 +17,12 @@ import {
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
     HogFunctionTypeType,
+    PipelineStage,
     UserType,
 } from '~/types'
 
 import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
-import { lemonToast } from '@posthog/lemon-ui'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
@@ -193,6 +194,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                             '?kind=' +
                             template.id.replace('self-managed-', '').replace('managed-', '')
                         )
+                    }
+
+                    if (template.id.startsWith('batch-export-')) {
+                        return urls.pipelineNodeNew(PipelineStage.Destination, {
+                            id: template.id.replace('batch-export-', ''),
+                        })
                     }
 
                     const subTemplate = template.sub_template_id

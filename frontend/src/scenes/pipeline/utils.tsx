@@ -153,6 +153,15 @@ export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.
     )
 }
 
+export const BATCH_EXPORT_ICON_MAP: Record<BatchExportService['type'], string> = {
+    BigQuery: IconBigQuery,
+    Postgres: IconPostgres,
+    Redshift: IconRedshift,
+    S3: IconS3,
+    Snowflake: IconSnowflake,
+    HTTP: IconHTTP,
+}
+
 export function RenderBatchExportIcon({
     type,
     size = 'small',
@@ -160,14 +169,7 @@ export function RenderBatchExportIcon({
     type: BatchExportService['type']
     size?: 'small' | 'medium'
 }): JSX.Element {
-    const icon = {
-        BigQuery: IconBigQuery,
-        Postgres: IconPostgres,
-        Redshift: IconRedshift,
-        S3: IconS3,
-        Snowflake: IconSnowflake,
-        HTTP: IconHTTP,
-    }[type]
+    const icon = BATCH_EXPORT_ICON_MAP[type]
 
     const sizePx = size === 'small' ? 30 : 60
 
