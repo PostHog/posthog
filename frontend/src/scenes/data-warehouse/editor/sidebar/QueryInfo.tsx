@@ -486,11 +486,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 },
                             ]}
                             // Sort by distance from current view
-                            dataSource={upstream.nodes.sort((a, b) => {
-                                const aDistance = upstream.edges.filter((e) => e.target === a.id).length
-                                const bDistance = upstream.edges.filter((e) => e.target === b.id).length
-                                return aDistance - bDistance
-                            })}
+                            dataSource={upstream.nodes}
                         />
                     </>
                 )}

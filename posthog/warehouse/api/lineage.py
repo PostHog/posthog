@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 import uuid
 from typing import Optional, Any
+from collections import defaultdict, deque
 
 
 def join_components_greedily(components: list[str]) -> list[str]:
@@ -51,6 +52,39 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(get_upstream_dag(self.team_id, model_id))
 
 
+def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]:
+    """
+    Performs a topological sort on the DAG to determine execution order.
+    Returns nodes ordered from most upstream to most downstream.
+    """
+    # Build adjacency list and in-degree count
+    graph = defaultdict(list)
+    in_degree = defaultdict(int)
+
+    for edge in edges:
+        source, target = edge["source"], edge["target"]
+        graph[source].append(target)
+        in_degree[target] += 1
+        if source not in in_degree:
+            in_degree[source] = 0
+
+    # Initialize queue with nodes that have no incoming edges
+    queue = deque([node for node in nodes if in_degree[node] == 0])
+    result = []
+
+    # Process nodes
+    while queue:
+        node = queue.popleft()
+        result.append(node)
+
+        for neighbor in graph[node]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    return result
+
+
 def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     query = Q(team_id=team_id, saved_query_id=model_id)
     paths = DataWarehouseModelPath.objects.filter(query)
@@ -58,6 +92,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     dag: dict[str, list[Any]] = {"nodes": [], "edges": []}
     seen_nodes: set[str] = set()
     uuid_nodes: set[uuid.UUID] = set()
+    node_data: dict[str, dict] = {}
 
     for path in paths:
         components = path.path if isinstance(path.path, list) else path.path.split(".")
@@ -86,20 +121,23 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                     name = saved_query.name if saved_query else component
                 except ValueError:
                     name = component
-                dag["nodes"].append(
-                    {
-                        "id": node_id,
-                        "type": "view" if node_uuid else "table",
-                        "name": name,
-                        "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
-                        "last_run_at": saved_query.last_run_at if saved_query else None,
-                        "status": saved_query.status if saved_query else None,
-                    }
-                )
+                node_data[node_id] = {
+                    "id": node_id,
+                    "type": "view" if node_uuid else "table",
+                    "name": name,
+                    "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
+                    "last_run_at": saved_query.last_run_at if saved_query else None,
+                    "status": saved_query.status if saved_query else None,
+                }
             if i > 0:
                 source = components[i - 1]
                 target = component
                 edge = {"source": source, "target": target}
                 if edge not in dag["edges"]:
                     dag["edges"].append(edge)
+
+    # Order nodes by execution priority
+    ordered_nodes = topological_sort(list(node_data.keys()), dag["edges"])
+    dag["nodes"] = [node_data[node_id] for node_id in ordered_nodes]
+
     return dag

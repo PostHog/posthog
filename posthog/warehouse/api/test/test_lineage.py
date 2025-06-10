@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.api.lineage import join_components_greedily
+from posthog.warehouse.api.lineage import join_components_greedily, topological_sort
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -143,3 +143,33 @@ class TestLineage(APIBaseTest):
             (base_query.id.hex, intermediate_query.id.hex),
         }
         self.assertEqual(edges, expected_edges)
+
+    def test_topological_sort(self):
+        nodes = ["A", "B", "C"]
+        edges = [{"source": "A", "target": "B"}, {"source": "B", "target": "C"}]
+        result = topological_sort(nodes, edges)
+        self.assertEqual(result, ["A", "B", "C"])
+
+        # Test DAG with multiple paths and random order
+        nodes = ["E", "D", "C", "B", "A"]
+        edges = [
+            {"source": "D", "target": "E"},
+            {"source": "C", "target": "D"},
+            {"source": "B", "target": "D"},
+            {"source": "A", "target": "C"},
+            {"source": "A", "target": "B"},
+        ]
+        result = topological_sort(nodes, edges)
+        # A must come before B and C, B and C must come before D, D must come before E
+        self.assertEqual(result[0], "A")
+        self.assertEqual(result[-1], "E")
+        self.assertIn(result[1], ["B", "C"])
+        self.assertIn(result[2], ["B", "C"])
+        self.assertEqual(result[3], "D")
+
+        nodes = ["A", "B", "C", "D"]
+        edges = [{"source": "A", "target": "B"}, {"source": "C", "target": "D"}]
+        result = topological_sort(nodes, edges)
+        # A must come before B, C must come before D
+        self.assertLess(result.index("A"), result.index("B"))
+        self.assertLess(result.index("C"), result.index("D"))
