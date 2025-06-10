@@ -69,10 +69,10 @@ const SupportResponseTimesTable = ({
     // Get support response time feature from plan
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
-        const plan = supportPlans?.find((p: any) => p.name === planName)
+        const plan = supportPlans?.find((p) => p.name === planName)
 
         // Return the support_response_time feature if found
-        return plan?.features?.find((f: any) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
+        return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
     }
 
     // Create plans array from billing data - directly determine current_plan status here
