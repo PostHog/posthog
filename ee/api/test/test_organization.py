@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.models import Team, User
+from posthog.models import Team, User, Insight, Dashboard, FeatureFlag
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.constants import AvailableFeature
@@ -313,3 +313,114 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"members_can_invite": True})
         self.assertEqual(response.status_code, 403)
+
+    def test_environments_rollback_success(self):
+        # Create additional environments for testing
+        project_2 = Team.objects.create(organization=self.organization, name="Project 2")
+        project_3 = Team.objects.create(organization=self.organization, name="Project 3")
+        env_2 = Team.objects.create(organization=self.organization, name="Env 2", project_id=project_2.id)
+        env_3 = Team.objects.create(organization=self.organization, name="Env 3", project_id=project_3.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create some test data
+        insight = Insight.objects.create(team=project_2, name="Test Insight")
+        dashboard = Dashboard.objects.create(team=project_2, name="Test Dashboard")
+        feature_flag = FeatureFlag.objects.create(team=project_2, name="Test Flag", key="test-flag")
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(project_2.id): env_2.id,
+                str(project_3.id): env_3.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify data was migrated
+        insight.refresh_from_db()
+        dashboard.refresh_from_db()
+        feature_flag.refresh_from_db()
+        self.assertEqual(insight.team_id, env_2.id)
+        self.assertEqual(dashboard.team_id, env_2.id)
+        self.assertEqual(feature_flag.team_id, env_2.id)
+
+        # Verify project was created for source team
+        project_2.refresh_from_db()
+        self.assertEqual(project_2.project_id, project_2.id)
+
+    def test_environments_rollback_empty_mappings(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "Environment mappings are required",
+                "type": "validation_error",
+            },
+        )
+
+    def test_environments_rollback_invalid_environments(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {"999999": 888888},  # Non-existent environments
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "Environments not found: {888888, 999999}",
+                "type": "validation_error",
+            },
+        )
+
+    def test_environments_rollback_permission_denied(self):
+        project_2 = Team.objects.create(organization=self.organization, name="Project 2")
+        env_2 = Team.objects.create(organization=self.organization, name="Env 2", project_id=project_2.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {str(project_2.id): env_2.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "Your organization access level is insufficient.")
+
+    def test_environments_rollback_wrong_organization(self):
+        other_org = Organization.objects.create(name="Other Org")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{other_org.id}/environments_rollback/",
+            {"1": 1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Not found.")
