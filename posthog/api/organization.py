@@ -50,9 +50,6 @@ from posthog.exceptions_capture import capture_exception
 from drf_spectacular.utils import extend_schema
 from posthog.event_usage import report_organization_action
 from django.db import transaction
-from posthog.models.activity_logging.activity_log import Detail, Change, log_activity
-from posthog.models.utils import UUIDT
-from loginas.utils import is_impersonated_session
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -332,22 +329,24 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def environments_rollback(self, request: Request, **kwargs) -> Response:
         """
-        Migrate all insights and configurations from multiple environments to a single environment.
+        Migrate insights and configurations between environments.
+        The request data should be a mapping of source environment IDs to target environment IDs.
+        Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
         """
-        main_environment_id = request.data.get("main_environment_id")
         organization = Organization.objects.get(id=kwargs["id"])
-        if not main_environment_id:
-            raise exceptions.ValidationError("main_environment_id is required")
+        environment_mappings = request.data
 
-        try:
-            main_team = Team.objects.get(id=main_environment_id)
-            project = main_team.project
-        except Team.DoesNotExist:
-            raise exceptions.ValidationError("Main environment not found")
+        if not environment_mappings:
+            raise exceptions.ValidationError("Environment mappings are required")
 
-        # Verify the team belongs to this organization
-        if main_team.organization_id != organization.id:
-            raise exceptions.PermissionDenied("The selected environment does not belong to this organization")
+        # Verify all environments exist and belong to this organization
+        all_environment_ids = set(map(int, environment_mappings.keys())) | set(map(int, environment_mappings.values()))
+        teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
+        found_team_ids = set(teams.values_list("id", flat=True))
+
+        missing_team_ids = all_environment_ids - found_team_ids
+        if missing_team_ids:
+            raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
 
         models_to_update = [
             Insight,
@@ -360,36 +359,25 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ]
 
         with transaction.atomic():
-            # Update all models to point to the main team
-            for model in models_to_update:
-                model.objects.filter(team__project=project).exclude(team=main_team).update(team=main_team)
+            # Update all models to point to their target teams
+            for source_id, target_id in environment_mappings.items():
+                source_id = int(source_id)
+                target_id = int(target_id)
 
-            # Create new projects for each team (except the main team)
-            for team in Team.objects.filter(project=project).exclude(id=main_team.id):
-                if team.id != team.project_id:
-                    new_project = Project.objects.create(id=team.id, name=team.name, organization=project.organization)
-                    team.project = new_project
-                    team.save()
+                if source_id == target_id:
+                    continue  # Skip if source and target are the same
 
-            log_activity(
-                organization_id=cast(UUIDT, project.organization_id),
-                team_id=project.pk,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                scope="Project",
-                item_id=project.pk,
-                activity="environment_rollback",
-                detail=Detail(
-                    name=f"Migrated to single environment ({main_team.name})",
-                    changes=[
-                        Change(
-                            type="Project",
-                            action="environment_rollback",
-                            field="main_environment",
-                            after=str(main_team.id),
-                        )
-                    ],
-                ),
-            )
+                # Update all models from source to target
+                for model in models_to_update:
+                    model.objects.filter(team_id=source_id).update(team_id=target_id)
+
+                # Create a new project for the source team
+                source_team = teams.get(id=source_id)
+                if source_team.id != source_team.project_id:
+                    new_project = Project.objects.create(
+                        id=source_team.id, name=source_team.name, organization=organization
+                    )
+                    source_team.project = new_project
+                    source_team.save()
 
         return Response({"success": True}, status=200)
