@@ -163,15 +163,15 @@ impl IntoResponse for FlagError {
                 )
             }
             FlagError::RowNotFound => {
-                tracing::error!("Row not found in postgres: {:?}", self);
+                // Token validation failures are expected - don't log as ERROR
                 (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
+                    StatusCode::UNAUTHORIZED,
+                    "Invalid or expired token.".to_string()
                 )
             }
-            FlagError::CohortNotFound(msg) => {
-                tracing::error!("Cohort not found: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            FlagError::CohortNotFound(_msg) => {
+                // Cohort not found is expected business logic, not a server error
+                (StatusCode::OK, "Flag evaluation completed with missing cohort".to_string())
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
@@ -248,10 +248,7 @@ impl From<CustomDatabaseError> for FlagError {
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
         match e {
-            sqlx::Error::RowNotFound => {
-                tracing::error!("Row not found in database query");
-                FlagError::RowNotFound
-            }
+            sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => {
                 tracing::error!("Database error occurred: {}", e);
                 FlagError::DatabaseError(e.to_string())

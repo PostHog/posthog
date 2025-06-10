@@ -312,8 +312,8 @@ impl FeatureFlagMatcher {
             Ok(should_write) => should_write,
             Err(e) => {
                 error!(
-                    "Failed to check if hash key override should be written: {:?}",
-                    e
+                    "Failed to check if hash key override should be written for team {} project {} distinct_id {}: {:?}",
+                    self.team_id, self.project_id, self.distinct_id, e
                 );
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
@@ -338,7 +338,7 @@ impl FeatureFlagMatcher {
             )
             .await
             {
-                error!("Failed to set feature flag hash key overrides: {:?}", e);
+                error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -368,7 +368,7 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides) => (Some(overrides), false),
             Err(e) => {
-                error!("Failed to get feature flag hash key overrides: {:?}", e);
+                error!("Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 let reason = parse_exception_for_prometheus_label(&e);
                 common_metrics::inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -491,11 +491,17 @@ impl FeatureFlagMatcher {
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
-                    error!(
-                        "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
-                        flag.key, self.distinct_id, e
-                    );
                     let reason = parse_exception_for_prometheus_label(&e);
+
+                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
+                    // that the flag is targeting a deleted cohort
+                    if !matches!(e, FlagError::CohortNotFound(_)) {
+                        error!(
+                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
+                            flag.key, self.distinct_id, e
+                        );
+                    }
+
                     inc(
                         FLAG_EVALUATION_ERROR_COUNTER,
                         &[("reason".to_string(), reason.to_string())],
@@ -527,7 +533,7 @@ impl FeatureFlagMatcher {
                     flag_details_map
                         .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                 }
-                error!("Error preparing flag evaluation state: {:?}", e);
+                error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
                     &[("reason".to_string(), reason.to_string())],
@@ -571,12 +577,17 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
-                        // TODO add posthog error tracking
-                        error!(
-                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag_key, self.distinct_id, e
-                        );
                         let reason = parse_exception_for_prometheus_label(&e);
+
+                        // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
+                        // that the flag is targeting a deleted cohort
+                        if !matches!(e, FlagError::CohortNotFound(_)) {
+                            error!(
+                                "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
+                                flag_key, self.distinct_id, e
+                            );
+                        }
+
                         inc(
                             FLAG_EVALUATION_ERROR_COUNTER,
                             &[("reason".to_string(), reason.to_string())],
@@ -1262,7 +1273,10 @@ impl FeatureFlagMatcher {
                 Ok(())
             }
             Err(e) => {
-                error!("Error fetching properties: {:?}", e);
+                error!(
+                    "Error fetching properties for team {} project {} distinct_id {}: {:?}",
+                    self.team_id, self.project_id, self.distinct_id, e
+                );
                 db_fetch_timer.label("outcome", "error").fin();
                 Err(e)
             }
