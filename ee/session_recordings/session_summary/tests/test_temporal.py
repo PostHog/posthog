@@ -304,13 +304,15 @@ class TestSummarizeSessionWorkflow:
         session_summary_inputs: Callable,
         redis_test_setup: RedisTestContext,
     ):
+        """
+        Test that the workflow completes successfully and returns the expected result. Also verifies that Redis operations are performed as expected.
+        """
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         _, workflow_id, redis_input_key, _, expected_final_summary = self.setup_workflow_test(
             session_summary_inputs, redis_test_setup, mock_enriched_llm_json_response, ""
         )
-
         async with self.workflow_test_environment(mock_stream_llm) as (activity_environment, worker):
             # Wait for workflow to complete and get result
             result = await activity_environment.client.execute_workflow(
