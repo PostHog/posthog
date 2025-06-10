@@ -93,4 +93,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
+    [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
 }

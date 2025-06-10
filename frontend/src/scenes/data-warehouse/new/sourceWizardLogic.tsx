@@ -15,7 +15,6 @@ import {
     externalDataSources,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
-    manualLinkSources,
     ManualLinkSourceType,
     PipelineStage,
     PipelineTab,
@@ -931,7 +930,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
     )
 }
 
-const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
+export const MANUAL_SOURCE_LINK_MAP: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
@@ -1013,12 +1012,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
-            },
-        ],
-        isManualLinkFormVisible: [
-            false,
-            {
-                toggleManualLinkFormVisible: (_, { visible }) => visible,
             },
         ],
         currentStep: [
@@ -1169,8 +1162,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         showFooter: [
-            (s) => [s.selectedConnector, s.isManualLinkFormVisible],
-            (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
+            (s) => [s.selectedConnector, s.manualLinkingProvider],
+            (selectedConnector, manualLinkingProvider) => selectedConnector || manualLinkingProvider,
         ],
         connectors: [
             (s) => [s.dataWarehouseSources],
@@ -1187,14 +1180,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : false,
                 }))
             },
-        ],
-        manualConnectors: [
-            () => [],
-            () =>
-                manualLinkSources.map((source) => ({
-                    name: manualLinkSourceMap[source],
-                    type: source,
-                })),
         ],
         addToHubspotButtonUrl: [
             (s) => [s.preflight],
@@ -1285,7 +1270,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
-            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+            } else if (values.currentStep === 2 && values.manualLinkingProvider) {
                 dataWarehouseTableLogic.actions.submitTable()
                 posthog.capture('source created', { sourceType: 'Manual' })
             }
@@ -1415,11 +1400,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.pipelineNodeNew(PipelineStage.Source)]: (_, searchParams) => {
-            const source = Object.values(SOURCE_DETAILS).find(
-                (source) => source.name.toLowerCase() === searchParams.kind
-            )
+    urlToAction(({ actions }) => {
+        const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>) => {
+            const kind = searchParams.kind?.toLowerCase()
+            const source = Object.values(SOURCE_DETAILS).find((source) => source.name.toLowerCase() === kind)
+            const manualSource = Object.entries(MANUAL_SOURCE_LINK_MAP).find(([_, name]) => name.toLowerCase() === kind)
+
+            if (manualSource) {
+                actions.setManualLinkingProvider(manualSource[0])
+                return
+            }
 
             if (source?.name === 'Hubspot' && searchParams.code) {
                 actions.selectConnector(source)
@@ -1436,8 +1426,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setStep(2)
                 return
             }
-        },
-    })),
+        }
+
+        return {
+            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
+            [urls.dataPipelinesNew('source')]: handleUrlChange,
+        }
+    }),
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),

@@ -101,6 +101,7 @@ export enum Scene {
     HogFunction = 'HogFunction',
     DataPipelines = 'DataPipelines',
     DataPipelinesNew = 'DataPipelinesNew',
+    DataWarehouseSource = 'DataWarehouseSource',
     UserInterviews = 'UserInterviews',
     UserInterview = 'UserInterview',
     Game368 = 'Game368',
