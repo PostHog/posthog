@@ -5,7 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import EarlyAccessFeature
-import posthoganalytics
+from posthog.ph_client import get_client
 
 
 logger = structlog.get_logger(__name__)
@@ -14,7 +14,7 @@ POSTHOG_TEAM_ID = 2
 
 
 # Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
-@shared_task(ignore_result=True, max_retries=1)
+@shared_task(ignore_result=True, max_retries=3)
 def send_events_for_early_access_feature_stage_change(feature_id: str, from_stage: str, to_stage: str) -> None:
     instance = EarlyAccessFeature.objects.get(id=feature_id)
 
@@ -55,11 +55,16 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     enrolled_persons = response.results
 
+    posthog_client = get_client()
+
+    if not posthog_client:
+        return
+
     for _id, email, distinct_id in enrolled_persons:
-        posthoganalytics.capture(
+        posthog_client.capture(
             distinct_id,
             "user moved feature preview stage",
-            {
+            properties={
                 "from": from_stage,
                 "to": to_stage,
                 "feature_flag_key": feature_flag.key,
@@ -68,3 +73,5 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
                 "user_email": email,
             },
         )
+
+    posthog_client.shutdown()

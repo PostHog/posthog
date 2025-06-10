@@ -9,8 +9,11 @@ from posthog.test.base import APIBaseTest
 
 
 class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
-    @patch("posthoganalytics.capture")
-    def test_sends_event_for_enrolled_users(self, mock_capture: MagicMock) -> None:
+    @patch("posthog.tasks.early_access_feature.get_client")
+    def test_sends_event_for_enrolled_users(self, mock_get_client: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         team = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team, key="my-flag", filters={})
         feature = EarlyAccessFeature.objects.create(
@@ -29,10 +32,10 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
-        mock_capture.assert_called_once_with(
+        mock_client.capture.assert_called_once_with(
             "abc123",
             "user moved feature preview stage",
-            {
+            properties={
                 "from": "concept",
                 "to": "beta",
                 "feature_flag_key": feature_flag.key,
@@ -42,8 +45,13 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             },
         )
 
-    @patch("posthoganalytics.capture")
-    def test_no_event_for_enrolled_users_on_different_team(self, mock_capture: MagicMock) -> None:
+        mock_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.early_access_feature.get_client")
+    def test_no_event_for_enrolled_users_on_different_team(self, mock_get_client: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         team1 = Team.objects.create(organization=self.organization)
         team2 = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team1, key="my-flag", filters={})
@@ -64,10 +72,13 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
-        mock_capture.assert_not_called()
+        mock_client.capture.assert_not_called()
 
-    @patch("posthoganalytics.capture")
-    def test_sends_events_for_all_enrolled_users_over_default_hogql_limit(self, mock_capture: MagicMock) -> None:
+    @patch("posthog.tasks.early_access_feature.get_client")
+    def test_sends_events_for_all_enrolled_users_over_default_hogql_limit(self, mock_get_client: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         team = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team, key="test-limit-flag", filters={})
         feature = EarlyAccessFeature.objects.create(
@@ -91,7 +102,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
-        assert mock_capture.call_count == persons_count
+        assert mock_client.capture.call_count == persons_count
 
         expected_calls = [
             (
@@ -110,4 +121,4 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         ]
 
         for call in expected_calls:
-            mock_capture.assert_any_call(*call)
+            mock_client.capture.assert_any_call(*call)
