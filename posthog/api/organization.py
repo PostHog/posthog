@@ -7,6 +7,7 @@ from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 import posthoganalytics
+import json
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -379,5 +380,17 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
                     source_team.project = new_project
                     source_team.save()
+
+            posthoganalytics.capture(
+                str(request.user.distinct_id),
+                "organization environments rollback triggered",
+                properties={
+                    "environment_mappings": json.dumps(environment_mappings),
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": request.user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
 
         return Response({"success": True}, status=200)
