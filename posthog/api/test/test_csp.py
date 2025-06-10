@@ -602,12 +602,12 @@ class TestCSPModule(TestCase):
 
         # Verify sampling keys are different due to time component
         assert sampling_key1 != sampling_key2
-        assert "2023-01-01T12:00:00" in sampling_key1
-        assert "2023-01-01T12:01:00" in sampling_key2
+        assert sampling_key1 is not None and "2023-01-01T12:00:00" in sampling_key1
+        assert sampling_key2 is not None and "2023-01-01T12:01:00" in sampling_key2
 
         # Both should contain the URL
-        assert "https://example.com/page" in sampling_key1
-        assert "https://example.com/page" in sampling_key2
+        assert sampling_key1 is not None and "https://example.com/page" in sampling_key1
+        assert sampling_key2 is not None and "https://example.com/page" in sampling_key2
 
     @patch("posthog.api.csp.datetime")
     def test_sampling_consistency_within_same_minute(self, mock_datetime):
