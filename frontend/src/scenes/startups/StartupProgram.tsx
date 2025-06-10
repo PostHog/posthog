@@ -12,7 +12,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { RAISED_OPTIONS, startupProgramLogic, YC_BATCH_OPTIONS } from './startupProgramLogic'
+import { RAISED_OPTIONS } from './constants'
+import { startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
@@ -34,6 +35,7 @@ export function StartupProgram(): JSX.Element {
         isYC,
         isReferralProgram,
         referrerDisplayName,
+        ycBatchOptions,
     } = useValues(startupProgramLogic)
     const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue, showPaymentEntryModal } = useActions(startupProgramLogic)
@@ -363,7 +365,7 @@ export function StartupProgram(): JSX.Element {
                                 {isYC && (
                                     <>
                                         <LemonField name="yc_batch" label="Which YC batch are you?">
-                                            <LemonSelect options={YC_BATCH_OPTIONS} className="bg-bg-light" />
+                                            <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
                                         </LemonField>
 
                                         <LemonField
