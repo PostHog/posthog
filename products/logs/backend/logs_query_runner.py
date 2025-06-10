@@ -126,8 +126,8 @@ class LogsQueryRunner(QueryRunner):
             """
             SELECT
             uuid,
-            trace_id,
-            span_id,
+            hex(trace_id),
+            hex(span_id),
             body,
             attributes,
             timestamp,
