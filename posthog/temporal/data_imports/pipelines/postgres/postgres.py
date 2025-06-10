@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
-from posthog.temporal.data_imports.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 

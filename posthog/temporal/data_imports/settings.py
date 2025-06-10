@@ -22,6 +22,3 @@ ACTIVITIES = [
     run_compaction,
     calculate_table_size_activity,
 ]
-
-DEFAULT_CHUNK_SIZE = 20_000
-DEFAULT_TABLE_SIZE_BYTES = 150 * 1024 * 1024  # 150 MB
