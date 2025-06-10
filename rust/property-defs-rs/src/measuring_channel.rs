@@ -24,6 +24,7 @@ impl<T> MeasuringChannel<T> {
             self.in_flight_message.fetch_add(1, Ordering::Relaxed);
         }
         result
+    }
 
     pub async fn recv(&mut self) -> Option<T> {
         let result = self.receiver.recv().await;
