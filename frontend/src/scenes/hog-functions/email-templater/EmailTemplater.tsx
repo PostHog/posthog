@@ -1,5 +1,5 @@
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { BindLogic, props, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -121,7 +121,7 @@ function EmailTemplaterModal(): JSX.Element {
                     <div className="shrink-0">
                         <h2>Editing email template</h2>
                     </div>
-                    <EmailTemplaterForm {...props} mode="full" />
+                    <EmailTemplaterForm mode="full" />
                     <div className="flex gap-2 items-center mt-2">
                         <div className="flex-1" />
                         <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
