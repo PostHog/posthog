@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 import dataclasses
 import json
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from typing import Any
 from collections.abc import Generator
 import pytest
@@ -162,6 +163,23 @@ class TestStreamLlmSummaryActivity:
 
 
 class TestSummarizeSessionWorkflow:
+    @asynccontextmanager
+    async def workflow_test_environment(
+        self, mock_stream_llm: Callable
+    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ) as worker:
+                with patch(
+                    "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
+                ):
+                    yield activity_environment, worker
+
     def setup_workflow_test(
         self,
         session_summary_inputs: Callable,
@@ -292,30 +310,21 @@ class TestSummarizeSessionWorkflow:
         _, workflow_id, redis_input_key, _, expected_final_summary = self.setup_workflow_test(
             session_summary_inputs, redis_test_setup, mock_enriched_llm_json_response, ""
         )
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ) as worker:
-                with patch(
-                    "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
-                ):
-                    # Wait for workflow to complete and get result
-                    result = await activity_environment.client.execute_workflow(
-                        SummarizeSessionWorkflow.run,
-                        redis_input_key,
-                        id=workflow_id,
-                        task_queue=worker.task_queue,
-                    )
-                    # Verify the workflow returns the expected result
-                    assert result == expected_final_summary
-                    # Verify Redis operations count
-                    assert spy_get.call_count == 1  # Get input data
-                    # Initial setup and number of valid chunks (unparseable chunks are skipped)
-                    assert spy_setex.call_count == 1 + 8
+
+        async with self.workflow_test_environment(mock_stream_llm) as (activity_environment, worker):
+            # Wait for workflow to complete and get result
+            result = await activity_environment.client.execute_workflow(
+                SummarizeSessionWorkflow.run,
+                redis_input_key,
+                id=workflow_id,
+                task_queue=worker.task_queue,
+            )
+            # Verify the workflow returns the expected result
+            assert result == expected_final_summary
+            # Verify Redis operations count
+            assert spy_get.call_count == 1  # Get input data
+            # Initial setup and number of valid chunks (unparseable chunks are skipped)
+            assert spy_setex.call_count == 1 + 8
 
     @pytest.mark.asyncio
     async def test_summarize_session_workflow_with_activity_retry(
@@ -343,32 +352,20 @@ class TestSummarizeSessionWorkflow:
                 # Subsequent calls succeed - return actual data
                 return original_get(key)
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ) as worker:
-                with (
-                    patch(
-                        "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
-                    ),
-                    patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure),
-                ):
-                    # Wait for workflow to complete and get result
-                    result = await activity_environment.client.execute_workflow(
-                        SummarizeSessionWorkflow.run,
-                        redis_input_key,
-                        id=workflow_id,
-                        task_queue=worker.task_queue,
-                    )
+        async with self.workflow_test_environment(mock_stream_llm) as (activity_environment, worker):
+            with patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure):
+                # Wait for workflow to complete and get result
+                result = await activity_environment.client.execute_workflow(
+                    SummarizeSessionWorkflow.run,
+                    redis_input_key,
+                    id=workflow_id,
+                    task_queue=worker.task_queue,
+                )
 
-                    # Verify the workflow eventually succeeds after retry
-                    assert result == expected_final_summary
-                    # Verify that Redis get was called at least three times (first two failures + success)
-                    assert redis_get_call_count == 3
+                # Verify the workflow eventually succeeds after retry
+                assert result == expected_final_summary
+                # Verify that Redis get was called at least three times (first two failures + success)
+                assert redis_get_call_count == 3
 
     @pytest.mark.asyncio
     async def test_summarize_session_workflow_exceeds_retries(
@@ -397,25 +394,13 @@ class TestSummarizeSessionWorkflow:
                 # Subsequent calls succeed - return actual data
                 return original_get(key)
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ) as worker:
-                with (
-                    patch(
-                        "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
-                    ),
-                    patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure),
-                ):
-                    # Wait for workflow to complete and get result
-                    with pytest.raises(WorkflowFailureError):
-                        await activity_environment.client.execute_workflow(
-                            SummarizeSessionWorkflow.run,
-                            redis_input_key,
-                            id=workflow_id,
-                            task_queue=worker.task_queue,
-                        )
+        async with self.workflow_test_environment(mock_stream_llm) as (activity_environment, worker):
+            with patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure):
+                # Wait for workflow to complete and get result
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        SummarizeSessionWorkflow.run,
+                        redis_input_key,
+                        id=workflow_id,
+                        task_queue=worker.task_queue,
+                    )
