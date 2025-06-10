@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createPayload, TemplateTester } from '../../test/test-helpers'
+import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './reddit.template'
 
 jest.setTimeout(60 * 1000)
@@ -24,7 +24,7 @@ describe('reddit template', () => {
                 accountId: 'pixel-id',
                 conversionsAccessToken: 'access-token',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         product_id: '1bdfef47c9724b58b6831933',
@@ -83,7 +83,7 @@ describe('reddit template', () => {
                 accountId: 'pixel-id',
                 conversionsAccessToken: 'access-token',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -119,7 +119,7 @@ describe('reddit template', () => {
                 accountId: 'pixel-id',
                 conversionsAccessToken: 'access-token',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
@@ -154,7 +154,7 @@ describe('reddit template', () => {
         ['missing pixel id', { conversionsAccessToken: 'access-token' }],
         ['missing access token', { accountId: 'pixel-id' }],
     ])('handles %s', async (_, settings) => {
-        const response = await tester.invokeMapping('Order Completed', settings, createPayload())
+        const response = await tester.invokeMapping('Order Completed', settings, createAdDestinationPayload())
 
         expect(response.error).toMatchInlineSnapshot(`"Account ID and access token are required"`)
         expect(response.finished).toEqual(true)
