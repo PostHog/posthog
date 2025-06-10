@@ -303,9 +303,11 @@ class BigQueryClient(bigquery.Client):
                 today = dt.date.today()
                 query += f" AND timestamp = '{today.isoformat()}'"
 
+            query += " LIMIT 1"
+
         else:
             query = f"""
-            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` LIMIT 1
             """
 
         try:
