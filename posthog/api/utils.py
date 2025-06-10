@@ -290,48 +290,56 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(pk=key)
 
 
-def is_insight_query(query):
-    insight_kinds = {
-        "TrendsQuery",
-        "FunnelsQuery",
-        "RetentionQuery",
-        "PathsQuery",
-        "StickinessQuery",
-        "LifecycleQuery",
-    }
-    if getattr(query, "kind", None) in insight_kinds:
+INSIGHT_KINDS = {
+    "TrendsQuery",
+    "FunnelsQuery",
+    "RetentionQuery",
+    "PathsQuery",
+    "StickinessQuery",
+    "LifecycleQuery",
+}
+
+INSIGHT_ACTORS_KINDS = {
+    "InsightActorsQuery",
+    "FunnelsActorsQuery",
+    "FunnelCorrelationActorsQuery",
+    "StickinessActorsQuery",
+}
+
+
+def is_insight_query(query: dict) -> bool:
+    kind = query.get("kind") or getattr(query, "kind", None)
+    source = query.get("source") or getattr(query, "source", None)
+
+    if kind in INSIGHT_KINDS:
         return True
-    if getattr(query, "kind", None) == "HogQLQuery":
+    if kind == "HogQLQuery":
         return True
-    if getattr(query, "kind", None) == "DataTableNode":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_kinds:
+    if kind == "DataTableNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
             return True
-    if getattr(query, "kind", None) == "DataVisualizationNode":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_kinds:
+    if kind == "DataVisualizationNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_insight_actors_query(query: dict) -> bool:
+    kind = query.get("kind") or getattr(query, "kind", None)
+    source = query.get("source") or getattr(query, "source", None)
+
+    if kind in INSIGHT_ACTORS_KINDS:
+        return True
+    if kind == "ActorsQuery":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_ACTORS_KINDS:
             return True
     return False
 
 
-def is_insight_actors_query(query):
-    insight_actors_kinds = {
-        "InsightActorsQuery",
-        "FunnelsActorsQuery",
-        "FunnelCorrelationActorsQuery",
-        "StickinessActorsQuery",
-    }
-    if getattr(query, "kind", None) in insight_actors_kinds:
-        return True
-    if getattr(query, "kind", None) == "ActorsQuery":
-        source = getattr(query, "source", None)
-        if source and getattr(source, "kind", None) in insight_actors_kinds:
-            return True
-    return False
-
-
-def is_insight_actors_options_query(query):
-    if getattr(query, "kind", None) == "InsightActorsQueryOptions":
+def is_insight_actors_options_query(query: dict) -> bool:
+    kind = query.get("kind") or getattr(query, "kind", None)
+    if kind == "InsightActorsQueryOptions":
         return True
     return False
 
