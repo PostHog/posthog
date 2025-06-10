@@ -61,7 +61,7 @@ async def query_usage_reports(
             "disable-usage-reports", "internal_billing_events"
         )
         if are_usage_reports_disabled:
-            print(f"Usage reports are disabled for {inputs.at}")  # noqa: T201
+            capture_exception(f"Usage reports are disabled for {inputs.at}")
             return None
 
         at_date = parser.parse(inputs.at) if inputs.at else None
