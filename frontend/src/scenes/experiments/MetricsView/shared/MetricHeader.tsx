@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic } from '../../experimentLogic'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
