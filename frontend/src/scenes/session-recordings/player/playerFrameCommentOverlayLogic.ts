@@ -88,7 +88,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 annotationId: null,
             } as RecordingAnnotationForm,
             errors: ({ content, scope }) => ({
-                content: !content?.trim() ? 'An annotation must have text content.' : null,
+                content: !content?.trim()
+                    ? 'An annotation must have text content.'
+                    : content.length >= 400
+                    ? 'Must be 400 characters or less'
+                    : null,
                 scope: !scope
                     ? 'Scope is required.'
                     : [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization].includes(scope)
