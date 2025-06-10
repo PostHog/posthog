@@ -93,7 +93,7 @@ Important points:
         ],
         data=[
             EvalCase(
-                input="Count pageviews by browser",
+                input="Count pageviews by browser, using SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count pageviews grouped by browser:
@@ -116,7 +116,7 @@ LIMIT 100
                 ),
             ),
             EvalCase(
-                input="What are the top 10 countries by number of users in the last 7 days?",
+                input="What are the top 10 countries by number of users in the last 7 days? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to find the top 10 countries by number of users in the last 7 days:
@@ -140,7 +140,7 @@ LIMIT 10
                 ),
             ),
             EvalCase(
-                input="Show me the average session duration by day of week",
+                input="Show me the average session duration by day of week, using SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to calculate average session duration by day of week:
@@ -161,7 +161,7 @@ ORDER BY day_of_week
                 ),
             ),
             EvalCase(
-                input="What percentage of users who visited the pricing page made a purchase in this month?",
+                input="What percentage of users who visited the pricing page made a purchase in this month? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to calculate the percentage of users who visited the pricing page and also made a purchase this month:
@@ -195,7 +195,7 @@ LEFT JOIN purchasers p ON pv.person_id = p.person_id
                 ),
             ),
             EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence?",
+                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count users who completed the full onboarding sequence:
@@ -233,7 +233,7 @@ WHERE welcome_time < profile_time AND profile_time < tutorial_time
                 ),
             ),
             EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence?",
+                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count users who completed the full onboarding sequence:
@@ -262,6 +262,7 @@ WHERE event_count = 3
                 ),
             ),
             EvalCase(
+                # As of May 2025, trends insights don't support "number of distinct values of property" math, so we MUST use SQL here
                 input="The number of distinct values of property $browser seen in each of the last 14 days",
                 expected=PlanAndQueryOutput(
                     plan="""
