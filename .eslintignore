@@ -8,3 +8,4 @@ common/hogvm/typescript/dist
 common/hogvm/typescript/jest.config.js
 common/plugin_transpiler/dist
 common/plugin_transpiler/build.mjs
+common/shared_types/dist
