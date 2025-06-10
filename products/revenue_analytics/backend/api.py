@@ -1,3 +1,4 @@
+from typing import cast
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -28,8 +29,8 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         values = []
         if key == "product":  # All products available from revenue analytics
             revenue_selects = revenue_selects_from_database(database)
-            product_selects = [
-                select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY]
+            product_selects: list[ast.SelectQuery] = [
+                cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
                 for select in revenue_selects.values()
                 if select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
             ]
@@ -43,8 +44,8 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         elif key == "cohort":  # All cohorts available from revenue analytics
             revenue_selects = revenue_selects_from_database(database)
-            customer_selects = [
-                select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY]
+            customer_selects: list[ast.SelectQuery] = [
+                cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
                 for select in revenue_selects.values()
                 if select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
             ]
