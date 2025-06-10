@@ -8,25 +8,25 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
 import {
     calculateDelta,
     conversionRateForVariant,
     countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
-} from '../experimentCalculations'
-import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from '../ExperimentView/components'
+} from '../../experimentCalculations'
+import { experimentLogic } from '../../experimentLogic'
+import { VariantTag } from '../../ExperimentView/components'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { useChartColors } from '../shared/colors'
+import { GridLines } from '../shared/GridLines'
+import { MetricHeader } from '../shared/MetricHeader'
+import { getDefaultMetricTitle } from '../shared/utils'
 import { ChartEmptyState } from './ChartEmptyState'
-import { ChartLoadingState } from './ChartLoadingState'
 import { ChartModal } from './ChartModal'
-import { useChartColors } from './colors'
-import { GridLines } from './GridLines'
-import { MetricHeader } from './MetricHeader'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
-import { getDefaultMetricTitle } from './utils'
 import { VariantTooltip } from './VariantTooltip'
 import { generateViolinPath } from './violinUtils'
 

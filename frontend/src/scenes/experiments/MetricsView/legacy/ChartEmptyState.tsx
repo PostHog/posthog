@@ -1,7 +1,7 @@
 import { IconActivity, IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../../constants'
 import { ErrorChecklist } from './ErrorChecklist'
 
 interface ChartEmptyStateProps {

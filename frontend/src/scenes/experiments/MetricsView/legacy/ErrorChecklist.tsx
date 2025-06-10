@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, InsightType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic } from '../../experimentLogic'
 
 export enum ResultErrorCode {
     NO_CONTROL_VARIANT = 'no-control-variant',

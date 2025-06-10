@@ -1,7 +1,9 @@
 import json
+import structlog
 from typing import Optional
 
-import structlog
+from django.http import HttpResponse
+from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
 from posthog.sampling import sample_on_property
@@ -171,7 +173,7 @@ def process_csp_report(request):
                     document_url=properties.get("document_url"),
                     sample_rate=sample_rate,
                 )
-                return None, None
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return (
                 build_csp_event(
@@ -200,7 +202,7 @@ def process_csp_report(request):
                     total_violations=len(violations_props),
                     sample_rate=sample_rate,
                 )
-                return None, None
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return [
                 build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
