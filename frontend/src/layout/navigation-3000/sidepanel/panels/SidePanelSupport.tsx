@@ -181,8 +181,6 @@ const SupportResponseTimesTable = ({
     )
 }
 
-const githubBugUrl = 'https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.yml'
-
 export function SidePanelSupport(): JSX.Element {
     // We need preflightLogic and userLogic for debugBilling to work properly
     const { preflight } = useValues(preflightLogic)
@@ -341,7 +339,7 @@ export function SidePanelSupport(): JSX.Element {
                                         type="secondary"
                                         fullWidth
                                         center
-                                        to={githubBugUrl}
+                                        to="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.yml"
                                         targetBlank
                                         className="mt-2"
                                         disabled={billingLoading}
