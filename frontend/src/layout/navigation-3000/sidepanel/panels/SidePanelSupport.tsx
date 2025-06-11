@@ -1,4 +1,4 @@
-import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
+import { IconFeatures, IconHelmet, IconMap, IconBug } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
