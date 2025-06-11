@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from freezegun import freeze_time
 
-from ee.hogai.graph.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit, ToolkitTool
+from ee.hogai.graph.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -12,8 +12,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
+    pass
 
 
 class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):

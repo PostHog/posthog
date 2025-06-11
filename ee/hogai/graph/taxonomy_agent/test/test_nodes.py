@@ -3,14 +3,11 @@ from unittest.mock import patch
 from django.test import override_settings
 from langchain_core.agents import AgentAction
 from langchain_core.messages import AIMessage as LangchainAIMessage
-from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.graph.taxonomy_agent.nodes import (
-    ChatPromptTemplate,
-    QueryPlannerNode,
-)
-from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.graph.taxonomy_agent.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit
+from ee.hogai.utils.types import AssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
@@ -24,8 +21,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
+    pass
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -35,13 +31,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.schema = AssistantTrendsQuery(series=[])
 
     def _get_node(self):
-        class Node(QueryPlannerNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
-                toolkit = DummyToolkit(self._team)
-                return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
-
-        return Node(self.team)
+        return QueryPlannerNode(self.team)
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
@@ -122,15 +112,6 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[4].type, "human")
         self.assertIn("Question 3", history[4].content)
 
-    def test_adds_format_reminder(self):
-        node = self._get_node()
-        history = node._construct_messages(
-            AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
-        )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Reminder", history[0].content)
-
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
         for i in range(26):
@@ -149,18 +130,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("distinctevent", node._events_prompt)
         self.assertIn("all events", node._events_prompt)
 
-    def test_agent_scratchpad(self):
-        node = self._get_node()
-        scratchpad = [
-            (AgentAction(tool="test1", tool_input="input1", log="log1"), "test"),
-            (AgentAction(tool="test2", tool_input="input2", log="log2"), None),
-            (AgentAction(tool="test3", tool_input="input3", log="log3"), ""),
-        ]
-        prompt = node._get_agent_scratchpad(scratchpad)
-        self.assertIn("log1", prompt)
-        self.assertIn("log3", prompt)
-
-    def test_agent_handles_output_without_action_block(self):
+    def test_agent_handles_output_without_tool_call(self):
         with patch(
             "ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
@@ -173,20 +143,6 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("I don't want to output an action.", action.log)
             self.assertIn("Action:", action.log)
             self.assertIn("Action:", action.tool_input)
-
-    def test_agent_handles_output_with_malformed_json(self):
-        with patch(
-            "ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model",
-            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Thought.\nAction: abc")),
-        ):
-            node = self._get_node()
-            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
-            self.assertEqual(len(state_update.intermediate_steps), 1)
-            action, obs = state_update.intermediate_steps[0]
-            self.assertIsNone(obs)
-            self.assertIn("Thought.\nAction: abc", action.log)
-            self.assertIn("action", action.tool_input)
-            self.assertIn("action_input", action.tool_input)
 
     def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
@@ -269,12 +225,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
-        class Node(QueryPlannerNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                toolkit = DummyToolkit(self._team)
-                return super()._run_with_toolkit(state, toolkit, config=config)
-
-        return Node(self.team)
+        return QueryPlannerToolsNode(self.team)
 
     def test_node_handles_action_name_validation_error(self):
         state = AssistantState(
@@ -318,9 +269,14 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             node.router(
-                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan="plan"),
+                AssistantState(
+                    messages=[HumanMessage(content="Question")],
+                    root_tool_call_id="1",
+                    root_tool_insight_type="sql",
+                    plan="plan",
+                ),
             ),
-            "plan_found",
+            "sql",
         )
         self.assertEqual(
             node.router(

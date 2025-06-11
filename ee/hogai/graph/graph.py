@@ -144,22 +144,22 @@ class InsightsAssistantGraph(BaseAssistantGraph):
 
         query_planner = QueryPlannerNode(self._team)
         builder.add_node(AssistantNodeName.QUERY_PLANNER, query_planner)
+        builder.add_edge(AssistantNodeName.QUERY_PLANNER, AssistantNodeName.QUERY_PLANNER_TOOLS)
+
+        query_planner_tools = QueryPlannerToolsNode(self._team)
+        builder.add_node(AssistantNodeName.QUERY_PLANNER_TOOLS, query_planner_tools)
         builder.add_conditional_edges(
-            AssistantNodeName.QUERY_PLANNER,
-            query_planner.router,
+            AssistantNodeName.QUERY_PLANNER_TOOLS,
+            query_planner_tools.router,
             path_map={
+                "continue": AssistantNodeName.QUERY_PLANNER,
                 "trends": AssistantNodeName.TRENDS_GENERATOR,
                 "funnel": AssistantNodeName.FUNNEL_GENERATOR,
                 "retention": AssistantNodeName.RETENTION_GENERATOR,
                 "sql": AssistantNodeName.SQL_GENERATOR,
                 "end": end_node,
-                AssistantNodeName.QUERY_PLANNER_TOOLS: AssistantNodeName.QUERY_PLANNER_TOOLS,
             },
         )
-
-        query_planner_tools = QueryPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.QUERY_PLANNER_TOOLS, query_planner_tools)
-        builder.add_edge(AssistantNodeName.QUERY_PLANNER_TOOLS, AssistantNodeName.QUERY_PLANNER)
 
         return self
 

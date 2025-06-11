@@ -57,9 +57,11 @@ The project name is {{{project_name}}}. Current time is {{{project_datetime}}} i
 
 {{{react_human_in_the_loop}}}
 
-<your_response_format>
-Insight type: <trends|funnel|retention|sql>
+Do not stop until you're ready to provide the final plan. Pro-actively use the available tools to dispel ALL potential doubts about the details of the plan.
 
+Once ready, you must call the `final_answer` tool, which requires determining the query kind and the plan.
+Format the plan in the following way (without Markdown):
+<plan_format>
 Logic:
 - description of each logical layer of the query (if aggregations needed, include which concrete aggregation to use)
 
@@ -71,7 +73,9 @@ Sources:
 - data warehouse table 3
     - how it will be used, most importantly conditions
 - repeat for each event/action/data warehouse table...
-</your_response_format>
+</plan_format>
+
+NEVER respond without a tool call. Always use `final_answer` at the end.
 """.strip()
 
 REACT_PROPERTY_FILTERS_PROMPT = """
@@ -144,6 +148,13 @@ Here are the actions relevant to the user's question.
 {{/actions}}
 """.strip()
 
+REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
+The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
+<pydantic_exception>
+{{{exception}}}
+</pydantic_exception>
+You must fix the exception and try again.
+""".strip()
 
 REACT_HELP_REQUEST_PROMPT = """
 The agent has requested help from the user:
