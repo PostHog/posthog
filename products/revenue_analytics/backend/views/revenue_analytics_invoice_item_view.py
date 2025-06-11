@@ -84,7 +84,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
             query = ast.SelectQuery(
                 select=[
-                    ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
+                    ast.Alias(alias="id", expr=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])])),
                     ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="product_id", expr=ast.Constant(value=None)),

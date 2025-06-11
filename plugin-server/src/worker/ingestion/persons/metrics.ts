@@ -29,6 +29,18 @@ export const personCacheOperationsCounter = new Counter({
     labelNames: ['cache', 'operation'],
 })
 
+export const personFetchForCheckingCacheOperationsCounter = new Counter({
+    name: 'person_fetch_for_checking_cache_operations_total',
+    help: 'Number of operations on the fetchForChecking cache',
+    labelNames: ['operation'],
+})
+
+export const personFetchForUpdateCacheOperationsCounter = new Counter({
+    name: 'person_fetch_for_update_cache_operations_total',
+    help: 'Number of operations on the fetchForUpdate cache',
+    labelNames: ['operation'],
+})
+
 export const personOperationLatencyByVersionSummary = new Summary({
     name: 'person_operation_latency_by_version',
     help: 'Latency distribution of person by version',
