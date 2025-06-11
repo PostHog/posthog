@@ -12,8 +12,6 @@ import {
     BatchExportConfigurationTest,
     BatchExportConfigurationTestStep,
     BatchExportService,
-    PipelineNodeTab,
-    PipelineStage,
 } from '~/types'
 
 import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
@@ -494,9 +492,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     const res = await api.batchExports.create(data)
                     actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
 
-                    router.actions.replace(
-                        urls.pipelineNode(PipelineStage.Destination, res.id, PipelineNodeTab.Configuration)
-                    )
+                    router.actions.replace(urls.batchExport(res.id))
                     lemonToast.success('Batch export created successfully')
                     return res
                 },

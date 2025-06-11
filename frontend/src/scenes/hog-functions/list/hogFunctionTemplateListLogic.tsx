@@ -17,7 +17,6 @@ import {
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
     HogFunctionTypeType,
-    PipelineStage,
     UserType,
 } from '~/types'
 
@@ -197,9 +196,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     }
 
                     if (template.id.startsWith('batch-export-')) {
-                        return urls.pipelineNodeNew(PipelineStage.Destination, {
-                            id: template.id.replace('batch-export-', ''),
-                        })
+                        return urls.batchExportNew(template.id.replace('batch-export-', ''))
                     }
 
                     const subTemplate = template.sub_template_id

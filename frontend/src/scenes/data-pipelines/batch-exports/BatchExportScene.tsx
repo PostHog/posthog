@@ -119,11 +119,6 @@ export function BatchExportScene(): JSX.Element {
                   content: <BatchExportBackfills id={id} />,
               }
             : null,
-        // {
-        //     label: 'History',
-        //     key: 'history',
-        //     content: <ActivityLog id={id} scope={ActivityScope.B} />,
-        // },
     ]
 
     return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
