@@ -388,7 +388,8 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                     in [
                         "retrieve_entity_properties",
                         "retrieve_event_properties",
-                        "retrieve_action_properties" "ask_user_for_help",
+                        "retrieve_action_properties",
+                        "ask_user_for_help",
                     ]
                     else action.tool_input,
                 }

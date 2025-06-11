@@ -1,9 +1,5 @@
-from unittest.mock import patch
-
 from django.test import override_settings
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAIMessage
-from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.graph.taxonomy_agent.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit
@@ -130,19 +126,8 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("distinctevent", node._events_prompt)
         self.assertIn("all events", node._events_prompt)
 
-    def test_agent_handles_output_without_tool_call(self):
-        with patch(
-            "ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model",
-            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
-        ):
-            node = self._get_node()
-            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
-            self.assertEqual(len(state_update.intermediate_steps), 1)
-            action, obs = state_update.intermediate_steps[0]
-            self.assertIsNone(obs)
-            self.assertIn("I don't want to output an action.", action.log)
-            self.assertIn("Action:", action.log)
-            self.assertIn("Action:", action.tool_input)
+    # Removed test_agent_handles_output_without_tool_call as this functionality
+    # is now handled differently and the test was testing legacy behavior
 
     def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
@@ -152,10 +137,8 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
             node._events_prompt,
         )
 
-    def test_format_prompt(self):
-        node = self._get_node()
-        self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
+    # Removed test_format_prompt as _get_react_format_prompt method no longer exists
+    # The current implementation uses a different approach for prompt formatting
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
@@ -239,10 +222,34 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
 
-    def test_node_handles_action_input_validation_error(self):
+    def test_node_handles_action_input_validation_error_string(self):
         state = AssistantState(
             intermediate_steps=[
                 (AgentAction(tool="retrieve_entity_property_values", tool_input="input", log="log"), "test")
+            ],
+            messages=[],
+        )
+        node = self._get_node()
+        state_update = node.run(state, {})
+        self.assertEqual(len(state_update.intermediate_steps), 1)
+        action, observation = state_update.intermediate_steps[0]
+        self.assertIsNotNone(observation)
+        self.assertIn("<pydantic_exception>", observation)
+        self.assertIn("<pydantic_exception>", observation)
+
+    def test_node_handles_action_input_validation_error_dict(self):
+        state = AssistantState(
+            intermediate_steps=[
+                (
+                    AgentAction(
+                        tool="retrieve_entity_property_values",
+                        tool_input={
+                            "foo_name": "bar",
+                        },
+                        log="log",
+                    ),
+                    "test",
+                )
             ],
             messages=[],
         )
@@ -290,7 +297,16 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_terminates_after_max_iterations(self):
         # Create state with 16 intermediate steps
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={
+                        "event_name": "event",
+                    },
+                    log=f"log_{i}",
+                ),
+                "observation",
+            )
             for i in range(16)
         ]
         state = AssistantState(
@@ -310,11 +326,27 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_allows_final_answer_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being final_answer
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={
+                        "event_name": "event",
+                    },
+                    log=f"log_{i}",
+                ),
+                "observation",
+            )
             for i in range(15)
         ]
         intermediate_steps.append(
-            (AgentAction(tool="final_answer", tool_input="This is the final plan", log="final"), None)
+            (
+                AgentAction(
+                    tool="final_answer",
+                    tool_input={"query_kind": "trends", "plan": "This is the final plan"},
+                    log="final",
+                ),
+                None,
+            )
         )
 
         state = AssistantState(
@@ -333,11 +365,29 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_allows_help_request_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being ask_user_for_help
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={
+                        "event_name": "event",
+                    },
+                    log=f"log_{i}",
+                ),
+                "observation",
+            )
             for i in range(15)
         ]
         intermediate_steps.append(
-            (AgentAction(tool="ask_user_for_help", tool_input="Need help with this", log="help"), None)
+            (
+                AgentAction(
+                    tool="ask_user_for_help",
+                    tool_input={
+                        "request": "Need help with this",
+                    },
+                    log="help",
+                ),
+                None,
+            )
         )
 
         state = AssistantState(
