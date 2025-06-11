@@ -2,6 +2,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     get_dependent_cohorts,
     simplified_cohort_filter_properties,
+    sort_cohorts_topologically,
 )
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
@@ -544,3 +545,33 @@ class TestDependentCohorts(BaseTest):
 
         self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
         self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
+
+
+class TestSortCohortsTopologically(BaseTest):
+    def test_sort_cohorts_topologically_with_missing_cohort(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort_with_missing_ref",
+            groups=[{"properties": [{"key": "id", "value": 12345, "type": "cohort"}]}],
+        )
+
+        cohort_ids = {cohort.pk}
+        seen_cohorts_cache = {cohort.pk: cohort}  # does not contain cohort 12345
+
+        result = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
+
+        self.assertEqual(result, [cohort.pk])
+
+    def test_sort_cohorts_topologically_with_missing_cohort_in_cache(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort_with_missing_ref",
+            groups=[{"properties": [{"key": "id", "value": 12345, "type": "cohort"}]}],
+        )
+
+        cohort_ids = {cohort.pk}
+        seen_cohorts_cache = {cohort.pk: cohort, 12345: ""}
+
+        result = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
+
+        self.assertEqual(result, [cohort.pk])

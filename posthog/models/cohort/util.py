@@ -551,7 +551,7 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
                 # add child
                 dependency_graph[cohort.id].append(int(prop.value))
 
-                neighbor_cohort = seen_cohorts_cache[int(prop.value)]
+                neighbor_cohort = seen_cohorts_cache.get(int(prop.value))
                 if not neighbor_cohort:
                     continue
 
@@ -560,7 +560,7 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
                     traverse(neighbor_cohort)
 
     for cohort_id in cohort_ids:
-        cohort = seen_cohorts_cache[int(cohort_id)]
+        cohort = seen_cohorts_cache.get(int(cohort_id))
         if not cohort:
             continue
         traverse(cohort)
@@ -571,7 +571,8 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
         for neighbor in neighbors:
             if neighbor not in seen:
                 dfs(neighbor, seen, sorted_arr)
-        sorted_arr.append(int(node))
+        if seen_cohorts_cache.get(node):
+            sorted_arr.append(int(node))
         seen.add(node)
 
     sorted_cohort_ids: list[int] = []
