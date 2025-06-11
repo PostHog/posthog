@@ -3,7 +3,6 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from dateutil import parser
 from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
@@ -24,9 +23,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.warehouse.types import IncrementalFieldType
 
 
 @dataclasses.dataclass
@@ -46,20 +44,6 @@ class ImportDataActivityInputs:
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
         }
-
-
-def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
-    if value is None or value == "None" or field_type is None:
-        return None
-
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
-        return value
-
-    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
-        return parser.parse(value)
-
-    if field_type == IncrementalFieldType.Date:
-        return parser.parse(value).date()
 
 
 def _trim_source_job_inputs(source: ExternalDataSource) -> None:
@@ -159,6 +143,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     db_incremental_field_earliest_value=processed_incremental_earliest_value
                     if schema.is_incremental
                     else None,
+                    logger=logger,
                 )
             else:
                 source = stripe_source(
@@ -366,9 +351,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MSSQL,
         ]:
             from posthog.temporal.data_imports.pipelines.mssql.mssql import MSSQLSourceConfig, mssql_source
-            from posthog.temporal.data_imports.pipelines.sql_database import (
-                sql_source_for_type,
-            )
 
             mssql_config = MSSQLSourceConfig.from_dict(model.pipeline.job_inputs)
 
@@ -379,52 +361,26 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
 
-                    if str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS:
-                        source = mssql_source(
-                            host=tunnel.local_bind_host,
-                            port=int(tunnel.local_bind_port),
-                            user=mssql_config.user,
-                            password=mssql_config.password,
-                            database=mssql_config.database,
-                            schema=mssql_config.schema,
-                            table_names=endpoints,
-                            is_incremental=schema.is_incremental,
-                            logger=logger,
-                            incremental_field=schema.sync_type_config.get("incremental_field")
-                            if schema.is_incremental
-                            else None,
-                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                            if schema.is_incremental
-                            else None,
-                            db_incremental_field_last_value=processed_incremental_last_value
-                            if schema.is_incremental
-                            else None,
-                        )
-                    else:
-                        # Old MS SQL Server source
-                        # TODO: remove once all teams have been moved to new source
-                        source = sql_source_for_type(
-                            source_type=ExternalDataSource.Type(model.pipeline.source_type),
-                            host=tunnel.local_bind_host,
-                            port=tunnel.local_bind_port,
-                            user=mssql_config.user,
-                            password=mssql_config.password,
-                            database=mssql_config.database,
-                            sslmode="prefer",
-                            schema=mssql_config.schema,
-                            table_names=endpoints,
-                            incremental_field=schema.sync_type_config.get("incremental_field")
-                            if schema.is_incremental
-                            else None,
-                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                            if schema.is_incremental
-                            else None,
-                            db_incremental_field_last_value=processed_incremental_last_value
-                            if schema.is_incremental
-                            else None,
-                            team_id=inputs.team_id,
-                            using_ssl=False,
-                        )
+                    source = mssql_source(
+                        host=tunnel.local_bind_host,
+                        port=int(tunnel.local_bind_port),
+                        user=mssql_config.user,
+                        password=mssql_config.password,
+                        database=mssql_config.database,
+                        schema=mssql_config.schema,
+                        table_names=endpoints,
+                        is_incremental=schema.is_incremental,
+                        logger=logger,
+                        incremental_field=schema.sync_type_config.get("incremental_field")
+                        if schema.is_incremental
+                        else None,
+                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                        if schema.is_incremental
+                        else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.is_incremental
+                        else None,
+                    )
 
                     return _run(
                         job_inputs=job_inputs,
@@ -436,48 +392,22 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         shutdown_monitor=shutdown_monitor,
                     )
 
-            if str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS:
-                source = mssql_source(
-                    host=mssql_config.host,
-                    port=mssql_config.port,
-                    user=mssql_config.user,
-                    password=mssql_config.password,
-                    database=mssql_config.database,
-                    schema=mssql_config.schema,
-                    table_names=endpoints,
-                    is_incremental=schema.is_incremental,
-                    logger=logger,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                )
-            else:
-                # Old MS SQL Server source
-                # TODO: remove once all teams have been moved to new source
-                source = sql_source_for_type(
-                    source_type=ExternalDataSource.Type(model.pipeline.source_type),
-                    host=mssql_config.host,
-                    port=mssql_config.port,
-                    user=mssql_config.user,
-                    password=mssql_config.password,
-                    database=mssql_config.database,
-                    sslmode="prefer",
-                    schema=mssql_config.schema,
-                    table_names=endpoints,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                    team_id=inputs.team_id,
-                    using_ssl=False,
-                )
+            source = mssql_source(
+                host=mssql_config.host,
+                port=mssql_config.port,
+                user=mssql_config.user,
+                password=mssql_config.password,
+                database=mssql_config.database,
+                schema=mssql_config.schema,
+                table_names=endpoints,
+                is_incremental=schema.is_incremental,
+                logger=logger,
+                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.is_incremental
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+            )
 
             return _run(
                 job_inputs=job_inputs,

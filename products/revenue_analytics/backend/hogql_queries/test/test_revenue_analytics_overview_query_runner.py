@@ -10,7 +10,6 @@ from posthog.schema import (
     CurrencyCode,
     DateRange,
     HogQLQueryModifiers,
-    RevenueSources,
     PropertyOperator,
     RevenueAnalyticsPropertyFilter,
     RevenueAnalyticsOverviewQuery,
@@ -136,20 +135,16 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_revenue_analytics_overview_query(
         self,
         date_range: DateRange | None = None,
-        revenue_sources: RevenueSources | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range = DateRange(date_from="-30d")
-        if revenue_sources is None:
-            revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
         if properties is None:
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
             query = RevenueAnalyticsOverviewQuery(
                 dateRange=date_range,
-                revenueSources=revenue_sources,
                 properties=properties,
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
@@ -242,7 +237,13 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_revenue_analytics_overview_query(
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(
@@ -275,7 +276,13 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_revenue_analytics_overview_query(
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(
