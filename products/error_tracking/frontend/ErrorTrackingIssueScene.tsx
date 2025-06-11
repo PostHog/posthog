@@ -28,7 +28,6 @@ export const scene: SceneExport = {
         params: { id },
         searchParams: { fingerprint },
     }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
-    settingSectionId: 'environment-error-tracking',
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
