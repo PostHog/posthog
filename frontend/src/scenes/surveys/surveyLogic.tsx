@@ -1312,13 +1312,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         type === SurveyQuestionBranchingType.ResponseBased &&
                         !canQuestionHaveResponseBasedBranching(question)
                     ) {
-                        throw new Error(
-                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice} for response-based branching`
+                        question.branching = undefined
+                        lemonToast.error(
+                            <>
+                                Response-based branching is not supported for {question.type} questions. Removing
+                                branching logic from this question.
+                            </>
                         )
+                    } else {
+                        // Use centralized branching config creation
+                        question.branching = createBranchingConfig(type, specificQuestionIndex)
                     }
-
-                    // Use centralized branching config creation
-                    question.branching = createBranchingConfig(type, specificQuestionIndex)
 
                     newQuestions[questionIndex] = question
                     return {
