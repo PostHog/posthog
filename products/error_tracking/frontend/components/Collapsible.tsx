@@ -1,6 +1,6 @@
 import React, { CSSProperties, MouseEvent } from 'react'
 import { Transition } from 'react-transition-group'
-import { ENTERED, ENTERING, EXITED, EXITING } from 'react-transition-group/Transition'
+import { ENTERED, ENTERING, EXITED, EXITING, UNMOUNTED } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
 
 export function Collapsible({
@@ -37,7 +37,7 @@ export function Collapsible({
     )
 }
 
-type TransitionStatus = typeof ENTERED
+type TransitionStatus = typeof ENTERED | typeof ENTERING | typeof EXITED | typeof EXITING | typeof UNMOUNTED
 
 function getStyle(
     state: TransitionStatus,
