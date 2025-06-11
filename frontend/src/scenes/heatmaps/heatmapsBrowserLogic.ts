@@ -120,12 +120,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                         SELECT properties.$current_url AS url, count() as count
                         FROM events
                         WHERE timestamp >= now() - INTERVAL 7 DAY
-                        AND event in ('$pageview'
-                            , '$autocapture')
+                        AND event in ('$pageview', '$autocapture')
                         AND timestamp <= now()
                         GROUP BY properties.$current_url
                         ORDER BY count DESC
-                            LIMIT 10`
+                        LIMIT 10`
 
                     const res = await api.queryHogQL(query)
 

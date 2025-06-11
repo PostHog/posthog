@@ -292,15 +292,15 @@ AND properties.$lib != 'web'`
 
                     if (person?.uuid) {
                         relatedEventsQuery = (relatedEventsQuery +
-                            hogql`AND person_id = '${person.uuid}'`) as HogQLQueryString
+                            hogql`\nAND person_id = ${person.uuid}`) as HogQLQueryString
                     }
                     if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
                         relatedEventsQuery = (relatedEventsQuery +
-                            hogql`AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`) as HogQLQueryString
+                            hogql`\nAND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`) as HogQLQueryString
                     }
 
                     relatedEventsQuery = (relatedEventsQuery +
-                        hogql`ORDER BY timestamp ASC LIMIT 1000000`) as HogQLQueryString
+                        hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
 
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session

@@ -880,7 +880,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query = hogql`
                     -- QUERYING SINGLE CHOICE RESPONSES
                     SELECT
-                        getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
+                        getSurveyResponse(${questionIndex}, '${question?.id ? question.id : ''}') AS survey_response,
                         COUNT(survey_response)
                     FROM events
                     WHERE event = '${SurveyEventName.SENT}'
@@ -925,7 +925,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     SELECT
                         count(),
                         arrayJoin(
-                            getSurveyResponse(${questionIndex}, '${question?.id}', true)
+                            getSurveyResponse(${questionIndex}, '${question?.id ? question.id : ''}', true)
                         ) AS choice
                     FROM events
                     WHERE event == '${SurveyEventName.SENT}'
