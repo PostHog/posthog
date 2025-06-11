@@ -19,12 +19,13 @@ def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNo
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
 
 
-def funnel_steps_to_aggregate_funnel_array_expr(team: Team, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
+def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
     """
-    Returns the expression using aggregate_funnel_array UDF for funnel analysis.
-    This handles cases with duplicate events that windowFunnel cannot process.
+    Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
+    Evaluates to 1 if the user completed the funnel, 0 if they didn't.
+
+    See the README.md for a detailed explanation of the expression.
     """
-    num_steps = len(funnel_metric.series)
 
     if funnel_metric.conversion_window is not None and funnel_metric.conversion_window_unit is not None:
         conversion_window_seconds = conversion_window_to_seconds(
@@ -34,18 +35,25 @@ def funnel_steps_to_aggregate_funnel_array_expr(team: Team, funnel_metric: Exper
         # Default to include all events selected, so we just set a large value here (3 years)
         conversion_window_seconds = 3 * 365 * 24 * 60 * 60
 
-    # Build step conditions using multiply pattern
+    num_steps = len(funnel_metric.series)
+    placeholders: dict[str, ast.Expr] = {
+        "num_steps": ast.Constant(value=num_steps),
+        "num_steps_minus_one": ast.Constant(value=num_steps - 1),
+        "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+    }
+
+    # Build step conditions, a list of expressions that return the step number if the event satisfies
+    # the condition and 0 otherwise.
     step_conditions = []
-    placeholders = {}
     for i, funnel_step in enumerate(funnel_metric.series):
         filter_expr = event_or_action_to_filter(team, funnel_step)
-        step_placeholder = f"step_condition_{i}"
-        step_conditions.append(f"multiply({i + 1}, if({{{step_placeholder}}}, 1, 0))")
-        placeholders[step_placeholder] = filter_expr
+        step_condition_placeholder = f"step_condition_{i}"
+        step_conditions.append(f"multiply({i + 1}, if({{{step_condition_placeholder}}}, 1, 0))")
+        placeholders[step_condition_placeholder] = filter_expr
 
     step_conditions_str = ", ".join(step_conditions)
 
-    udf_expression = f"""
+    expression = f"""
     if(
         length(
             arrayFilter(result -> result.1 >= {{num_steps_minus_one}},
@@ -69,13 +77,4 @@ def funnel_steps_to_aggregate_funnel_array_expr(team: Team, funnel_metric: Exper
     )
     """
 
-    # Add the numeric placeholders
-    placeholders.update(
-        {
-            "num_steps": ast.Constant(value=num_steps),
-            "num_steps_minus_one": ast.Constant(value=num_steps - 1),
-            "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-        }
-    )
-
-    return parse_expr(udf_expression, placeholders=placeholders)
+    return parse_expr(expression, placeholders=placeholders)

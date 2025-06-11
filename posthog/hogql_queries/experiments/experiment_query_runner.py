@@ -46,7 +46,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     is_continuous,
 )
 from posthog.hogql_queries.experiments.funnel_query_utils import (
-    funnel_steps_to_aggregate_funnel_array_expr,
+    funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
 from rest_framework.exceptions import ValidationError
@@ -455,7 +455,7 @@ class ExperimentQueryRunner(QueryRunner):
                     case _:
                         return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
-                return funnel_steps_to_aggregate_funnel_array_expr(self.team, self.metric)
+                return funnel_evaluation_expr(self.team, self.metric)
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
