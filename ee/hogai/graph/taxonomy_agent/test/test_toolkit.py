@@ -347,5 +347,5 @@ class TestFinalAnswerTool(BaseTest):
                 - operator: equals
                 - property value: action
         """
-        tool = FinalAnswerTool(name="final_answer", arguments=dedent(original))
-        self.assertEqual(tool.arguments.strip(), dedent(normalized).strip())
+        tool = FinalAnswerTool(name="final_answer", arguments={"query_kind": "trends", "plan": dedent(original)})
+        self.assertEqual(tool.arguments.plan.strip(), dedent(normalized).strip())
