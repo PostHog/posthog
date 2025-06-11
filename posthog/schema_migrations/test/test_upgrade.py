@@ -35,9 +35,9 @@ def setup_migrations():
 
 
 def test_simple_migration():
-    query = {"kind": NodeKind.TRENDS_QUERY, "v": 1, "flag": True}
+    query = {"kind": NodeKind.TRENDS_QUERY, "version": 1, "flag": True}
     got = upgrade(query)
-    assert got == {"kind": NodeKind.TRENDS_QUERY, "v": 2, "mode": "on"}
+    assert got == {"kind": NodeKind.TRENDS_QUERY, "version": 2, "mode": "on"}
 
 
 def test_nested_source_migration():
@@ -45,30 +45,30 @@ def test_nested_source_migration():
     got = upgrade(query)
     assert got == {
         "kind": NodeKind.INSIGHT_VIZ_NODE,
-        "source": {"kind": NodeKind.TRENDS_QUERY, "v": 2, "mode": "on"},
+        "source": {"kind": NodeKind.TRENDS_QUERY, "version": 2, "mode": "on"},
     }
 
 
 def test_nested_array_migration():
     query = {
         "kind": NodeKind.TRENDS_QUERY,
-        "v": 2,
+        "version": 2,
         "series": [
-            {"kind": NodeKind.EVENTS_NODE, "v": 1, "event": "pageview"},
-            {"kind": NodeKind.EVENTS_NODE, "v": 1, "event": "signup"},
+            {"kind": NodeKind.EVENTS_NODE, "version": 1, "event": "pageview"},
+            {"kind": NodeKind.EVENTS_NODE, "version": 1, "event": "signup"},
         ],
     }
     got = upgrade(query)
     assert got == {
         "kind": NodeKind.TRENDS_QUERY,
-        "v": 2,
+        "version": 2,
         "series": [
-            {"kind": NodeKind.EVENTS_NODE, "v": 2, "name": "pageview"},
-            {"kind": NodeKind.EVENTS_NODE, "v": 2, "name": "signup"},
+            {"kind": NodeKind.EVENTS_NODE, "version": 2, "name": "pageview"},
+            {"kind": NodeKind.EVENTS_NODE, "version": 2, "name": "signup"},
         ],
     }
 
 
 def test_already_latest():
-    query = {"kind": NodeKind.TRENDS_QUERY, "v": LATEST_VERSIONS[NodeKind.TRENDS_QUERY]}
+    query = {"kind": NodeKind.TRENDS_QUERY, "version": LATEST_VERSIONS[NodeKind.TRENDS_QUERY]}
     assert upgrade(query) == query
