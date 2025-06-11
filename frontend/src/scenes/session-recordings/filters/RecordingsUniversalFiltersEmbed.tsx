@@ -126,6 +126,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                             setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth
+                        data-attr="filter-recordings-button"
                     >
                         {isFiltersExpanded ? 'Hide' : 'Show'} filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
@@ -479,6 +480,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                     {SaveFiltersModal()}
                 </div>
             ),
+            'data-attr': 'session-recordings-filters-tab',
         },
         {
             key: 'saved',
@@ -493,6 +495,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                 </div>
             ),
             content: <SavedFilters setFilters={setFilters} />,
+            'data-attr': 'session-recordings-saved-tab',
         },
     ]
 
@@ -509,6 +512,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                     <ReplayActiveHoursHeatMap />
                 </div>
             ),
+            'data-attr': 'session-recordings-explore-tab',
         })
     }
 
