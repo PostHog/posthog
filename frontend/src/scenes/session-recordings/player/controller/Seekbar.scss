@@ -148,35 +148,5 @@
             border-radius: 2px;
             opacity: 0.5;
         }
-
-        .PlayerSeekbarTick__info {
-            position: absolute;
-            bottom: 100%;
-            max-width: 20rem;
-            padding: 0.25rem 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.8rem;
-            color: #fff;
-            white-space: nowrap;
-            visibility: hidden;
-            background-color: var(--tick-color);
-            border-radius: var(--radius);
-            opacity: 0;
-            transition: opacity 150ms ease-in-out;
-            transform: translateX(-50%);
-        }
-
-        &:hover {
-            --tick-width: 5px;
-
-            .PlayerSeekbarTick__info {
-                visibility: visible;
-                opacity: 1;
-            }
-
-            .PlayerSeekbarTick__line {
-                opacity: 1;
-            }
-        }
     }
 }

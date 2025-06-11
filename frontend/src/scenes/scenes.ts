@@ -73,18 +73,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.ErrorTracking]: {
-        projectBased: true,
-        name: 'Error tracking',
-    },
-    [Scene.ErrorTrackingConfiguration]: {
-        projectBased: true,
-        name: 'Error tracking configuration',
-    },
-    [Scene.ErrorTrackingIssue]: {
-        projectBased: true,
-        name: 'Error tracking issue',
-    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -642,9 +630,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
-    [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
-    [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
-    [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
@@ -707,7 +692,5 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
-    [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],
-    [urls.errorTrackingAlertNew(':templateId')]: [Scene.HogFunction, 'errorTrackingAlertNew'],
     ...productRoutes,
 }
