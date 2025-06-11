@@ -432,10 +432,8 @@ def WEB_BOUNCES_INSERT_SQL(
     FROM
     (
         SELECT
-            events__session.session_id AS session_id,
-            e.team_id AS team_id,
-            min(events__session.start_timestamp) AS start_timestamp
-            any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS person_id,
+            argMax(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id), e.timestamp) AS person_id,
+            countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             any(events__session.entry_pathname) AS entry_pathname,
             any(events__session.end_pathname) AS end_pathname,
             any(events__session.referring_domain) AS referring_domain,
@@ -456,8 +454,10 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$viewport_height) AS viewport_height,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
-            sum(countIf(e.event IN ('$pageview', '$screen'))) AS pageview_count,
             toUInt64(1) AS total_session_count_state,
+            events__session.session_id AS session_id,
+            e.team_id AS team_id,
+            min(events__session.start_timestamp) AS start_timestamp
         FROM events AS e
         LEFT JOIN
         (
