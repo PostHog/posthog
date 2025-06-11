@@ -12,7 +12,6 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { errorTrackingQuery } from 'products/error_tracking/frontend/queries'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -816,13 +815,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             return null
                         }
 
+                        const costSelect = table.source_map.base_currency
+                            ? `convertCurrency('${table.source_map.base_currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0)))`
+                            : `toFloat(coalesce(${table.source_map.total_cost}, 0))`
+
                         // TODO: we should replicate this logic for the area charts once we build the query runner
                         return `
                         SELECT 
                             ${table.source_map.campaign_name} as campaignname,
-                            convertCurrency('${
-                                table.source_map.base_currency || DEFAULT_CURRENCY
-                            }', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0))) as cost,
+                            ${costSelect} as cost,
                             toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
                             toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
                             ${table.source_map.source_name || `'${schemaName}'`} as source_name
