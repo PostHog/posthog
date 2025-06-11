@@ -3467,26 +3467,28 @@ const api = {
 
     async queryHogQL<T = any[]>(
         query: HogQLQueryString,
-        queryParams?: Omit<HogQLQuery, 'kind' | 'query'>,
-        refresh?: RefreshType,
-        queryId?: string,
-        filtersOverride?: DashboardFilter | null,
-        variablesOverride?: Record<string, HogQLVariable> | null,
-        options?: ApiMethodOptions
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+        }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = {
-            ...queryParams,
+            ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
         }
         return await new ApiRequest().query().create({
-            ...options,
+            ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,
-                client_query_id: queryId,
-                refresh,
-                filters_override: filtersOverride,
-                variables_override: variablesOverride,
+                client_query_id: queryOptions?.clientQueryId,
+                refresh: queryOptions?.refresh,
+                filters_override: queryOptions?.filtersOverride,
+                variables_override: queryOptions?.variablesOverride,
             },
         })
     },

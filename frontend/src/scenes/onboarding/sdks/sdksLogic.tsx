@@ -194,8 +194,10 @@ export const sdksLogic = kea<sdksLogicType>([
                         LIMIT 7`
 
                     const res = await api.queryHogQL(query, {
-                        values: {
-                            protocol: window.location.protocol,
+                        queryParams: {
+                            values: {
+                                protocol: window.location.protocol,
+                            },
                         },
                     })
                     const hasEvents = !!(res.results?.length ?? 0 > 0)
