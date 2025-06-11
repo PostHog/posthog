@@ -1,7 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -25,7 +27,12 @@ export interface ProjectWithEnvironments {
 export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicType>([
     path(['scenes', 'settings', 'environment', 'environmentRollbackModalLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization', 'currentOrganizationLoading']],
+        values: [
+            organizationLogic,
+            ['currentOrganization', 'currentOrganizationLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         openModal: true,
@@ -53,6 +60,12 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
         ],
     }),
     selectors(() => ({
+        hasEnvironmentsRollbackFeature: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.ENVIRONMENTS_ROLLBACK]
+            },
+        ],
         // Get all projects with their environments
         projectsWithEnvironments: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
@@ -145,6 +158,12 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
         ],
     })),
     listeners(({ values, actions }) => ({
+        openModal: () => {
+            if (!values.hasEnvironmentsRollbackFeature) {
+                lemonToast.error('Environment rollback feature is not available for your organization')
+                return
+            }
+        },
         submitEnvironmentRollback: async () => {
             if (values.currentOrganizationLoading || !values.currentOrganization) {
                 throw new Error('Organization data is not yet loaded')

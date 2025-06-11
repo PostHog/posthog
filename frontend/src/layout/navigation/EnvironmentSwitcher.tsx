@@ -31,6 +31,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
+    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
     const { openModal } = useActions(environmentRollbackModalLogic)
 
     const { location } = useValues(router)
@@ -137,16 +138,18 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
             })
         }
         return [
-            {
-                items: [
-                    {
-                        label: 'Consolidate project environments',
-                        onClick: openModal,
-                        status: 'danger',
-                        icon: <IconWarning />,
-                    },
-                ],
-            },
+            hasEnvironmentsRollbackFeature
+                ? {
+                      items: [
+                          {
+                              label: 'Consolidate project environments',
+                              onClick: openModal,
+                              status: 'danger',
+                              icon: <IconWarning />,
+                          },
+                      ],
+                  }
+                : null,
             currentProjectItems.length ? { title: 'Current project', items: currentProjectItems } : null,
             otherProjectsItems.length ? { title: 'Other projects', items: otherProjectsItems } : null,
         ]
@@ -159,6 +162,8 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
         onClickInside,
         guardAvailableFeature,
         showCreateEnvironmentModal,
+        hasEnvironmentsRollbackFeature,
+        openModal,
     ])
 
     if (!currentOrganization || !currentTeam) {
