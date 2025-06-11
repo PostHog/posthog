@@ -483,7 +483,7 @@ export class SessionRecordingIngester {
             this.replayEventsIngester = new ReplayEventsIngester(
                 this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker,
-                this.metadataSwitchoverDate || undefined
+                this.metadataSwitchoverDate
             )
         }
 
