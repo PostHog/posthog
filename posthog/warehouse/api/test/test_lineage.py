@@ -144,6 +144,43 @@ class TestLineage(APIBaseTest):
         }
         self.assertEqual(edges, expected_edges)
 
+    def test_get_upstream_no_paths(self):
+        # Create a saved query with external tables but no paths
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select * from postgres.supabase.users",
+            },
+            external_tables=["postgres.supabase.users", "postgres.supabase.events"],
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        # Should have 3 nodes: the view and 2 external tables
+        self.assertEqual(len(data["nodes"]), 3)
+
+        # Should have 2 edges: from each external table to the view
+        self.assertEqual(len(data["edges"]), 2)
+
+        # Check nodes
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertEqual(nodes[str(saved_query.id)]["type"], "view")
+        self.assertEqual(nodes[str(saved_query.id)]["name"], "test_query")
+        self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
+        self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
+
+        # Check edges
+        edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
+        expected_edges = {
+            ("postgres.supabase.users", str(saved_query.id)),
+            ("postgres.supabase.events", str(saved_query.id)),
+        }
+        self.assertEqual(edges, expected_edges)
+
     def test_topological_sort(self):
         nodes = ["A", "B", "C"]
         edges = [{"source": "A", "target": "B"}, {"source": "B", "target": "C"}]

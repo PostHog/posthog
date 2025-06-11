@@ -116,17 +116,17 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 seen_nodes.add(node_id)
 
             dag["edges"].append({"source": node_id, "target": model_id})
-            # Add the view node last
-            dag["nodes"].append(
-                {
-                    "id": model_id,
-                    "type": "view",
-                    "name": saved_query.name,
-                    "sync_frequency": saved_query.sync_frequency_interval,
-                    "last_run_at": saved_query.last_run_at,
-                    "status": saved_query.status,
-                }
-            )
+
+        dag["nodes"].append(
+            {
+                "id": model_id,
+                "type": "view",
+                "name": saved_query.name,
+                "sync_frequency": saved_query.sync_frequency_interval,
+                "last_run_at": saved_query.last_run_at,
+                "status": saved_query.status,
+            }
+        )
         return dag
 
     uuid_nodes: set[uuid.UUID] = set()
