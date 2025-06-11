@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -16,6 +17,8 @@ import { BillingType, DateMappingOption, OrganizationType } from '~/types'
 import { canAccessBilling, syncBillingSearchParams, updateBillingSearchParams } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
+import { USAGE_TYPES } from './constants'
+import type { BillingUsageInteractionProps } from './types'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
@@ -53,12 +56,38 @@ export interface BillingUsageLogicProps {
     dashboardItemId?: string
 }
 
+function buildTrackingProperties(
+    action: BillingUsageInteractionProps['action'],
+    values: {
+        filters: BillingUsageFilters
+        dateFrom: string
+        dateTo: string
+        excludeEmptySeries: boolean
+        teamOptions: { key: string; label: string }[]
+    }
+): BillingUsageInteractionProps {
+    return {
+        action,
+        filters: values.filters,
+        date_from: values.dateFrom,
+        date_to: values.dateTo,
+        exclude_empty: values.excludeEmptySeries,
+        usage_types_count: values.filters.usage_types?.length || 0,
+        usage_types_total: USAGE_TYPES.length,
+        teams_count: values.filters.team_ids?.length || 0,
+        teams_total: values.teamOptions.length,
+        has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
+        interval: values.filters.interval || 'day',
+    }
+}
+
 export const billingUsageLogic = kea<billingUsageLogicType>([
     path(['scenes', 'billing', 'billingUsageLogic']),
     props({} as BillingUsageLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     }),
     actions({
         setFilters: (filters: Partial<BillingUsageFilters>, shouldDebounce: boolean = true) => ({
@@ -370,16 +399,19 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
+                actions.reportBillingUsageInteraction(buildTrackingProperties('filters_changed', values))
             }
             actions.loadBillingUsage()
         },
         setDateRange: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
+                actions.reportBillingUsageInteraction(buildTrackingProperties('date_changed', values))
             }
             actions.loadBillingUsage()
         },
         resetFilters: async () => {
+            actions.reportBillingUsageInteraction(buildTrackingProperties('filters_cleared', values))
             actions.loadBillingUsage()
         },
         toggleAllSeries: () => {
@@ -389,6 +421,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
             const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
+
+            actions.reportBillingUsageInteraction(buildTrackingProperties('series_toggled', values))
+
             if (isAllVisible) {
                 // Hide all series
                 ids.forEach((id) => actions.toggleSeries(id))
@@ -399,6 +434,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         },
         toggleTeamBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
+            actions.reportBillingUsageInteraction(buildTrackingProperties('breakdown_toggled', values))
             actions.loadBillingUsage()
         },
     })),
