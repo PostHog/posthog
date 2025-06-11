@@ -411,6 +411,7 @@ class ExperimentQueryRunner(QueryRunner):
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
                         ast.Field(chain=["events", "uuid"]),
+                        ast.Field(chain=["events", "properties"]),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
