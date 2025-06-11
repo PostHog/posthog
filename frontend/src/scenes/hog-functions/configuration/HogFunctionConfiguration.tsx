@@ -438,6 +438,7 @@ export function HogFunctionConfiguration({
                                     <CyclotronJobInputs
                                         configuration={configuration}
                                         setConfigurationValue={setConfigurationValue}
+                                        showSource={showSource}
                                     />
                                     {showSource && canEditSource ? (
                                         <LemonButton
