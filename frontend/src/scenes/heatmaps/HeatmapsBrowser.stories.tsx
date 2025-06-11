@@ -20,7 +20,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/integrations': {},
                 // Mock the iframe URL to return X-Frame-Options header
-                'https://posthog.com/frame-denied': (req, res, ctx) => {
+                'https://posthog.com/frame-denied': (_req, res, ctx) => {
                     return res(
                         ctx.set('X-Frame-Options', 'DENY'),
                         ctx.body('<html><body>This page denies iframe embedding</body></html>')
