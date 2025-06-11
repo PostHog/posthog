@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Person, Team } from '~/src/types'
 
-import { PersonState } from '../person-state'
+import { PersonState } from '../persons/person-state'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventPipelineRunner } from './runner'
 
@@ -13,7 +13,7 @@ export async function processPersonsStep(
     team: Team,
     timestamp: DateTime,
     processPerson: boolean,
-    distinctIdBatchStore: PersonsStoreForBatch
+    personStoreBatch: PersonsStoreForBatch
 ): Promise<[PluginEvent, Person, Promise<void>]> {
     const [person, kafkaAck] = await new PersonState(
         event,
@@ -22,7 +22,7 @@ export async function processPersonsStep(
         timestamp,
         processPerson,
         runner.hub.db.kafkaProducer,
-        distinctIdBatchStore,
+        personStoreBatch,
         runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
         runner.hub.PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION
     ).update()
