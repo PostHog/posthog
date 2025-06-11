@@ -1,5 +1,5 @@
 import { IconActivity, IconClock } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '~/scenes/experiments/constants'
 
@@ -42,9 +42,19 @@ export function ChartEmptyState({
                     {error?.hasDiagnostics ? (
                         <ErrorChecklist error={error} metric={metric} />
                     ) : (
-                        <LemonTag size="small" type="danger" className="mr-1 cursor-pointer">
-                            Error
-                        </LemonTag>
+                        <Tooltip
+                            title={
+                                error
+                                    ? typeof error === 'string'
+                                        ? error
+                                        : error.message || error.detail || error.error || JSON.stringify(error)
+                                    : 'An error occurred'
+                            }
+                        >
+                            <LemonTag size="small" type="danger" className="mr-1 cursor-pointer">
+                                Error
+                            </LemonTag>
+                        </Tooltip>
                     )}
                 </div>
             )}
