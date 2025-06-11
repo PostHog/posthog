@@ -4,7 +4,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toSentenceCase } from 'lib/utils'
-import React from 'react'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import {
     InspectorListItemAnnotationComment,
