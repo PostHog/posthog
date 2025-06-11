@@ -1,0 +1,29 @@
+{
+    "name": "@posthog/products-error-tracking",
+    "scripts": {},
+    "dependencies": {
+        "eslint-plugin-posthog": "workspace:*"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/addon-actions": "*",
+        "@storybook/react": "*",
+        "@types/d3": "*",
+        "@types/react": "*",
+        "@types/react-transition-group": "*",
+        "clsx": "*",
+        "d3": "*",
+        "fast-deep-equal": "*",
+        "fuse.js": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "kea-subscriptions": "*",
+        "posthog-js": "*",
+        "react": "*",
+        "react-transition-group": "*",
+        "ts-pattern": "*",
+        "use-resize-observer": "*"
+    }
+}

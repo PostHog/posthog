@@ -799,6 +799,7 @@ export type ReplayTab = {
     key: ReplayTabs
     tooltip?: string
     tooltipDocLink?: string
+    'data-attr'?: string
 }
 
 export enum ExperimentsTabs {
