@@ -19,16 +19,64 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
     })),
 
     loaders(() => ({
-        hogFunctionPlugins: [
+        hogFunctionPluginsDestinations: [
             null as HogFunctionType[] | null,
             {
                 // NOTE: This is super temporary until we have fully migrated off of plugins
-                loadHogFunctionPlugins: async () => {
+                loadHogFunctionPluginsDestinations: async () => {
                     const [pluginConfigs, plugins] = await Promise.all([
                         api.loadPaginatedResults<PluginConfigTypeNew>(
                             `api/projects/@current/pipeline_destination_configs`
                         ),
                         api.loadPaginatedResults<PluginType>(`api/organizations/@current/pipeline_destinations`),
+                    ])
+
+                    const pluginsById = Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin]))
+
+                    const hogfunctions: HogFunctionType[] = []
+
+                    for (const pluginConfig of pluginConfigs) {
+                        const plugin = pluginsById[pluginConfig.plugin]
+
+                        let iconUrl = plugin.icon ?? 'static/images/plugin-default.png'
+
+                        try {
+                            const { user, repo, path } = parseGithubRepoURL(plugin.url || '')
+                            iconUrl = `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`
+                        } catch (e) {
+                            // Do nothing
+                        }
+
+                        hogfunctions.push({
+                            id: `plugin-${pluginConfig.id}`,
+                            name: pluginConfig.name || plugin?.name || 'Unknown app',
+                            description: pluginConfig.description || plugin?.description || '',
+                            type: 'destination',
+                            created_by: null,
+                            created_at: '',
+                            updated_at: pluginConfig.updated_at,
+                            enabled: pluginConfig.enabled,
+                            execution_order: undefined,
+                            hog: '',
+                            icon_url: iconUrl,
+                        })
+                    }
+
+                    return hogfunctions
+                },
+            },
+        ],
+
+        hogFunctionPluginsSiteApps: [
+            null as HogFunctionType[] | null,
+            {
+                // NOTE: This is super temporary until we have fully migrated off of plugins
+                loadHogFunctionPluginsSiteApps: async () => {
+                    const [pluginConfigs, plugins] = await Promise.all([
+                        api.loadPaginatedResults<PluginConfigTypeNew>(
+                            `api/projects/@current/pipeline_site_app_configs`
+                        ),
+                        api.loadPaginatedResults<PluginType>(`api/organizations/@current/pipeline_site_apps`),
                     ])
 
                     const pluginsById = Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin]))

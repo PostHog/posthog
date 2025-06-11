@@ -43,13 +43,19 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
         hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
     )
 
-    const { hogFunctionPlugins, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
-    const { loadHogFunctionPlugins, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
+    const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
+        useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
+        useActions(nonHogFunctionsLogic)
 
     useEffect(() => {
         if (kind === 'destination') {
-            loadHogFunctionPlugins()
+            loadHogFunctionPluginsDestinations()
             loadHogFunctionBatchExports()
+        }
+
+        if (kind === 'site_app') {
+            loadHogFunctionPluginsSiteApps()
         }
     }, [kind])
 
@@ -80,7 +86,13 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualFunctions={[...(hogFunctionPlugins ?? []), ...(hogFunctionBatchExports ?? [])]}
+                    manualFunctions={
+                        kind === 'destination'
+                            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
+                            : kind === 'site_app'
+                            ? [...(hogFunctionPluginsSiteApps ?? [])]
+                            : undefined
+                    }
                 />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
