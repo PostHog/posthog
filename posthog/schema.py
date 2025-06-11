@@ -7723,6 +7723,36 @@ class WebStatsTableQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
+class WebAnalyticsExternalSummaryQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]] = Field(
+        default_factory=list
+    )
+    response: Optional[WebAnalyticsExternalSummaryQueryResponse] = None
+
+
+class ExternalQueryError(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: Literal["platform_access_required", "query_execution_failed"]
+    detail: str
+
+
+class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: dict[str, Any]
+    date_range: DateRange
+    status: Literal["success", "error"]
+    error: Optional[ExternalQueryError] = None
+
+
 class WebVitalsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

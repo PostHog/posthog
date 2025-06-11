@@ -1,0 +1,94 @@
+from posthog.hogql.database.models import (
+    DatabaseField,
+    IntegerDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+)
+from posthog.hogql.database.s3_table import S3Table
+from posthog.settings.object_storage import (
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+)
+
+
+def get_s3_url(team_id: int, table_name: str) -> str:
+    if OBJECT_STORAGE_ENDPOINT:
+        # Fix localhost to use Docker container name for ClickHouse access
+        endpoint = OBJECT_STORAGE_ENDPOINT.replace("localhost:19000", "objectstorage:19000")
+        base_url = f"{endpoint}/{OBJECT_STORAGE_BUCKET}"
+    else:
+        base_url = f"https://{OBJECT_STORAGE_BUCKET}.s3.amazonaws.com"
+
+    return f"{base_url}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
+
+
+def get_s3_web_stats_structure() -> str:
+    return """
+        period_bucket DateTime,
+        team_id UInt64,
+        persons_uniq_state AggregateFunction(uniq, UUID),
+        sessions_uniq_state AggregateFunction(uniq, String),
+        pageviews_count_state AggregateFunction(sum, UInt64)
+    """
+
+
+def get_s3_web_bounces_structure() -> str:
+    return """
+        period_bucket DateTime,
+        team_id UInt64,
+        persons_uniq_state AggregateFunction(uniq, UUID),
+        sessions_uniq_state AggregateFunction(uniq, String),
+        pageviews_count_state AggregateFunction(sum, UInt64),
+        bounces_count_state AggregateFunction(sum, UInt64),
+        total_session_duration_state AggregateFunction(sum, Int64)
+    """
+
+
+WEB_STATS_S3_FIELDS: dict[str, FieldOrTable] = {
+    "period_bucket": DateTimeDatabaseField(name="period_bucket"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
+    "sessions_uniq_state": DatabaseField(name="sessions_uniq_state"),
+    "pageviews_count_state": DatabaseField(name="pageviews_count_state"),
+}
+
+WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
+    "period_bucket": DateTimeDatabaseField(name="period_bucket"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
+    "sessions_uniq_state": DatabaseField(name="sessions_uniq_state"),
+    "pageviews_count_state": DatabaseField(name="pageviews_count_state"),
+    "bounces_count_state": DatabaseField(name="bounces_count_state"),
+    "total_session_duration_state": DatabaseField(name="total_session_duration_state"),
+}
+
+
+def create_s3_web_stats_table(team_id: int) -> S3Table:
+    url = get_s3_url(team_id, "web_stats_daily_export.native")
+
+    return S3Table(
+        name="web_stats_daily_s3",
+        url=url,
+        format="Native",
+        access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+        access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        structure=get_s3_web_stats_structure(),
+        fields=WEB_STATS_S3_FIELDS,
+    )
+
+
+def create_s3_web_bounces_table(team_id: int) -> S3Table:
+    url = get_s3_url(team_id, "web_bounces_daily_export.native")
+
+    return S3Table(
+        name="web_bounces_daily_s3",
+        url=url,
+        format="Native",
+        access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+        access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        structure=get_s3_web_bounces_structure(),
+        fields=WEB_BOUNCES_S3_FIELDS,
+    )
