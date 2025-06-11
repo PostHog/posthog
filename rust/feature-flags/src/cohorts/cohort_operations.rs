@@ -25,7 +25,11 @@ impl Cohort {
         project_id: i64,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("Failed to get database connection: {}", e);
+            tracing::error!(
+                "Failed to get database connection for project {}: {}",
+                project_id,
+                e
+            );
             FlagError::DatabaseUnavailable
         })?;
 
@@ -55,7 +59,11 @@ impl Cohort {
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch cohorts from database: {}", e);
+                tracing::error!(
+                    "Failed to fetch cohorts from database for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::Internal(format!("Database query error: {}", e))
             })?;
 
@@ -74,7 +82,12 @@ impl Cohort {
 
         let cohort_property: CohortProperty =
             serde_json::from_value(filters.to_owned()).map_err(|e| {
-                tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
+                tracing::error!(
+                    "Failed to parse filters for cohort {} (team {}): {}",
+                    self.id,
+                    self.team_id,
+                    e
+                );
                 FlagError::CohortFiltersParsingError
             })?;
 
@@ -96,7 +109,12 @@ impl Cohort {
 
         let cohort_property: CohortProperty =
             serde_json::from_value(filters.clone()).map_err(|e| {
-                tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
+                tracing::error!(
+                    "Failed to parse filters for cohort {} (team {}): {}",
+                    self.id,
+                    self.team_id,
+                    e
+                );
                 FlagError::CohortFiltersParsingError
             })?;
 
