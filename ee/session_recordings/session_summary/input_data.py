@@ -67,7 +67,6 @@ def get_session_events(
     events_obj = SessionReplayEvents()
     for page in range(max_pages):
         if not local_reads_prod:
-            # TODO: Find a better way, can I pass the team model as the input for Temporal workflow?
             page_columns, page_events = events_obj.get_events(
                 session_id=str(session_id),
                 team=team,
