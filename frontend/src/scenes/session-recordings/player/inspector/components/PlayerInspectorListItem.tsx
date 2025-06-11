@@ -132,9 +132,9 @@ function IconWithOptionalBadge({
     // If TypeIcon is already a JSX element (like the LemonBadge case), return as-is
     const iconElement = isValidElement(TypeIcon) ? TypeIcon : <TypeIcon />
     return showBadge ? (
-        <div className="text-white bg-brand-blue rounded-full flex items-center p-0.5 ">{iconElement}</div>
+        <div className="text-white bg-brand-blue rounded-full flex items-center p-0.5">{iconElement}</div>
     ) : (
-        <div className="flex items-center p-0.5 ">{iconElement}</div>
+        <div className="flex items-center p-0.5">{iconElement}</div>
     )
 }
 
