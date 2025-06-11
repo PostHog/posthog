@@ -56,7 +56,7 @@ async def stream_llm(
     # model: str = "o4-mini-2025-04-16",
     # reasoning_effort="medium",
 
-    # TODO: Add LLM observability tracking her
+    # TODO: Add LLM observability tracking here
     client = AsyncOpenAI()
     stream = await client.chat.completions.create(
         model=model,
