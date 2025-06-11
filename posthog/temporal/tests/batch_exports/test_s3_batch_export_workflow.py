@@ -768,6 +768,8 @@ class TestInsertIntoS3Activity:
             file_format=file_format,
             batch_export_schema=batch_export_schema,
             batch_export_model=batch_export_model,
+            batch_export_id=str(uuid.uuid4()),
+            destination_default_fields=s3_default_fields(),
         )
 
         with pytest.raises(UnsupportedFileFormatError):
@@ -1614,7 +1616,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
             await asyncio.sleep(1)
 
     @activity.defn(name="insert_into_s3_stage_activity")
-    async def insert_into_s3_stage_activity_mocked(_: S3InsertInputs):
+    async def insert_into_s3_stage_activity_mocked(_: BatchExportInsertIntoS3StageInputs):
         return
 
     @activity.defn(name="insert_into_s3_activity_from_stage")
