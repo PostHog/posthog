@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
@@ -9,7 +10,7 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 
 type Story = StoryObj<typeof PlayerInspector>
 const meta: Meta<typeof PlayerInspector> = {
@@ -101,6 +102,8 @@ const meta: Meta<typeof PlayerInspector> = {
 export default meta
 
 const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
+    setFeatureFlags([FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE])
+
     const dataLogic = sessionRecordingDataLogic({ sessionRecordingId: '12345', playerKey: 'story-template' })
     const { sessionPlayerMetaData } = useValues(dataLogic)
 
