@@ -51,41 +51,27 @@ def get_stream_transformer(
             raise ValueError(f"Unsupported format: {format}")
 
 
-class TransformerChunk(typing.NamedTuple):
-    """A chunk of data from a transformer with a flag indicating if it's the end of file."""
-
-    data: bytes | None
-    eof: bool
-
-
 class StreamTransformer:
     """Transforms PyArrow RecordBatches to different formats with compression"""
 
-    def __init__(self, compression: str | None = None, include_inserted_at: bool = False, max_file_size_bytes: int = 0):
+    def __init__(self, compression: str | None = None, include_inserted_at: bool = False):
         self.compression = compression.lower() if compression else None
         self.include_inserted_at = include_inserted_at
-        self.max_file_size_bytes = max_file_size_bytes
 
-        self._bytes_written = 0
         self._brotli_compressor = None
 
-    def transform_batch(self, batch: pa.RecordBatch) -> typing.Generator[TransformerChunk, None, None]:
+    def transform_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Transform a single batch and yield compressed bytes"""
         column_names = batch.column_names
         if not self.include_inserted_at:
             column_names.pop(column_names.index("_inserted_at"))
 
-        for chunk in self.write_batch(batch.select(column_names)):
-            self._bytes_written += len(chunk)
-            yield TransformerChunk(data=chunk, eof=False)
-            if self.max_file_size_bytes and self._bytes_written > self.max_file_size_bytes:
-                yield from self.finalize()
+        yield from self.write_batch(batch.select(column_names))
 
-    def finalize(self) -> typing.Generator[TransformerChunk, None, None]:
+    def finalize(self) -> typing.Generator[bytes, None, None]:
         """Finalize and yield any remaining data"""
         if self.compression == "brotli":
-            yield TransformerChunk(data=self.brotli_compressor.finish(), eof=False)
-        yield TransformerChunk(data=None, eof=True)
+            yield self.brotli_compressor.finish()
 
     @abc.abstractmethod
     def write_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
@@ -209,10 +195,9 @@ class ParquetStreamTransformer(StreamTransformer):
             )
         return self._parquet_writer
 
-    def finalize(self) -> typing.Generator[TransformerChunk, None, None]:
+    def finalize(self) -> typing.Generator[bytes, None, None]:
         """Ensure underlying Parquet writer is closed before flushing and closing temporary file."""
-        if self.compression == "brotli":
-            yield TransformerChunk(data=self.brotli_compressor.finish(), eof=False)
+        yield from super().finalize()
 
         if self._parquet_writer is not None:
             self._parquet_writer.close()
@@ -222,12 +207,11 @@ class ParquetStreamTransformer(StreamTransformer):
             self._parquet_buffer.seek(0)
             final_data = self._parquet_buffer.read()
             if final_data:
-                yield TransformerChunk(data=final_data, eof=False)
+                yield final_data
 
             # Cleanup
             self._parquet_buffer.close()
             self._parquet_buffer = BytesIO()
-        yield TransformerChunk(data=None, eof=True)
 
     def write_batch(self, record_batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Write records to a temporary file as Parquet."""

@@ -1182,6 +1182,7 @@ class ConsumerFromStage:
         file_format: str,
         compression: str | None,
         include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
         json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
     ) -> int:
         """Start consuming record batches from queue.
@@ -1210,6 +1211,7 @@ class ConsumerFromStage:
         record_batches_count = 0
         records_count = 0
         bytes_count = 0
+        current_file_size = 0
         try:
             async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
                 record_batches_count += 1
@@ -1227,9 +1229,15 @@ class ConsumerFromStage:
                 )
 
                 # Transform batch to chunks
-                for chunk, eof in transformer.transform_batch(record_batch):
-                    if chunk is not None:
-                        await self.consume_chunk(data=chunk, is_eof=eof)
+                # We also split the file if we reach the max file size
+                for chunk in transformer.transform_batch(record_batch):
+                    await self.consume_chunk(data=chunk)
+                    current_file_size += len(chunk)
+                    if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                        for chunk in transformer.finalize():
+                            await self.consume_chunk(chunk)
+                        await self.finalize_file()
+                        current_file_size = 0
 
                 # Log progress periodically
                 # if batch_count % 100 == 0:
@@ -1250,9 +1258,8 @@ class ConsumerFromStage:
                 #         )
 
             # Finalize transformer and consume any remaining data
-            for chunk, _ in transformer.finalize():
-                if chunk:
-                    await self.consume_chunk(chunk, is_eof=True)
+            for chunk in transformer.finalize():
+                await self.consume_chunk(chunk)
 
             # Finalize upload
             await self.finalize()
@@ -1291,8 +1298,16 @@ class ConsumerFromStage:
             yield record_batch
 
     @abc.abstractmethod
-    async def consume_chunk(self, data: bytes, is_eof: bool = False):
+    async def consume_chunk(self, data: bytes):
         """Consume a chunk of data."""
+        pass
+
+    @abc.abstractmethod
+    async def finalize_file(self):
+        """Finalize the current file.
+
+        Only called if working with multiple files, such as when we have a max file size.
+        """
         pass
 
     @abc.abstractmethod
@@ -1309,6 +1324,7 @@ async def run_consumer_from_stage(
     file_format: str,
     compression: str | None,
     include_inserted_at: bool = False,
+    max_file_size_bytes: int = 0,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> int:
     """
@@ -1358,6 +1374,7 @@ async def run_consumer_from_stage(
                     file_format=file_format,
                     compression=compression,
                     include_inserted_at=include_inserted_at,
+                    max_file_size_bytes=max_file_size_bytes,
                     json_columns=json_columns,
                 ),
                 name="record_batch_consumer",

@@ -977,7 +977,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             s3_inputs=inputs,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=5,
-            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
         )
 
         records_completed = await run_consumer_from_stage(
@@ -988,6 +987,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             file_format=inputs.file_format,
             compression=inputs.compression,
             include_inserted_at=True,
+            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             json_columns=("properties", "person_properties", "set", "set_once"),
         )
 
@@ -1008,7 +1008,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
         # max_memory_buffer: int = 100 * 1024 * 1024,  # 100MB total buffer
-        max_file_size_bytes: int = 0,  # Split files if set
     ):
         super().__init__(data_interval_start, data_interval_end)
 
@@ -1016,7 +1015,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.part_size = part_size
         # self.max_memory_buffer = max_memory_buffer
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
-        self.max_file_size_bytes = max_file_size_bytes
 
         self._session = aioboto3.Session()
 
@@ -1064,29 +1062,16 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 raise InvalidS3EndpointError(str(err)) from err
             raise
 
+    async def finalize_file(self):
+        await self._finalize_current_file()
+        await self._start_new_file()
+
     async def consume_chunk(self, data: bytes):
-        """Consume data with memory backpressure and file splitting"""
         if self._finalized:
             raise RuntimeError("Consumer already finalized")
 
-        # Check if we need to split the file
-        if (
-            self.max_file_size_bytes
-            and self.current_file_size > 0  # Don't split empty files
-            and self.current_file_size + len(data) > self.max_file_size_bytes
-        ):
-            self.current_buffer.extend(data)
-            self.current_file_size += len(data)
-
-            # Finalize current file
-            await self._finalize_current_file()
-
-            # Start new file
-            await self._start_new_file()
-        else:
-            # Add all remaining data to current file
-            self.current_buffer.extend(data)
-            self.current_file_size += len(data)
+        self.current_buffer.extend(data)
+        self.current_file_size += len(data)
 
         # Upload parts when buffer is full
         while len(self.current_buffer) >= self.part_size:
