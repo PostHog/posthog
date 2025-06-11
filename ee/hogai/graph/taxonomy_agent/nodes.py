@@ -139,17 +139,13 @@ LOG_SEPARATOR = ":::"
 class QueryPlannerNode(AssistantNode):
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
-        # Get the actual entity names for this team (same logic as toolkit)
-        entities = ["person", "session", *self._team_group_types]
-
         # Create Literal type with actual entity names
-        entity_literal = Literal[tuple(entities)]
-
+        DynamicEntityLiteral = Literal[tuple("person", "session", *self._team_group_types)]  # type: ignore
         # Create dynamic retrieve_entity_properties model
-        DynamicRetrieveEntityProperties = create_model(
+        retrieve_entity_properties_dynamic = create_model(
             "retrieve_entity_properties",
             entity=(
-                entity_literal,
+                DynamicEntityLiteral,
                 Field(..., description="The type of the entity that you want to retrieve properties for."),
             ),
             __doc__="""
@@ -161,12 +157,11 @@ class QueryPlannerNode(AssistantNode):
             - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
             """,
         )
-
         # Create dynamic retrieve_entity_property_values model
-        DynamicRetrieveEntityPropertyValues = create_model(
+        retrieve_entity_property_values_dynamic = create_model(
             "retrieve_entity_property_values",
             entity=(
-                entity_literal,
+                DynamicEntityLiteral,
                 Field(..., description="The type of the entity that you want to retrieve properties for."),
             ),
             property_name=(
@@ -178,7 +173,7 @@ class QueryPlannerNode(AssistantNode):
             """,
         )
 
-        return DynamicRetrieveEntityProperties, DynamicRetrieveEntityPropertyValues
+        return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
