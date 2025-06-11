@@ -6,18 +6,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
-import IconHTTP from 'public/hedgehog/running-hog.png'
-import IconS3 from 'public/services/aws-s3.png'
-import IconBigQuery from 'public/services/bigquery.png'
-import IconPostgres from 'public/services/postgres.png'
-import IconRedshift from 'public/services/redshift.png'
-import IconSnowflake from 'public/services/snowflake.png'
 import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
     BatchExportRun,
-    BatchExportService,
     LogEntryLevel,
     PipelineNodeTab,
     PipelineStage,
@@ -117,10 +110,6 @@ type RenderAppProps = {
     imageSize?: PluginImageSize
 }
 
-export function getBatchExportUrl(service: BatchExportService['type']): string {
-    return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`
-}
-
 export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.Element {
     if (!plugin) {
         return <LemonSkeleton className="w-15 h-15" />
@@ -148,45 +137,6 @@ export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.
                         <PluginImage plugin={plugin} size={imageSize} />
                     </span>
                 )}
-            </Tooltip>
-        </div>
-    )
-}
-
-export const BATCH_EXPORT_ICON_MAP: Record<BatchExportService['type'], string> = {
-    BigQuery: IconBigQuery,
-    Postgres: IconPostgres,
-    Redshift: IconRedshift,
-    S3: IconS3,
-    Snowflake: IconSnowflake,
-    HTTP: IconHTTP,
-}
-
-export function RenderBatchExportIcon({
-    type,
-    size = 'small',
-}: {
-    type: BatchExportService['type']
-    size?: 'small' | 'medium'
-}): JSX.Element {
-    const icon = BATCH_EXPORT_ICON_MAP[type]
-
-    const sizePx = size === 'small' ? 30 : 60
-
-    return (
-        <div className="flex gap-4 items-center">
-            <Tooltip
-                title={
-                    <>
-                        {type}
-                        <br />
-                        Click to view docs
-                    </>
-                }
-            >
-                <Link to={getBatchExportUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
-                </Link>
             </Tooltip>
         </div>
     )

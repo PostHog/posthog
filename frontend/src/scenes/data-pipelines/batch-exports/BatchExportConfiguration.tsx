@@ -27,9 +27,9 @@ import {
     BatchExportService,
 } from '~/types'
 
-import { RenderBatchExportIcon } from '../../pipeline/utils'
 import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
+import { RenderBatchExportIcon } from './BatchExportIcon'
 import { BatchExportConfigurationForm } from './types'
 import { humanizeBatchExportName } from './utils'
 

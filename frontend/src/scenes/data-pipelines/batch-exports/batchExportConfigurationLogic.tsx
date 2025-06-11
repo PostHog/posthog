@@ -16,8 +16,6 @@ import {
     PipelineStage,
 } from '~/types'
 
-import { DESTINATION_TYPES } from '../../pipeline/destinations/constants'
-import { pipelineDestinationsLogic } from '../../pipeline/destinations/destinationsLogic'
 import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import { humanizeBatchExportName } from './utils'
 
@@ -731,9 +729,6 @@ export const batchExportConfigurationLogic = kea([
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
 
-            pipelineDestinationsLogic
-                .findMounted({ types: DESTINATION_TYPES })
-                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         loadBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {
