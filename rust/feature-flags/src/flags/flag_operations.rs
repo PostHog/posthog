@@ -84,7 +84,11 @@ impl FeatureFlagList {
 
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
-                tracing::error!("failed to parse data to flags list: {}", e);
+                tracing::error!(
+                    "failed to parse data to flags list for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::RedisDataParsingError
             })?;
 
@@ -105,7 +109,11 @@ impl FeatureFlagList {
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("Failed to get database connection: {}", e);
+            tracing::error!(
+                "Failed to get database connection for project {}: {}",
+                project_id,
+                e
+            );
             FlagError::DatabaseUnavailable
         })?;
 
@@ -130,7 +138,11 @@ impl FeatureFlagList {
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch feature flags from database: {}", e);
+                tracing::error!(
+                    "Failed to fetch feature flags from database for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::Internal(format!("Database query error: {}", e))
             })?;
 
@@ -138,7 +150,13 @@ impl FeatureFlagList {
             .into_iter()
             .map(|row| {
                 let filters = serde_json::from_value(row.filters).map_err(|e| {
-                    tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
+                    tracing::error!(
+                        "Failed to deserialize filters for flag {} in project {} (team {}): {}",
+                        row.key,
+                        project_id,
+                        row.team_id,
+                        e
+                    );
                     FlagError::DeserializeFiltersError
                 })?;
 
@@ -165,7 +183,12 @@ impl FeatureFlagList {
         flags: &FeatureFlagList,
     ) -> Result<(), FlagError> {
         let payload = serde_json::to_string(&flags.flags).map_err(|e| {
-            tracing::error!("Failed to serialize flags: {}", e);
+            tracing::error!(
+                "Failed to serialize {} flags for project {}: {}",
+                flags.flags.len(),
+                project_id,
+                e
+            );
             FlagError::RedisDataParsingError
         })?;
 
@@ -180,7 +203,11 @@ impl FeatureFlagList {
             .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update Redis cache: {}", e);
+                tracing::error!(
+                    "Failed to update Redis cache for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::CacheUpdateError
             })?;
 
@@ -1225,8 +1252,8 @@ mod tests {
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
 
-        println!("Redis fetch time: {:?}", redis_duration);
-        println!("Postgres fetch time: {:?}", pg_duration);
+        tracing::info!("Redis fetch time: {:?}", redis_duration);
+        tracing::info!("Postgres fetch time: {:?}", pg_duration);
 
         assert_eq!(redis_flags.flags.len(), num_flags);
         assert_eq!(pg_flags.flags.len(), num_flags);
