@@ -442,7 +442,7 @@ def should_partition_table(
     if delta_table is None:
         return True
 
-    delta_schema = delta_table.schema().to_arrow()
+    delta_schema = delta_table.schema().to_pyarrow()
     if PARTITION_KEY in delta_schema.names:
         return True
 
