@@ -27,7 +27,7 @@ import {
     CyclotronJobConfigurationType,
     CyclotronJobInputSchemaType,
     CyclotronJobInputType,
-    CyclotronJobMappingType,
+    HogFunctionMappingType,
 } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../../../scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -47,12 +47,12 @@ export type CyclotronJobInputProps = {
 }
 
 export interface CyclotronJobInputsProps {
-    configuration: CyclotronJobConfigurationType | CyclotronJobMappingType
+    configuration: CyclotronJobConfigurationType | HogFunctionMappingType
     setConfigurationValue: (key: string, value: any) => void
 }
 
 export type CyclotronJobInputWithSchemaProps = {
-    configuration: CyclotronJobConfigurationType | CyclotronJobMappingType
+    configuration: CyclotronJobConfigurationType | HogFunctionMappingType
     setConfigurationValue: (key: string, value: any) => void
     schema: CyclotronJobInputSchemaType
 }

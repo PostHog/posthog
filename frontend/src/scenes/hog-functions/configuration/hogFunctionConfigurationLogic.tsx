@@ -43,12 +43,12 @@ import {
     ChartDisplayType,
     CyclotronJobInputSchemaType,
     CyclotronJobInputType,
-    CyclotronJobMappingType,
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationContextId,
     HogFunctionConfigurationType,
     HogFunctionInvocationGlobals,
+    HogFunctionMappingType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -101,7 +101,7 @@ export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(data: CyclotronJobMappingType): Record<string, CyclotronJobInputType> {
+    function sanitizeInputs(data: HogFunctionMappingType): Record<string, CyclotronJobInputType> {
         const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
         data.inputs_schema?.forEach((inputSchema) => {
             const templatingEnabled = inputSchema.templating ?? true
@@ -181,7 +181,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         inputs_schema: template.inputs_schema,
         filters: template.filters,
         mappings: template.mappings?.map(
-            (mapping): CyclotronJobMappingType => ({
+            (mapping): HogFunctionMappingType => ({
                 ...mapping,
                 inputs: getMappingInputs(mapping.inputs_schema),
             })

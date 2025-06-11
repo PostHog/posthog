@@ -5169,14 +5169,14 @@ export interface CyclotronJobFiltersType {
     bytecode_error?: string
 }
 
-export interface CyclotronJobMappingType {
+export interface HogFunctionMappingType {
     name: string
     disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronJobInputType> | null
     filters?: CyclotronJobFiltersType | null
 }
-export interface CyclotronJobMappingTemplateType extends CyclotronJobMappingType {
+export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
     include_by_default?: boolean
 }
@@ -5212,7 +5212,7 @@ export type HogFunctionType = {
     execution_order?: number
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronJobInputType> | null
-    mappings?: CyclotronJobMappingType[] | null
+    mappings?: HogFunctionMappingType[] | null
     masking?: CyclotronJobMasking | null
     filters?: CyclotronJobFiltersType | null
     template?: HogFunctionTemplateType
@@ -5269,7 +5269,7 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
-    mapping_templates?: CyclotronJobMappingTemplateType[]
+    mapping_templates?: HogFunctionMappingTemplateType[]
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
