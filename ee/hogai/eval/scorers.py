@@ -1,19 +1,20 @@
+import json
 from typing import TypedDict
+
+from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
-from autoevals.llm import LLMClassifier
-import json
+from braintrust import Score
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
-from braintrust import Score
 from posthog.schema import (
+    AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
-    AssistantToolCall,
-    NodeKind,
-    AssistantTrendsQuery,
-    AssistantFunnelsQuery,
     AssistantRetentionQuery,
+    AssistantToolCall,
+    AssistantTrendsQuery,
+    NodeKind,
 )
 
 
@@ -257,6 +258,7 @@ Details matter greatly here - including math types or property types - so be har
             query_kind=query_kind,
             json_schema=json_schema_str,
             evaluation_criteria=evaluation_criteria,
+            max_tokens=1024,
             **kwargs,
         )
 
