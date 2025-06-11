@@ -1,8 +1,9 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useEffect } from 'react'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { hogFunctionListLogic } from 'scenes/hog-functions/list/hogFunctionListLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
@@ -10,6 +11,8 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType, ProductKey } from '~/types'
+
+import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 export type DataPipelinesHogFunctionsProps = {
     kind: HogFunctionTypeType
@@ -40,6 +43,15 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
         hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
     )
 
+    const { hogFunctionPlugins } = useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPlugins } = useActions(nonHogFunctionsLogic)
+
+    useEffect(() => {
+        if (kind === 'destination') {
+            loadHogFunctionPlugins()
+        }
+    }, [kind])
+
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">
             New {humanizedKind}
@@ -63,7 +75,12 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                 />
             ) : null}
             <div>
-                <HogFunctionList logicKey={logicKey} type={kind} additionalTypes={additionalKinds} />
+                <HogFunctionList
+                    logicKey={logicKey}
+                    type={kind}
+                    additionalTypes={additionalKinds}
+                    manualFunctions={hogFunctionPlugins ?? []}
+                />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
                     <HogFunctionTemplateList defaultFilters={{}} type={kind} additionalTypes={additionalKinds} />

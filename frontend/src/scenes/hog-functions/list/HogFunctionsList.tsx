@@ -17,7 +17,7 @@ import { useEffect, useMemo } from 'react'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType } from '~/types'
+import { HogFunctionType, PipelineStage } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
@@ -25,6 +25,13 @@ import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
+
+const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+    if (hogFunction.id.startsWith('plugin-')) {
+        return urls.pipelineNode(PipelineStage.Destination, hogFunction.id.replace('plugin-', ''))
+    }
+    return urls.hogFunction(hogFunction.id)
+}
 
 export function HogFunctionList({
     extraControls,
@@ -61,7 +68,7 @@ export function HogFunctionList({
                 render: (_, hogFunction) => {
                     return (
                         <LemonTableLink
-                            to={urls.hogFunction(hogFunction.id)}
+                            to={urlForHogFunction(hogFunction)}
                             title={
                                 <>
                                     <Tooltip title="Click to update configuration, view metrics, and more">
@@ -81,7 +88,7 @@ export function HogFunctionList({
                 width: 0,
                 render: (_, hogFunction) => {
                     return (
-                        <Link to={urls.hogFunction(hogFunction.id) + '?tab=metrics'}>
+                        <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                             <HogFunctionMetricSparkLine id={hogFunction.id} />
                         </Link>
                     )

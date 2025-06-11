@@ -33,6 +33,7 @@ export type HogFunctionListLogicProps = {
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
     syncFiltersWithUrl?: boolean
+    manualFunctions?: HogFunctionType[]
 }
 
 export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserType | null): boolean => {
@@ -151,9 +152,12 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     selectors({
         loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
-            (s) => [s.hogFunctions],
-            (hogFunctions): HogFunctionType[] => {
-                const enabledFirst = hogFunctions.sort((a, b) => Number(b.enabled) - Number(a.enabled))
+            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? []],
+            (hogFunctions, manualFunctions): HogFunctionType[] => {
+                console.log({ hogFunctions, manualFunctions })
+                const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
+                    (a, b) => Number(b.enabled) - Number(a.enabled)
+                )
                 return enabledFirst
             },
         ],
