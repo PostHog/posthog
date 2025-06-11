@@ -5,7 +5,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod } from '~/types'
 
-import { ResultsBreakdown } from '../components/ResultsBreakdown'
+import { ExploreAsInsightButton, ResultsBreakdown, ResultsQuery } from '../components/ResultsBreakdown'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -113,7 +113,18 @@ const ResultsTab = (): JSX.Element => {
                                     <ResultsBreakdown
                                         result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                         experiment={experiment}
-                                    />
+                                    >
+                                        {(query, breakdownResults) => (
+                                            <div>
+                                                <div className="flex justify-end">
+                                                    <ExploreAsInsightButton query={query} />
+                                                </div>
+                                                <div className="pb-4">
+                                                    <ResultsQuery query={query} results={breakdownResults} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </ResultsBreakdown>
                                 )}
                             </div>
                         )}
