@@ -1783,7 +1783,7 @@ importers:
         version: 3.0.1(kea@3.1.5(react@18.2.0))
       posthog-js:
         specifier: '*'
-        version: 1.249.5(@rrweb/types@2.0.0-alpha.17)
+        version: 1.250.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
