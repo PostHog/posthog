@@ -22,24 +22,28 @@ pub enum DependencyType {
     Cohort,
 }
 
+impl DependencyType {
+    const FEATURE_FLAG_TYPE: &'static str = "FeatureFlag";
+    const COHORT_TYPE: &'static str = "Cohort";
+
+    /// Determine the dependency type from a generic type parameter
+    pub fn from_type<T>() -> Result<Self, FlagError> {
+        let type_name = std::any::type_name::<T>();
+        match type_name {
+            t if t.contains(Self::FEATURE_FLAG_TYPE) => Ok(Self::Flag),
+            t if t.contains(Self::COHORT_TYPE) => Ok(Self::Cohort),
+            _ => Err(FlagError::Internal(format!(
+                "Unknown dependency type: {}",
+                type_name
+            ))),
+        }
+    }
+}
+
 impl std::fmt::Display for DependencyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Rely on the default implementation of the Debug trait and then lower case it.
         f.write_str(&format!("{:?}", self).to_lowercase())
-    }
-}
-
-fn get_dependency_type_from_type<T>() -> Result<DependencyType, FlagError> {
-    let type_name = std::any::type_name::<T>();
-    if type_name.contains("FeatureFlag") {
-        Ok(DependencyType::Flag)
-    } else if type_name.contains("Cohort") {
-        Ok(DependencyType::Cohort)
-    } else {
-        Err(FlagError::Internal(format!(
-            "Unknown dependency type: {}",
-            type_name
-        )))
     }
 }
 
@@ -95,11 +99,9 @@ where
     let initial_item = items
         .iter()
         .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| {
-            get_dependency_type_from_type::<T>()
-                .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
-                .unwrap_or_else(|e| e)
-        })?;
+        .ok_or_else(|| DependencyType::from_type::<T>()
+            .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
+            .unwrap_or_else(|e| e))?;
 
     // Check if the initial item meets the criteria
     if !criteria(initial_item) {
@@ -120,11 +122,9 @@ where
         let item = items
             .iter()
             .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| {
-                get_dependency_type_from_type::<T>()
-                    .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
-                    .unwrap_or_else(|e| e)
-            })?;
+            .ok_or_else(|| DependencyType::from_type::<T>()
+                .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
+                .unwrap_or_else(|e| e))?;
 
         let dependencies = item.extract_dependencies()?;
         for dep_id in dependencies {
