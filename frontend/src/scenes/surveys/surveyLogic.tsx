@@ -11,6 +11,12 @@ import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic
 import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import {
+    branchingConfigToDropdownValue,
+    canQuestionHaveResponseBasedBranching,
+    createBranchingConfig,
+    getDefaultBranchingType,
+} from 'scenes/surveys/components/question-branching/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -1301,31 +1307,21 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
-                    if (type === SurveyQuestionBranchingType.NextQuestion) {
-                        delete question.branching
-                    } else if (type === SurveyQuestionBranchingType.End) {
-                        question.branching = {
-                            type: SurveyQuestionBranchingType.End,
-                        }
-                    } else if (type === SurveyQuestionBranchingType.ResponseBased) {
-                        if (
-                            question.type !== SurveyQuestionType.Rating &&
-                            question.type !== SurveyQuestionType.SingleChoice
-                        ) {
-                            throw new Error(
-                                `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
-                            )
-                        }
-
-                        question.branching = {
-                            type: SurveyQuestionBranchingType.ResponseBased,
-                            responseValues: {},
-                        }
-                    } else if (type === SurveyQuestionBranchingType.SpecificQuestion) {
-                        question.branching = {
-                            type: SurveyQuestionBranchingType.SpecificQuestion,
-                            index: specificQuestionIndex,
-                        }
+                    // Validate response-based branching is only used with compatible question types
+                    if (
+                        type === SurveyQuestionBranchingType.ResponseBased &&
+                        !canQuestionHaveResponseBasedBranching(question)
+                    ) {
+                        question.branching = undefined
+                        lemonToast.error(
+                            <>
+                                Response-based branching is not supported for {question.type} questions. Removing
+                                branching logic from this question.
+                            </>
+                        )
+                    } else {
+                        // Use centralized branching config creation
+                        question.branching = createBranchingConfig(type, specificQuestionIndex)
                     }
 
                     newQuestions[questionIndex] = question
@@ -1341,12 +1337,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
-                    if (
-                        question.type !== SurveyQuestionType.Rating &&
-                        question.type !== SurveyQuestionType.SingleChoice
-                    ) {
+                    // Use centralized validation for response-based branching compatibility
+                    if (!canQuestionHaveResponseBasedBranching(question)) {
                         throw new Error(
-                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice} for response-based branching`
                         )
                     }
 
@@ -1358,10 +1352,13 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if ('responseValues' in question.branching) {
                         if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
+                            // Remove the response mapping to default to next question
                             delete question.branching.responseValues[responseValue]
                         } else if (nextStep === SurveyQuestionBranchingType.End) {
+                            // Map response to end survey
                             question.branching.responseValues[responseValue] = SurveyQuestionBranchingType.End
                         } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
+                            // Map response to specific question index
                             question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
                     }
@@ -1881,18 +1878,14 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (type === SurveyQuestionBranchingType.SpecificQuestion) {
                         const nextQuestionIndex = question.branching.index
-                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                        return branchingConfigToDropdownValue(type, nextQuestionIndex)
                     }
 
                     return type
                 }
 
                 // No branching specified, default to Next question / Confirmation message
-                if (questionIndex < survey.questions.length - 1) {
-                    return SurveyQuestionBranchingType.NextQuestion
-                }
-
-                return SurveyQuestionBranchingType.End
+                return getDefaultBranchingType(questionIndex, survey.questions.length)
             },
         ],
         getResponseBasedBranchingDropdownValue: [
