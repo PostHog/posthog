@@ -115,7 +115,7 @@ export function Login(): JSX.Element {
                             label={
                                 <div className="flex flex-1 items-center justify-between gap-2">
                                     <span>Password</span>
-                                    <Link to="/reset" data-attr="forgot-password">
+                                    <Link to={`/reset?email=${login.email}`} data-attr="forgot-password">
                                         Forgot your password?
                                     </Link>
                                 </div>
