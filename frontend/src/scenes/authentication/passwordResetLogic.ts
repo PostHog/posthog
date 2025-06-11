@@ -1,7 +1,7 @@
-import { afterMount, kea, path, reducers, selectors } from 'kea'
+import { kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -110,7 +110,6 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
         },
     })),
     selectors({
-        defaultEmail: [() => [], (): string => router.values.searchParams?.email || ''],
         validatedPassword: [
             (s) => [s.passwordReset],
             ({ password }): ValidatedPasswordResult => {
@@ -124,11 +123,10 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 actions.validateResetToken({ uuid, token })
             }
         },
+        '/reset': (_, { email }) => {
+            if (email) {
+                actions.setRequestPasswordResetValue('email', email)
+            }
+        },
     })),
-    afterMount(({ actions, values }) => {
-        // Set the email from query params into the form state
-        if (values.defaultEmail) {
-            actions.setRequestPasswordResetValue('email', values.defaultEmail)
-        }
-    }),
 ])
