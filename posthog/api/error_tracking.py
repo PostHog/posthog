@@ -482,7 +482,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             for chunk in request.FILES["file"].chunks():
                 data.extend(chunk)
         else:
-            # legacy: older versions of the CLI used not to multipart uploads
+            # legacy: older versions of the CLI did not use multipart uploads
             # file added to the request data by the FileUploadParser
             data = request.data["file"].read()
 
