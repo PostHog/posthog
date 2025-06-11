@@ -289,7 +289,7 @@ mod test {
             "in_app": true,
             "lineno": 105,
             "platform": "custom",
-            "custom_platform": "elixir"
+            "lang": "elixir"
             }
             "#;
 
