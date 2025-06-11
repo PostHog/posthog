@@ -56,7 +56,7 @@ pub enum FlagError {
     #[error("No group type mappings")]
     NoGroupTypeMappings,
     #[error("Cohort not found")]
-    CohortNotFound(String),
+    DependencyNotFound(String),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Cohort dependency cycle")]
@@ -169,8 +169,8 @@ impl IntoResponse for FlagError {
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::CohortNotFound(msg) => {
-                tracing::error!("Cohort not found: {}", msg);
+            FlagError::DependencyNotFound(msg) => {
+                tracing::error!("Dependency not found: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
             FlagError::CohortFiltersParsingError => {

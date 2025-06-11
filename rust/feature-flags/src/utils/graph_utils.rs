@@ -68,7 +68,7 @@ where
     let initial_item = items
         .iter()
         .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| FlagError::CohortNotFound(initial_id.to_string()))?;
+        .ok_or_else(|| FlagError::DependencyNotFound(initial_id.to_string()))?;
 
     // Check if the initial item meets the criteria
     if !criteria(initial_item) {
@@ -89,7 +89,7 @@ where
         let item = items
             .iter()
             .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| FlagError::CohortNotFound(item_id.to_string()))?;
+            .ok_or_else(|| FlagError::DependencyNotFound(item_id.to_string()))?;
 
         let dependencies = item.extract_dependencies()?;
         for dep_id in dependencies {

@@ -514,9 +514,9 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::CohortNotFound(_)) {
+                    // Only log errors that aren't DependencyNotFound, since DependencyNotFound errors bubble up here in the event
+                    // that the flag is targeting a deleted dependency
+                    if !matches!(e, FlagError::DependencyNotFound(_)) {
                         error!(
                             "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
@@ -609,9 +609,9 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
+                    // Only log errors that aren't DependencyNotFound, since DependencyNotFound errors bubble up here in the event
                     // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::CohortNotFound(_)) {
+                    if !matches!(e, FlagError::DependencyNotFound(_)) {
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag_key, self.distinct_id, e
@@ -4875,9 +4875,9 @@ mod tests {
             .await
             .unwrap();
 
-        // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
+        // This should not throw DependencyNotFound because we skip dependency graph evaluation for static cohorts
         let result = matcher.get_match(&flag, None, None);
-        assert!(result.is_ok(), "Should not throw CohortNotFound error");
+        assert!(result.is_ok(), "Should not throw DependencyNotFound error");
 
         let match_result = result.unwrap();
         assert!(match_result.matches, "User should match the static cohort");
