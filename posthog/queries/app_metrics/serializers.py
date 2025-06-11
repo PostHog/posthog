@@ -4,7 +4,21 @@ from rest_framework import serializers
 class AppMetricsRequestSerializer(serializers.Serializer):
     category = serializers.ChoiceField(
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
-        choices=["processEvent", "onEvent", "exportEvents", "scheduledTask", "webhook", "composeWebhook"],
+        choices=[
+            "processEvent",
+            "onEvent",
+            "exportEvents",
+            "scheduledTask",
+            "webhook",
+            "composeWebhook",
+            "email_sent",
+            "email_opened",
+            "email_clicked",
+            "email_bounced",
+            "email_blocked",
+            "email_spam",
+            "email_unsubscribed",
+        ],
         help_text="What to gather metrics for",
         required=False,
     )
@@ -22,7 +36,21 @@ class AppMetricsRequestSerializer(serializers.Serializer):
 class AppMetricsErrorsRequestSerializer(serializers.Serializer):
     category = serializers.ChoiceField(
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
-        choices=["processEvent", "onEvent", "exportEvents", "scheduledTask", "webhook", "composeWebhook"],
+        choices=[
+            "processEvent",
+            "onEvent",
+            "exportEvents",
+            "scheduledTask",
+            "webhook",
+            "composeWebhook",
+            "email_sent",
+            "email_opened",
+            "email_clicked",
+            "email_bounced",
+            "email_blocked",
+            "email_spam",
+            "email_unsubscribed",
+        ],
         help_text="What to gather errors for",
         required=False,
     )

@@ -1,10 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import crypto from 'crypto'
 import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
+import { AppMetric } from '../worker/ingestion/app-metrics'
 import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
@@ -14,6 +16,7 @@ import { HogFunctionManagerService } from './services/hog-function-manager.servi
 import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
+import { eventTypeToCategory, MailjetEvent } from './templates/mailjet/mailjet_webhook'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -34,6 +37,7 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
+    private MAILJET_SECRET = process.env.MAILJET_SECRET || ''
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -79,6 +83,7 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/public/webhooks/mailjet/', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
 
@@ -387,5 +392,77 @@ export class CdpApi {
             return res.set('Allow', 'POST').status(405).json({
                 error: 'Method not allowed',
             })
+        }
+
+    private postMailjetWebhook =
+        () =>
+        async (req: express.Request & { rawBody?: Buffer }, res: express.Response): Promise<any> => {
+            const signature = req.headers['x-mailjet-signature'] as string
+            const timestamp = req.headers['x-mailjet-timestamp'] as string
+
+            if (!signature || !timestamp || !req.rawBody) {
+                return res.status(403).send('Missing required headers or body')
+            }
+
+            const payload = `${timestamp}.${req.rawBody.toString()}`
+            const hmac = crypto.createHmac('sha256', this.MAILJET_SECRET).update(payload).digest()
+
+            try {
+                const signatureBuffer = Buffer.from(signature, 'hex')
+                if (
+                    hmac.length !== signatureBuffer.length ||
+                    !crypto.timingSafeEqual(new Uint8Array(hmac), new Uint8Array(signatureBuffer))
+                ) {
+                    return res.status(403).send('Invalid signature')
+                }
+
+                // Track Mailjet webhook metrics
+                const event = req.body as MailjetEvent
+                const category = eventTypeToCategory[
+                    event.event as keyof typeof eventTypeToCategory
+                ] as AppMetric['category']
+
+                if (event) {
+                    const metric: AppMetric = {
+                        teamId: -1, //TODO: Get teamId from Mailjet additional config,
+                        pluginConfigId: -2, // -2 is hardcoded for mailjet
+                        category: category,
+                        successes: 1,
+                        // TODO: Losing this information in the metric for now
+                        // properties: {
+                        //     event_type: event.event,
+                        //     email: event.email,
+                        //     campaign_id: event.mj_campaign_id,
+                        //     custom_campaign: event.customcampaign,
+                        //     message_id: event.message_id,
+                        //     error: event.error,
+                        //     error_type: event.error_related_to,
+                        //     smtp_reply: event.smtp_reply,
+                        //     blocked: event.blocked,
+                        //     timestamp: event.time
+                        // }
+                    }
+
+                    await this.hub.appMetrics.queueMetric(metric)
+                }
+                return res.status(200).json({
+                    status: 'ok',
+                })
+            } catch (error) {
+                // Track error metrics
+                const metric: AppMetric = {
+                    teamId: -1, // We don't have team ID in catch block
+                    pluginConfigId: -1, // We don't have config ID in catch block
+                    category: 'webhook',
+                    failures: 1,
+                    errorType: error.name || 'Unknown Error',
+                    errorDetails: JSON.stringify({
+                        message: error.message,
+                        stack: error.stack,
+                    }),
+                }
+                await this.hub.appMetrics.queueMetric(metric)
+                return res.status(500).json({ error: 'Internal error' })
+            }
         }
 }
