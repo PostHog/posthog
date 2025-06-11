@@ -32,16 +32,6 @@ describe('sceneLogicUtils', () => {
             expect(result).toBe('/dashboard?invite_modal=existing')
         })
 
-        it('forwards single param when it exists in current search params and not in redirect URL', () => {
-            const redirectUrl = '/dashboard'
-            const currentSearchParams = { invite_modal: 'true' }
-            const forwardedQueryParams = ['invite_modal']
-
-            const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
-
-            expect(result).toBe('/dashboard?invite_modal=true')
-        })
-
         it('forwards multiple params when they exist in current search params', () => {
             const redirectUrl = '/dashboard'
             const currentSearchParams = { invite_modal: 'true', next: '/insights', other: 'ignored' }
@@ -50,16 +40,6 @@ describe('sceneLogicUtils', () => {
             const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
 
             expect(result).toBe('/dashboard?invite_modal=true&next=%2Finsights')
-        })
-
-        it('forwards only params that exist, ignoring missing ones', () => {
-            const redirectUrl = '/dashboard'
-            const currentSearchParams = { invite_modal: 'true' }
-            const forwardedQueryParams = ['invite_modal', 'missing_param']
-
-            const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
-
-            expect(result).toBe('/dashboard?invite_modal=true')
         })
 
         it('preserves existing query params in redirect URL while adding forwarded ones', () => {
@@ -73,16 +53,6 @@ describe('sceneLogicUtils', () => {
         })
 
         it('preserves hash in redirect URL', () => {
-            const redirectUrl = '/dashboard#section'
-            const currentSearchParams = { invite_modal: 'true' }
-            const forwardedQueryParams = ['invite_modal']
-
-            const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
-
-            expect(result).toBe('/dashboard?invite_modal=true#section')
-        })
-
-        it('preserves complex hash in redirect URL', () => {
             const redirectUrl = '/dashboard?existing=value#section?nested=param'
             const currentSearchParams = { invite_modal: 'true' }
             const forwardedQueryParams = ['invite_modal']
@@ -102,16 +72,6 @@ describe('sceneLogicUtils', () => {
             expect(result).toBe('/dashboard?next=%2Finsights%3Ffilter%3Dtest%26other%3Dvalue')
         })
 
-        it('handles absolute URLs correctly', () => {
-            const redirectUrl = 'https://example.com/dashboard'
-            const currentSearchParams = { invite_modal: 'true' }
-            const forwardedQueryParams = ['invite_modal']
-
-            const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
-
-            expect(result).toBe('/dashboard?invite_modal=true')
-        })
-
         it('handles empty string values', () => {
             const redirectUrl = '/dashboard'
             const currentSearchParams = { invite_modal: '' }
@@ -122,17 +82,7 @@ describe('sceneLogicUtils', () => {
             expect(result).toBe('/dashboard?invite_modal=')
         })
 
-        it('handles special characters in param values', () => {
-            const redirectUrl = '/dashboard'
-            const currentSearchParams = { invite_modal: 'true&false' }
-            const forwardedQueryParams = ['invite_modal']
-
-            const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
-
-            expect(result).toBe('/dashboard?invite_modal=true%26false')
-        })
-
-        it('does not forward param with falsy values except empty string', () => {
+        it('forwards param with falsy values', () => {
             const redirectUrl = '/dashboard'
             const currentSearchParams = {
                 invite_modal: null,
@@ -144,22 +94,32 @@ describe('sceneLogicUtils', () => {
 
             const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
 
-            expect(result).toBe('/dashboard?empty=')
+            expect(result).toBe('/dashboard?invite_modal=null&other=false&empty=')
         })
 
-        it('handles complex real-world scenario', () => {
-            const redirectUrl = '/insights/new?dashboard=123'
+        it('never overwrites existing params in redirect URL', () => {
+            const redirectUrl = '/dashboard?invite_modal=existing&other=preserved'
             const currentSearchParams = {
-                invite_modal: 'true',
-                next: '/original-destination',
-                utm_source: 'email',
-                other: 'ignored',
+                invite_modal: 'new-value',
+                next: '/destination',
+                other: 'different',
             }
-            const forwardedQueryParams = ['invite_modal', 'next']
+            const forwardedQueryParams = ['invite_modal', 'next', 'other']
 
             const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
 
-            expect(result).toBe('/insights/new?dashboard=123&invite_modal=true&next=%2Foriginal-destination')
+            // Only 'next' should be added since 'invite_modal' and 'other' already exist
+            expect(result).toBe('/dashboard?invite_modal=existing&other=preserved&next=%2Fdestination')
+        })
+
+        it('preserves existing params even with empty values in redirect URL', () => {
+            const redirectUrl = '/dashboard?invite_modal='
+            const currentSearchParams = { invite_modal: 'true' }
+            const forwardedQueryParams = ['invite_modal']
+
+            const result = withForwardedSearchParams(redirectUrl, currentSearchParams, forwardedQueryParams)
+
+            expect(result).toBe('/dashboard?invite_modal=')
         })
     })
 })

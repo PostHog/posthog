@@ -21,7 +21,7 @@ export function withForwardedSearchParams(
 
     // For each whitelisted param that exists in current URL
     forwardedQueryParams.forEach((param) => {
-        if (currentSearchParams[param] && !redirectSearchParams.has(param)) {
+        if (currentSearchParams[param] !== undefined && !redirectSearchParams.has(param)) {
             redirectSearchParams.set(param, currentSearchParams[param])
             paramsWereForwarded = true
         }
