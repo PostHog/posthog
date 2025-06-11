@@ -92,7 +92,11 @@ export const manifest: ProductManifest = {
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             category: 'Tools',
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING,
+            /**
+             * We'll keep early-access flag (FEATURE_FLAGS.MESSAGING) enabled but use this
+             * automation flag for sidebar visibility to enable internal dogfooding
+             */
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
 }

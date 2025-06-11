@@ -24,6 +24,20 @@ impl PropertyFilter {
             .and_then(|value| value.as_i64())
             .map(|id| id as CohortId)
     }
+
+    /// Checks if the filter is a feature flag filter
+    pub fn is_feature_flag(&self) -> bool {
+        self.prop_type == PropertyType::Flag
+    }
+
+    /// Returns the feature flag id if the filter is a feature flag filter, or None if it's not a feature flag filter
+    /// or if the value cannot be parsed as a feature flag id
+    pub fn get_feature_flag_id(&self) -> Option<FeatureFlagId> {
+        if !self.is_feature_flag() {
+            return None;
+        }
+        self.key.parse::<FeatureFlagId>().ok()
+    }
 }
 
 impl FeatureFlag {
