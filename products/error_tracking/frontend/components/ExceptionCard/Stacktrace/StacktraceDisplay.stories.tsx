@@ -1,11 +1,11 @@
 import { LemonCard } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
-import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from 'scenes/error-tracking/__mocks__/events'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
+import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../__mocks__/events'
 import { HeaderRenderer, StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
 import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
 import { StacktraceJsonDisplay } from './StacktraceJsonDisplay'

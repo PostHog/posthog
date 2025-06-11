@@ -1,8 +1,8 @@
 import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
 import * as d3 from 'd3'
-import { generateSparklineLabels } from 'scenes/error-tracking/utils'
 
+import { generateSparklineLabels } from '../../utils'
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'
 
 const meta: Meta = {
