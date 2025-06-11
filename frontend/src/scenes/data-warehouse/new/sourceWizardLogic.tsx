@@ -1434,7 +1434,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => {
-        const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>) => {
+        const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const source = Object.values(SOURCE_DETAILS).find((source) => source.name.toLowerCase() === kind)
             const manualSource = Object.keys(MANUAL_SOURCE_LINK_MAP).find((name) => name.toLowerCase() === kind) as
