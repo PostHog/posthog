@@ -316,13 +316,13 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
                     f"Updating upstream view, {i} of {len(upstream_nodes)}: {upstream_saved_query.name}..."
                 )
                 await database_sync_to_async(lambda: saved_query.save())()
-                await materialize_model(upstream_node["id"], team, upstream_saved_query, job)
+                await materialize_model(upstream_node["id"], team, upstream_saved_query, job, True)
 
             # Update progress for current node
             saved_query.progress = f"Updating current view..."
             await database_sync_to_async(saved_query.save)()
 
-            key, delta_table, _ = await materialize_model(model.label, team, saved_query, job)
+            key, delta_table, _ = await materialize_model(model.label, team, saved_query, job, False)
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
@@ -399,7 +399,7 @@ async def get_saved_query(team: Team, model_label: str) -> DataWarehouseSavedQue
 
 
 async def materialize_model(
-    model_label: str, team: Team, saved_query: DataWarehouseSavedQuery, job: DataModelingJob
+    model_label: str, team: Team, saved_query: DataWarehouseSavedQuery, job: DataModelingJob, is_upstream: bool
 ) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query in a dlt pipeline.
 
@@ -493,11 +493,12 @@ async def materialize_model(
     row_count = count_pipeline_rows(pipeline)
     await update_table_row_count(saved_query, row_count)
 
-    # Update the job record with the row count and completed status
-    job.rows_materialized = row_count
-    job.status = DataModelingJob.Status.COMPLETED
-    job.last_run_at = dt.datetime.now(dt.UTC)
-    await database_sync_to_async(job.save)()
+    # Update the job record with the row count and completed status if we are updating the current model
+    if not is_upstream:
+        job.rows_materialized = row_count
+        job.status = DataModelingJob.Status.COMPLETED
+        job.last_run_at = dt.datetime.now(dt.UTC)
+        await database_sync_to_async(job.save)()
 
     return (key, delta_table, job.id)
 
