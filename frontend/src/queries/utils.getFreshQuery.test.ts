@@ -46,12 +46,12 @@ describe('getFreshQuery', () => {
                 funnelsFilter: { funnelVizType: 'steps' },
                 kind: 'FunnelsQuery',
                 series: [
-                    { event: '$pageview', kind: 'EventsNode', name: '$pageview', v: 5 },
-                    { event: '$pageview', kind: 'EventsNode', name: 'Pageview', v: 5 },
+                    { event: '$pageview', kind: 'EventsNode', name: '$pageview', version: 5 },
+                    { event: '$pageview', kind: 'EventsNode', name: 'Pageview', version: 5 },
                 ],
-                v: 3,
+                version: 3,
             },
-            v: 7,
+            version: 7,
         })
     })
 })
