@@ -30,7 +30,7 @@ import { createInvocation, createInvocationResult } from '../utils/invocation-ut
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
-export const DEFAULT_TIMEOUT_MS = 100
+export const DEFAULT_TIMEOUT_MS = 550
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
