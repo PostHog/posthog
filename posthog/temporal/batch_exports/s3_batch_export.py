@@ -1023,9 +1023,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # File splitting management
         self.current_file_index = 0
         self.current_file_size = 0
-        self.total_files_created = 0
 
-        # Memory management for current file
+        self.files_uploaded: list[str] = []
+
         self.current_buffer = bytearray()
         self.pending_uploads: dict[int, asyncio.Task] = {}  # part_number -> Future
         self.completed_parts = {}  # part_number -> part_info
@@ -1221,8 +1221,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             if self.upload_id:
                 await self._complete_multipart_upload()
 
-            self.total_files_created += 1
-            await self.logger.adebug(f"Completed file {self.total_files_created}: {self._get_current_key()}")
+            self.files_uploaded.append(self._get_current_key())
+            await self.logger.adebug(
+                "Completed multipart upload %s for file number %s", self.upload_id, self.current_file_index
+            )
 
         except Exception:
             # Cleanup on error
@@ -1295,9 +1297,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # Cleanup on error
             if self.upload_id:
                 try:
-                    await self.s3_client.abort_multipart_upload(
-                        Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
-                    )
+                    async with self.s3_client() as client:
+                        await client.abort_multipart_upload(
+                            Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
+                        )
                 except:
                     pass  # Best effort cleanup
             raise
@@ -1307,7 +1310,13 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             self.current_buffer.clear()
             gc.collect()
 
-        await self.logger.adebug(f"All uploads completed. Total files created: {self.total_files_created}")
+        # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
+        # containing the list of files.  This is used to check if the export is complete.
+        if self.s3_inputs.max_file_size_mb:
+            manifest_key = get_manifest_key(self.s3_inputs)
+            await self.logger.ainfo("Uploading manifest file %s", manifest_key)
+            await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
+            await self.logger.adebug("All uploads completed. Number of files uploaded = %s", len(self.files_uploaded))
 
     # for now, let's ignore this so our tests use multi part uploads too
     # async def _single_file_upload_current(self):
