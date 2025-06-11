@@ -558,7 +558,7 @@ impl FeatureFlagMatcher {
                 let reason = parse_exception_for_prometheus_label(&e);
                 for flag in flags_needing_db_properties {
                     flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason, None));
                 }
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
@@ -628,7 +628,7 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
-                    flag_details_map.insert(flag_key, FlagDetails::create_error(flag, reason));
+                    flag_details_map.insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
         }
