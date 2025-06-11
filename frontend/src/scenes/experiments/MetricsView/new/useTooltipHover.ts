@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function useTooltipHover(): {
     showTooltip: (variantKey: string) => void
@@ -38,6 +38,15 @@ export function useTooltipHover(): {
     const isTooltipVisible = (variantKey: string): boolean => {
         return hoveredVariant === variantKey || hoveredTooltip === variantKey
     }
+
+    // Cleanup timeout on unmount to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (hideTimeoutRef.current) {
+                clearTimeout(hideTimeoutRef.current)
+            }
+        }
+    }, [])
 
     return {
         showTooltip,

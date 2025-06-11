@@ -40,7 +40,7 @@ export function Chart({
                     </g>
                     <g className="variant-bars-layer">
                         {/* Variant bars */}
-                        {variantResults.map((variantResult: any, index: number) => (
+                        {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
                             <VariantBar
                                 key={`variant-bar-${variantResult.key}`}
                                 variantResult={variantResult}
@@ -56,7 +56,7 @@ export function Chart({
                 </svg>
             </div>
 
-            {variantResults.map((variantResult: any, index: number) => (
+            {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
                 <VariantTooltip
                     key={`tooltip-${variantResult.key}`}
                     variantResult={variantResult}
