@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     metrics_consts::{
-        CACHE_CONSUMED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
+        CACHE_CONSUMED, ISSUE_FAILED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
         V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, V2_EVENT_DEFS_BATCH_SIZE,
         V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED, V2_EVENT_PROPS_BATCH_ATTEMPT,
         V2_EVENT_PROPS_BATCH_CACHE_TIME, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
@@ -329,6 +329,7 @@ pub async fn process_batch_v2(
             Ok(result) => match result {
                 Ok(_) => continue,
                 Err(db_err) => {
+                    metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
                     error!("Batch write exhausted retries: {:?}", db_err);
                 }
             },
