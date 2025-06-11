@@ -209,7 +209,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             Cohort.objects.create(
                 team_id=self.team.pk,
                 name="stuck_cohort",
-                last_calculation=now - relativedelta(hours=15),  # Older than 12 hours
+                last_calculation=now - relativedelta(hours=2),
                 deleted=False,
                 is_calculating=True,  # Stuck calculating
                 errors_calculating=5,
@@ -220,7 +220,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             Cohort.objects.create(
                 team_id=self.team.pk,
                 name="stuck_cohort_2",
-                last_calculation=now - relativedelta(hours=20),  # Older than 12 hours
+                last_calculation=now - relativedelta(hours=3),
                 deleted=False,
                 is_calculating=True,  # Stuck calculating
                 errors_calculating=2,
@@ -230,7 +230,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             Cohort.objects.create(
                 team_id=self.team.pk,
                 name="not_calculating",
-                last_calculation=now - relativedelta(hours=15),  # Old but not calculating
+                last_calculation=now - relativedelta(hours=24),  # Old but not calculating
                 deleted=False,
                 is_calculating=False,  # Not calculating
                 errors_calculating=0,
@@ -240,9 +240,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             Cohort.objects.create(
                 team_id=self.team.pk,
                 name="recent_calculation",
-                last_calculation=now - relativedelta(hours=5),  # Recent calculation
+                last_calculation=now - relativedelta(minutes=59),  # Recent calculation
                 deleted=False,
-                is_calculating=True,  # Calculating but recent
+                is_calculating=True,
                 errors_calculating=0,
                 is_static=False,
             )

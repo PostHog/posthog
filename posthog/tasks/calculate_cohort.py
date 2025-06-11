@@ -36,7 +36,7 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
-    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 12 hours "
+    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 1 hours"
 )
 
 logger = structlog.get_logger(__name__)
@@ -87,7 +87,7 @@ def update_stale_cohort_metrics() -> None:
     stuck_count = (
         Cohort.objects.filter(
             is_calculating=True,
-            last_calculation__lte=now - relativedelta(hours=12),
+            last_calculation__lte=now - relativedelta(hours=1),
             last_calculation__isnull=False,
             deleted=False,
         )
