@@ -281,7 +281,7 @@ pub fn evaluate_dynamic_cohorts(
     let initial_cohort = cohorts
         .iter()
         .find(|c| c.id == initial_cohort_id)
-        .ok_or(FlagError::DependencyNotFound(initial_cohort_id.to_string()))?;
+        .ok_or(FlagError::DependencyNotFound(initial_cohort_id.into()))?;
 
     // If it's static, we don't need to evaluate dependencies
     if initial_cohort.is_static {
@@ -304,7 +304,7 @@ pub fn evaluate_dynamic_cohorts(
         let cohort = cohorts
             .iter()
             .find(|c| c.id == cohort_id)
-            .ok_or(FlagError::DependencyNotFound(cohort_id.to_string()))?;
+            .ok_or(FlagError::DependencyNotFound(cohort_id.into()))?;
 
         let dependencies = cohort.extract_dependencies()?;
 
@@ -349,7 +349,7 @@ pub fn evaluate_dynamic_cohorts(
     evaluation_results
         .get(&initial_cohort_id)
         .copied()
-        .ok_or_else(|| FlagError::DependencyNotFound(initial_cohort_id.to_string()))
+        .ok_or_else(|| FlagError::DependencyNotFound(initial_cohort_id.into()))
 }
 
 /// Applies cohort membership logic for a set of cohort filters.

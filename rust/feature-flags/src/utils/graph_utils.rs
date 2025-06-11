@@ -6,7 +6,7 @@ use crate::api::errors::FlagError;
 
 /// Trait for types that can provide their dependencies
 pub trait DependencyProvider {
-    type Id: Copy + Eq + std::hash::Hash + std::fmt::Display;
+    type Id: Copy + Eq + std::hash::Hash + std::fmt::Display + Into<i64>;
     type Error;
 
     /// Get the ID of this item
@@ -68,7 +68,7 @@ where
     let initial_item = items
         .iter()
         .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| FlagError::DependencyNotFound(initial_id.to_string()))?;
+        .ok_or_else(|| FlagError::DependencyNotFound(initial_id.into()))?;
 
     // Check if the initial item meets the criteria
     if !criteria(initial_item) {
@@ -89,7 +89,7 @@ where
         let item = items
             .iter()
             .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| FlagError::DependencyNotFound(item_id.to_string()))?;
+            .ok_or_else(|| FlagError::DependencyNotFound(item_id.into()))?;
 
         let dependencies = item.extract_dependencies()?;
         for dep_id in dependencies {
