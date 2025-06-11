@@ -51,20 +51,20 @@ export function RevenueAnalyticsGrowthRateNode(props: {
     const labels: string[] = Array.from(new Set(results.map((result) => result[0]))).sort() as string[]
     const datasets: (GraphDataset & { colorIndex: number })[] = [
         {
-            id: 1,
+            id: 0,
             label: 'Growth Rate',
             data: results.map((result) => result[3] * 100),
             colorIndex: 0,
         },
         {
-            id: 2,
-            label: '3 Month Growth Rate',
+            id: 1,
+            label: '3 Month Avg. Growth Rate',
             data: results.map((result) => result[4] * 100),
             colorIndex: 1,
         },
         {
-            id: 3,
-            label: '6 Month Growth Rate',
+            id: 2,
+            label: '6 Month Avg. Growth Rate',
             data: results.map((result) => result[5] * 100),
             colorIndex: 2,
         },

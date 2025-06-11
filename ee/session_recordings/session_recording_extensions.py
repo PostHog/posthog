@@ -196,7 +196,7 @@ def _persist_recording_v2_impl(recording_id: str, team_id: int) -> None:
     with SNAPSHOT_PERSIST_TIME_V2_HISTOGRAM.time():
         for block in blocks:
             try:
-                decompressed_block = storage_client.fetch_block(block["url"])
+                decompressed_block = storage_client.fetch_block(block.url)
                 decompressed_blocks.append(decompressed_block)
             except BlockFetchError:
                 logger.exception(

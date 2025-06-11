@@ -17,7 +17,13 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import {
+    defaultSurveyFieldValues,
+    NewSurvey,
+    SCALE_OPTIONS,
+    SURVEY_RATING_SCALE,
+    SurveyQuestionLabel,
+} from './constants'
 import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
@@ -109,16 +115,6 @@ export function SurveyEditQuestionHeader({
     )
 }
 
-function canQuestionHaveBranchingInput(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return (
-        question.type === SurveyQuestionType.Rating ||
-        question.type === SurveyQuestionType.SingleChoice ||
-        question.type === SurveyQuestionType.MultipleChoice
-    )
-}
-
 function canQuestionSkipSubmitButton(
     question: SurveyQuestion
 ): question is RatingSurveyQuestion | MultipleSurveyQuestion {
@@ -152,8 +148,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     }
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
-
-    const canHaveBranchingInput = canQuestionHaveBranchingInput(question)
 
     return (
         <Group name={`questions.${index}`} key={index}>
@@ -246,7 +240,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
                                     onChange={(val) => {
-                                        const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
+                                        const newQuestion = {
+                                            ...survey.questions[index],
+                                            display: val,
+                                            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                        }
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
@@ -260,19 +258,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
-                                    options={[
-                                        ...(question.display === 'emoji' ? [{ label: '1 - 3', value: 3 }] : []),
-                                        {
-                                            label: '1 - 5',
-                                            value: 5,
-                                        },
-                                        ...(question.display === 'number'
-                                            ? [
-                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
-                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
-                                              ]
-                                            : []),
-                                    ]}
+                                    options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
                                         const newQuestions = [...survey.questions]
@@ -442,7 +428,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         )}
                     </>
                 </LemonField>
-                {canHaveBranchingInput && <QuestionBranchingInput questionIndex={index} question={question} />}
+                <QuestionBranchingInput questionIndex={index} question={question} />
             </div>
         </Group>
     )

@@ -11,6 +11,8 @@ type ResizableElementProps = {
     innerClassName?: string
     style?: React.CSSProperties
     borderPosition?: 'center' | 'left' | 'right'
+    onResizeStart?: () => void
+    onResizeEnd?: () => void
 }
 
 export function ResizableElement({
@@ -23,6 +25,8 @@ export function ResizableElement({
     innerClassName,
     style,
     borderPosition = 'center',
+    onResizeStart,
+    onResizeEnd,
     ...props
 }: ResizableElementProps): JSX.Element {
     const [width, setWidth] = useState(defaultWidth)
@@ -46,14 +50,18 @@ export function ResizableElement({
         currentWidthRef.current = newWidth
     }, [])
 
-    const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-        document.body.classList.add('is-resizing')
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-        startXRef.current = clientX
-        startWidthRef.current = currentWidthRef.current
-        isResizing.current = true
-        e.preventDefault()
-    }, [])
+    const handleMouseDown = useCallback(
+        (e: React.MouseEvent | React.TouchEvent) => {
+            document.body.classList.add('is-resizing')
+            const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+            startXRef.current = clientX
+            startWidthRef.current = currentWidthRef.current
+            isResizing.current = true
+            e.preventDefault()
+            onResizeStart?.()
+        },
+        [onResizeStart]
+    )
 
     const handleMove = useCallback(
         (clientX: number) => {
@@ -112,8 +120,9 @@ export function ResizableElement({
                 rafRef.current = null
             }
             document.body.classList.remove('is-resizing')
+            onResizeEnd?.()
         }
-    }, [])
+    }, [onResizeEnd])
 
     // Use effect for adding/removing global event listeners
     useEffect(() => {

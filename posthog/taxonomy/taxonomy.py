@@ -13,6 +13,7 @@ class CoreFilterDefinition(TypedDict):
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
+    virtual: NotRequired[bool]
 
 
 """
@@ -104,7 +105,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
-# synced with frontend/src/lib/taxonomy.tsx
+# IF UPDATING THIS, ALSO RUN `pnpm run taxonomy:build` to update core-filter-definitions-by-group.json
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         # in front end this key is the empty string
@@ -317,6 +318,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$config_defaults": {
+            "label": "Config defaults",
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "type": "String",
+        },
         "$python_runtime": {
             "label": "Python runtime",
             "description": "The Python runtime that was used to capture the event.",
@@ -396,6 +402,161 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Console log recording enabled server-side",
             "description": "If console log recording has been enabled server-side.",
             "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$session_entry__kx": {
+            "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry _kx",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_dclid": {
+            "description": "DoubleClick ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry dclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_epik": {
+            "description": "Pinterest Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry epik",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_fbclid": {
+            "description": "Facebook Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry fbclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gad_source": {
+            "description": "Google Ads Source Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gad_source",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gbraid": {
+            "description": "Google Ads, web to app Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gbraid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gclid": {
+            "description": "Google Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_gclsrc": {
+            "description": "Google Click Source Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry gclsrc",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_host": {
+            "description": "The hostname of the Current URL. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["example.com", "localhost:8000"],
+            "label": "Session entry Host",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_igshid": {
+            "description": "Instagram Share ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry igshid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_irclid": {
+            "description": "Impact Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry irclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_li_fat_id": {
+            "description": "LinkedIn First-Party Ad Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry li_fat_id",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_mc_cid": {
+            "description": "Mailchimp Campaign ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry mc_cid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_msclkid": {
+            "description": "Microsoft Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry msclkid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_pathname": {
+            "description": "The path of the Current URL, which means everything in the url after the domain. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["/pricing", "/about-us/team"],
+            "label": "Session entry Path name",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_qclid": {
+            "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry qclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_rdt_cid": {
+            "description": "Reddit Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry rdt_cid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_referrer": {
+            "description": "URL of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["https://google.com/search?q=posthog&rlz=1C..."],
+            "label": "Session entry Referrer URL",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_referring_domain": {
+            "description": "Domain of where the user came from. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["google.com", "facebook.com"],
+            "label": "Session entry Referring domain",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_sccid": {
+            "description": "Snapchat Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry sccid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_ttclid": {
+            "description": "TikTok Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry ttclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_twclid": {
+            "description": "Twitter Click ID Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry twclid",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_url": {
+            "description": "The URL visited at the time of the event. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["https://example.com/interesting-article?parameter=true"],
+            "label": "Session entry Current URL",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_campaign": {
+            "description": "UTM campaign tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["feature launch", "discount"],
+            "label": "Session entry UTM campaign",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_content": {
+            "description": "UTM content tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["bottom link", "second button"],
+            "label": "Session entry UTM content",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_medium": {
+            "description": "UTM medium tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["Social", "Organic", "Paid", "Email"],
+            "label": "Session entry UTM medium",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_source": {
+            "description": "UTM source tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["Google", "Bing", "Twitter", "Facebook"],
+            "label": "Session entry UTM source",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_utm_term": {
+            "description": "UTM term tag. Captured at the start of the session and remains constant for the duration of the session.",
+            "examples": ["free goodies"],
+            "label": "Session entry UTM term",
+            "ignored_in_assistant": True,
+        },
+        "$session_entry_wbraid": {
+            "description": "Google Ads, app to web Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry wbraid",
             "ignored_in_assistant": True,
         },
         "$session_recording_recorder_version_server_side": {
@@ -818,6 +979,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$timezone": {
             "label": "Timezone",
             "description": "The timezone as reported by the device",
+        },
+        "$timezone_offset": {
+            "label": "Timezone offset",
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "type": "Numeric",
         },
         "$touch_x": {
             "label": "Touch X",
@@ -1739,7 +1905,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$csp_script_sample": {
             "label": "Script sample",
-            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
             "examples": ["eval('alert(1)')"],
         },
         "$csp_report_type": {
@@ -1762,7 +1928,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "numerical_event_properties": {},
-    "person_properties": {},
+    "person_properties": {
+        "email": {
+            "label": "Email address",
+            "description": "The email address of the user.",
+            "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
+            "type": "String",
+        },
+        "$virt_initial_channel_type": {
+            "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
+            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "label": "Initial channel type",
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_initial_referring_domain_type": {
+            "description": "What type of referring domain this user initially came from.",
+            "examples": ["Search", "Video", "Direct"],
+            "label": "Initial referring domain type",
+            "type": "String",
+            "virtual": True,
+        },
+    },
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
@@ -1913,6 +2100,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
     },
+    "revenue_analytics_properties": {
+        "amount": {
+            "label": "Amount",
+            "description": "The amount of the revenue event.",
+            "type": "Numeric",
+        },
+        "product": {
+            "label": "Product",
+            "description": "The product of the revenue event.",
+            "type": "String",
+        },
+        "cohort": {
+            "label": "Cohort",
+            "description": "The cohort of the customer connected to the revenue event.",
+            "type": "String",
+        },
+        "source": {
+            "label": "Source",
+            "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
+            "type": "String",
+        },
+    },
 }
 
 # copy distinct_id to event properties (needs to be done before copying to person properties, so it exists in person properties as well)
@@ -1981,6 +2190,7 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         "description": (
             f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']} Captured at the start of the session and remains constant for the duration of the session."
         ),
+        "ignored_in_assistant": True,
     }
 
 

@@ -6,6 +6,8 @@ CREATE TABLE posthog_errortrackingsymbolset (
     storage_ptr TEXT,
     failure_reason TEXT,
     content_hash TEXT,
+    release_id UUID,
+    last_used TIMESTAMPTZ,
     CONSTRAINT unique_ref_per_team UNIQUE (team_id, ref)
 );
 

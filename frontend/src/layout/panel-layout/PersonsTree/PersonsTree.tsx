@@ -29,7 +29,7 @@ export function PersonsTree({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         })) ?? []
 
     return (
-        <PanelLayoutPanel searchTerm="" setSearchTerm={() => {}} clearSearch={() => {}} searchPlaceholder="Search TODO">
+        <PanelLayoutPanel searchPlaceholder="Search TODO">
             <LemonTree ref={treeRef} contentRef={mainRef} className="px-0 py-1" data={treeData} />
         </PanelLayoutPanel>
     )

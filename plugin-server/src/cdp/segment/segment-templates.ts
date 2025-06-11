@@ -25,7 +25,7 @@ const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[]
     return {
         events: [
             {
-                id: 'All events',
+                id: null,
                 name: 'All events',
                 type: 'events',
                 order: 0,
@@ -47,6 +47,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
 
         if (modifiedVal.includes('event.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.traits', 'person.properties')
+        }
+        if (modifiedVal.includes('event.name')) {
+            modifiedVal = modifiedVal.replaceAll('event.name', 'event.event')
         }
         if (modifiedVal.includes('event.context.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
@@ -233,8 +236,11 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         }
     }
 
-    if (['boolean', 'string'].includes(typeof defaultVal)) {
+    if (['string'].includes(typeof defaultVal)) {
         return defaultVal
+    }
+    if (['boolean'].includes(typeof defaultVal)) {
+        return defaultVal ? 'true' : 'false'
     }
     if (typeof defaultVal === 'object') {
         if (defaultVal && '@path' in defaultVal) {
@@ -273,16 +279,77 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 } else {
                     return `{${multiple ? '[' : ''}${val} ?? ${fallbackVal}${multiple ? ']' : ''}}`
                 }
-            } else {
-                return JSON.stringify(defaultVal)
             }
+        } else if (defaultVal && '@arrayPath' in defaultVal) {
+            let val = defaultVal['@arrayPath'][0]
+            val = val.replace('$.', 'event.')
+            return normalizeValue(val)
         }
-        return JSON.stringify(defaultVal)
     }
     return JSON.stringify(defaultVal)
 }
 
-const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): HogFunctionInputSchemaType[] => {
+const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> | undefined) => {
+    const checkOverride = (defaultVal: any, fieldKey: string, nested: boolean = false) => {
+        if (mapping) {
+            if (nested) {
+                if (key in mapping && fieldKey in mapping[key] && !mapping[key][fieldKey]['@template']) {
+                    return mapping[key][fieldKey]
+                }
+            } else {
+                if (fieldKey in mapping && !mapping[fieldKey]['@template']) {
+                    return mapping[fieldKey]
+                }
+            }
+        }
+        return defaultVal
+    }
+
+    if (
+        field.type === 'object' &&
+        (typeof field.default === 'undefined' || !('@path' in field.default || '@arrayPath' in field.default))
+    ) {
+        return Object.fromEntries(
+            Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
+                const defaultVal = (field.default as Record<string, object>) ?? {}
+                return [key, translateInputs(checkOverride(defaultVal[key], key, true), multiple)]
+            })
+        )
+    } else {
+        return translateInputs(checkOverride(field.default, key), field.multiple)
+    }
+}
+
+const getFieldType = (field: any) => {
+    if (field.choices) {
+        return 'choice'
+    }
+
+    if (field.type === 'object') {
+        if (typeof field.default !== 'undefined' && '@path' in field.default) {
+            return 'string'
+        }
+        if (typeof field.default !== 'undefined' && '@arrayPath' in field.default) {
+            return 'string'
+        }
+        return 'dictionary'
+    }
+
+    if (['number', 'integer', 'datetime', 'password', 'boolean'].includes(field.type)) {
+        return 'string'
+    }
+
+    if (typeof field.default === 'object' && '@path' in field.default) {
+        return 'string'
+    }
+
+    return field.type ?? 'string'
+}
+
+const translateInputsSchema = (
+    inputs_schema: Record<string, any> | undefined,
+    mapping?: Record<string, any> | undefined
+): HogFunctionInputSchemaType[] => {
     if (!inputs_schema) {
         return []
     }
@@ -291,27 +358,9 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         .map(([key, field]) => ({
             key,
             label: field.label,
-            type: field.choices
-                ? 'choice'
-                : field.type === 'object'
-                ? typeof field.default !== 'undefined' && '@path' in field.default
-                    ? 'string'
-                    : 'dictionary'
-                : ['number', 'integer', 'datetime', 'password'].includes(field.type)
-                ? 'string'
-                : typeof field.default === 'object' && '@path' in field.default
-                ? 'string'
-                : field.type ?? 'string',
+            type: getFieldType(field),
             description: field.description,
-            default:
-                field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
-                    ? translateInputs(field.default, field.multiple)
-                    : Object.fromEntries(
-                          Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
-                              const defaultVal = (field.default as Record<string, object>) ?? {}
-                              return [key, translateInputs(defaultVal[key], multiple)]
-                          })
-                      ),
+            default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
             secret: field.type === 'password' ? true : false,
             ...(field.choices ? { choices: field.choices } : {}),
@@ -388,14 +437,23 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             destination,
             template: {
                 free: false,
-                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
+                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'hidden',
                 type: 'destination',
                 id,
                 name,
                 description: `Send event data to ${name}`,
                 icon_url: `/api/environments/@current/hog_functions/icon/?id=${destination.slug?.split('-')[1]}.com`,
                 category: [],
-                inputs_schema: translateInputsSchema(destination.authentication?.fields),
+                inputs_schema: [
+                    ...translateInputsSchema(destination.authentication?.fields),
+                    {
+                        key: 'debug_mode',
+                        label: 'Debug Mode',
+                        type: 'boolean',
+                        description: 'Will log configuration and request details',
+                        default: false,
+                    },
+                ],
                 hog: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
@@ -411,7 +469,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                             ...(preset.partnerAction in destination.actions
                                 ? translateInputsSchema(
                                       destination.actions[preset.partnerAction as keyof typeof destination.actions]
-                                          .fields
+                                          .fields,
+                                      preset.mapping
                                   )
                                 : []),
                             {

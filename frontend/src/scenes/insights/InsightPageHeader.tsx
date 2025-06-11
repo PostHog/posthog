@@ -1,3 +1,4 @@
+import { IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -5,6 +6,7 @@ import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { AlertType } from 'lib/components/Alerts/types'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -23,6 +25,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -54,7 +57,7 @@ import {
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
-    const { insightMode, itemId, alertId } = useValues(insightSceneLogic)
+    const { insightMode, itemId, alertId, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
 
     const { setInsightMode } = useActions(insightSceneLogic)
 
@@ -92,6 +95,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const [tags, setTags] = useState(insight.tags)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+
+    const dashboardOverridesExist = isObject(filtersOverride) || isObject(variablesOverride)
+    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -137,9 +143,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                             insightShortId={insight.short_id as InsightShortId}
                             insightId={insight.id!}
-                            onEditSuccess={() => {
+                            onEditSuccess={(alertId: AlertType['id'] | undefined) => {
                                 loadAlerts()
-                                push(urls.insightAlerts(insight.short_id as InsightShortId))
+                                if (alertId) {
+                                    push(urls.insightAlert(insight.short_id as InsightShortId, alertId))
+                                } else {
+                                    push(urls.insightAlerts(insight.short_id as InsightShortId))
+                                }
                             }}
                             insightLogicProps={insightLogicProps}
                         />
@@ -191,9 +201,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
+                                    icon={dashboardOverridesExist ? <IconWarning /> : undefined}
+                                    tooltip={
+                                        dashboardOverridesExist
+                                            ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
+                                            : undefined
+                                    }
+                                    tooltipPlacement="bottom"
                                     onClick={() => {
                                         if (isDataVisualizationNode(query) && insight.short_id) {
                                             router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
+                                        } else if (insight.short_id) {
+                                            push(urls.insightEdit(insight.short_id))
                                         } else {
                                             setInsightMode(ItemMode.Edit, null)
                                         }

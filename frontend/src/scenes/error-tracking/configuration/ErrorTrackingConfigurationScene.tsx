@@ -13,8 +13,10 @@ import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingCo
 
 export type ConfigurationSceneTabType =
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-custom-grouping'
     | 'error-tracking-alerting'
 
 export interface ErrorTrackingConfigurationSceneLogicProps {
@@ -86,6 +88,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ searchParams: { tab } }): (typeof errorTrackingConfigurationSceneLogic)['props'] => ({
         initialTab: tab,
     }),
+    settingSectionId: 'environment-error-tracking',
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {

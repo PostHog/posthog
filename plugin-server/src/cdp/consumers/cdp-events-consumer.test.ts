@@ -155,8 +155,10 @@ describe.each([
                     hogFunction: {
                         id: hogFunction.id,
                     },
-                    globals: {
-                        event: globals.event,
+                    state: {
+                        globals: {
+                            event: globals.event,
+                        },
                     },
                 }
             }

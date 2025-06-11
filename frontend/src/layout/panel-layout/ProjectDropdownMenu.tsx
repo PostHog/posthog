@@ -51,6 +51,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                     tooltip={`Switch to project: ${team.name}`}
                     tooltipPlacement="right"
                     to={relativeOtherProjectPath}
+                    data-attr="tree-navbar-project-dropdown-other-project-button"
                 >
                     <ProjectName team={team} />
                 </Link>
@@ -63,6 +64,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 tooltip={`View settings for project: ${team.name}`}
                 tooltipPlacement="right"
                 to={urls.project(team.id, urls.settings('project'))}
+                data-attr="tree-navbar-project-dropdown-other-project-settings-button"
             >
                 <IconGear />
             </Link>
@@ -81,7 +83,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     return isAuthenticatedTeam(currentTeam) ? (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive>
+                <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button">
                     <IconFolderOpen className="text-tertiary" />
                     Project
                     <IconChevronRight
@@ -117,6 +119,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                             hasSideActionRight
                             tooltip={`Current project: ${currentTeam.name}`}
                             tooltipPlacement="right"
+                            data-attr="tree-navbar-project-dropdown-current-project-button"
                         >
                             <ProjectName team={currentTeam} />
                         </ButtonPrimitive>
@@ -129,6 +132,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                             tooltip={`View settings for project: ${currentTeam.name}`}
                             tooltipPlacement="right"
                             to={urls.project(currentTeam.id, urls.settings('project'))}
+                            data-attr="tree-navbar-project-dropdown-current-project-settings-button"
                         >
                             <IconGear className="text-tertiary" />
                         </Link>

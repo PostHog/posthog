@@ -1,7 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { v4 } from 'uuid'
 
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
@@ -16,18 +19,14 @@ import {
 } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
-import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
-import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
@@ -56,6 +55,20 @@ const team = {
     id: 2,
     person_processing_opt_out: false,
     api_token: 'token1',
+    project_id: 2 as ProjectId,
+    organization_id: '2',
+    uuid: v4(),
+    name: '2',
+    anonymize_ips: true,
+    slack_incoming_webhook: 'slack_incoming_webhook',
+    session_recording_opt_in: true,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
 } as Team
 
 const pipelineEvent: PipelineEvent = {
@@ -149,18 +162,17 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-            hub.db,
-            team.api_token,
-            pluginEvent.distinct_id
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        runner = new TestEventPipelineRunner(
+            hub,
+            pluginEvent,
+            undefined,
+            undefined,
+            personsStoreForBatch,
+            groupStoreForBatch
         )
-        runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore)
 
-        jest.mocked(populateTeamDataStep).mockResolvedValue({
-            eventWithTeam: pluginEvent,
-            team,
-        })
-        jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
 
         // @ts-expect-error this is just a mock
@@ -178,12 +190,10 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('runEventPipeline()', () => {
-        it('runs steps starting from populateTeamDataStep', async () => {
-            await runner.runEventPipeline(pipelineEvent)
+        it('runs steps starting from pluginsProcessEventStep', async () => {
+            await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([
-                'populateTeamDataStep',
-                'cookielessServerHashStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
@@ -193,28 +203,26 @@ describe('EventPipelineRunner', () => {
                 'createEventStep',
                 'emitEventStep',
             ])
-            expect(runner.stepsWithArgs).toMatchSnapshot()
+            expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
         it('drops disallowed events', async () => {
             const event = {
-                ...pipelineEvent,
+                ...pluginEvent,
                 token: 'drop_token',
                 distinct_id: 'drop_id',
             }
-            await runner.runEventPipeline(event)
+            await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([])
         })
 
         it('does not drop disallowed token mismatching distinct_id events', async () => {
             const event = {
-                ...pipelineEvent,
+                ...pluginEvent,
                 token: 'drop_token',
             }
-            await runner.runEventPipeline(event)
+            await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'populateTeamDataStep',
-                'cookielessServerHashStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
@@ -228,10 +236,10 @@ describe('EventPipelineRunner', () => {
 
         it('drops disallowed events by *', async () => {
             const event = {
-                ...pipelineEvent,
+                ...pluginEvent,
                 token: 'drop_token_all',
             }
-            await runner.runEventPipeline(event)
+            await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([])
         })
 
@@ -241,10 +249,10 @@ describe('EventPipelineRunner', () => {
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
 
-            const result = await runner.runEventPipeline(pipelineEvent)
+            const result = await runner.runEventPipeline(pluginEvent, team)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(10)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
@@ -258,13 +266,9 @@ describe('EventPipelineRunner', () => {
             })
 
             it('stops processing after step', async () => {
-                await runner.runEventPipeline(pipelineEvent)
+                await runner.runEventPipeline(pluginEvent, team)
 
-                expect(runner.steps).toEqual([
-                    'populateTeamDataStep',
-                    'cookielessServerHashStep',
-                    'pluginsProcessEventStep',
-                ])
+                expect(runner.steps).toEqual(['pluginsProcessEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
@@ -272,9 +276,9 @@ describe('EventPipelineRunner', () => {
                 const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
                 const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
 
-                await runner.runEventPipeline(pipelineEvent)
+                await runner.runEventPipeline(pluginEvent, team)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(3)
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(1)
                 expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
             })
@@ -290,9 +294,8 @@ describe('EventPipelineRunner', () => {
 
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pipelineEvent)
+                await runner.runEventPipeline(pluginEvent, team)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('populateTeamDataStep')
                 expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
@@ -303,7 +306,7 @@ describe('EventPipelineRunner', () => {
                 const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pipelineEvent)
+                await runner.runEventPipeline(pluginEvent, team)
 
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
 
@@ -330,14 +333,13 @@ describe('EventPipelineRunner', () => {
                     event: '$$client_ingestion_warning',
                     team_id: 9,
                 }
+                const team9: Team = {
+                    ...team,
+                    id: 9,
+                }
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: event,
-                    team: { id: 9, person_processing_opt_out: true } as any,
-                })
-
-                await runner.runEventPipeline(event)
-                expect(runner.steps).toEqual(['populateTeamDataStep'])
+                await runner.runEventPipeline(event, team9)
+                expect(runner.steps).toEqual([])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                 expect(
                     parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
@@ -372,17 +374,16 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-                    hub.db,
-                    team.api_token,
-                    heatmapEvent.distinct_id
+                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
+                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+                runner = new TestEventPipelineRunner(
+                    hub,
+                    heatmapEvent,
+                    undefined,
+                    undefined,
+                    personsStore,
+                    groupStoreForBatch
                 )
-                runner = new TestEventPipelineRunner(hub, heatmapEvent, undefined, undefined, personsStore)
-
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: heatmapEvent,
-                    team,
-                })
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -395,14 +396,9 @@ describe('EventPipelineRunner', () => {
             })
 
             it('runs the expected steps for heatmap_data', async () => {
-                await runner.runEventPipeline(heatmapEvent)
+                await runner.runEventPipeline(heatmapEvent, team)
 
-                expect(runner.steps).toEqual([
-                    'populateTeamDataStep',
-                    'normalizeEventStep',
-                    'prepareEventStep',
-                    'extractHeatmapDataStep',
-                ])
+                expect(runner.steps).toEqual(['normalizeEventStep', 'prepareEventStep', 'extractHeatmapDataStep'])
             })
         })
 
@@ -424,17 +420,17 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-                    hub.db,
-                    team.api_token,
-                    exceptionEvent.distinct_id
-                )
-                runner = new TestEventPipelineRunner(hub, exceptionEvent, undefined, undefined, personsStore)
+                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
+                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: exceptionEvent,
-                    team,
-                })
+                runner = new TestEventPipelineRunner(
+                    hub,
+                    exceptionEvent,
+                    undefined,
+                    undefined,
+                    personsStore,
+                    groupStoreForBatch
+                )
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -447,11 +443,9 @@ describe('EventPipelineRunner', () => {
             })
 
             it('runs the expected steps for exceptions', async () => {
-                await runner.runEventPipeline(exceptionEvent)
+                await runner.runEventPipeline(exceptionEvent, team)
 
                 expect(runner.steps).toEqual([
-                    'populateTeamDataStep',
-                    'cookielessServerHashStep',
                     'pluginsProcessEventStep',
                     'transformEventStep',
                     'normalizeEventStep',
@@ -475,13 +469,13 @@ describe('EventPipelineRunner', () => {
                     event: eventName,
                     team_id: 9,
                 }
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: event,
-                    team: { id: 9, person_processing_opt_out: true } as any,
-                })
+                const team9: Team = {
+                    ...team,
+                    id: 9,
+                }
 
-                await runner.runEventPipeline(event)
-                expect(runner.steps).toEqual(['populateTeamDataStep'])
+                await runner.runEventPipeline(event, team9)
+                expect(runner.steps).toEqual([])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                 expect(
                     parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)

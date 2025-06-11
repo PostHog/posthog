@@ -15,7 +15,10 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         suppressIssues: (ids: string[]) => ({ ids }),
         activateIssues: (ids: string[]) => ({ ids }),
         assignIssues: (ids: string[], assignee: ErrorTrackingIssue['assignee']) => ({ ids, assignee }),
-        assignIssue: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
+
+        updateIssueAssignee: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
+        updateIssueStatus: (id: string, status: ErrorTrackingIssue['status']) => ({ id, status }),
+        updateIssueName: (id: string, name: string) => ({ id, name }),
 
         mutationSuccess: () => {},
         mutationFailure: (error: unknown) => ({ error }),
@@ -64,10 +67,22 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     await api.errorTracking.bulkAssign(ids, assignee)
                 })
             },
-            assignIssue: async ({ id, assignee }) => {
+            updateIssueAssignee: async ({ id, assignee }) => {
                 await runMutation(async () => {
-                    posthog.capture('error_tracking_issue_assign')
+                    posthog.capture('error_tracking_issue_update_assignee')
                     await api.errorTracking.assignIssue(id, assignee)
+                })
+            },
+            updateIssueStatus: async ({ id, status }) => {
+                await runMutation(async () => {
+                    posthog.capture('error_tracking_issue_update_status')
+                    await api.errorTracking.updateIssue(id, { status })
+                })
+            },
+            updateIssueName: async ({ id, name }) => {
+                await runMutation(async () => {
+                    posthog.capture('error_tracking_issue_update_name')
+                    await api.errorTracking.updateIssue(id, { name })
                 })
             },
         }

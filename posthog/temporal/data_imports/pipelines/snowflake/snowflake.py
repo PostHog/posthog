@@ -1,16 +1,84 @@
-from typing import Any, Optional
+import collections
+import os
+import tempfile
+import typing
 from collections.abc import Iterator
+from typing import Any, Optional
+
+import snowflake.connector
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+from snowflake.connector.cursor import SnowflakeCursor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.types import IncrementalFieldType
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
-from dlt.common.normalizers.naming.snake_case import NamingConvention
-import snowflake.connector
-from snowflake.connector.cursor import SnowflakeCursor
+
+
+@config.config
+class SnowflakeSourceConfig(config.Config):
+    account_id: str
+    warehouse: str
+    database: str
+    schema: str
+    auth_type: typing.Literal["password", "keypair"] = "password"
+    user: str | None = None
+    password: str | None = None
+    passphrase: str | None = None
+    private_key: str | None = None
+    role: str | None = None
+
+
+def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    auth_connect_args: dict[str, str | None] = {}
+    file_name: str | None = None
+
+    if config.auth_type == "keypair" and config.private_key is not None:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(config.private_key.encode("utf-8"))
+            file_name = tf.name
+
+        auth_connect_args = {
+            "user": config.user,
+            "private_key_file": file_name,
+            "private_key_file_pwd": config.passphrase,
+        }
+    else:
+        auth_connect_args = {
+            "password": config.password,
+            "user": config.user,
+        }
+
+    with snowflake.connector.connect(
+        account=config.account_id,
+        warehouse=config.warehouse,
+        database=config.database,
+        schema="information_schema",
+        role=config.role,
+        **auth_connect_args,
+    ) as connection:
+        with connection.cursor() as cursor:
+            if cursor is None:
+                raise Exception("Can't create cursor to Snowflake")
+
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = collections.defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+    if file_name is not None:
+        os.unlink(file_name)
+
+    return schema_list
 
 
 def _get_connection(

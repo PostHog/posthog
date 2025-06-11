@@ -1,15 +1,18 @@
-import { IconCheckCircle } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { cn } from 'lib/utils/css-classes'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 
 export interface FolderSelectProps {
     /** The folder to select */
@@ -51,9 +54,9 @@ export function FolderSelect({
         setEditingItemId,
         rename,
         toggleFolderOpen,
+        deleteItem,
     } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
-    const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
 
     useEffect(() => {
         if (includeProtocol) {
@@ -84,6 +87,7 @@ export function FolderSelect({
                                     onChange?.(folder)
                                 })
                             }}
+                            data-attr="folder-select-item-menu-new-folder-button"
                         >
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
@@ -95,7 +99,20 @@ export function FolderSelect({
                                     setEditingItemId(item.id)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                                <ButtonPrimitive menuItem data-attr="folder-select-item-menu-rename-button">
+                                    Rename
+                                </ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                        {item.record?.path && item.record?.type === 'folder' ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteItem(item.record as unknown as FileSystemEntry, props.key)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
                             </MenuItem>
                         ) : null}
                     </MenuGroup>
@@ -113,8 +130,20 @@ export function FolderSelect({
                 fullWidth
                 onChange={(search) => setSearchTerm(search)}
                 value={searchTerm}
+                data-attr="folder-select-search-input"
+                autoFocus
+                onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault() // Prevent scrolling
+                        const visibleItems = treeRef?.current?.getVisibleItems()
+                        if (visibleItems && visibleItems.length > 0) {
+                            e.currentTarget.blur() // Remove focus from input
+                            treeRef?.current?.focusItem(visibleItems[0].id)
+                        }
+                    }
+                }}
             />
-            <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
+            <ScrollableShadows direction="vertical" className={cn('bg-surface-primary border rounded', className)}>
                 <LemonTree
                     ref={treeRef}
                     selectMode="folder-only"
@@ -141,29 +170,13 @@ export function FolderSelect({
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
                             if (includeProtocol) {
-                                setSelectedFolder(folder.id)
                                 toggleFolderOpen(folder.id, isExpanded)
                                 onChange?.(folder.id)
                             } else {
-                                setSelectedFolder(folder.record?.path)
                                 toggleFolderOpen(folder.id || '', isExpanded)
                                 onChange?.(folder.record?.path ?? '')
                             }
                         }
-                    }}
-                    renderItem={(item) => {
-                        return (
-                            <span>
-                                {item.record?.path === selectedFolder ? (
-                                    <span className="flex items-center gap-1">
-                                        {item.displayName}
-                                        <IconCheckCircle className="size-4 text-success" />
-                                    </span>
-                                ) : (
-                                    item.displayName
-                                )}
-                            </span>
-                        )
                     }}
                     expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                     onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
@@ -185,8 +198,28 @@ export function FolderSelect({
                             </ContextMenuGroup>
                         )
                     }}
+                    renderItem={(item) => {
+                        const isNew =
+                            item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+                        return (
+                            <span className="truncate">
+                                <span
+                                    className={cn('truncate', {
+                                        'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                                    })}
+                                >
+                                    {item.displayName}{' '}
+                                    {isNew ? (
+                                        <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                            New
+                                        </LemonTag>
+                                    ) : null}
+                                </span>
+                            </span>
+                        )
+                    }}
                 />
-            </div>
+            </ScrollableShadows>
         </div>
     )
 }

@@ -25,19 +25,25 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
+/**
+ * NB this both mutates and returns snapshotsBySource
+ *
+ * there are several steps to processing snapshots as received from the API
+ * before they are playable, vanilla rrweb data
+ */
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    snapshotsBySource: Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> | null,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
-): RecordingSnapshot[] {
+): Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> {
     if (!sources || !snapshotsBySource) {
-        return []
+        return { processed: {} }
     }
 
-    const seenHashes: Set<string> = new Set()
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
+    const seenHashes: Set<string> = new Set()
 
     let metaCount = 0
     let fullSnapshotCount = 0
@@ -47,10 +53,22 @@ export function processAllSnapshots(
     // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
         const sourceKey = keyForSource(source)
+
+        if (snapshotsBySource?.[sourceKey]?.processed) {
+            // If we already processed this source, skip it
+            // here we loop and push one by one, to avoid a spread on a large array
+            for (const snapshot of snapshotsBySource[sourceKey].snapshots || []) {
+                result.push(snapshot)
+            }
+            continue
+        }
+
         // sorting is very cheap for already sorted lists
         const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
             (a, b) => a.timestamp - b.timestamp
         )
+
+        const sourceResult: RecordingSnapshot[] = []
 
         for (const snapshot of sourceSnapshots) {
             const { delay: _delay, ...delayFreeSnapshot } = snapshot
@@ -95,6 +113,15 @@ export function processAllSnapshots(
                 }
             }
 
+            sourceResult.push(snapshot)
+        }
+
+        snapshotsBySource[sourceKey] = snapshotsBySource[sourceKey] || {}
+        snapshotsBySource[sourceKey].snapshots = sourceResult
+        snapshotsBySource[sourceKey].processed = true
+        // doing push.apply to mutate the original array
+        // and avoid a spread on a large array
+        for (const snapshot of sourceResult) {
             result.push(snapshot)
         }
     }
@@ -104,7 +131,15 @@ export function processAllSnapshots(
 
     // Optional second pass: patch meta-events on the sorted array
     const needToPatchMeta = fullSnapshotCount > 0 && fullSnapshotCount > metaCount
-    return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
+    snapshotsBySource['processed'] = {
+        source: 'processed',
+        processed: true,
+        sourceLoaded: true,
+        snapshots: needToPatchMeta
+            ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId)
+            : result,
+    }
+    return snapshotsBySource
 }
 
 let postHogEEModule: PostHogEE

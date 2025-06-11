@@ -1,4 +1,8 @@
+import builtins
 import dataclasses
+import functools
+import importlib
+import operator
 import types
 import typing
 
@@ -11,7 +15,7 @@ class _Dataclass(typing.Protocol):
     __dataclass_fields__: typing.ClassVar[dict[str, typing.Any]]
 
 
-class Config(_Dataclass, typing.Protocol):
+class ConfigProtocol(_Dataclass, typing.Protocol):
     """Protocol for config dataclasses.
 
     Unfortunately, we cannot convince type checkers that the classes we decorate
@@ -19,8 +23,18 @@ class Config(_Dataclass, typing.Protocol):
     any of the methods, add this protocol to your config's parent classes as a
     way to tell type checkers everything is fine.
 
-    Finally, a `Config` is also a dataclass, which is useful if you are going to
+    Finally, a `ConfigProtocol` is also a dataclass, which is useful if you are going to
     keep passing this around.
+    """
+
+    @classmethod
+    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+
+
+@dataclasses.dataclass
+class Config(ConfigProtocol):
+    """
+    Concrete protocol implementation for type checking.
 
     Examples:
         This works but mypy and other type checkers will complain:
@@ -30,7 +44,7 @@ class Config(_Dataclass, typing.Protocol):
         >>> MyConfig.from_dict({})
         MyConfig()
 
-        Subclass from this protocol as an offering to the type gods:
+        Subclass from this class as an offering to the type gods:
 
         >>> @config
         ... class MyConfig(Config): pass
@@ -42,7 +56,8 @@ class Config(_Dataclass, typing.Protocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
+        raise NotImplementedError
 
 
 def _noop_convert(x: typing.Any) -> typing.Any:
@@ -59,7 +74,11 @@ class MetaConfig:
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert
 
 
-def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None) -> Config:
+def to_config(
+    config_cls: type[ConfigProtocol],
+    d: dict[str, typing.Any],
+    prefixes: tuple[str, ...] | None = None,
+) -> ConfigProtocol:
     """Initialize a class from dict.
 
     This function recursively initializes any nested classes.
@@ -82,27 +101,33 @@ def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tupl
     inputs = {}
 
     fields = dataclasses.fields(config_cls)
+    module_path = config_cls.__module__
 
     for field in fields:
-        field_type = _resolve_field_type(field)
+        field_type = _resolve_field_type(field, module_path=module_path)
         field_meta = field.metadata.get(META_KEY, None)
 
         field_flat_key = _get_flat_key(field, prefixes or ())
         field_nested_key = _get_nested_key(field)
 
-        if field_nested_key in d:
+        if field_flat_key in d:
+            field_key = field_flat_key
+        elif field_nested_key in d:
             field_key = field_nested_key
         else:
-            field_key = field_flat_key
+            field_key = field.name
 
         if field_meta and field_meta.converter:
             convert = field_meta.converter
         else:
             convert = _noop_convert
 
-        if is_config(field.type) or _is_union_of_config(field.type):
+        if is_config(field_type) or _is_union_of_config(field_type):
             # We are dealing with a nested config, which could be part of a union
-            config_types = typing.get_args(field.type) or (field_type,)
+            if is_config(field_type):
+                config_types = typing.get_args(field.type) or (field_type,)
+            else:
+                config_types = typing.get_args(field_type)
 
             for config_type in config_types:
                 if not is_config(config_type):
@@ -132,11 +157,11 @@ def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tupl
                 else:
                     # Assuming a flat structure
                     field_prefixes = _resolve_field_prefixes(
-                        field_type, field_type_meta, field_meta, top_level_prefixes
+                        config_type, field_type_meta, field_meta, top_level_prefixes
                     )
 
                     try:
-                        value = to_config(field_type, d, field_prefixes)
+                        value = to_config(config_type, d, field_prefixes)
                     except TypeError:
                         # We want to try all possible config types
                         continue
@@ -155,26 +180,46 @@ def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tupl
     return config_cls(**inputs)
 
 
-def _resolve_field_type(field: dataclasses.Field[typing.Any]) -> type:
-    """Resolve a field's type."""
+def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
+    """Resolve a field's type.
+
+    If necessary, we resolve it by importing the module where the configuration
+    is defined.
+    """
     if isinstance(field.type, str):
-        field_type = _lookup_type(field.type, locals(), globals())  # type: ignore
+        # Ignore comment necessary here as mypy thinks `field.type` cannot be `str`.
+        module = importlib.import_module(module_path)  # type: ignore
+        lookup_type = functools.partial(_lookup_str_type, module=module)
+
+        if "|" in field.type:
+            field_type = functools.reduce(operator.ior, map(lookup_type, field.type.split("|")))
+
+        else:
+            field_type = lookup_type(field.type)
     else:
         field_type = field.type
 
     return field_type
 
 
-def _lookup_type(type_to_resolve: str, locals: dict[str, typing.Any], globals: dict[str, typing.Any]) -> type:
+def _lookup_str_type(type_to_resolve: str, module) -> type:
     """Lookup a type in provided locals and globals.
 
     Used to resolve any type hints that are strings.
     """
+    type_to_resolve = type_to_resolve.strip()
+
+    if type_to_resolve == "None":
+        return type(None)
+
+    if hasattr(builtins, type_to_resolve) and isinstance(getattr(builtins, type_to_resolve), type):
+        return getattr(builtins, type_to_resolve)
+
     try:
-        return locals[type_to_resolve]
-    except KeyError:
+        return getattr(module, type_to_resolve)
+    except AttributeError:
         try:
-            return globals[type_to_resolve]
+            return globals()[type_to_resolve]
         except KeyError:
             raise TypeError(f"Unknown type: '{type_to_resolve}'")
 
@@ -409,6 +454,11 @@ def config(
 
             return to_config(cls, d, prefixes=prefixes)
 
+        try:
+            delattr(cls, "__dataclass_fields__")
+        except AttributeError:
+            pass
+
         cls = dataclasses.dataclass(cls)
         setattr(cls, "from_dict", classmethod(from_dict))  # noqa: B010
         setattr(cls, "__source_config_meta", MetaConfig(prefix=prefix))  # noqa: B010
@@ -427,3 +477,44 @@ def str_to_bool(s: str | bool) -> bool:
         return s
 
     return s.lower() in {"true", "yes", "1"}
+
+
+def str_to_optional_int(s: str | int | None) -> int | None:
+    """A converter to return a str to optional int."""
+    if isinstance(s, int):
+        return s
+    elif s is None or s.strip() == "":
+        return None
+    else:
+        return int(s)
+
+
+_DefaultType = typing.TypeVar("_DefaultType")
+
+
+def default_from_settings(
+    key: str, converter: typing.Callable[[str], _DefaultType] = _noop_convert
+) -> typing.Callable[[], _DefaultType]:
+    """Return a default factory that obtains the value from app settings."""
+
+    def default_factory() -> _DefaultType:
+        from django.conf import settings
+
+        return converter(getattr(settings, key))
+
+    return default_factory
+
+
+def default_from_env(
+    key: str, converter: typing.Callable[[str], _DefaultType] = _noop_convert
+) -> typing.Callable[[], _DefaultType]:
+    """Return a default factory that obtains the value from an env variable."""
+
+    def default_factory() -> _DefaultType:
+        import os
+
+        value = os.environ[key]
+
+        return converter(value)
+
+    return default_factory

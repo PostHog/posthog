@@ -4,10 +4,10 @@ from rest_framework_extensions.routers import NestedRegistryItem
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
-from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
+from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -22,6 +22,8 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+import products.revenue_analytics.backend.api as revenue_analytics
+from posthog.warehouse.api.lineage import LineageViewSet
 import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -44,8 +46,6 @@ from . import (
     event_definition,
     exports,
     feature_flag,
-    file_system,
-    file_system_shortcut,
     hog,
     hog_function,
     hog_function_template,
@@ -76,6 +76,7 @@ from . import (
     user_group,
     web_vitals,
 )
+from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -224,12 +225,21 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["project_id"])
+register_grandfathered_environment_nested_viewset(
+    r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
+)
 
 register_grandfathered_environment_nested_viewset(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
     "environment_file_system_shortcut",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"persisted_folder",
+    persisted_folder.PersistedFolderViewSet,
+    "environment_persisted_folder",
     ["team_id"],
 )
 
@@ -568,6 +578,13 @@ projects_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/releases",
+    error_tracking.ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/symbol_sets",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
@@ -578,6 +595,20 @@ environments_router.register(
     r"error_tracking/assignment_rules",
     error_tracking.ErrorTrackingAssignmentRuleViewSet,
     "project_error_tracking_assignment_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/grouping_rules",
+    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    "project_error_tracking_grouping_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/suppression_rules",
+    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    "project_error_tracking_suppression_rule",
     ["team_id"],
 )
 
@@ -613,6 +644,13 @@ register_grandfathered_environment_nested_viewset(
     r"hog_functions",
     hog_function.HogFunctionViewSet,
     "environment_hog_functions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"hog_flows",
+    hog_flow.HogFlowViewSet,
+    "environment_hog_flows",
     ["team_id"],
 )
 
@@ -675,6 +713,8 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
+
 environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
 environments_router.register(
@@ -698,5 +738,12 @@ environments_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/taxonomy",
+    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
+    "environment_revenue_analytics_taxonomy",
     ["team_id"],
 )

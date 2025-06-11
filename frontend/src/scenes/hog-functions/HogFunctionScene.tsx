@@ -16,13 +16,28 @@ import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTest
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb, PipelineTab } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    HogFunctionFilterPropertyFilter,
+    HogFunctionType,
+    HogFunctionTypeType,
+    PipelineTab,
+} from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
+
+const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, PipelineTab>> = {
+    transformation: PipelineTab.Transformations,
+    destination: PipelineTab.Destinations,
+    site_destination: PipelineTab.Destinations,
+    site_app: PipelineTab.SiteApps,
+    source_webhook: PipelineTab.Sources,
+}
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
@@ -44,9 +59,27 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
+        alertId: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): string | undefined => {
+                if (!configuration?.filters?.properties) {
+                    return undefined
+                }
+                const alertIdProp = configuration.filters.properties.find(
+                    (p: HogFunctionFilterPropertyFilter) => p.key === 'alert_id'
+                )
+                const value = alertIdProp?.value
+                return value ? String(value) : undefined
+            },
+        ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration],
-            (type, loading, configuration): Breadcrumb[] => {
+            (s) => [s.type, s.loading, s.configuration, s.alertId],
+            (
+                type: HogFunctionTypeType,
+                loading: boolean,
+                configuration: HogFunctionType | null,
+                alertId: string | undefined
+            ): Breadcrumb[] => {
                 if (loading) {
                     return [
                         {
@@ -65,7 +98,25 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     name: configuration?.name || '(Untitled)',
                 }
 
-                if (type === 'transformation' || type === 'destination') {
+                if (type === 'internal_destination' && alertId) {
+                    return [
+                        {
+                            key: Scene.Insight,
+                            name: 'Insight',
+                            path: urls.alerts(),
+                        },
+                        {
+                            key: 'alert',
+                            name: 'Alert',
+                            path: urls.alert(alertId),
+                        },
+                        finalCrumb,
+                    ]
+                }
+
+                const pipelineTab = DataPipelinesSceneMapping[type]
+
+                if (pipelineTab) {
                     return [
                         {
                             key: Scene.Pipeline,
@@ -74,10 +125,8 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         },
                         {
                             key: Scene.HogFunction,
-                            name: `${capitalizeFirstLetter(type)}s`,
-                            path: urls.pipeline(
-                                type === 'destination' ? PipelineTab.Destinations : PipelineTab.Transformations
-                            ),
+                            name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
+                            path: urls.pipeline(pipelineTab),
                         },
                         finalCrumb,
                     ]
@@ -86,24 +135,21 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 if (type === 'internal_destination') {
                     // Returns a Scene that is closest to the element based on the configuration.
                     // This is used to help the HogFunctionScene render correct breadcrumbs and redirections
-                    if (configuration.type === 'internal_destination') {
-                        if (configuration.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
-                            // Error tracking scene
-                            return [
-                                {
-                                    key: Scene.ErrorTracking,
-                                    name: 'Error tracking',
-                                    path: urls.errorTracking(),
-                                },
-                                {
-                                    key: Scene.HogFunction,
-                                    name: 'Alerts',
-                                    path:
-                                        urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
-                                },
-                                finalCrumb,
-                            ]
-                        }
+                    if (configuration?.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
+                        // Error tracking scene
+                        return [
+                            {
+                                key: Scene.ErrorTracking,
+                                name: 'Error tracking',
+                                path: urls.errorTracking(),
+                            },
+                            {
+                                key: Scene.HogFunction,
+                                name: 'Alerts',
+                                path: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
+                            },
+                            finalCrumb,
+                        ]
                     }
 
                     return [
@@ -191,12 +237,7 @@ export function HogFunctionScene(): JSX.Element {
         {
             label: 'Configuration',
             key: 'configuration',
-            content: (
-                <HogFunctionConfiguration
-                    id={id}
-                    // displayOptions={{ hideTestingConfiguration: false }}
-                />
-            ),
+            content: <HogFunctionConfiguration id={id} />,
         },
         {
             label: 'Metrics',

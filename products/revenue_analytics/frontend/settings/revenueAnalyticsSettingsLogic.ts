@@ -1,47 +1,44 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    CurrencyCode,
     DataTableNode,
     NodeKind,
     RevenueAnalyticsConfig,
     RevenueAnalyticsEventItem,
+    RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
 } from '~/queries/schema/schema-general'
-import { ExternalDataSource, Region } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
 
-const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsConfig => ({
+const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
-
-    // Region won't be always set because we might mount this before we mount preflightLogic
-    // so we default to USD if we can't determine the region
-    base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
+    goals: [],
 })
+
+const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
+    return goals.sort((a, b) => dayjs(a.due_date).diff(dayjs(b.due_date)))
+}
 
 export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeam', 'currentTeamId'],
-            preflightLogic,
-            ['preflight'],
+            ['currentTeam', 'currentTeamId', 'baseCurrency'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseSources'],
         ],
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
-        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
-
         addEvent: (eventName: string) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
         updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
@@ -57,19 +54,17 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             currencyAwareDecimal,
         }),
 
+        addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
+        deleteGoal: (index: number) => ({ index }),
+        updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
+
+        save: true,
         resetConfig: true,
     }),
     reducers(({ values }) => ({
         revenueAnalyticsConfig: [
             null as RevenueAnalyticsConfig | null,
             {
-                updateBaseCurrency: (state: RevenueAnalyticsConfig | null, { baseCurrency }) => {
-                    if (!state) {
-                        return state
-                    }
-
-                    return { ...state, base_currency: baseCurrency }
-                },
                 addEvent: (state: RevenueAnalyticsConfig | null, { eventName }) => {
                     if (
                         !state ||
@@ -95,7 +90,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: { static: state.base_currency },
+                                revenueCurrencyProperty: { static: values.baseCurrency },
                                 currencyAwareDecimal: false,
                             },
                         ],
@@ -156,31 +151,51 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                         }),
                     }
                 },
+                addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    const goals = sortByDueDate([...state.goals, goal])
+                    return { ...state, goals }
+                },
+                deleteGoal: (state: RevenueAnalyticsConfig | null, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    const goals = sortByDueDate(state.goals.filter((_, i) => i !== index))
+
+                    return { ...state, goals }
+                },
+                updateGoal: (state: RevenueAnalyticsConfig | null, { index, goal }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    const goals = sortByDueDate(state.goals.map((item, i) => (i === index ? goal : item)))
+                    return { ...state, goals }
+                },
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
-                },
-                updateCurrentTeam: (_, { revenue_analytics_config }) => {
-                    // TODO: Check how to pass the preflight region here
-                    return revenue_analytics_config || createEmptyConfig(null)
                 },
             },
         ],
         savedRevenueAnalyticsConfig: [
             // TODO: Check how to pass the preflight region here
-            values.currentTeam?.revenue_analytics_config || createEmptyConfig(null),
+            values.currentTeam?.revenue_analytics_config || createEmptyConfig(),
             {
                 updateCurrentTeam: (_, { revenue_analytics_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_analytics_config || createEmptyConfig(null)
+                    return revenue_analytics_config || createEmptyConfig()
                 },
             },
         ],
     })),
     selectors({
-        baseCurrency: [
+        goals: [
             (s) => [s.revenueAnalyticsConfig],
-            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
-                revenueAnalyticsConfig?.base_currency || CurrencyCode.USD,
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.goals || [],
         ],
 
         events: [
@@ -193,7 +208,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 return !!config && !objectsEqual(config.events, savedConfig.events)
             },
         ],
-
         saveEventsDisabledReason: [
             (s) => [s.revenueAnalyticsConfig, s.changesMadeToEvents],
             (config, changesMade): string | null => {
@@ -253,20 +267,25 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
-        saveChanges: {
-            save: () => {
-                actions.updateCurrentTeam({
-                    revenue_analytics_config:
-                        values.revenueAnalyticsConfig || createEmptyConfig(values.preflight?.region),
-                })
-                return null
-            },
-        },
+    listeners(({ actions, values }) => {
+        const updateCurrentTeam = (): void => {
+            if (values.revenueAnalyticsConfig) {
+                actions.updateCurrentTeam({ revenue_analytics_config: values.revenueAnalyticsConfig })
+            }
+        }
+
+        return {
+            addGoal: updateCurrentTeam,
+            deleteGoal: updateCurrentTeam,
+            updateGoal: updateCurrentTeam,
+            save: updateCurrentTeam,
+        }
+    }),
+    loaders(({ values }) => ({
         revenueAnalyticsConfig: {
             loadRevenueAnalyticsConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.revenue_analytics_config || createEmptyConfig(values.preflight?.region)
+                    return values.currentTeam.revenue_analytics_config || createEmptyConfig()
                 }
                 return null
             },

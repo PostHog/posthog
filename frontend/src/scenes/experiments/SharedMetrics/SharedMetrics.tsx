@@ -1,5 +1,13 @@
 import { IconArrowLeft, IconCopy, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -38,9 +46,14 @@ export function SharedMetrics(): JSX.Element {
                             <>
                                 {stringWithWBR(sharedMetric.name, 17)}
                                 {showLegacyBadge && isLegacySharedMetric(sharedMetric) && (
-                                    <LemonTag type="warning" className="ml-1">
-                                        Legacy
-                                    </LemonTag>
+                                    <Tooltip
+                                        title="This metric uses the legacy engine, so some features and improvements may be missing."
+                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
+                                    >
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    </Tooltip>
                                 )}
                             </>
                         }

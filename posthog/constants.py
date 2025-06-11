@@ -40,6 +40,7 @@ class AvailableFeature(StrEnum):
     ALERTS = "alerts"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
+    ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -303,6 +304,8 @@ class FlagRequestType(StrEnum):
     LOCAL_EVALUATION = "local-evaluation"
     REMOTE_CONFIG = "remote-config"
 
+
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"

@@ -1,6 +1,6 @@
 import { Hub } from '../../types'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 /**
@@ -8,7 +8,6 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
  */
 export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerPlugins'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
     private pluginExecutor: LegacyPluginExecutorService
 
     constructor(hub: Hub) {
@@ -16,10 +15,11 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
     }
 
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
+        const loadedInvocations = await this.loadHogFunctions(invocations)
         // Plugins fire fetch requests and so need to be run in true parallel
         return await Promise.all(
-            invocations.map((item) =>
+            loadedInvocations.map((item) =>
                 this.runInstrumented(
                     'handleEachBatch.executePluginInvocation',
                     async () => await this.pluginExecutor.execute(item)

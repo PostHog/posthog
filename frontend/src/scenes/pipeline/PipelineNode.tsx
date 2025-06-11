@@ -1,17 +1,14 @@
 import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
 import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
 import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { SelfManaged } from 'scenes/pipeline/sources/SelfManaged'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -59,7 +56,6 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
     const { currentTab, node } = useValues(pipelineNodeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
@@ -69,9 +65,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
             ? {
                   [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
                   [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
-                  ...(featureFlags[FEATURE_FLAGS.EDIT_DWH_SOURCE_CONFIG]
-                      ? { [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} /> }
-                      : {}),
+                  [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} />,
               }
             : node.backend !== PipelineBackend.SelfManagedSource
             ? {
@@ -97,7 +91,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     if (node.backend === PipelineBackend.SelfManagedSource) {
-        tabToContent[PipelineNodeTab.SourceConfiguration] = <SelfManaged id={node.id.toString()} />
+        tabToContent[PipelineNodeTab.SourceConfiguration] = <DataPipelinesSelfManagedSource id={node.id.toString()} />
     }
 
     if (node.backend === PipelineBackend.Plugin) {
@@ -123,7 +117,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     return (
         <>
-            <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
                 tabs={Object.entries(tabToContent).map(

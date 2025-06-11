@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 import re
 import structlog
 from typing import Any
@@ -34,25 +33,20 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
-    sparklineConfigs: dict[str, VolumeOptions]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
-        dayRange = DateRange(
-            date_from=(datetime.utcnow() - timedelta(hours=24)).isoformat(),
-            date_to=datetime.utcnow().isoformat(),
-            explicitDate=True,
-        )
-        self.sparklineConfigs = {
-            "volumeDay": VolumeOptions(date_range=dayRange, resolution=self.query.volumeResolution),
-            "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=self.query.volumeResolution),
-        }
+
+        if self.query.withAggregations is None:
+            self.query.withAggregations = True
+
+        if self.query.withFirstEvent is None:
+            self.query.withFirstEvent = True
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -71,40 +65,57 @@ class ErrorTrackingQueryRunner(QueryRunner):
         # First, the easy groups - distinct uuid as occurrances, etc
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
-            ast.Alias(
-                alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
-            ),
-            ast.Alias(
-                alias="sessions",
-                expr=ast.Call(
-                    name="count",
-                    distinct=True,
-                    # the $session_id property can be blank if not set
-                    # we do not want that case counted so cast it to `null` which is excluded by default
-                    args=[
-                        ast.Call(
-                            name="nullIf",
-                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
-                        )
-                    ],
-                ),
-            ),
-            ast.Alias(
-                alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
-            ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
         ]
 
-        for alias, config in self.sparklineConfigs.items():
-            exprs.append(ast.Alias(alias=alias, expr=self.select_sparkline_array(alias, config)))
+        if self.query.withAggregations:
+            volume_option = VolumeOptions(date_range=self.query.dateRange, resolution=self.query.volumeResolution)
+            exprs.extend(
+                [
+                    ast.Alias(
+                        alias="occurrences",
+                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])]),
+                    ),
+                    ast.Alias(
+                        alias="sessions",
+                        expr=ast.Call(
+                            name="count",
+                            distinct=True,
+                            # the $session_id property can be blank if not set
+                            # we do not want that case counted so cast it to `null` which is excluded by default
+                            args=[
+                                ast.Call(
+                                    name="nullIf",
+                                    args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                                )
+                            ],
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="users",
+                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])]),
+                    ),
+                    ast.Alias(alias="volumeRange", expr=self.select_sparkline_array(volume_option)),
+                ]
+            )
 
-        if self.query.issueId:
+        if self.query.withFirstEvent:
             exprs.append(
                 ast.Alias(
-                    alias="earliest",
+                    alias="first_event",
                     expr=ast.Call(
-                        name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]
+                        name="argMin",
+                        args=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Field(chain=["uuid"]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.Field(chain=["properties"]),
+                                ]
+                            ),
+                            ast.Field(chain=["timestamp"]),
+                        ],
                     ),
                 )
             )
@@ -120,7 +131,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return exprs
 
-    def select_sparkline_array(self, alias: str, opts: VolumeOptions):
+    def select_sparkline_array(self, opts: VolumeOptions):
         """
         This function partitions a given time range into segments (or "buckets") based on the specified resolution and then computes the number of events occurring in each segment.
         The resolution determines the total number of segments in the time range.
@@ -401,15 +412,29 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         | {
                             "last_seen": result_dict.get("last_seen"),
                             "library": result_dict.get("library"),
-                            "earliest": result_dict.get("earliest") if self.query.issueId else None,
-                            "aggregations": self.extract_aggregations(result_dict),
+                            "first_event": self.extract_event(result_dict.get("first_event"))
+                            if self.query.withFirstEvent
+                            else None,
+                            "aggregations": self.extract_aggregations(result_dict)
+                            if self.query.withAggregations
+                            else None,
                         }
                     )
 
         return results
 
+    def extract_event(self, event_tuple):
+        if event_tuple is None:
+            return None
+        else:
+            return {
+                "uuid": str(event_tuple[0]),
+                "timestamp": str(event_tuple[1]),
+                "properties": event_tuple[2],
+            }
+
     def extract_aggregations(self, result):
-        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeRange")}
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeRange")}
         return aggregations
 
     @property

@@ -15,8 +15,11 @@ import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/
 import { ExceptionCard } from './components/ExceptionCard'
 import { GenericSelect } from './components/GenericSelect'
 import { IssueStatus, StatusIndicator } from './components/Indicator'
+import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
+import { ISSUE_STATUS_OPTIONS } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -25,6 +28,7 @@ export const scene: SceneExport = {
         params: { id },
         searchParams: { fingerprint },
     }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
+    settingSectionId: 'environment-error-tracking',
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
@@ -36,8 +40,11 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoading, selectedEvent, firstSeenEventLoading } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const tagRenderer = useErrorTagRenderer()
 
     useEffect(() => {
         loadIssue()
@@ -49,7 +56,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-x-2">
                         {!issueLoading && issue?.status === 'active' && (
-                            <AssigneeSelect assignee={issue?.assignee} onChange={updateAssignee}>
+                            <AssigneeSelect
+                                assignee={issue?.assignee}
+                                onChange={(assignee) => updateIssueAssignee(issueId, assignee)}
+                            >
                                 {(displayAssignee) => (
                                     <LemonButton
                                         type="secondary"
@@ -64,12 +74,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             <GenericSelect
                                 size="small"
                                 current={issue?.status}
-                                values={['active', 'resolved', 'suppressed']}
+                                values={ISSUE_STATUS_OPTIONS}
                                 placeholder="Mark as"
                                 renderValue={(value) => (
                                     <StatusIndicator status={value as IssueStatus} size="small" withTooltip={true} />
                                 )}
-                                onChange={updateStatus}
+                                onChange={(status) => updateIssueStatus(issueId, status)}
                             />
                         )}
                     </div>
@@ -79,8 +89,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <ExceptionCard
                     issue={issue ?? undefined}
                     issueLoading={issueLoading}
-                    properties={properties ?? undefined}
-                    propertiesLoading={propertiesLoading}
+                    event={selectedEvent ?? undefined}
+                    eventLoading={firstSeenEventLoading}
+                    label={tagRenderer(selectedEvent)}
                 />
                 <ErrorFilters.Root>
                     <ErrorFilters.DateRange />

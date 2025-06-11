@@ -12,12 +12,14 @@ SubTemplateId = Literal[
     "activity-log",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "insight-alert-firing",
 ]
 
 
 HogFunctionTemplateType = Literal[
     "destination",
     "internal_destination",
+    "source_webhook",
     "site_destination",
     "site_app",
     "transformation",
@@ -53,7 +55,7 @@ class HogFunctionMappingTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "deprecated"]
+    status: Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"]
     free: bool
     type: HogFunctionTemplateType
     id: str

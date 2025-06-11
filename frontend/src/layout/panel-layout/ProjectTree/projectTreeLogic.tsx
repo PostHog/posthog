@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -23,6 +23,7 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
+    splitProtocolPath,
 } from './utils'
 
 export type ProjectTreeSortMethod = 'folder' | 'recent'
@@ -69,6 +70,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'loadingPaths',
                 'lastNewFolder',
                 'getStaticTreeItems',
+                'shortcutData',
             ],
         ],
         actions: [
@@ -338,7 +340,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         expandedSearchFolders: [
-            ['/', 'project://Unfiled'] as string[],
+            ['/', 'project://', 'project://Unfiled'] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
                 loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {
@@ -399,7 +401,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         sortMethod: [
-            'alphabetical' as ProjectTreeSortMethod,
+            'folder' as ProjectTreeSortMethod,
             {
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },
@@ -435,10 +437,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
+                    imports: viableItems.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     users,
                     disabledReason: onlyFolders
                         ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
@@ -451,10 +453,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
             (recentResults, recentResultsLoading, folderStates, checkedItems, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: recentResults.results,
+                    imports: recentResults.results.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     disableFolderSelect: true,
                     recent: true,
                     users,
@@ -463,6 +465,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `recent-loading/`,
                         name: 'Loading...',
+                        displayName: <>Loading...</>,
                         icon: <Spinner />,
                         disableSelect: true,
                         type: 'loading-indicator',
@@ -471,6 +474,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `recent-load-more/`,
                         name: 'Load more...',
+                        displayName: <>Load more...</>,
                         icon: <IconPlus />,
                         disableSelect: true,
                         onClick: () => projectTreeLogic.actions.loadRecentResults('end'),
@@ -499,10 +503,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 users
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: searchResults.results,
+                    imports: searchResults.results.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
@@ -515,6 +519,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `search-loading/`,
                         name: 'Loading...',
+                        displayName: <>Loading...</>,
                         icon: <Spinner />,
                         disableSelect: true,
                         type: 'loading-indicator',
@@ -523,6 +528,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     results.push({
                         id: `search-load-more/${searchResults.searchTerm}`,
                         name: 'Load more...',
+                        displayName: <>Load more...</>,
                         icon: <IconPlus />,
                         disableSelect: true,
                         onClick: () =>
@@ -595,7 +601,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         id: 'project://',
                         name: 'project://',
                         displayName: <>Project</>,
-                        record: { type: 'folder', path: '' },
+                        record: { type: 'folder', protocol: 'project://', path: '' },
                         children: searchTerm
                             ? searchResultsLoading && searchTreeItems.length === 0
                                 ? folderLoading
@@ -624,7 +630,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (rootWithProtocol) {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
-                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    const firstFolder = fullFileSystem.find((item) => item.id === protocol)
                     if (firstFolder) {
                         if (ref) {
                             const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
@@ -656,7 +662,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 // no client side filtering under project://
-                if (!searchTerm || root.startsWith('project://')) {
+                if (!searchTerm || !root || root.startsWith('project://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()
@@ -1063,6 +1069,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         loadFolderIfNotLoaded: ({ folderId }) => {
+            if (folderId.startsWith('shortcuts://')) {
+                const [, path] = splitProtocolPath(folderId)
+                const firstFolder = splitPath(path)[0]
+
+                const shortcut = values.shortcutData.find((s) => s.path === firstFolder && s.type === 'folder')
+                if (shortcut?.ref) {
+                    actions.loadFolderIfNotLoaded('project://' + shortcut.ref)
+                }
+            }
+
             if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
                 const folder = findInProjectTree(folderId, values.projectTree)
                 if (folder) {
@@ -1175,6 +1191,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }
         if (typeof props.defaultSortMethod !== 'undefined') {
             actions.setSortMethod(props.defaultSortMethod)
+        }
+    }),
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.root !== oldProps.root) {
+            const expandedFolders = values.expandedFolders.filter((f) => f !== oldProps.root)
+            if (props.root) {
+                expandedFolders.push(props.root)
+            }
+            actions.setExpandedFolders(expandedFolders)
+            if (props.root) {
+                actions.loadFolderIfNotLoaded(props.root)
+            }
         }
     }),
 ])

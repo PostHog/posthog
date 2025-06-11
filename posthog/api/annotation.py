@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from django.db.models import Q, QuerySet
@@ -33,6 +34,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
+            "recording_id",
         ]
         read_only_fields = [
             "id",
@@ -83,8 +85,41 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             queryset = queryset.order_by("-date_marker")
         if self.action != "partial_update":
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
-            # That's becasue annotations are restored with a PATCH request setting `deleted` to `False`
+            # That's because annotations are restored with a PATCH request setting `deleted` to `False`
             queryset = queryset.filter(deleted=False)
+
+        scope = self.request.query_params.get("scope")
+        if scope:
+            # let's allow the more recently used "insight" scope to be used as "dashboard_item"
+            scope = "dashboard_item" if scope == "insight" else scope
+            if scope not in [scope.value for scope in Annotation.Scope]:
+                raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+            queryset = queryset.filter(scope=scope)
+
+        # Add date range filtering
+        date_from = self.request.query_params.get("date_from")
+        date_to = self.request.query_params.get("date_to")
+
+        date_from_parsed = None
+        date_to_parsed = None
+
+        if date_from:
+            try:
+                date_from_parsed = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+                queryset = queryset.filter(date_marker__gte=date_from_parsed)
+            except ValueError:
+                raise serializers.ValidationError("Invalid date range: date_from must be a valid ISO 8601 date")
+
+        if date_to:
+            try:
+                date_to_parsed = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+                queryset = queryset.filter(date_marker__lte=date_to_parsed)
+            except ValueError:
+                raise serializers.ValidationError("Invalid date range: date_to must be a valid ISO 8601 date")
+
+        if date_from_parsed and date_to_parsed and date_from_parsed > date_to_parsed:
+            raise serializers.ValidationError("Invalid date range: date_from must be before date_to")
 
         return queryset
 

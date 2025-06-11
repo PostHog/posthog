@@ -134,6 +134,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         orderBy=None,
         status=None,
         volumeResolution=1,
+        withAggregations=False,
+        withFirstEvent=False,
     ):
         return (
             ErrorTrackingQueryRunner(
@@ -149,6 +151,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     orderBy=orderBy,
                     status=status,
                     volumeResolution=volumeResolution,
+                    withFirstEvent=withFirstEvent,
+                    withAggregations=withAggregations,
                 ),
             )
             .calculate()
@@ -163,30 +167,51 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             columns,
             [
                 "id",
+                "last_seen",
+                "first_seen",
+                "library",
+            ],
+        )
+
+        columns = self._calculate(withAggregations=True)["columns"]
+        self.assertEqual(
+            columns,
+            [
+                "id",
+                "last_seen",
+                "first_seen",
                 "occurrences",
                 "sessions",
                 "users",
-                "last_seen",
-                "first_seen",
-                "volumeDay",
                 "volumeRange",
                 "library",
             ],
         )
 
-        columns = self._calculate(issueId=self.issue_id_one)["columns"]
+        columns = self._calculate(withFirstEvent=True)["columns"]
         self.assertEqual(
             columns,
             [
                 "id",
+                "last_seen",
+                "first_seen",
+                "first_event",
+                "library",
+            ],
+        )
+
+        columns = self._calculate(issueId=self.issue_id_one, withAggregations=True, withFirstEvent=True)["columns"]
+        self.assertEqual(
+            columns,
+            [
+                "id",
+                "last_seen",
+                "first_seen",
                 "occurrences",
                 "sessions",
                 "users",
-                "last_seen",
-                "first_seen",
-                "volumeDay",
                 "volumeRange",
-                "earliest",
+                "first_event",
                 "library",
             ],
         )
@@ -194,7 +219,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
-        results = self._calculate(issueId=self.issue_id_one)["results"]
+        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
         # returns a single group with multiple errors
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], self.issue_id_one)
@@ -231,6 +256,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"),
                 filterTestAccounts=True,
                 searchQuery="databasenot",
+                withAggregations=True,
             )["results"],
             key=lambda x: x["id"],
         )
@@ -279,7 +305,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         results = self._calculate(
-            filterTestAccounts=True, searchQuery="databasenotfoundX clickhouse/client/execute.py"
+            filterTestAccounts=True, searchQuery="databasenotfoundX clickhouse/client/execute.py", withAggregations=True
         )["results"]
 
         self.assertEqual(len(results), 1)
@@ -326,7 +352,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        results = self._calculate(issueId=self.issue_id_one)["results"]
+        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
         self.assertEqual(results[0]["id"], self.issue_id_one)
         # only includes valid session ids
         self.assertEqual(results[0]["aggregations"]["sessions"], 2)
@@ -384,7 +410,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
-        results = self._calculate(orderBy="occurrences")["results"]
+        results = self._calculate(withAggregations=True, orderBy="occurrences")["results"]
         self.assertEqual(len(results), 2)
 
         # count is (2 x issue_one) + (1 x issue_three)
@@ -449,19 +475,17 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_volume_aggregation_simple(self):
         results = self._calculate(
-            volumeResolution=3, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11")
+            volumeResolution=3, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"), withAggregations=True
         )["results"]
         self.assertEqual(len(results), 3)
 
         ## Make sure resolution is correct
         for result in results:
             aggregations = result["aggregations"]
-            self.assertEqual(len(aggregations["volumeDay"]), 3)
             self.assertEqual(len(aggregations["volumeRange"]), 3)
 
         ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
-        self.assertEqual(first_aggregations["volumeDay"], [0, 0, 0])  # Should not appear in the last 24hours
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
 
     @freeze_time("2025-05-05")
@@ -488,21 +512,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         results = self._calculate(
-            volumeResolution=4, issueId=issue_id, dateRange=DateRange(date_from="2025-05-04", date_to="2025-05-06")
+            volumeResolution=4,
+            issueId=issue_id,
+            dateRange=DateRange(date_from="2025-05-04", date_to="2025-05-06"),
+            withAggregations=True,
         )["results"]
         self.assertEqual(len(results), 1)
 
         ## Make sure resolution is correct
         for result in results:
             aggregations = result["aggregations"]
-            self.assertEqual(len(aggregations["volumeDay"]), 4)
             self.assertEqual(len(aggregations["volumeRange"]), 4)
 
         ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
-        self.assertEqual(first_aggregations["volumeDay"], [30.0, 30.0, 30.0, 30.0])
 
 
 class TestSearchTokenizer(TestCase):

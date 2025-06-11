@@ -1,13 +1,14 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' | 'Games' | 'Shortcuts' | 'Data management'
+export type PanelLayoutNavIdentifier = 'Project' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'Data'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
+export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
@@ -27,6 +28,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setVisibleSideAction: (sideAction: string) => ({ sideAction }),
         setPanelWidth: (width: number) => ({ width }),
+        setPanelIsResizing: (isResizing: boolean) => ({ isResizing }),
+        setPanelWillHide: (willHide: boolean) => ({ willHide }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -63,11 +66,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true },
             {
                 showLayoutPanel: (_, { visible }) => visible,
-                toggleLayoutPanelPinned: (_, { pinned }) => pinned || _,
             },
         ],
         isLayoutPanelPinned: [
-            true,
+            false,
             { persist: true },
             {
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,
@@ -113,7 +115,30 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setPanelWidth: (_, { width }) => width,
             },
         ],
+        panelIsResizing: [
+            false,
+            {
+                setPanelIsResizing: (_, { isResizing }) => isResizing,
+            },
+        ],
+        panelWillHide: [
+            false,
+            {
+                showLayoutPanel: (state, { visible }) => (visible ? false : state),
+                setPanelWidth: (_, { width }) => width <= PANEL_LAYOUT_MIN_WIDTH - 1,
+            },
+        ],
     }),
+    listeners(({ actions, values }) => ({
+        setPanelIsResizing: ({ isResizing }) => {
+            // If we're not resizing and the panel is at or below the minimum width, hide it
+            if (!isResizing && values.panelWidth <= PANEL_LAYOUT_MIN_WIDTH - 1) {
+                actions.showLayoutPanel(false)
+                actions.clearActivePanelIdentifier()
+                actions.setPanelWidth(PANEL_LAYOUT_MIN_WIDTH)
+            }
+        },
+    })),
     selectors({
         isLayoutNavCollapsed: [
             (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],

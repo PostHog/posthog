@@ -14,8 +14,8 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-import ts from 'typescript'
 import { cloneNode } from 'ts-clone-node'
+import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -564,9 +564,8 @@ export function gatherProductManifests(__dirname) {
     const fileSystemTypes = []
     const treeItemsNew = {}
     const treeItemsGames = {}
-    const treeItemsDataManagement = {}
+    const treeItemsMetadata = {}
     const treeItemsProducts = {}
-    const fileSystemFilterTypes = []
 
     const sourceFiles = []
     for (const product of products) {
@@ -655,10 +654,6 @@ export function gatherProductManifests(__dirname) {
                     for (const property of node.initializer.properties) {
                         fileSystemTypes.push(cloneNode(property))
                     }
-                } else if (node.name.text === 'fileSystemFilterTypes') {
-                    for (const property of node.initializer.properties) {
-                        fileSystemFilterTypes.push(cloneNode(property))
-                    }
                 } else {
                     ts.forEachChild(node, visit)
                 }
@@ -681,7 +676,9 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsDataManagement' || node.name.text === 'treeItemsGames')
+                (node.name.text === 'treeItemsProducts' ||
+                    node.name.text === 'treeItemsMetadata' ||
+                    node.name.text === 'treeItemsGames')
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
@@ -690,8 +687,8 @@ export function gatherProductManifests(__dirname) {
                         if (path) {
                             if (node.name.text === 'treeItemsProducts') {
                                 treeItemsProducts[path] = cloneNode(element)
-                            } else if (node.name.text === 'treeItemsDataManagement') {
-                                treeItemsDataManagement[path] = cloneNode(element)
+                            } else if (node.name.text === 'treeItemsMetadata') {
+                                treeItemsMetadata[path] = cloneNode(element)
                             } else {
                                 treeItemsGames[path] = cloneNode(element)
                             }
@@ -770,18 +767,13 @@ export function gatherProductManifests(__dirname) {
         ),
         sourceFile
     )
-    const manifestTreeItemsDataManagement = printer.printNode(
+    const manifestTreeItemsMetadata = printer.printNode(
         ts.EmitHint.Unspecified,
         ts.factory.createArrayLiteralExpression(
-            Object.keys(treeItemsDataManagement)
+            Object.keys(treeItemsMetadata)
                 .sort()
-                .map((key) => treeItemsDataManagement[key])
+                .map((key) => treeItemsMetadata[key])
         ),
-        sourceFile
-    )
-    const manifestTreeFilterTypes = printer.printNode(
-        ts.EmitHint.Unspecified,
-        ts.factory.createObjectLiteralExpression(fileSystemFilterTypes),
         sourceFile
     )
 
@@ -825,9 +817,7 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const getTreeItemsGames = (): FileSystemImport[] => ${manifestTreeItemsGames}\n
         ${autogenComment}
-        export const getTreeItemsDataManagement = (): FileSystemImport[] => ${manifestTreeItemsDataManagement}\n
-        ${autogenComment}
-        export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
+        export const getTreeItemsMetadata = (): FileSystemImport[] => ${manifestTreeItemsMetadata}\n
     `
 
     // safe temporary path in /tmp
