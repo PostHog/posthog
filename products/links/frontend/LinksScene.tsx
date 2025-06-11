@@ -118,7 +118,6 @@ export function LinksScene(): JSX.Element {
                         Create link
                     </LemonButton>
                 }
-                delimited
             />
 
             <ProductIntroduction
