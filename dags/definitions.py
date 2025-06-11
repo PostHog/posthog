@@ -18,6 +18,7 @@ from dags import (
     property_definitions,
     slack_alerts,
     symbol_set_cleanup,
+    web_data_quality_checks,
     web_preaggregated_daily,
     web_preaggregated_ddl,
     web_preaggregated_hourly,
@@ -69,6 +70,13 @@ defs = dagster.Definitions(
         web_preaggregated_hourly.web_stats_hourly,
         web_preaggregated_hourly.web_bounces_hourly,
     ],
+    asset_checks=[
+        web_data_quality_checks.web_analytics_accuracy_check,
+        web_data_quality_checks.bounces_hourly_has_data,
+        web_data_quality_checks.stats_hourly_has_data,
+        web_preaggregated_hourly.bounces_hourly_has_data_colocated,
+        web_preaggregated_hourly.stats_hourly_has_data_colocated,
+    ],
     jobs=[
         deletes.deletes_job,
         exchange_rate.daily_exchange_rates_job,
@@ -83,6 +91,8 @@ defs = dagster.Definitions(
         backups.non_sharded_backup,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
+        web_data_quality_checks.web_analytics_data_quality_job,
+        web_data_quality_checks.simple_data_checks_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -97,10 +107,12 @@ defs = dagster.Definitions(
         symbol_set_cleanup.daily_symbol_set_cleanup_schedule,
         web_preaggregated_daily.web_pre_aggregate_daily_schedule,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
+        web_data_quality_checks.web_analytics_weekly_data_quality_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
         slack_alerts.notify_slack_on_failure,
+        web_data_quality_checks.web_analytics_data_quality_sensor,
         *job_status_metrics_sensors,
     ],
     resources=resources,

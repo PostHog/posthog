@@ -2,7 +2,7 @@ from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
 
 import dagster
-from dagster import Field
+from dagster import Field, asset_check, AssetCheckResult, MetadataValue
 from dags.common import JobOwners
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
@@ -150,3 +150,68 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
             }
         },
     )
+
+
+# Simple asset checks co-located with the assets
+@asset_check(
+    asset=web_bounces_hourly,
+    name="bounces_hourly_has_data_colocated",
+    description="Check if web_bounces_hourly table has data (co-located check)",
+)
+def bounces_hourly_has_data_colocated() -> AssetCheckResult:
+    """
+    Simple co-located asset check to verify the web_bounces_hourly table has data.
+    """
+    try:
+        result = sync_execute("SELECT COUNT(*) FROM web_bounces_hourly LIMIT 1")
+        row_count = result[0][0] if result and result[0] else 0
+        
+        passed = row_count > 0
+        
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Table has {row_count} rows" if passed else "Table is empty",
+            metadata={
+                "row_count": MetadataValue.int(row_count),
+                "table_name": MetadataValue.text("web_bounces_hourly"),
+                "co_located": MetadataValue.bool(True)
+            }
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False,
+            description=f"Error checking table: {str(e)}",
+            metadata={"error": MetadataValue.text(str(e))}
+        )
+
+
+@asset_check(
+    asset=web_stats_hourly,
+    name="stats_hourly_has_data_colocated", 
+    description="Check if web_stats_hourly table has data (co-located check)",
+)
+def stats_hourly_has_data_colocated() -> AssetCheckResult:
+    """
+    Simple co-located asset check to verify the web_stats_hourly table has data.
+    """
+    try:
+        result = sync_execute("SELECT COUNT(*) FROM web_stats_hourly LIMIT 1")
+        row_count = result[0][0] if result and result[0] else 0
+        
+        passed = row_count > 0
+        
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Table has {row_count} rows" if passed else "Table is empty",
+            metadata={
+                "row_count": MetadataValue.int(row_count),
+                "table_name": MetadataValue.text("web_stats_hourly"),
+                "co_located": MetadataValue.bool(True)
+            }
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False,
+            description=f"Error checking table: {str(e)}",
+            metadata={"error": MetadataValue.text(str(e))}
+        )
