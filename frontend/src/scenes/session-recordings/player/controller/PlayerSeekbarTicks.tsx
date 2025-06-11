@@ -1,9 +1,10 @@
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import { memo, MutableRefObject } from 'react'
+import React, { memo, MutableRefObject } from 'react'
 import {
     InspectorListItem,
     InspectorListItemComment,
@@ -76,7 +77,19 @@ function PlayerSeekbarTick({
                     ) : isNotebookComment(item) ? (
                         item.data.comment
                     ) : (
-                        item.data.content
+                        <div className="flex flex-col px-4 py-2 gap-y-2">
+                            <div>{item.data.content}</div>
+                            <ProfilePicture
+                                user={
+                                    item.data.creation_type === 'GIT'
+                                        ? { first_name: 'GitHub automation' }
+                                        : item.data.created_by
+                                }
+                                showName
+                                size="md"
+                                type={item.data.creation_type === 'GIT' ? 'bot' : 'person'}
+                            />{' '}
+                        </div>
                     )
                 }
             >

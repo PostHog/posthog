@@ -92,11 +92,13 @@ function FilterSettingsButton({
     icon,
     disabledReason,
     upsellSideAction,
+    label,
 }: {
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
     upsellSideAction?: SideAction
+    label?: string
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByMiniFilterKey, allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
@@ -120,7 +122,7 @@ function FilterSettingsButton({
                       })
                     : undefined
             }
-            label={capitalizeFirstLetter(type)}
+            label={label || capitalizeFirstLetter(type)}
             icon={icon}
             onClick={() => {
                 setMiniFilters(filterKeys, !isEnabled)
@@ -258,6 +260,7 @@ function CommentsFilterSettingsButton(): JSX.Element {
             disabledReason={!hasCommentItems ? 'There are no comments in this recording' : undefined}
             // there is no event upsell currently
             upsellSideAction={undefined}
+            label="Comments"
         />
     )
 }

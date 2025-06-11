@@ -877,7 +877,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
                     miniFiltersByKey: Object.entries(miniFiltersByKey).reduce((acc, [key, value]) => {
-                        if (['events', 'comment'].includes(key as FilterableInspectorListItemTypes)) {
+                        if (key.startsWith('events') || key.startsWith('comment')) {
                             acc[key] = value
                         }
                         return acc
@@ -895,7 +895,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (item.type === 'comment') {
-                            return !allowMatchingEventsFilter
+                            return true
                         }
 
                         return false

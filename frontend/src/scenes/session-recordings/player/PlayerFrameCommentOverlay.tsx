@@ -33,14 +33,14 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     enableFormOnSubmit
                     className="gap-y-2"
                 >
-                    <div className="flex flex-row gap-2">
+                    <div className="flex flex-col gap-2">
                         <LemonField name="annotationId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
-                        <LemonField name="timeInRecording" label={<span>Comment at</span>} className="flex-1">
+                        <LemonField name="timeInRecording" label={<span>Comment at</span>} inline={true}>
                             <LemonInput disabled={true} />
                         </LemonField>
-                        <LemonField name="scope" label="Scope" className="flex-1">
+                        <LemonField name="scope" label="Scope" inline={true} className="justify-between">
                             <LemonSelect
                                 options={[
                                     {
@@ -56,7 +56,6 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                                         label: 'Organization',
                                     },
                                 ]}
-                                fullWidth
                             />
                         </LemonField>
                     </div>
