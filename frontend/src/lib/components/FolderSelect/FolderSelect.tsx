@@ -139,7 +139,7 @@ export function FolderSelect({
                 value={searchTerm}
                 data-attr="folder-select-search-input"
                 autoFocus
-                ref={inputRef}
+                inputRef={inputRef}
                 onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
                         e.preventDefault() // Prevent scrolling
