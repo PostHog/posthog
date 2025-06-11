@@ -235,7 +235,6 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         action, observation = state_update.intermediate_steps[0]
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
-        self.assertIn("<pydantic_exception>", observation)
 
     def test_node_handles_action_input_validation_error_dict(self):
         state = AssistantState(
