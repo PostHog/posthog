@@ -11,7 +11,6 @@ from ee.session_recordings.session_summary.output_data import (
 )
 from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValidationError
 from prometheus_client import Histogram
-from tenacity import RetryCallState
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -46,16 +45,6 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
         float("inf"),
     ],
 )
-
-
-def _failed_stream_llm_summary(
-    retry_state: RetryCallState,
-) -> None:
-    logger.exception(
-        f"Couldn't generate session summary through LLM with {retry_state.attempt_number} attempts "
-        f"({round(retry_state.idle_for, 2)}s). Raising an exception."
-    )
-    raise Exception("Couldn't generate session summary through LLM")
 
 
 def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session_id: str) -> str:
