@@ -21,6 +21,8 @@ export interface OpenSaveToProps {
     cancelCallback?: () => void
 }
 
+export type SelectedFolder = string
+
 export const saveToLogic = kea<saveToLogicType>([
     path(['lib', 'components', 'SaveTo', 'saveToLogic']),
     props({} as SaveToLogicProps),
@@ -32,6 +34,9 @@ export const saveToLogic = kea<saveToLogicType>([
         openSaveToModal: (props: OpenSaveToProps) => props,
         closeSaveToModal: true,
         closedSaveToModal: true,
+        addSelectedFolder: (folder: SelectedFolder) => ({ folder }),
+        removeSelectedFolder: (folderValue: string) => ({ folderValue }),
+        clearSelectedFolders: true,
     }),
     reducers({
         isOpen: [
@@ -53,6 +58,21 @@ export const saveToLogic = kea<saveToLogicType>([
             {
                 openSaveToModal: (_, { cancelCallback }) => cancelCallback ?? null,
                 closedSaveToModal: () => null,
+            },
+        ],
+        selectedFolders: [
+            [] as SelectedFolder[],
+            { persist: true },
+            {
+                addSelectedFolder: (state, { folder }) => {
+                    // Check if folder already exists to avoid duplicates
+                    if (state.some((f) => f === folder)) {
+                        return state
+                    }
+                    return [...state, folder]
+                },
+                removeSelectedFolder: (state, { folderValue }) => state.filter((folder) => folder !== folderValue),
+                clearSelectedFolders: () => [],
             },
         ],
     }),
