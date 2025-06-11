@@ -839,11 +839,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     .map((conversionGoal, index) => {
                         const propertyName = conversionGoal.type === EntityTypes.EVENTS ? 'properties.' : ''
                         // Sanitize the CTE name to be a valid SQL identifier
-                        const safeCTEName = `cg_${index}_${conversionGoal.conversion_goal_name}`.replace(
-                            /[^a-zA-Z0-9_]/g,
-                            '_'
-                        )
-                        return `${safeCTEName} AS (
+                        const cteName = getConversionGoalCTEName(index, conversionGoal)
+                        return `${cteName} AS (
                         SELECT 
                             ${propertyName}${conversionGoal.schema.utm_campaign_name} as campaign_name,
                             ${propertyName}${conversionGoal.schema.utm_source_name} as source_name,
@@ -855,7 +852,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 ? conversionGoal.name
                                 : 'TBD'
                         } 
-                        WHERE ${conversionGoal.type === EntityTypes.EVENTS ? `event = '${conversionGoal.id}'` : '1=1'}
+                        WHERE ${
+                            conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id
+                                ? `event = '${conversionGoal.id}'`
+                                : '1=1'
+                        }
                             AND campaign_name IS NOT NULL
                             AND campaign_name != ''
                             AND source_name IS NOT NULL
@@ -874,11 +875,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     conversionGoals.length > 0
                         ? conversionGoals
                               .map((conversionGoal, index) => {
-                                  const safeCTEName = `cg_${index}_${conversionGoal.conversion_goal_name}`.replace(
-                                      /[^a-zA-Z0-9_]/g,
-                                      '_'
-                                  )
-                                  return `LEFT JOIN ${safeCTEName} cg_${index} ON cc.campaignname = cg_${index}.campaign_name AND cc.source_name = cg_${index}.source_name`
+                                  const cteName = getConversionGoalCTEName(index, conversionGoal)
+                                  return `LEFT JOIN ${cteName} cg_${index} ON cc.campaignname = cg_${index}.campaign_name AND cc.source_name = cg_${index}.source_name`
                               })
                               .join('\n                    ')
                         : ''
@@ -3032,4 +3030,8 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     } else {
         setConversionGoalWarning(null)
     }
+}
+
+const getConversionGoalCTEName = (index: number, conversionGoal: ConversionGoalFilter): string => {
+    return `cg_${index}_${conversionGoal.conversion_goal_name}`.replace(/[^a-zA-Z0-9_]/g, '_')
 }

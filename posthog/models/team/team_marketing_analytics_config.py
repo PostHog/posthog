@@ -43,16 +43,16 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             raise ValidationError(f"Conversion goal must be a dictionary, got {type(goal)}")
         if not isinstance(goal.get("name"), str):
             raise ValidationError(f"Conversion goal name must be a string, got {type(goal.get('name'))}")
-        if not isinstance(goal.get("id"), str) and not isinstance(goal.get("id"), int):
+        if goal.get("id") and not isinstance(goal.get("id"), str) and not isinstance(goal.get("id"), int):
             raise ValidationError(f"Conversion goal id must be a string or integer, got {type(goal.get('id'))}")
         if not isinstance(goal.get("type"), str):
             raise ValidationError(f"Conversion goal type must be a string, got {type(goal.get('type'))}")
         if goal.get("type") == "events":
-            if not isinstance(goal.get("id"), str):
+            if goal.get("id") and not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")
         # TODO: in the future we will allow actions to be selected as conversion goals
         # elif goal.get("type") == "actions":
-        #     if not isinstance(goal.get("id"), int):
+        #     if goal.get("id") and not isinstance(goal.get("id"), int):
         #         raise ValidationError(f"Conversion goal id must be an integer, got {type(goal.get('id'))}")
         elif goal.get("type") == "data_warehouse":
             if not isinstance(goal.get("id"), str):
@@ -134,7 +134,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         try:
             validate_conversion_goals(value)
             self._conversion_goals = value
-        except Exception as e:
+        except ValidationError as e:
             raise ValidationError(f"Invalid conversion goals schema: {str(e)}")
 
 

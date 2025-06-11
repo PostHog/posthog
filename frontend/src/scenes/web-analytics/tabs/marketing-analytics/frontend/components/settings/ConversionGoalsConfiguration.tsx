@@ -33,26 +33,19 @@ const createEmptyFormState = (): ConversionGoalFormState => ({
 
 export function ConversionGoalsConfiguration(): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    const { addConversionGoal, updateConversionGoal, removeConversionGoal } = useActions(
-        marketingAnalyticsSettingsLogic
-    )
+    const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
 
     const handleAddConversionGoal = (): void => {
-        if (!formState.filter.id || !formState.name.trim()) {
-            alert('Please select an event/action and provide a name')
-            return
-        }
-
         const newGoal: ConversionGoalFilter = {
             ...formState.filter,
             conversion_goal_id: formState.filter.conversion_goal_id || uuid(),
             conversion_goal_name: formState.name.trim(),
         }
 
-        addConversionGoal(newGoal)
+        addOrUpdateConversionGoal(newGoal)
         setFormState(createEmptyFormState())
     }
 
@@ -63,7 +56,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
     const handleSaveEdit = (): void => {
         if (editingGoal) {
-            updateConversionGoal(editingGoal)
+            addOrUpdateConversionGoal(editingGoal)
         }
         setEditingGoalId(null)
         setEditingGoal(null)
@@ -78,7 +71,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
         removeConversionGoal(goalId)
     }
 
-    const isFormValid = formState.filter.id !== null && formState.name.trim() !== ''
+    const isFormValid = formState.name.trim() !== '' && formState.filter.name
 
     return (
         <div className="space-y-6">
@@ -181,24 +174,12 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         {
                             key: 'schema',
                             title: 'Schema Mapping',
-                            render: (_, goal: ConversionGoalFilter) => {
-                                if (goal.type === EntityTypes.DATA_WAREHOUSE && goal.schema) {
-                                    return (
-                                        <div className="text-xs text-muted">
-                                            <div>Campaign: {goal.schema.utm_campaign_name}</div>
-                                            <div>Source: {goal.schema.utm_source_name}</div>
-                                        </div>
-                                    )
-                                } else if (goal.type === EntityTypes.EVENTS && goal.schema) {
-                                    return (
-                                        <div className="text-xs text-muted">
-                                            <div>Campaign: {goal.schema.utm_campaign_name}</div>
-                                            <div>Source: {goal.schema.utm_source_name}</div>
-                                        </div>
-                                    )
-                                }
-                                return '-'
-                            },
+                            render: (_, goal: ConversionGoalFilter) => (
+                                <div className="text-xs text-muted">
+                                    <div>Campaign: {goal.schema.utm_campaign_name}</div>
+                                    <div>Source: {goal.schema.utm_source_name}</div>
+                                </div>
+                            ),
                         },
                         {
                             key: 'actions',

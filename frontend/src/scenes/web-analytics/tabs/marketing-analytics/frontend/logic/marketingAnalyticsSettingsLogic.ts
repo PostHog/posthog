@@ -27,13 +27,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         updateConversionGoals: (conversionGoals: ConversionGoalFilter[]) => ({
             conversionGoals,
         }),
-        addConversionGoal: (conversionGoal: ConversionGoalFilter) => ({
+        addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => ({
             conversionGoal,
         }),
-        updateConversionGoal: (conversionGoal: ConversionGoalFilter) => ({
-            conversionGoal,
-        }),
-        removeConversionGoal: (goalId: string | number) => ({
+        removeConversionGoal: (goalId: string) => ({
             goalId,
         }),
     }),
@@ -47,7 +44,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, conversion_goals: conversionGoals }
                 },
-                addConversionGoal: (state: MarketingAnalyticsConfig | null, { conversionGoal }) => {
+                addOrUpdateConversionGoal: (state: MarketingAnalyticsConfig | null, { conversionGoal }) => {
                     if (!state) {
                         return state
                     }
@@ -67,25 +64,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     // Goal doesn't exist, add it
                     return { ...state, conversion_goals: [...currentGoals, conversionGoal] }
-                },
-                updateConversionGoal: (state: MarketingAnalyticsConfig | null, { conversionGoal }) => {
-                    if (!state) {
-                        return state
-                    }
-
-                    const currentGoals = state.conversion_goals || []
-                    const existingGoalIndex = currentGoals.findIndex(
-                        (goal) => goal.conversion_goal_id === conversionGoal.conversion_goal_id
-                    )
-
-                    if (existingGoalIndex !== -1) {
-                        const updatedGoals = [...currentGoals]
-                        updatedGoals[existingGoalIndex] = conversionGoal
-                        return { ...state, conversion_goals: updatedGoals }
-                    }
-
-                    // If goal doesn't exist, return state unchanged
-                    return state
                 },
                 removeConversionGoal: (state: MarketingAnalyticsConfig | null, { goalId }) => {
                     if (!state) {
@@ -155,8 +133,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         return {
             updateSourceMapping: updateCurrentTeam,
             updateConversionGoals: updateCurrentTeam,
-            addConversionGoal: updateCurrentTeam,
-            updateConversionGoal: updateCurrentTeam,
+            addOrUpdateConversionGoal: updateCurrentTeam,
             removeConversionGoal: updateCurrentTeam,
         }
     }),

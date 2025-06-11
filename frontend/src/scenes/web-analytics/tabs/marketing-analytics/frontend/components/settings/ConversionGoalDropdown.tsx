@@ -4,18 +4,11 @@ import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/compone
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { uuid } from 'lib/utils'
 import { useState } from 'react'
+import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, EntityType, EntityTypes } from '~/types'
-
-// Local filter type that matches what TaxonomicPopover expects
-type LocalFilter = ActionFilter & {
-    order: number
-    uuid: string
-    table_name?: string
-    [key: string]: any
-}
 
 export function taxonomicFilterGroupTypeToEntityType(
     taxonomicFilterGroupType: TaxonomicFilterGroupType
@@ -67,6 +60,18 @@ const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
     },
 ]
 
+const defaultConversionGoalFilter: ConversionGoalFilter = {
+    conversion_goal_id: '',
+    conversion_goal_name: '',
+    type: EntityTypes.EVENTS,
+    id: null,
+    name: null,
+    schema: {
+        utm_campaign_name: 'utm_campaign',
+        utm_source_name: 'utm_source',
+    },
+}
+
 export function ConversionGoalDropdown({
     groupTypes = [
         TaxonomicFilterGroupType.Events,
@@ -79,17 +84,7 @@ export function ConversionGoalDropdown({
 }: ConversionGoalDropdownProps): JSX.Element {
     const { actions } = useValues(actionsModel)
 
-    const [internalFilter, setInternalFilter] = useState<ConversionGoalFilter>({
-        conversion_goal_id: '',
-        conversion_goal_name: '',
-        type: EntityTypes.EVENTS,
-        id: null,
-        name: null,
-        schema: {
-            utm_campaign_name: 'utm_campaign',
-            utm_source_name: 'utm_source',
-        },
-    })
+    const [internalFilter, setInternalFilter] = useState<ConversionGoalFilter>(defaultConversionGoalFilter)
 
     // Use controlled value if provided, otherwise use internal state
     const filter = value || internalFilter
@@ -101,7 +96,7 @@ export function ConversionGoalDropdown({
         name = action?.name || filter.name
         filterValue = action?.id || filter.id
     } else {
-        name = filter.name || String(filter.id)
+        name = filter.name || (filter.id !== null ? String(filter.id) : null)
         filterValue = filter.name || filter.id
     }
 
@@ -124,7 +119,7 @@ export function ConversionGoalDropdown({
         <>
             <TaxonomicPopover
                 fullWidth
-                groupType={filter?.type as TaxonomicFilterGroupType}
+                groupType={filter.type as TaxonomicFilterGroupType}
                 value={getValue(filterValue, filter)}
                 filter={localFilter}
                 onChange={(changedValue, taxonomicGroupType, item) => {
@@ -132,8 +127,7 @@ export function ConversionGoalDropdown({
 
                     if (groupType) {
                         const updatedFilter: ConversionGoalFilter = {
-                            conversion_goal_id: '',
-                            conversion_goal_name: '',
+                            ...filter,
                             type: groupType,
                             id: changedValue ? changedValue : null,
                             name: item?.name ?? '',
@@ -142,6 +136,7 @@ export function ConversionGoalDropdown({
                                 utm_source_name: 'utm_source',
                             },
                         }
+                        // If the group type is a data warehouse, we override the schema with the data warehouse schema
                         if (groupType === EntityTypes.DATA_WAREHOUSE) {
                             updatedFilter.schema = {
                                 utm_campaign_name: item[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
