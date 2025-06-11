@@ -16,12 +16,25 @@ pub trait DependencyProvider {
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error>;
 }
 
-fn get_dependency_type_name_from_type<T>() -> Result<String, FlagError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DependencyType {
+    Flag,
+    Cohort,
+}
+
+impl std::fmt::Display for DependencyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Rely on the default implementation of the Debug trait and then lower case it.
+        f.write_str(&format!("{:?}", self).to_lowercase())
+    }
+}
+
+fn get_dependency_type_from_type<T>() -> Result<DependencyType, FlagError> {
     let type_name = std::any::type_name::<T>();
     if type_name.contains("FeatureFlag") {
-        Ok("flag".to_string())
+        Ok(DependencyType::Flag)
     } else if type_name.contains("Cohort") {
-        Ok("cohort".to_string())
+        Ok(DependencyType::Cohort)
     } else {
         Err(FlagError::Internal(format!(
             "Unknown dependency type: {}",
@@ -83,7 +96,7 @@ where
         .iter()
         .find(|item| item.get_id() == initial_id)
         .ok_or_else(|| {
-            get_dependency_type_name_from_type::<T>()
+            get_dependency_type_from_type::<T>()
                 .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
                 .unwrap_or_else(|e| e)
         })?;
@@ -108,7 +121,7 @@ where
             .iter()
             .find(|item| item.get_id() == item_id)
             .ok_or_else(|| {
-                get_dependency_type_name_from_type::<T>()
+                get_dependency_type_from_type::<T>()
                     .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
                     .unwrap_or_else(|e| e)
             })?;

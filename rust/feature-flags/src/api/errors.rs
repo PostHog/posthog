@@ -5,6 +5,8 @@ use common_database::CustomDatabaseError;
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
+use crate::utils::graph_utils::DependencyType;
+
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
     #[error("Invalid request: {0}")]
@@ -56,7 +58,7 @@ pub enum FlagError {
     #[error("No group type mappings")]
     NoGroupTypeMappings,
     #[error("Cohort not found")]
-    DependencyNotFound(String, i64),
+    DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Cohort dependency cycle")]

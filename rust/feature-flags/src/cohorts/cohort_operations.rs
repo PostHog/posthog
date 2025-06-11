@@ -11,7 +11,7 @@ use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
-use crate::utils::graph_utils::{build_dependency_graph, DependencyProvider};
+use crate::utils::graph_utils::{build_dependency_graph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::Client as DatabaseClient;
 
@@ -283,7 +283,7 @@ pub fn evaluate_dynamic_cohorts(
             .iter()
             .find(|c| c.id == initial_cohort_id)
             .ok_or(FlagError::DependencyNotFound(
-                "cohort".to_string(),
+                DependencyType::Cohort,
                 initial_cohort_id.into(),
             ))?;
 
@@ -310,7 +310,7 @@ pub fn evaluate_dynamic_cohorts(
                 .iter()
                 .find(|c| c.id == cohort_id)
                 .ok_or(FlagError::DependencyNotFound(
-                    "cohort".to_string(),
+                    DependencyType::Cohort,
                     cohort_id.into(),
                 ))?;
 
@@ -358,7 +358,7 @@ pub fn evaluate_dynamic_cohorts(
         .get(&initial_cohort_id)
         .copied()
         .ok_or_else(|| {
-            FlagError::DependencyNotFound("cohort".to_string(), initial_cohort_id.into())
+            FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
         })
 }
 
