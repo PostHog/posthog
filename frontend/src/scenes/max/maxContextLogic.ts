@@ -378,7 +378,18 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     : contextInsights
 
                 if (allInsights && allInsights.length > 0) {
-                    context.insights = allInsights
+                    // Get all insight IDs from dashboards to filter out duplicates
+                    const dashboardInsightIds = new Set(
+                        (context.dashboards || []).flatMap((dashboard) =>
+                            dashboard.insights.map((insight) => insight.id)
+                        )
+                    )
+
+                    // Filter out insights that are already included in dashboards
+                    context.insights = allInsights.filter((insight) => !dashboardInsightIds.has(insight.id))
+                    if (context.insights.length === 0) {
+                        delete context.insights
+                    }
                 }
 
                 // Add global filters and variables override if present

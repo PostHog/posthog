@@ -19,28 +19,26 @@ export function ContextDisplay(): JSX.Element {
 
     return (
         <div className="w-full">
-            <div className="flex items-center gap-2 w-full">
+            <div className="flex flex-wrap items-start gap-2 w-full">
                 <TaxonomicPopover
                     size="xsmall"
                     type="tertiary"
-                    className="-mx-1.5"
+                    className="-mx-1.5 flex-shrink-0"
                     groupType={mainTaxonomicGroupType}
                     groupTypes={taxonomicGroupTypes}
                     onChange={handleTaxonomicFilterChange}
                     placeholder={hasData ? '@' : '@ Add context'}
                     maxContextOptions={contextOptions}
                 />
-                <div className="flex-1 min-w-0">
-                    <ContextTags
-                        insights={contextInsights}
-                        dashboards={contextDashboards}
-                        useCurrentPageContext={useCurrentPageContext}
-                        onRemoveInsight={removeContextInsight}
-                        onRemoveDashboard={removeContextDashboard}
-                        onDisableCurrentPageContext={disableCurrentPageContext}
-                        className="flex items-center gap-1 w-full overflow-hidden"
-                    />
-                </div>
+                <ContextTags
+                    insights={contextInsights}
+                    dashboards={contextDashboards}
+                    useCurrentPageContext={useCurrentPageContext}
+                    onRemoveInsight={removeContextInsight}
+                    onRemoveDashboard={removeContextDashboard}
+                    onDisableCurrentPageContext={disableCurrentPageContext}
+                    className="flex flex-wrap gap-1 flex-1 min-w-0"
+                />
             </div>
         </div>
     )

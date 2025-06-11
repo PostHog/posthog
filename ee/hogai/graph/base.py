@@ -106,14 +106,19 @@ class AssistantNode(ABC):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
 
-    def _get_ui_context(self, config: RunnableConfig) -> MaxContextShape | None:
+    def _get_ui_context(self, state: AssistantState) -> MaxContextShape | None:
         """
-        Extracts the UI context from the runnable config.
+        Extracts the UI context from the latest human message.
         """
-        ui_context_data = (config.get("configurable") or {}).get("ui_context")
-        if ui_context_data is None:
+        if not state.messages:
             return None
-        return MaxContextShape.model_validate(ui_context_data)
+
+        # Find the latest human message with UI context
+        for message in reversed(state.messages):
+            if hasattr(message, "type") and message.type == "human" and hasattr(message, "ui_context"):
+                return message.ui_context
+
+        return None
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """

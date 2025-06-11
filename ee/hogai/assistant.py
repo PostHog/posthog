@@ -120,7 +120,6 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
-        ui_context: Optional[dict[str, Any]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -156,8 +155,6 @@ class Assistant:
         )
         self._trace_id = trace_id
         self._custom_update_ids = set()
-
-        self._ui_context = ui_context
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -242,18 +239,10 @@ class Assistant:
     @property
     def _initial_state(self) -> AssistantState:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            # Add ui_context to the message if available
-            if self._ui_context:
-                message_with_ui_context = self._latest_message.model_copy(update={"ui_context": self._ui_context})
-                return AssistantState(
-                    messages=[message_with_ui_context],
-                    start_id=message_with_ui_context.id,
-                )
-            else:
-                return AssistantState(
-                    messages=[self._latest_message],
-                    start_id=self._latest_message.id,
-                )
+            return AssistantState(
+                messages=[self._latest_message],
+                start_id=self._latest_message.id,
+            )
         else:
             return AssistantState(
                 messages=[],
@@ -270,7 +259,6 @@ class Assistant:
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team_id": self._team.id,
-                "ui_context": self._ui_context,
             },
         }
         return config
@@ -376,7 +364,13 @@ class Assistant:
                     content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
                 )
             case AssistantNodeName.ROOT:
-                if self._ui_context and (self._ui_context.get("insights") or self._ui_context.get("dashboards")):
+                # Find the latest human message with UI context
+                ui_context = None
+                for message in reversed(input.messages):
+                    if hasattr(message, "type") and message.type == "human" and hasattr(message, "ui_context"):
+                        ui_context = message.ui_context
+                        break
+                if ui_context and (ui_context.dashboards or ui_context.insights):
                     return ReasoningMessage(content="Calculating insights")
                 return None
             case _:

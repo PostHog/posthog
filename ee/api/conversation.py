@@ -100,7 +100,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             new_message=serializer.validated_data["message"],
             user=cast(User, request.user),
             contextual_tools=serializer.validated_data.get("contextual_tools"),
-            ui_context=serializer.validated_data.get("ui_context"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,

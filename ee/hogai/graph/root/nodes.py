@@ -252,7 +252,7 @@ class RootNode(RootNodeUIContextMixin):
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
 
-        ui_context = self._get_ui_context(config)
+        ui_context = self._get_ui_context(state)
         user_context = self._format_ui_context(ui_context)
 
         message = chain.invoke(

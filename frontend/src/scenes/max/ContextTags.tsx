@@ -1,6 +1,6 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { useMemo } from 'react'
 
 import { MaxDashboardContext, MaxInsightContext } from './maxTypes'
 
@@ -12,14 +12,6 @@ interface ContextTagsProps {
     onRemoveDashboard?: (key: string | number) => void
     onDisableCurrentPageContext?: () => void
     className?: string
-}
-
-interface TagItem {
-    key: string
-    element: JSX.Element
-    name: string
-    type: 'current-page' | 'dashboard' | 'insight'
-    onRemove?: () => void
 }
 
 interface ContextSummaryProps {
@@ -131,56 +123,41 @@ export function ContextTags({
     onDisableCurrentPageContext,
     className,
 }: ContextTagsProps): JSX.Element | null {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [visibleTags, setVisibleTags] = useState<TagItem[]>([])
-    const [hiddenTags, setHiddenTags] = useState<TagItem[]>([])
-    const [, setContainerWidth] = useState(0)
-
-    const allTags: TagItem[] = useMemo(() => {
-        const tags: TagItem[] = []
+    const allTags = useMemo(() => {
+        const tags: JSX.Element[] = []
 
         // Current page context
         if (useCurrentPageContext) {
-            tags.push({
-                key: 'current-page',
-                type: 'current-page',
-                name: 'Current page',
-                onRemove: onDisableCurrentPageContext,
-                element: (
-                    <LemonTag
-                        key="current-page"
-                        size="xsmall"
-                        icon={<IconPageChart />}
-                        closable={!!onDisableCurrentPageContext}
-                        onClose={onDisableCurrentPageContext}
-                    >
-                        Current page
-                    </LemonTag>
-                ),
-            })
+            tags.push(
+                <LemonTag
+                    key="current-page"
+                    size="xsmall"
+                    icon={<IconPageChart />}
+                    closable={!!onDisableCurrentPageContext}
+                    onClose={onDisableCurrentPageContext}
+                    closeOnClick
+                >
+                    Current page
+                </LemonTag>
+            )
         }
 
         // Dashboards
         if (dashboards) {
             dashboards.forEach((dashboard: MaxDashboardContext) => {
                 const name = dashboard.name || `Dashboard ${dashboard.id}`
-                tags.push({
-                    key: `dashboard-${dashboard.id}`,
-                    type: 'dashboard',
-                    name,
-                    onRemove: onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined,
-                    element: (
-                        <LemonTag
-                            key={`dashboard-${dashboard.id}`}
-                            size="xsmall"
-                            icon={<IconDashboard />}
-                            closable={!!onRemoveDashboard}
-                            onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
-                        >
-                            {name}
-                        </LemonTag>
-                    ),
-                })
+                tags.push(
+                    <LemonTag
+                        key={`dashboard-${dashboard.id}`}
+                        size="xsmall"
+                        icon={<IconDashboard />}
+                        closable={!!onRemoveDashboard}
+                        onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
+                        closeOnClick
+                    >
+                        {name}
+                    </LemonTag>
+                )
             })
         }
 
@@ -188,130 +165,27 @@ export function ContextTags({
         if (insights) {
             insights.forEach((insight: MaxInsightContext) => {
                 const name = insight.name || `Insight ${insight.id}`
-                tags.push({
-                    key: `insight-${insight.id}`,
-                    type: 'insight',
-                    name,
-                    onRemove: onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined,
-                    element: (
-                        <LemonTag
-                            key={`insight-${insight.id}`}
-                            size="xsmall"
-                            icon={<IconGraph />}
-                            closable={!!onRemoveInsight}
-                            onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}
-                        >
-                            {name}
-                        </LemonTag>
-                    ),
-                })
+                tags.push(
+                    <LemonTag
+                        key={`insight-${insight.id}`}
+                        size="xsmall"
+                        icon={<IconGraph />}
+                        closable={!!onRemoveInsight}
+                        onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}
+                        closeOnClick
+                    >
+                        {name}
+                    </LemonTag>
+                )
             })
         }
 
         return tags
     }, [insights, dashboards, useCurrentPageContext, onRemoveInsight, onRemoveDashboard, onDisableCurrentPageContext])
 
-    useEffect(() => {
-        const calculateVisibleTags = (): void => {
-            if (!containerRef.current || allTags.length === 0) {
-                setVisibleTags(allTags)
-                setHiddenTags([])
-                return
-            }
-
-            const container = containerRef.current
-            const containerWidth = container.offsetWidth
-            setContainerWidth(containerWidth)
-
-            // Create temporary elements to measure tag widths
-            const tempContainer = document.createElement('div')
-            tempContainer.style.position = 'absolute'
-            tempContainer.style.visibility = 'hidden'
-            tempContainer.style.whiteSpace = 'nowrap'
-            tempContainer.className = 'flex gap-1'
-            document.body.appendChild(tempContainer)
-
-            let totalWidth = 0
-            const gap = 4 // 1 * 4px (gap-1)
-            const overflowButtonWidth = 60 // Approximate width of +{number} button
-            let visibleCount = 0
-
-            // Always reserve space for overflow button if we have more than 1 tag
-            const reservedWidth = allTags.length > 1 ? overflowButtonWidth + gap : 0
-            const availableWidth = containerWidth - reservedWidth
-
-            for (let i = 0; i < allTags.length; i++) {
-                const tempTag = document.createElement('div')
-                tempTag.innerHTML = allTags[i].element.props.children
-                tempTag.className = 'text-xs px-1.5 py-0.5 rounded border inline-flex items-center gap-1'
-                tempContainer.appendChild(tempTag)
-
-                const tagWidth = tempTag.offsetWidth + gap
-
-                if (totalWidth + tagWidth <= availableWidth) {
-                    totalWidth += tagWidth
-                    visibleCount++
-                } else {
-                    break
-                }
-            }
-
-            // If all tags fit, we don't need the overflow button
-            if (visibleCount === allTags.length) {
-                visibleCount = allTags.length
-            }
-
-            document.body.removeChild(tempContainer)
-
-            setVisibleTags(allTags.slice(0, visibleCount))
-            setHiddenTags(allTags.slice(visibleCount))
-        }
-
-        calculateVisibleTags()
-
-        let resizeObserver: ResizeObserver | null = null
-        if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-            resizeObserver = new ResizeObserver(calculateVisibleTags)
-            resizeObserver.observe(containerRef.current)
-        }
-
-        return () => resizeObserver?.disconnect()
-    }, [allTags])
-
     if (allTags.length === 0) {
         return null
     }
 
-    const overflowTooltipContent = hiddenTags.length > 0 && (
-        <div className="flex flex-col gap-2 p-2 max-w-xs">
-            {hiddenTags.map((tag) => (
-                <div key={tag.key} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1 text-sm">
-                        {tag.type === 'current-page' && <IconPageChart />}
-                        {tag.type === 'dashboard' && <IconDashboard />}
-                        {tag.type === 'insight' && <IconGraph />}
-                        {tag.name}
-                    </span>
-                    {tag.onRemove && (
-                        <LemonButton type="primary" size="xsmall" onClick={tag.onRemove}>
-                            Remove
-                        </LemonButton>
-                    )}
-                </div>
-            ))}
-        </div>
-    )
-
-    return (
-        <div ref={containerRef} className={className || 'flex items-center gap-1 w-full overflow-hidden'}>
-            {visibleTags.map((tag) => tag.element)}
-            {hiddenTags.length > 0 && (
-                <Tooltip title={overflowTooltipContent} placement="bottom">
-                    <LemonTag size="xsmall" icon={<>+</>}>
-                        {hiddenTags.length}
-                    </LemonTag>
-                </Tooltip>
-            )}
-        </div>
-    )
+    return <div className={className || 'flex flex-wrap gap-1 w-full min-w-0 overflow-hidden'}>{allTags}</div>
 }
