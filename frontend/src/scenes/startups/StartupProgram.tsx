@@ -9,13 +9,38 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
+
+const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingProductV2Type }> = ({
+    platformAndSupportProduct,
+}) => {
+    const { billing } = useValues(billingLogic)
+    const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
+    const { billingProductLoading } = useValues(billingProductLogic({ product: platformAndSupportProduct }))
+    return (
+        <BillingUpgradeCTA
+            type="primary"
+            data-attr="startup-program-upgrade-cta"
+            disableClientSideRouting
+            loading={!!billingProductLoading}
+            onClick={() =>
+                startPaymentEntryFlow(platformAndSupportProduct, window.location.pathname + window.location.search)
+            }
+        >
+            {billing?.customer_id ? 'Subscribe' : 'Add billing details'}
+        </BillingUpgradeCTA>
+    )
+}
 
 export const scene: SceneExport = {
     component: StartupProgram,
@@ -38,9 +63,12 @@ export function StartupProgram(): JSX.Element {
         ycBatchOptions,
     } = useValues(startupProgramLogic)
     const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
-    const { setStartupProgramValue, showPaymentEntryModal } = useActions(startupProgramLogic)
+    const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const programName = isYC ? 'YC Program' : 'Startup Program'
+    const platformAndSupportProduct = billing?.products?.find(
+        (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+    )
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url) => {
@@ -267,14 +295,9 @@ export function StartupProgram(): JSX.Element {
                                 <p className="text-muted mb-2 italic">
                                     P.S. You still keep the monthly free allowance for every product!
                                 </p>
-                                <BillingUpgradeCTA
-                                    type="primary"
-                                    data-attr="startup-program-upgrade-cta"
-                                    disableClientSideRouting
-                                    onClick={() => showPaymentEntryModal()}
-                                >
-                                    Add billing details
-                                </BillingUpgradeCTA>
+                                {platformAndSupportProduct && (
+                                    <BillingUpgradeCTAWrapper platformAndSupportProduct={platformAndSupportProduct} />
+                                )}
                             </div>
                         )}
                     </div>
