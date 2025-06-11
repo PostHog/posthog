@@ -45,7 +45,6 @@ def MaxEval(
         trial_count=3 if os.getenv("CI") else 1,
         timeout=180,
         is_public=True,
-        max_concurrency=10,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:

@@ -10667,7 +10667,7 @@
                     "type": "array"
                 },
                 "funnel_aggregate_by_hogql": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"
