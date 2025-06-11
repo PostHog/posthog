@@ -6,11 +6,10 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { ExploreButton, ResultsQuery } from '~/scenes/experiments/ExperimentView/components'
+import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
+import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
 import { ExperimentIdType } from '~/types'
-
-import { ExploreButton, ResultsQuery } from '../../ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '../../ExperimentView/Overview'
-import { SummaryTable } from '../../ExperimentView/SummaryTable'
 
 interface ChartModalProps {
     isOpen: boolean
