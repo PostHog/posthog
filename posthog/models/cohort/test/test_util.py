@@ -1,4 +1,4 @@
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
     get_dependent_cohorts,
     simplified_cohort_filter_properties,
@@ -558,7 +558,7 @@ class TestSortCohortsTopologically(BaseTest):
         )
 
         cohort_ids = {cohort.pk}
-        seen_cohorts_cache = {cohort.pk: cohort}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.pk: cohort}
 
         result = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
@@ -575,7 +575,7 @@ class TestSortCohortsTopologically(BaseTest):
         all_cohort_ids = {dep.id for dep in dependent_cohorts}
         all_cohort_ids.add(cohort.id)
 
-        seen_cohorts_cache = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
         seen_cohorts_cache[cohort.id] = cohort
 
         result = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
