@@ -16,10 +16,10 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
+import { PipelineBatchExportConfiguration } from '../data-pipelines/batch-exports/PipelineBatchExportConfiguration'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { NewDestinations } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
-import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'

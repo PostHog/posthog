@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 
-import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
+import { PipelineBatchExportConfiguration } from '../data-pipelines/batch-exports/PipelineBatchExportConfiguration'
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
 import { PipelineBackend } from './types'

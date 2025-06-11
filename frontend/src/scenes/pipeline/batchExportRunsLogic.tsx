@@ -8,7 +8,7 @@ import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/typ
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
+import { pipelineBatchExportConfigurationLogic } from '../data-pipelines/batch-exports/pipelineBatchExportConfigurationLogic'
 
 const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {

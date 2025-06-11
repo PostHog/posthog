@@ -16,11 +16,11 @@ import {
     PipelineStage,
 } from '~/types'
 
-import { humanizeBatchExportName } from './batch-exports/utils'
-import { DESTINATION_TYPES } from './destinations/constants'
-import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { DESTINATION_TYPES } from '../../pipeline/destinations/constants'
+import { pipelineDestinationsLogic } from '../../pipeline/destinations/destinationsLogic'
+import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
+import { humanizeBatchExportName } from './utils'
 
 export interface PipelineBatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null

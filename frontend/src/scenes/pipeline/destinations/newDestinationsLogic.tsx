@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType, PipelineStage } from '~/types'
 
-import { humanizeBatchExportName } from '../batch-exports/utils'
+import { humanizeBatchExportName } from '../../data-pipelines/batch-exports/utils'
 import { NewDestinationItemType, PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'

@@ -6,7 +6,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
+import { pipelineBatchExportConfigurationLogic } from '../data-pipelines/batch-exports/pipelineBatchExportConfigurationLogic'
 
 export interface BatchExportBackfillModalLogicProps {
     id: string
