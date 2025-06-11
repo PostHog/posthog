@@ -183,14 +183,18 @@ impl AppContext {
 
         // Collect all unresolved group types that need database lookup
         let mut to_resolve: Vec<(usize, String, i32)> = Vec::new();
-        
+
         // First pass: check cache and collect uncached items
         for (idx, update) in updates.iter_mut().enumerate() {
-            let Update::Property(update) = update else { continue; };
-            let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else { continue; };
+            let Update::Property(update) = update else {
+                continue;
+            };
+            let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else {
+                continue;
+            };
 
             let cache_key = format!("{}:{}", update.team_id, group_name);
-            
+
             if let Some(index) = self.group_type_cache.get(&cache_key) {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
                 update.group_type_index =
@@ -203,10 +207,11 @@ impl AppContext {
         // Batch resolve all uncached group types
         if !to_resolve.is_empty() {
             metrics::counter!(GROUP_TYPE_READS).increment(to_resolve.len() as u64);
-            
-            let group_names: Vec<String> = to_resolve.iter().map(|(_, name, _)| name.clone()).collect();
+
+            let group_names: Vec<String> =
+                to_resolve.iter().map(|(_, name, _)| name.clone()).collect();
             let team_ids: Vec<i32> = to_resolve.iter().map(|(_, _, team_id)| *team_id).collect();
-            
+
             let results = sqlx::query!(
                 "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping 
                  WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
@@ -217,7 +222,8 @@ impl AppContext {
             .await?;
 
             // Create a lookup map for resolved group types
-            let mut resolved_map: std::collections::HashMap<(String, i32), i32> = std::collections::HashMap::new();
+            let mut resolved_map: std::collections::HashMap<(String, i32), i32> =
+                std::collections::HashMap::new();
             for result in results {
                 resolved_map.insert((result.group_type, result.team_id), result.group_type_index);
             }
@@ -225,11 +231,11 @@ impl AppContext {
             // Second pass: apply resolved group types to updates
             for (idx, group_name, team_id) in to_resolve {
                 let cache_key = format!("{}:{}", team_id, group_name);
-                
+
                 if let Some(&index) = resolved_map.get(&(group_name.clone(), team_id)) {
                     metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
                     self.group_type_cache.insert(cache_key, index);
-                    
+
                     if let Update::Property(update) = &mut updates[idx] {
                         update.group_type_index =
                             update.group_type_index.take().map(|gti| gti.resolve(index));
@@ -240,14 +246,14 @@ impl AppContext {
                         "Failed to resolve group type index for group name: {} and team id: {}",
                         group_name, team_id
                     );
-                    
+
                     if let Update::Property(update) = &mut updates[idx] {
                         update.group_type_index = None;
                     }
                 }
             }
         }
-        
+
         Ok(())
     }
 }
