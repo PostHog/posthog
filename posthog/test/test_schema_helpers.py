@@ -273,7 +273,7 @@ class TestSchemaHelpers(TestCase):
         Nodes with different versions should serialize to the same JSON. We only want the cache key to differ
         if the actual query parameters differ, not the version.
         """
-        q1 = TrendsQuery(series=[EventsNode(name="$pageview", version=1), version=1)
-        q2 = TrendsQuery(series=[EventsNode(name="$pageview", version=2), version=2)
+        q1 = TrendsQuery(series=[EventsNode(name="$pageview", version=1)], version=1)
+        q2 = TrendsQuery(series=[EventsNode(name="$pageview", version=2)], version=2)
 
         self.assertEqual(to_dict(q1), to_dict(q2))
