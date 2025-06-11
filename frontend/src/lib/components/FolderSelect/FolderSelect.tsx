@@ -42,6 +42,7 @@ export function FolderSelect({
 }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
     const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
+    const inputRef = useRef<HTMLInputElement>(null)
 
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
@@ -67,6 +68,12 @@ export function FolderSelect({
             expandProjectFolder(value || '')
         }
     }, [value])
+
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.focus()
+        }
+    }, [])
 
     function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
         const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
@@ -132,6 +139,7 @@ export function FolderSelect({
                 value={searchTerm}
                 data-attr="folder-select-search-input"
                 autoFocus
+                ref={inputRef}
                 onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
                         e.preventDefault() // Prevent scrolling
