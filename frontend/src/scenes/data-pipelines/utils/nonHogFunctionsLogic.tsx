@@ -1,9 +1,10 @@
 import { connect, kea, path } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseGithubRepoURL } from 'lib/utils'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import { BATCH_EXPORT_ICON_MAP } from 'scenes/pipeline/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionType, PluginConfigTypeNew, PluginType } from '~/types'
@@ -17,7 +18,7 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
         values: [sourceWizardLogic, ['connectors'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
     })),
 
-    lazyLoaders(() => ({
+    loaders(() => ({
         hogFunctionPlugins: [
             null as HogFunctionType[] | null,
             {
@@ -62,6 +63,35 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                     }
 
                     return hogfunctions
+                },
+            },
+        ],
+
+        hogFunctionBatchExports: [
+            null as HogFunctionType[] | null,
+            {
+                loadHogFunctionBatchExports: async () => {
+                    const response = await api.batchExports.list()
+                    const results = response.results
+                    const hogFunctions: HogFunctionType[] = []
+
+                    for (const batchExport of results) {
+                        hogFunctions.push({
+                            id: `batch-export-${batchExport.id}`,
+                            name: batchExport.name,
+                            description: `${batchExport.destination.type} batch export`,
+                            type: 'destination',
+                            created_by: null,
+                            created_at: batchExport.created_at,
+                            updated_at: batchExport.created_at,
+                            enabled: !batchExport.paused,
+                            hog: '',
+                            icon_url: BATCH_EXPORT_ICON_MAP[batchExport.destination.type],
+                            execution_order: undefined,
+                        })
+                    }
+
+                    return hogFunctions
                 },
             },
         ],

@@ -154,7 +154,6 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         sortedHogFunctions: [
             (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? []],
             (hogFunctions, manualFunctions): HogFunctionType[] => {
-                console.log({ hogFunctions, manualFunctions })
                 const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
                     (a, b) => Number(b.enabled) - Number(a.enabled)
                 )

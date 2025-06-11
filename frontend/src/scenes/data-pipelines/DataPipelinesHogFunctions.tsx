@@ -43,12 +43,13 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
         hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
     )
 
-    const { hogFunctionPlugins } = useValues(nonHogFunctionsLogic)
-    const { loadHogFunctionPlugins } = useActions(nonHogFunctionsLogic)
+    const { hogFunctionPlugins, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPlugins, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
 
     useEffect(() => {
         if (kind === 'destination') {
             loadHogFunctionPlugins()
+            loadHogFunctionBatchExports()
         }
     }, [kind])
 
@@ -79,7 +80,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualFunctions={hogFunctionPlugins ?? []}
+                    manualFunctions={[...(hogFunctionPlugins ?? []), ...(hogFunctionBatchExports ?? [])]}
                 />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
