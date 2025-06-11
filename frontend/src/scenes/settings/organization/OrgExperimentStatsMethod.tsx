@@ -29,9 +29,6 @@ export function OrganizationExperimentStatsMethod(): JSX.Element {
                     labelInMenu: (
                         <div>
                             <div>Bayesian</div>
-                            <div className="text-muted text-xs">
-                                Uses Bayesian statistical methods for experiment analysis (default)
-                            </div>
                         </div>
                     ),
                 },
@@ -41,9 +38,6 @@ export function OrganizationExperimentStatsMethod(): JSX.Element {
                     labelInMenu: (
                         <div>
                             <div>Frequentist</div>
-                            <div className="text-muted text-xs">
-                                Uses frequentist statistical methods for experiment analysis
-                            </div>
                         </div>
                     ),
                 },
