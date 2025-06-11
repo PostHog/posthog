@@ -67,6 +67,7 @@ class AssistantContextualTool(StrEnum):
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
+    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
 
 
 class AssistantDateRange(BaseModel):
@@ -1846,14 +1847,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: Optional[CurrencyCode] = None
 
 
-class RevenueSources(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dataWarehouseSources: list[str]
-    events: list[str]
-
-
 class RootAssistantMessage1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2670,6 +2663,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
     showLegend: Optional[bool] = None
+    showTotalRow: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -7375,7 +7369,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7390,7 +7383,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7405,7 +7397,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7420,7 +7411,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7443,7 +7433,6 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7460,7 +7449,6 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7475,7 +7463,6 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7491,7 +7478,6 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
-    revenueSources: RevenueSources
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 

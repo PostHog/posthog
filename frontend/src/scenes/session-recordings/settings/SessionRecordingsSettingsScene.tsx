@@ -1,6 +1,5 @@
 import { kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -38,13 +37,13 @@ export const sessionRecordingsSettingsSceneLogic = kea<sessionRecordingsSettings
 export const scene: SceneExport = {
     component: SessionRecordingsSettingsScene,
     logic: sessionRecordingsSettingsSceneLogic,
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingsSettingsScene(): JSX.Element {
     return (
         <>
             <div className="-mb-14">
-                <PageHeader />
                 <LemonTabs
                     activeKey={ReplayTabs.Settings}
                     onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}

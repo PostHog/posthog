@@ -63,12 +63,14 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 ref={ref}
             >
                 <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
-                    <span className="text-muted-3000 text-xs">
-                        {result.type !== 'group'
+                    <span className="text-tertiary text-xs">
+                        {result.type === 'tree_item'
+                            ? `Product`
+                            : result.type !== 'group'
                             ? tabToName[result.type]
                             : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                     </span>
-                    <span className="text-text-3000 font-bold">
+                    <span className="text-primary font-bold">
                         <ResultName result={result} />
                     </span>
                 </div>
@@ -101,6 +103,12 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
         return <span>{extra_fields.title}</span>
     } else if (type === 'group') {
         return <span>{groupDisplayId(extra_fields.group_key, extra_fields.group_properties)}</span>
+    } else if (type === 'tree_item') {
+        return (
+            <span className="flex gap-x-1">
+                {extra_fields.icon} {extra_fields.path}
+            </span>
+        )
     }
     return <span>{extra_fields.name}</span>
 }
