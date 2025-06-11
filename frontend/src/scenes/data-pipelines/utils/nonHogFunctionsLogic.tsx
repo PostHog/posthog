@@ -74,9 +74,9 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                 loadHogFunctionPluginsSiteApps: async () => {
                     const [pluginConfigs, plugins] = await Promise.all([
                         api.loadPaginatedResults<PluginConfigTypeNew>(
-                            `api/projects/@current/pipeline_site_app_configs`
+                            `api/projects/@current/pipeline_frontend_apps_configs`
                         ),
-                        api.loadPaginatedResults<PluginType>(`api/organizations/@current/pipeline_site_apps`),
+                        api.loadPaginatedResults<PluginType>(`api/organizations/@current/pipeline_frontend_apps`),
                     ])
 
                     const pluginsById = Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin]))
@@ -107,6 +107,11 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                             execution_order: undefined,
                             hog: '',
                             icon_url: iconUrl,
+                            status: {
+                                state: 1,
+                                rating: 1,
+                                tokens: 0,
+                            },
                         })
                     }
 

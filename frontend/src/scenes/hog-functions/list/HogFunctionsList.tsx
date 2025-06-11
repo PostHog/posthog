@@ -97,6 +97,9 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
+                        return <>N/A</>
+                    }
                     return (
                         <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                             <HogFunctionMetricSparkLine id={hogFunction.id} />

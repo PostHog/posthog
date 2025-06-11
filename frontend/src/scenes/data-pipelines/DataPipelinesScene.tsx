@@ -53,7 +53,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
                     },
                     {
                         key: Scene.DataPipelines,
-                        name: capitalizeFirstLetter(kind),
+                        name: capitalizeFirstLetter(kind.replaceAll('_', ' ')),
                     },
                 ]
             },
