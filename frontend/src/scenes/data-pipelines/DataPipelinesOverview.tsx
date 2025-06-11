@@ -46,11 +46,11 @@ export function DataPipelinesOverview(): JSX.Element {
         { label: 'Destination', to: urls.dataPipelinesNew('destination') },
     ]
 
-    const { hogFunctionPlugins, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
-    const { loadHogFunctionPlugins, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
+    const { hogFunctionPluginsDestinations, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
 
     useEffect(() => {
-        loadHogFunctionPlugins()
+        loadHogFunctionPluginsDestinations()
         loadHogFunctionBatchExports()
     }, [])
 
@@ -97,7 +97,10 @@ export function DataPipelinesOverview(): JSX.Element {
                         logicKey="destination"
                         type="destination"
                         hideFeedback={true}
-                        manualFunctions={[...(hogFunctionPlugins ?? []), ...(hogFunctionBatchExports ?? [])]}
+                        manualFunctions={[
+                            ...(hogFunctionPluginsDestinations ?? []),
+                            ...(hogFunctionBatchExports ?? []),
+                        ]}
                     />
                 </Section>
             </div>
