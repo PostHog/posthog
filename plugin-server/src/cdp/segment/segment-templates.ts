@@ -10,17 +10,27 @@ export type SegmentDestination = {
 }
 
 const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[] } => {
-    const mapped = subscribe
-        .replaceAll('type = "page"', 'event = "$pageview"')
-        .replaceAll('type = "screen"', 'event = "$screen"')
-        .replaceAll('type = "identify"', `event in ('$identify', '$set')`)
-        .replaceAll('type = "group"', 'event = "$groupidentify"')
-        .replaceAll(
-            'type = "track"',
-            `event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')`
-        )
-        .replaceAll('type = "alias"', 'event = "$alias"')
-        .replaceAll(`"`, `'`)
+    const mappings = {
+        'type = "page"': 'event = "$pageview"',
+        'type = "screen"': 'event = "$screen"',
+        'type = "identify"': `event in ('$identify', '$set')`,
+        'type = "group"': 'event = "$groupidentify"',
+        'type = "track"': `event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')`,
+        'type = "alias"': 'event = "$alias"',
+        'type = page': 'event = "$pageview"',
+        'type = screen': 'event = "$screen"',
+        'type = identify': `event in ('$identify', '$set')`,
+        'type = group': 'event = "$groupidentify"',
+        'type = track': `event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')`,
+        'type = alias': 'event = "$alias"',
+    }
+
+    let mapped = subscribe
+    Object.entries(mappings).forEach(([key, value]) => {
+        mapped = mapped.replaceAll(key, value)
+    })
+
+    mapped = mapped.replaceAll(`"`, `'`)
 
     return {
         events: [
