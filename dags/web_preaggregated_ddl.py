@@ -2,6 +2,7 @@ import dagster
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster
 from clickhouse_driver import Client
+from dagster import asset_check, AssetCheckResult, MetadataValue
 
 from posthog.models.web_preaggregated.sql import (
     DISTRIBUTED_WEB_BOUNCES_DAILY_SQL,
@@ -119,3 +120,130 @@ def web_analytics_preaggregated_tables(
         return True
     except Exception as e:
         raise dagster.Failure(f"Failed to setup web analytics tables: {str(e)}") from e
+
+
+# Asset checks for DDL - verify tables and views exist
+@asset_check(
+    asset=web_analytics_preaggregated_tables,
+    name="daily_tables_exist",
+    description="Check if daily pre-aggregated tables were created",
+)
+def daily_tables_exist() -> AssetCheckResult:
+    """
+    Check if daily pre-aggregated tables exist and have proper structure.
+    """
+    try:
+        from posthog.clickhouse.client import sync_execute
+
+        # Check if tables exist
+        tables_result = sync_execute("SHOW TABLES LIKE '%bounces_daily%' OR LIKE '%stats_daily%'")
+        table_names = [row[0] for row in tables_result]
+
+        expected_tables = ["web_bounces_daily", "web_stats_daily"]
+        missing_tables = [table for table in expected_tables if table not in table_names]
+
+        passed = len(missing_tables) == 0
+
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Found tables: {table_names}" if passed else f"Missing tables: {missing_tables}",
+            metadata={
+                "found_tables": MetadataValue.json(table_names),
+                "expected_tables": MetadataValue.json(expected_tables),
+                "missing_tables": MetadataValue.json(missing_tables),
+            },
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, description=f"Error checking tables: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+        )
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_hourly_tables,
+    name="hourly_tables_exist",
+    description="Check if hourly pre-aggregated tables were created",
+)
+def hourly_tables_exist() -> AssetCheckResult:
+    """
+    Check if hourly pre-aggregated tables exist and have proper structure.
+    """
+    try:
+        from posthog.clickhouse.client import sync_execute
+
+        # Check if tables exist
+        tables_result = sync_execute("SHOW TABLES LIKE '%bounces_hourly%' OR LIKE '%stats_hourly%'")
+        table_names = [row[0] for row in tables_result]
+
+        expected_tables = [
+            "web_bounces_hourly",
+            "web_stats_hourly",
+            "web_bounces_hourly_staging",
+            "web_stats_hourly_staging",
+        ]
+        missing_tables = [table for table in expected_tables if table not in table_names]
+
+        passed = len(missing_tables) == 0
+
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Found {len(table_names)} tables" if passed else f"Missing {len(missing_tables)} tables",
+            metadata={
+                "found_tables": MetadataValue.json(table_names),
+                "expected_tables": MetadataValue.json(expected_tables),
+                "missing_tables": MetadataValue.json(missing_tables),
+            },
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, description=f"Error checking tables: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+        )
+
+
+@asset_check(
+    asset=web_analytics_combined_views,
+    name="combined_views_exist",
+    description="Check if combined views were created and are queryable",
+)
+def combined_views_exist() -> AssetCheckResult:
+    """
+    Check if combined views exist and are queryable.
+    """
+    try:
+        from posthog.clickhouse.client import sync_execute
+
+        # Check if views exist
+        views_result = sync_execute("SHOW TABLES LIKE '%combined%'")
+        view_names = [row[0] for row in views_result]
+
+        expected_views = ["web_bounces_combined", "web_stats_combined"]
+        missing_views = [view for view in expected_views if view not in view_names]
+
+        # Test if views are queryable
+        queryable_views = []
+        for view in expected_views:
+            if view in view_names:
+                try:
+                    sync_execute(f"SELECT 1 FROM {view} LIMIT 1")
+                    queryable_views.append(view)
+                except Exception:
+                    pass
+
+        passed = len(missing_views) == 0 and len(queryable_views) == len(expected_views)
+
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Found {len(queryable_views)}/{len(expected_views)} working views"
+            if passed
+            else f"Issues with views: {missing_views}",
+            metadata={
+                "found_views": MetadataValue.json(view_names),
+                "expected_views": MetadataValue.json(expected_views),
+                "queryable_views": MetadataValue.json(queryable_views),
+                "missing_views": MetadataValue.json(missing_views),
+            },
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, description=f"Error checking views: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+        )

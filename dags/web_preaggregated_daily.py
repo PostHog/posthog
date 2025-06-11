@@ -3,7 +3,7 @@ from collections.abc import Callable
 import os
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy
+from dagster import DailyPartitionsDefinition, BackfillPolicy, asset_check, AssetCheckResult, MetadataValue
 import structlog
 from dags.common import JobOwners
 from dags.web_preaggregated_utils import (
@@ -259,3 +259,56 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
             }
         },
     )
+
+
+# Asset checks for daily tables
+@asset_check(
+    asset=web_bounces_daily,
+    name="bounces_daily_has_data",
+    description="Check if web_bounces_daily table has data",
+)
+def bounces_daily_has_data() -> AssetCheckResult:
+    """
+    Check if the web_bounces_daily table has data.
+    """
+    try:
+        result = sync_execute("SELECT COUNT(*) FROM web_bounces_daily LIMIT 1")
+        row_count = result[0][0] if result and result[0] else 0
+
+        passed = row_count > 0
+
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Table has {row_count} rows" if passed else "Table is empty",
+            metadata={"row_count": MetadataValue.int(row_count), "table_name": MetadataValue.text("web_bounces_daily")},
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, description=f"Error checking table: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+        )
+
+
+@asset_check(
+    asset=web_stats_daily,
+    name="stats_daily_has_data",
+    description="Check if web_stats_daily table has data",
+)
+def stats_daily_has_data() -> AssetCheckResult:
+    """
+    Check if the web_stats_daily table has data.
+    """
+    try:
+        result = sync_execute("SELECT COUNT(*) FROM web_stats_daily LIMIT 1")
+        row_count = result[0][0] if result and result[0] else 0
+
+        passed = row_count > 0
+
+        return AssetCheckResult(
+            passed=passed,
+            description=f"Table has {row_count} rows" if passed else "Table is empty",
+            metadata={"row_count": MetadataValue.int(row_count), "table_name": MetadataValue.text("web_stats_daily")},
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, description=f"Error checking table: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+        )

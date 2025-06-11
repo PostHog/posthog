@@ -76,6 +76,12 @@ defs = dagster.Definitions(
         web_data_quality_checks.stats_hourly_has_data,
         web_preaggregated_hourly.bounces_hourly_has_data_colocated,
         web_preaggregated_hourly.stats_hourly_has_data_colocated,
+        web_preaggregated_daily.bounces_daily_has_data,
+        web_preaggregated_daily.stats_daily_has_data,
+        web_preaggregated_ddl.daily_tables_exist,
+        web_preaggregated_ddl.hourly_tables_exist,
+        web_preaggregated_ddl.combined_views_exist,
+        web_preaggregated_hourly.web_overview_accuracy_check,
     ],
     jobs=[
         deletes.deletes_job,
