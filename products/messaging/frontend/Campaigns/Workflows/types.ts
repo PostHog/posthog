@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const CyclotronJobInputSchema = z.object({
+export const CyclotronJobInputSchema = z.object({
     type: z.enum(['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'integration_field', 'email']),
     key: z.string(),
     label: z.string(),
