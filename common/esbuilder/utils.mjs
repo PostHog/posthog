@@ -14,8 +14,8 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-import { cloneNode } from 'ts-clone-node'
 import ts from 'typescript'
+import { cloneNode } from 'ts-clone-node'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -676,9 +676,7 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                (node.name.text === 'treeItemsProducts' ||
-                    node.name.text === 'treeItemsMetadata' ||
-                    node.name.text === 'treeItemsGames')
+                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsMetadata' || node.name.text === 'treeItemsGames')
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
