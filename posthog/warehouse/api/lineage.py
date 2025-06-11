@@ -6,7 +6,6 @@ from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.table import DataWarehouseTable
 import uuid
 from typing import Optional, Any
 from collections import defaultdict, deque
@@ -157,12 +156,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                     saved_query = saved_queries.get(str(node_uuid))
 
                     if not saved_query:
-                        # if it's not a saved query, try to find it as a table
-                        table_reference = DataWarehouseTable.objects.filter(id=component_uuid, team_id=team_id).first()
-                        if table_reference:
-                            name = table_reference.name
-                        else:
-                            name = component
+                        name = component
                     else:
                         name = saved_query.name
                 except ValueError:
