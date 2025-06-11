@@ -1,12 +1,12 @@
 import { useActions } from 'kea'
 
-import { HogFunctionInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { IntegrationChoice, IntegrationConfigureProps } from './IntegrationChoice'
 
 export type HogFunctionInputIntegrationProps = IntegrationConfigureProps & {
-    schema: HogFunctionInputSchemaType
+    schema: CyclotronJobInputSchemaType
 }
 
 export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInputIntegrationProps): JSX.Element {

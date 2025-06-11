@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
-import { HogFunctionInputSchemaType, IntegrationType } from '~/types'
+import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
 
 export function IntegrationView({
     integration,
@@ -12,7 +12,7 @@ export function IntegrationView({
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
-    schema?: HogFunctionInputSchemaType
+    schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
     const errors = (integration.errors && integration.errors?.split(',')) || []
 

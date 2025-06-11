@@ -12,12 +12,12 @@ import {
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { HogFunctionInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 export type HogFunctionInputIntegrationFieldProps = {
-    schema: HogFunctionInputSchemaType
+    schema: CyclotronJobInputSchemaType
     value?: any
     onChange?: (value: any) => void
 }

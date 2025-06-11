@@ -41,14 +41,14 @@ import {
     AvailableFeature,
     BaseMathType,
     ChartDisplayType,
+    CyclotronJobInputSchemaType,
+    CyclotronJobInputType,
+    CyclotronJobMappingType,
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationContextId,
     HogFunctionConfigurationType,
-    HogFunctionInputSchemaType,
-    HogFunctionInputType,
     HogFunctionInvocationGlobals,
-    HogFunctionMappingType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -101,10 +101,8 @@ export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(
-        data: HogFunctionConfigurationType | HogFunctionMappingType
-    ): Record<string, HogFunctionInputType> {
-        const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+    function sanitizeInputs(data: CyclotronJobMappingType): Record<string, CyclotronJobInputType> {
+        const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
         data.inputs_schema?.forEach((inputSchema) => {
             const templatingEnabled = inputSchema.templating ?? true
             const input = data.inputs?.[inputSchema.key]
@@ -153,8 +151,8 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 }
 
 const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
-    function getInputs(inputs_schema?: HogFunctionInputSchemaType[] | null): Record<string, HogFunctionInputType> {
-        const inputs: Record<string, HogFunctionInputType> = {}
+    function getInputs(inputs_schema?: CyclotronJobInputSchemaType[] | null): Record<string, CyclotronJobInputType> {
+        const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
             if (schema.default !== undefined) {
                 inputs[schema.key] = { value: schema.default }
@@ -164,9 +162,9 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
     }
 
     function getMappingInputs(
-        inputs_schema?: HogFunctionInputSchemaType[] | null
-    ): Record<string, HogFunctionInputType> {
-        const inputs: Record<string, HogFunctionInputType> = {}
+        inputs_schema?: CyclotronJobInputSchemaType[] | null
+    ): Record<string, CyclotronJobInputType> {
+        const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
             if (schema.default !== undefined) {
                 inputs[schema.key] = { value: schema.default }
@@ -183,7 +181,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         inputs_schema: template.inputs_schema,
         filters: template.filters,
         mappings: template.mappings?.map(
-            (mapping): HogFunctionMappingType => ({
+            (mapping): CyclotronJobMappingType => ({
                 ...mapping,
                 inputs: getMappingInputs(mapping.inputs_schema),
             })
@@ -1272,7 +1270,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             inputs: template.inputs_schema?.reduce((acc, input) => {
                                 acc[input.key] = { value: input.default }
                                 return acc
-                            }, {} as Record<string, HogFunctionInputType>),
+                            }, {} as Record<string, CyclotronJobInputType>),
                         })),
                 ]
             }
