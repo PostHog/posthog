@@ -36,10 +36,6 @@ export type ResultBreakdownLogicProps = {
     metric?: ExperimentMetric
 }
 
-export type BreakDownResults = {
-    results: FunnelStep[] | FunnelStep[][] | TrendResult[]
-}
-
 /**
  * This logic only works with modern engines, like bayesian and frequentist.
  * Legacy Funnels and Trends engine are resolved backend side.
@@ -127,9 +123,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
 
     loaders(({ props, values }) => ({
         breakdownResults: [
-            null as BreakDownResults | null,
+            null as FunnelStep[] | FunnelStep[][] | TrendResult[] | null,
             {
-                loadBreakdownResults: async (): Promise<BreakDownResults> => {
+                loadBreakdownResults: async (): Promise<FunnelStep[] | FunnelStep[][] | TrendResult[]> => {
                     try {
                         const { experiment } = props
                         const query = values.query
@@ -168,7 +164,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                             )
                         }
 
-                        return { results }
+                        return results
                     } catch (error) {
                         throw new Error(
                             error instanceof Error

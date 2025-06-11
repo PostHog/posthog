@@ -1,31 +1,20 @@
-import { useValues } from 'kea'
-
 import { Query } from '~/queries/Query/Query'
-import { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { Experiment, InsightShortId } from '~/types'
-
-import { resultsBreakdownLogic } from './resultsBreakdownLogic'
+import type { InsightVizNode } from '~/queries/schema/schema-general'
+import type { FunnelStep, InsightShortId, TrendResult } from '~/types'
 
 /**
  * shows a breakdown of the results for ExperimentFunnelsQueryResponse
  */
 export const ResultsQuery = ({
-    result,
-    experiment,
+    query,
+    results,
 }: {
-    result: CachedExperimentQueryResponse
-    experiment: Experiment
+    query: InsightVizNode
+    results: FunnelStep[] | FunnelStep[][] | TrendResult[]
 }): JSX.Element | null => {
-    /**
-     * we get the generated query and the results from the breakdown logic
-     */
-    const { breakdownResults, query } = useValues(resultsBreakdownLogic({ experiment, metric: result.metric }))
-
-    if (!breakdownResults) {
+    if (!query || !results) {
         return null
     }
-
-    const { results } = breakdownResults
 
     const fakeInsightId = Math.random().toString(36).substring(2, 15)
 

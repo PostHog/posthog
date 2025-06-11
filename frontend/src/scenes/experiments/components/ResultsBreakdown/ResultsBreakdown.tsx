@@ -1,9 +1,11 @@
+import { BindLogic } from 'kea'
+
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { ExploreAsInsightButton } from './ExploreAsInsightButton'
-import { ResultsQuery } from './ResultsQuery'
+import { ResultsBreakdownContent } from './ResultsBreakdownContent'
+import { resultsBreakdownLogic } from './resultsBreakdownLogic'
 
 export const ResultsBreakdown = ({
     result,
@@ -20,13 +22,8 @@ export const ResultsBreakdown = ({
     }
 
     return (
-        <div>
-            <div className="flex justify-end">
-                <ExploreAsInsightButton experiment={experiment} result={result} />
-            </div>
-            <div className="pb-4">
-                <ResultsQuery experiment={experiment} result={result} />
-            </div>
-        </div>
+        <BindLogic logic={resultsBreakdownLogic} props={{ experiment, metric: result.metric }}>
+            <ResultsBreakdownContent />
+        </BindLogic>
     )
 }
