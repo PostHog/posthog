@@ -1,6 +1,4 @@
-from ee.hogai.graph import InsightsAssistantGraph
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
-from ee.models.assistant import Conversation
 from posthog.errors import InternalCHQueryError
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -11,9 +9,8 @@ from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 from asgiref.sync import sync_to_async
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from posthog.schema import AssistantHogQLQuery, HumanMessage, NodeKind, VisualizationMessage
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
+from posthog.schema import AssistantHogQLQuery, NodeKind
+from .scorers import QueryKindSelection, PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
 
 
 class SQLSyntaxCorrectness(Scorer):
@@ -57,54 +54,13 @@ class SQLSyntaxCorrectness(Scorer):
             return Score(name=self._name(), score=1.0)
 
 
-@pytest.fixture
-def call_node(demo_org_team_user):
-    # This graph structure will first get a plan, then generate the SQL query.
-    graph = (
-        InsightsAssistantGraph(demo_org_team_user[1])
-        .add_edge(AssistantNodeName.START, AssistantNodeName.SQL_PLANNER)
-        .add_sql_planner(next_node=AssistantNodeName.SQL_GENERATOR)  # Planner output goes to generator
-        .add_sql_generator(AssistantNodeName.END)  # Generator output is the final output
-        .compile()
-    )
-
-    def callable(query: str) -> PlanAndQueryOutput:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        # Initial state for the graph
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=f"Answer this question: {query}")],
-            root_tool_insight_plan=query,  # User query is the initial plan for the planner
-            root_tool_call_id="eval_test_sql",
-            root_tool_insight_type="sql",
-        )
-
-        # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = graph.invoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
-        )
-        final_state = AssistantState.model_validate(final_state_raw)
-
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-
-        # Ensure the answer is of the expected type for SQL eval
-        answer = final_state.messages[-1].answer
-        if not isinstance(answer, AssistantHogQLQuery):
-            # This case should ideally not happen if the graph is configured correctly for SQL
-            return {"plan": final_state.messages[-1].plan, "query": None}
-
-        return {"plan": final_state.messages[-1].plan, "query": answer}
-
-    return callable
-
-
 @pytest.mark.django_db
-def eval_sql(call_node):
+def eval_sql(call_root_for_insight_generation):
     MaxEval(
         experiment_name="sql",
-        task=call_node,
+        task=call_root_for_insight_generation,
         scores=[
+            QueryKindSelection(expected=NodeKind.HOG_QL_QUERY),
             PlanCorrectness(
                 query_kind=NodeKind.HOG_QL_QUERY,
                 evaluation_criteria="""
@@ -137,7 +93,7 @@ Important points:
         ],
         data=[
             EvalCase(
-                input="Count pageviews by browser",
+                input="Count pageviews by browser, using SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count pageviews grouped by browser:
@@ -160,7 +116,7 @@ LIMIT 100
                 ),
             ),
             EvalCase(
-                input="What are the top 10 countries by number of users in the last 7 days?",
+                input="What are the top 10 countries by number of users in the last 7 days? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to find the top 10 countries by number of users in the last 7 days:
@@ -184,7 +140,7 @@ LIMIT 10
                 ),
             ),
             EvalCase(
-                input="Show me the average session duration by day of week",
+                input="Show me the average session duration by day of week, using SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to calculate average session duration by day of week:
@@ -205,7 +161,7 @@ ORDER BY day_of_week
                 ),
             ),
             EvalCase(
-                input="What percentage of users who visited the pricing page made a purchase in this month?",
+                input="What percentage of users who visited the pricing page made a purchase in this month? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to calculate the percentage of users who visited the pricing page and also made a purchase this month:
@@ -239,7 +195,7 @@ LEFT JOIN purchasers p ON pv.person_id = p.person_id
                 ),
             ),
             EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence?",
+                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count users who completed the full onboarding sequence:
@@ -277,7 +233,7 @@ WHERE welcome_time < profile_time AND profile_time < tutorial_time
                 ),
             ),
             EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence?",
+                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count users who completed the full onboarding sequence:
@@ -305,5 +261,24 @@ WHERE event_count = 3
                     ),
                 ),
             ),
-        ],
+            EvalCase(
+                # As of May 2025, trends insights don't support "number of distinct values of property" math, so we MUST use SQL here
+                input="The number of distinct values of property $browser seen in each of the last 14 days",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Query:
+- Count distinct values of property $browser seen in each of the last 14 days
+""",
+                    query=AssistantHogQLQuery(
+                        query="""
+SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
+FROM events
+WHERE event = '$pageview'
+GROUP BY day
+ORDER BY day
+"""
+                    ),
+                ),
+            ),
+        ][-1:],
     )
