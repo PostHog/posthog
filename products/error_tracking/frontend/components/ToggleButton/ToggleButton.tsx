@@ -1,5 +1,5 @@
-import { cva } from 'cva'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { cn } from 'lib/utils/css-classes'
 
 export interface ToggleButtonPrimitiveProps {
     className?: string
@@ -9,14 +9,6 @@ export interface ToggleButtonPrimitiveProps {
     iconOnly?: boolean
     onCheckedChange: (checked: boolean) => void
 }
-
-const button = cva({
-    variants: {
-        checked: {
-            true: 'not-disabled:bg-zinc-700 not-disabled:hover:bg-zinc-700 dark:not-disabled:bg-zinc-300 dark:not-disabled:hover:bg-zinc-300 text-primary-inverse',
-        },
-    },
-})
 
 export function ToggleButtonPrimitive({
     className,
@@ -30,7 +22,12 @@ export function ToggleButtonPrimitive({
         <ButtonPrimitive
             iconOnly={iconOnly}
             tooltip={tooltip}
-            className={button({ checked, className })}
+            className={cn(
+                className,
+                checked
+                    ? 'not-disabled:bg-zinc-700 not-disabled:hover:bg-zinc-700 dark:not-disabled:bg-zinc-300 dark:not-disabled:hover:bg-zinc-300 text-primary-inverse'
+                    : ''
+            )}
             onClick={() => onCheckedChange(!checked)}
         >
             {children}

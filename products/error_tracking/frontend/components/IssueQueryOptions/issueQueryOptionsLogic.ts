@@ -1,11 +1,11 @@
 import equal from 'fast-deep-equal'
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { syncSearchParams, updateSearchParams } from 'scenes/error-tracking/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
+import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { issueQueryOptionsLogicType } from './issueQueryOptionsLogicType'
 
 export type ErrorTrackingQueryOrderBy = ErrorTrackingQuery['orderBy']
