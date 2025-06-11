@@ -1158,7 +1158,7 @@ export type FunnelsFilter = {
     /** @default first_touch */
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
-    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql'] | null
     /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer

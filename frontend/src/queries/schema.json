@@ -10595,7 +10595,7 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnelFromStep": {
                     "$ref": "#/definitions/integer"
