@@ -469,7 +469,7 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     breakdownFilter?: AssistantFunnelsBreakdownFilter
     /**
-     * Use this field to define the aggregation by a specific group from the group mapping that the user has provided.
+     * Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.
      */
     aggregation_group_type_index?: integer
 }
