@@ -31,7 +31,8 @@ const dataIngestedCounter = new Counter({
 export class ReplayEventsIngester {
     constructor(
         private readonly producer: KafkaProducerWrapper,
-        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker,
+        private readonly metadataSwitchoverDate: Date | null = null
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -120,6 +121,11 @@ export class ReplayEventsIngester {
         }
 
         try {
+            const switchoverMs = this.metadataSwitchoverDate?.getTime()
+            if (switchoverMs && event.metadata.timestamp >= switchoverMs) {
+                return drop('after_switchover_date')
+            }
+
             const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
 
             const { event: replayRecord } = createSessionReplayEvent(
