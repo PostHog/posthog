@@ -117,7 +117,7 @@ export function Login(): JSX.Element {
                                 <div className="flex flex-1 items-center justify-between gap-2">
                                     <span>Password</span>
                                     <Link
-                                        to={`${urls.passwordReset()}?email=${login.email}`}
+                                        to={[urls.passwordReset(), { email: login.email }]}
                                         data-attr="forgot-password"
                                     >
                                         Forgot your password?

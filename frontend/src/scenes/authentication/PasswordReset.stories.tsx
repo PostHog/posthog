@@ -110,7 +110,7 @@ export const WithEmailFromQuery = (): JSX.Element => {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.passwordReset() + '?email=user@example.com')
+        router.actions.push(urls.passwordReset(), { email: 'user@example.com' })
     }, [])
     return <PasswordReset />
 }
