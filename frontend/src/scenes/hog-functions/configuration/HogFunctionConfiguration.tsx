@@ -37,6 +37,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'

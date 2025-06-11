@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
-import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
+import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { hogFunctionTemplateListLogic, HogFunctionTemplateListLogicProps } from './hogFunctionTemplateListLogic'
 
@@ -72,7 +72,7 @@ export function HogFunctionTemplateList({
                                     title={
                                         <>
                                             {template.name}
-                                            {template.status && <DestinationTag status={template.status} />}
+                                            {template.status && <HogFunctionStatusTag status={template.status} />}
                                         </>
                                     }
                                     description={template.description}
