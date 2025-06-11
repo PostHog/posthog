@@ -78,7 +78,7 @@ fn upload_chunks(
             params.push(("release_id", id));
         }
 
-        let part = reqwest::blocking::multipart::Part::bytes(upload.data);
+        let part = reqwest::blocking::multipart::Part::bytes(upload.data).file_name("file");
         let form = reqwest::blocking::multipart::Form::new().part("file", part);
 
         let res = client

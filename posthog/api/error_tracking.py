@@ -473,7 +473,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
-        multipart = request.query_params.get("multipart", None)
+        multipart = request.query_params.get("multipart", False)
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
