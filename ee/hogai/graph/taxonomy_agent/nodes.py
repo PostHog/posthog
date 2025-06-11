@@ -322,30 +322,27 @@ class QueryPlannerNode(AssistantNode):
         # Only process the last ten visualization messages.
         viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-10:]
         for message in viz_messages:
-            conversation.append(LangchainHumanMessage(content=message.query))
-            conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+            conversation.append(LangchainHumanMessage(content=message.query or "_No query description provided._"))
+            conversation.append(LangchainAssistantMessage(content=message.plan or "_No generated plan._"))
 
         # The description of a new insight is added to the end of the conversation.
-        conversation.append(LangchainHumanMessage(content=state.root_tool_insight_plan))
+        conversation.append(
+            LangchainHumanMessage(content=state.root_tool_insight_plan or "_No query description provided._")
+        )
 
         for action, output in state.intermediate_steps or []:
             tool_call_id = action.log.split(LOG_SEPARATOR)[0]
-            conversation.append(
-                LangchainAssistantMessage(
-                    content=[
-                        {
-                            "type": "tool_use",
-                            "id": tool_call_id,
-                            "name": action.tool,
-                            "partial_json": json.dumps(action.tool_input),
-                        },
-                    ],
-                    tool_calls=[{"id": tool_call_id, "name": action.tool, "args": action.tool_input}],
-                )
-            )
+            assistant_content = [
+                {
+                    "type": "tool_use",
+                    "id": tool_call_id,
+                    "name": action.tool,
+                    "partial_json": json.dumps(action.tool_input),
+                },
+            ]
             if action.log and LOG_SEPARATOR in action.log:
                 _tool_call_id, thinking_content, thinking_signature = action.log.split(LOG_SEPARATOR)
-                conversation[-1].content.insert(
+                assistant_content.insert(
                     0,
                     {
                         "type": "thinking",
@@ -353,6 +350,12 @@ class QueryPlannerNode(AssistantNode):
                         "signature": thinking_signature,
                     },
                 )
+            conversation.append(
+                LangchainAssistantMessage(
+                    content=assistant_content,
+                    tool_calls=[{"id": tool_call_id, "name": action.tool, "args": action.tool_input}],
+                )
+            )
             conversation.append(LangchainToolMessage(content=output or "", tool_call_id=tool_call_id))
 
         return conversation
@@ -375,18 +378,21 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         output = ""
 
         try:
+            if action.tool in [
+                "retrieve_entity_properties",
+                "retrieve_event_properties",
+                "retrieve_action_properties",
+                "ask_user_for_help",
+            ]:
+                if not isinstance(action.tool_input, dict):
+                    raise ValueError(f"Input for {action.tool} must be a dictionary, got {action.tool_input}")
+                arguments = next(iter(action.tool_input.values()))
+            else:
+                arguments = action.tool_input
             input = TaxonomyAgentTool.model_validate(
                 {
                     "name": action.tool,
-                    "arguments": next(iter(action.tool_input.values()))
-                    if action.tool
-                    in [
-                        "retrieve_entity_properties",
-                        "retrieve_event_properties",
-                        "retrieve_action_properties",
-                        "ask_user_for_help",
-                    ]
-                    else action.tool_input,
+                    "arguments": arguments,
                 }
             ).root
         except ValidationError as e:
