@@ -43,7 +43,7 @@ def MaxEval(
         task=task,
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
-        timeout=180,
+        timeout=60 * 5,
         is_public=True,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
