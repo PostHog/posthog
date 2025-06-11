@@ -344,6 +344,7 @@ export const getCurrencySymbol = (currency: string): { symbol: string; isPrefix:
 
 export const DEFAULT_CURRENCY = CurrencyCode.USD
 
+// These are the currencies that are most important to show first because they're used by the most customers.
 // Check our web analytics dashboard for the most popular countries from our visitors.
 export const IMPORTANT_CURRENCIES: CurrencyCode[] = [
     CurrencyCode.USD,

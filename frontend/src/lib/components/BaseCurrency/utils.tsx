@@ -1,5 +1,3 @@
-// These are the currencies that are most important to show first because they're used by the most customers.
-
 import { LemonSelectOption } from '@posthog/lemon-ui'
 import {
     CURRENCY_SYMBOL_TO_EMOJI_MAP,
