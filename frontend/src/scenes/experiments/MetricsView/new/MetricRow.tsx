@@ -7,6 +7,7 @@ import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
+import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
 import { getNiceTickValues } from '../shared/utils'
@@ -21,6 +22,7 @@ export function MetricRow({
     metrics,
     metricIndex,
     chartRadius,
+    error,
 }: {
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metricIndex: number
@@ -29,8 +31,10 @@ export function MetricRow({
     metricType: InsightType
     isSecondary: boolean
     chartRadius: number
+    error: any
 }): JSX.Element {
-    const { secondaryMetricResultsLoading, metricResultsLoading } = useValues(experimentLogic)
+    const { experiment, secondaryMetricResultsLoading, metricResultsLoading, hasMinimumExposureForResults } =
+        useValues(experimentLogic)
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
 
     const variantResults = result?.variant_results || []
@@ -68,9 +72,7 @@ export function MetricRow({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${panelHeight}px` }}
                 >
-                    {resultsLoading ? (
-                        <ChartLoadingState height={panelHeight} />
-                    ) : (
+                    {result && hasMinimumExposureForResults ? (
                         <Chart
                             chartSvgRef={chartSvgRef}
                             chartHeight={chartHeight}
@@ -79,6 +81,16 @@ export function MetricRow({
                             metricIndex={metricIndex}
                             tickValues={tickValues}
                             isSecondary={isSecondary}
+                        />
+                    ) : resultsLoading ? (
+                        <ChartLoadingState height={panelHeight} />
+                    ) : (
+                        <ChartEmptyState
+                            height={panelHeight}
+                            experimentStarted={!!experiment.start_date}
+                            hasMinimumExposure={hasMinimumExposureForResults}
+                            metric={metric}
+                            error={error}
                         />
                     )}
                 </div>

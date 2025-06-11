@@ -273,3 +273,30 @@ impl std::fmt::Display for Frame {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::frames::RawFrame;
+
+    #[test]
+    fn ensure_custom_frames_work() {
+        let data = r#"
+            {
+            "function": "Task.Supervised.invoke_mfa/2",
+            "module": "Task.Supervised",
+            "filename": "lib/task/supervised.ex",
+            "resolved": false,
+            "in_app": true,
+            "lineno": 105,
+            "platform": "custom",
+            "lang": "elixir"
+            }
+            "#;
+
+        let frame: RawFrame = serde_json::from_str(data).unwrap();
+        match frame {
+            RawFrame::Custom(_) => {}
+            _ => panic!("Expected a custom frame"),
+        }
+    }
+}

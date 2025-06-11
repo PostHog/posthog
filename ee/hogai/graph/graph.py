@@ -287,20 +287,22 @@ class InsightsAssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self
 
-    def compile_full_graph(self):
+    def add_query_creation_flow(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
+        """Add all nodes and edges EXCEPT query execution."""
         return (
             self.add_rag_context()
             .add_trends_planner()
-            .add_trends_generator()
+            .add_trends_generator(next_node=next_node)
             .add_funnel_planner()
-            .add_funnel_generator()
+            .add_funnel_generator(next_node=next_node)
             .add_retention_planner()
-            .add_retention_generator()
+            .add_retention_generator(next_node=next_node)
             .add_sql_planner()
-            .add_sql_generator()
-            .add_query_executor()
-            .compile()
+            .add_sql_generator(next_node=next_node)
         )
+
+    def compile_full_graph(self):
+        return self.add_query_creation_flow().add_query_executor().compile()
 
 
 class AssistantGraph(BaseAssistantGraph):

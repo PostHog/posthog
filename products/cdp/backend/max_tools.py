@@ -1,4 +1,5 @@
 from typing import Optional
+import re
 from ee.hogai.tool import MaxTool
 from posthog.cdp.validation import compile_hog
 from posthog.hogql.ai import HOG_EXAMPLE_MESSAGE, HOG_GRAMMAR_MESSAGE, IDENTITY_MESSAGE_HOG
@@ -6,7 +7,7 @@ from products.cdp.backend.prompts import HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTE
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):
@@ -19,10 +20,8 @@ class HogTransformationOutput(BaseModel):
 
 class CreateHogTransformationFunctionTool(MaxTool):
     name: str = "create_hog_transformation_function"  # Must match a value in AssistantContextualTool enum
-    description: str = (
-        "Write or edit the hog code to create your desired transformation and apply it to the current editor"
-    )
-    thinking_message: str = "Creating your desired transformation"
+    description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
+    thinking_message: str = "Creating your desired function"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
     root_system_prompt_template: str = HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
 
@@ -40,8 +39,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
             + "\n\n<current_hog_code>\n"
             + current_hog_code
             + "\n</current_hog_code>"
-            + "\n\nRemove all line breaks and carriage returns, and strip whitespace."
-            + "\n\nReturn the hog code nicely formatted."
+            + "\n\nReturn ONLY the hog code inside <hog_code> tags. Do not add any other text or explanation."
         )
 
         user_content = "Write a Hog transformation or tweak the current one to satisfy this request: " + instructions
@@ -52,7 +50,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
-                parsed_result = self._parse_output(result)
+                parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
                 # Add error feedback to system message for retry
@@ -66,21 +64,28 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
-            HogTransformationOutput,
-            method="function_calling",
-            include_raw=False,
-        )
+        return ChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True)
 
-    def _parse_output(self, output):  # type: ignore
-        result = parse_pydantic_structured_output(HogTransformationOutput)(output)
-        assert result is not None
+    def _parse_output(self, output: str) -> HogTransformationOutput:
+        match = re.search(r"<hog_code>(.*?)</hog_code>", output, re.DOTALL)
+        if not match:
+            # The model may have returned the code without tags, or with markdown
+            hog_code = re.sub(
+                r"^\s*```hog\s*\n(.*?)\n\s*```\s*$", r"\1", output, flags=re.DOTALL | re.MULTILINE
+            ).strip()
+        else:
+            hog_code = match.group(1).strip()
 
-        try:
-            compile_hog(result.hog_code, "transformation")
-        except Exception as e:
+        if not hog_code:
             raise PydanticOutputParserException(
-                llm_output=result.hog_code, validation_message=f"The Hog code failed to compile: {str(e)}"
+                llm_output=output, validation_message="The model returned an empty hog code response."
             )
 
-        return result
+        try:
+            compile_hog(hog_code, "transformation")
+        except Exception as e:
+            raise PydanticOutputParserException(
+                llm_output=hog_code, validation_message=f"The Hog code failed to compile: {str(e)}"
+            )
+
+        return HogTransformationOutput(hog_code=hog_code)
