@@ -1,6 +1,8 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { BatchExportBackfills } from 'scenes/pipeline/BatchExportBackfills'
+import { BatchExportRuns } from 'scenes/pipeline/BatchExportRuns'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,11 +10,12 @@ import { BatchExportService, Breadcrumb } from '~/types'
 
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import { BatchExportConfigurationLogicProps } from './batchExportConfigurationLogic'
+import type { batchExportSceneLogicType } from './BatchExportSceneType'
 
-const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'history'] as const
+const BATCH_EXPORT_SCENE_TABS = ['configuration', 'runs', 'backfills'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
 
-export const batchExportSceneLogic = kea([
+export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
     props({} as BatchExportConfigurationLogicProps),
     key(({ id }: BatchExportConfigurationLogicProps) => id ?? 'new'),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportSceneLogic', key]),
@@ -94,15 +97,28 @@ export function BatchExportScene(): JSX.Element {
     const { currentTab, logicProps } = useValues(batchExportSceneLogic)
     const { setCurrentTab } = useActions(batchExportSceneLogic)
 
-    const { id } = logicProps
+    const { id, service } = logicProps
 
     const tabs: (LemonTab<BatchExportSceneTab> | null)[] = [
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <BatchExportConfiguration id={id} />,
+            content: <BatchExportConfiguration id={id} service={service} />,
         },
-
+        id
+            ? {
+                  label: 'Runs',
+                  key: 'runs',
+                  content: <BatchExportRuns id={id} />,
+              }
+            : null,
+        id
+            ? {
+                  label: 'Backfills',
+                  key: 'backfills',
+                  content: <BatchExportBackfills id={id} />,
+              }
+            : null,
         // {
         //     label: 'History',
         //     key: 'history',

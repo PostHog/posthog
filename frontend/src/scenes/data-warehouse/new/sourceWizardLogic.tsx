@@ -1437,7 +1437,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>) => {
             const kind = searchParams.kind?.toLowerCase()
             const source = Object.values(SOURCE_DETAILS).find((source) => source.name.toLowerCase() === kind)
-            const manualSource = Object.keys(MANUAL_SOURCE_LINK_MAP).find((name) => name.toLowerCase() === kind)
+            const manualSource = Object.keys(MANUAL_SOURCE_LINK_MAP).find((name) => name.toLowerCase() === kind) as
+                | ManualLinkSourceType
+                | undefined
 
             if (manualSource) {
                 actions.setManualLinkingProvider(manualSource)

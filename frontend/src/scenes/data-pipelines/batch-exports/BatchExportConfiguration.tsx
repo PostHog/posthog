@@ -31,9 +31,10 @@ import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchE
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import { BatchExportConfigurationForm } from './types'
-import { humanizeBatchExportName } from './utils'
+import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
 export function BatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
+    service = normalizeBatchExportService(service ?? '')
     const logicProps = { service: (service as BatchExportService['type']) || null, id: id || null }
     const logic = batchExportConfigurationLogic(logicProps)
 
@@ -62,7 +63,7 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
 
-    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as any)) {
+    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
         return <NotFound object={`batch export service ${service}`} />
     }
 

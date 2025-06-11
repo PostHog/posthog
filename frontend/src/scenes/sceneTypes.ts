@@ -106,6 +106,8 @@ export enum Scene {
     DataPipelinesNew = 'DataPipelinesNew',
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
+    BatchExport = 'BatchExport',
+    BatchExportNew = 'BatchExportNew',
     UserInterviews = 'UserInterviews',
     UserInterview = 'UserInterview',
     Game368 = 'Game368',

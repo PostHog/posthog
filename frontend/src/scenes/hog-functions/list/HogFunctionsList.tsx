@@ -31,7 +31,7 @@ const urlForHogFunction = (hogFunction: HogFunctionType): string => {
         return urls.pipelineNode(PipelineStage.Destination, hogFunction.id.replace('plugin-', ''))
     }
     if (hogFunction.id.startsWith('batch-export-')) {
-        return urls.pipelineNode(PipelineStage.Destination, hogFunction.id.replace('batch-export-', ''))
+        return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
     }
     return urls.hogFunction(hogFunction.id)
 }

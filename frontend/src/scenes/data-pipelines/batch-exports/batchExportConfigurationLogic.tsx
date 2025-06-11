@@ -17,6 +17,7 @@ import {
 } from '~/types'
 
 import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
+import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
 import { humanizeBatchExportName } from './utils'
 
 export interface BatchExportConfigurationLogicProps {
@@ -430,7 +431,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
-export const batchExportConfigurationLogic = kea([
+export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
     props({} as BatchExportConfigurationLogicProps),
     key(({ service, id }: BatchExportConfigurationLogicProps) => {
         if (id) {
@@ -728,7 +729,6 @@ export const batchExportConfigurationLogic = kea([
 
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
-
         },
         loadBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {
