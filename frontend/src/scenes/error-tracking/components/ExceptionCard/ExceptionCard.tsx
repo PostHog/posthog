@@ -9,6 +9,7 @@ import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewReco
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { useEffect } from 'react'
 import { match } from 'ts-pattern'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -36,25 +37,27 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
 }
 
 export function ExceptionCard({ issue, issueLoading, label, event, eventLoading }: ExceptionCardProps): JSX.Element {
+    const { setLoading } = useActions(exceptionCardLogic)
+    useEffect(() => {
+        setLoading(eventLoading)
+    }, [setLoading, eventLoading])
     return (
-        <BindLogic logic={exceptionCardLogic} props={{ loading: eventLoading }}>
-            <BindLogic
-                logic={errorPropertiesLogic}
-                props={
-                    {
-                        properties: event?.properties,
-                        timestamp: event?.timestamp,
-                        id: issue?.id ?? 'error',
-                    } as ErrorPropertiesLogicProps
-                }
-            >
-                <ExceptionCardContent
-                    issue={issue}
-                    label={label}
-                    timestamp={event?.timestamp}
-                    issueLoading={issueLoading}
-                />
-            </BindLogic>
+        <BindLogic
+            logic={errorPropertiesLogic}
+            props={
+                {
+                    properties: event?.properties,
+                    timestamp: event?.timestamp,
+                    id: issue?.id ?? 'error',
+                } as ErrorPropertiesLogicProps
+            }
+        >
+            <ExceptionCardContent
+                issue={issue}
+                label={label}
+                timestamp={event?.timestamp}
+                issueLoading={issueLoading}
+            />
         </BindLogic>
     )
 }
