@@ -19,7 +19,7 @@ import {
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
-import { toParams } from 'lib/utils'
+import { isEmptyObject, toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -299,7 +299,9 @@ export const productUrls = {
     ): string => {
         const params = [
             { param: 'dashboard', value: dashboardId },
-            { param: 'variables_override', value: variablesOverride },
+            ...(variablesOverride && !isEmptyObject(variablesOverride)
+                ? [{ param: 'variables_override', value: variablesOverride }]
+                : []),
         ]
             .filter((n) => Boolean(n.value))
             .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
