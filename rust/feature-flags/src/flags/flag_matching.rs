@@ -514,16 +514,15 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't DependencyNotFound, since DependencyNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted dependency
-                    if !matches!(e, FlagError::DependencyNotFound(_)) {
-                        error!(
-                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag.key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
-                        warn!(
-                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                        error!(
+                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
                         );
                     }
@@ -557,8 +556,10 @@ impl FeatureFlagMatcher {
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
                 for flag in flags_needing_db_properties {
-                    flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason, None));
+                    flag_details_map.insert(
+                        flag.key.clone(),
+                        FlagDetails::create_error(&flag, reason, None),
+                    );
                 }
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
@@ -609,16 +610,15 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't DependencyNotFound, since DependencyNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::DependencyNotFound(_)) {
-                        error!(
-                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag_key, self.distinct_id, e
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag_key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
-                        warn!(
-                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                        error!(
+                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag_key, self.distinct_id, e
                         );
                     }
@@ -628,7 +628,8 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
-                    flag_details_map.insert(flag_key, FlagDetails::create_error(flag, reason, None));
+                    flag_details_map
+                        .insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
         }

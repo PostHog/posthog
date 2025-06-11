@@ -56,7 +56,11 @@ pub fn parse_exception_for_prometheus_label(err: &FlagError) -> &'static str {
         FlagError::RedisUnavailable => "redis_unavailable",
         FlagError::TimeoutError => "timeout_error",
         FlagError::NoGroupTypeMappings => "no_group_type_mappings",
-        FlagError::DependencyNotFound(_) => "dependency_not_found_cohort",
+        FlagError::DependencyNotFound(dependency_type, _) => match dependency_type.as_str() {
+            "cohort" => "dependency_not_found_cohort",
+            "flag" => "dependency_not_found_flag",
+            _ => "dependency_not_found_unknown",
+        },
         _ => "unknown",
     }
 }

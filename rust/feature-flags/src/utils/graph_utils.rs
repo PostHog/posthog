@@ -16,6 +16,20 @@ pub trait DependencyProvider {
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error>;
 }
 
+fn get_dependency_type_name_from_type<T>() -> Result<String, FlagError> {
+    let type_name = std::any::type_name::<T>();
+    if type_name.contains("FeatureFlag") {
+        Ok("flag".to_string())
+    } else if type_name.contains("Cohort") {
+        Ok("cohort".to_string())
+    } else {
+        Err(FlagError::Internal(format!(
+            "Unknown dependency type: {}",
+            type_name
+        )))
+    }
+}
+
 /// Constructs a dependency graph for any type that implements DependencyProvider.
 /// This graph represents dependencies between entities (e.g. feature flags or cohorts).
 ///
@@ -68,7 +82,11 @@ where
     let initial_item = items
         .iter()
         .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| FlagError::DependencyNotFound(initial_id.into()))?;
+        .ok_or_else(|| {
+            get_dependency_type_name_from_type::<T>()
+                .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
+                .unwrap_or_else(|e| e)
+        })?;
 
     // Check if the initial item meets the criteria
     if !criteria(initial_item) {
@@ -89,7 +107,11 @@ where
         let item = items
             .iter()
             .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| FlagError::DependencyNotFound(item_id.into()))?;
+            .ok_or_else(|| {
+                get_dependency_type_name_from_type::<T>()
+                    .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
+                    .unwrap_or_else(|e| e)
+            })?;
 
         let dependencies = item.extract_dependencies()?;
         for dep_id in dependencies {
