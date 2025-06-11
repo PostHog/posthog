@@ -3004,3 +3004,475 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_disable_flags_returns_empty_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a flag that would normally match
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags: true
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "disable_flags": true
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {},
+            "featureFlagPayloads": {}
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a flag that would normally match
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags: true using v2 API
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "disable_flags": true
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {}
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a flag that should match
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags: false (should still return flags)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "disable_flags": false
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "test-flag": true
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a flag that would normally match
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags: true AND config: true
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "disable_flags": true
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify flags are empty (due to disable_flags)
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {},
+            "featureFlagPayloads": {}
+        })
+    );
+
+    // Verify config data is still present (due to config=true)
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "supportedCompression": ["gzip", "gzip-js"],
+            "autocapture_opt_out": false,
+            "config": {
+                "enable_collect_everything": true
+            },
+            "toolbarParams": {},
+            "isAuthenticated": false,
+            "defaultIdentifiedOnly": true
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a flag that would normally match
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags: true AND config: true using v2 API
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "disable_flags": true
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify flags are empty (due to disable_flags)
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {}
+        })
+    );
+
+    // Verify config data is still present (due to config=true)
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "supportedCompression": ["gzip", "gzip-js"],
+            "autocapture_opt_out": false,
+            "config": {
+                "enable_collect_everything": true
+            },
+            "toolbarParams": {},
+            "isAuthenticated": false,
+            "defaultIdentifiedOnly": true
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disable_flags_without_config_param_has_minimal_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a flag that would normally match
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags: true but NO config parameter
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "disable_flags": true
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify flags are empty (due to disable_flags)
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {}
+        })
+    );
+
+    // Verify minimal config data (since config=true was not requested)
+    // Should NOT have the full config fields like supportedCompression, etc.
+    assert!(json_data.get("supportedCompression").is_none());
+    assert!(json_data.get("config").is_none());
+    assert!(json_data.get("toolbarParams").is_none());
+
+    Ok(())
+}

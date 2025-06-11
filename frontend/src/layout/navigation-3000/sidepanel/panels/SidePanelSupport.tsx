@@ -94,7 +94,7 @@ const SupportResponseTimesTable = ({
         {
             name: 'Pay-as-you-go',
             current_plan: billing?.subscription_level === 'paid' && !hasActiveTrial && !hasPlatformAndSupportAddon,
-            features: [{ note: '2 business days' }],
+            features: [{ note: '72 hours' }],
             plan_key: 'paid',
         },
         ...(platformAndSupportProduct?.addons?.map((addon) => {
@@ -116,14 +116,6 @@ const SupportResponseTimesTable = ({
                 const isBold = plan.current_plan
 
                 const responseNote = plan.features.find((f: any) => f.note)?.note
-
-                const formattedResponseTime = responseNote
-                    ? responseNote === '2 days' || responseNote === '24 hours'
-                        ? '2 business days'
-                        : responseNote === '1 day' || responseNote === '12 hours'
-                        ? '1 business day'
-                        : responseNote
-                    : 'Community support only'
 
                 return (
                     <React.Fragment key={plan.plan_key}>
@@ -147,10 +139,10 @@ const SupportResponseTimesTable = ({
                             data-attr="support-response-time"
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
-                                {formattedResponseTime === 'Community support only' && plan.link ? (
+                                {!responseNote && plan.link ? (
                                     <Link to={plan.link}>Community forum</Link>
                                 ) : (
-                                    formattedResponseTime
+                                    responseNote || 'Community support only'
                                 )}
                             </span>
                         </div>

@@ -13,6 +13,7 @@ class CoreFilterDefinition(TypedDict):
     system: NotRequired[bool]
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
+    virtual: NotRequired[bool]
 
 
 """
@@ -317,6 +318,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$config_defaults": {
+            "label": "Config defaults",
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "type": "String",
+        },
         "$python_runtime": {
             "label": "Python runtime",
             "description": "The Python runtime that was used to capture the event.",
@@ -973,6 +979,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$timezone": {
             "label": "Timezone",
             "description": "The timezone as reported by the device",
+        },
+        "$timezone_offset": {
+            "label": "Timezone offset",
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "type": "Numeric",
         },
         "$touch_x": {
             "label": "Touch X",
@@ -1922,6 +1933,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Email address",
             "description": "The email address of the user.",
             "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
+            "type": "String",
+        },
+        "$virt_initial_channel_type": {
+            "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
+            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "label": "Initial channel type",
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_initial_referring_domain_type": {
+            "description": "What type of referring domain this user initially came from.",
+            "examples": ["Search", "Video", "Direct"],
+            "label": "Initial referring domain type",
+            "type": "String",
+            "virtual": True,
         },
     },
     "session_properties": {
@@ -2088,6 +2114,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "cohort": {
             "label": "Cohort",
             "description": "The cohort of the customer connected to the revenue event.",
+            "type": "String",
+        },
+        "source": {
+            "label": "Source",
+            "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "type": "String",
         },
     },
