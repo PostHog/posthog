@@ -173,12 +173,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
 
-            # For DataWarehouse nodes, timestamp can be nullable, so we need to handle NULL values
+            # For DataWarehouse nodes we have a timestamp field we need to use
+            # This timestamp data can be nullable, so we need to handle NULL values
+            # to avoid ClickHouse errors with dictGetOrDefault expecting non-nullable dates
             if isinstance(self.series, DataWarehouseNode):
                 timestamp_expr = ast.Call(
                     name="ifNull",
                     args=[
-                        ast.Field(chain=["timestamp"]),
+                        ast.Field(chain=[self.series.timestamp_field]),
                         ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
                     ],
                 )
