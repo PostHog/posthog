@@ -95,7 +95,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         .map((hogFunction) => ({
                             icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                             name: hogFunction.name,
-                            description: hogFunction.description,
+                            description: typeof hogFunction.description === 'string' ? hogFunction.description : '',
                             backend: PipelineBackend.HogFunction as const,
                             url: combineUrl(
                                 urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(hogFunction.type), {

@@ -1,7 +1,6 @@
 import { kea, path, props, selectors, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -76,14 +75,11 @@ export function DataPipelinesNewScene(): JSX.Element {
     }
     if (kind === 'source') {
         return (
-            <>
-                <HogFunctionTemplateList
-                    defaultFilters={{}}
-                    type="source_webhook"
-                    manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-                />
-                <NewSourceWizardScene />
-            </>
+            <HogFunctionTemplateList
+                defaultFilters={{}}
+                type="source_webhook"
+                manualTemplates={hogFunctionTemplatesDataWarehouseSources}
+            />
         )
     }
 
