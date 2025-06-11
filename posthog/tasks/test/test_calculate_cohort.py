@@ -19,6 +19,8 @@ from posthog.tasks.calculate_cohort import (
 )
 from posthog.test.base import APIBaseTest
 
+MISSING_COHORT_ID = 12345
+
 
 def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
     class TestCalculateCohort(APIBaseTest):
@@ -397,7 +399,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 groups=[
                     {
                         "properties": [
-                            {"key": "id", "value": 12345, "type": "cohort"},  # non-existent cohort
+                            {"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"},  # non-existent cohort
                             {"key": "id", "value": cohort_a.id, "type": "cohort"},
                             {"key": "$some_prop", "value": "something", "type": "person"},
                         ]
