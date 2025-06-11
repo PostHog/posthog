@@ -120,7 +120,7 @@ export function SaveToModal(): JSX.Element {
                 </div>
 
                 {showChooseFolder && (
-                    <div className="max-w-full">
+                    <div className="max-w-[400px]">
                         <Form logic={saveToLogic} formKey="form">
                             <LemonField name="folder">
                                 <FolderSelect
