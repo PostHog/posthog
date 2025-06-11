@@ -17,7 +17,8 @@ import { urls } from 'scenes/urls'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -1041,29 +1042,27 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 // Also get distinct_id and person properties for open text questions
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `-- QUERYING ALL SURVEY RESPONSES IN ONE GO
-                        SELECT
-                            ${questionFields.join(',\n')},
-                            person.properties,
-                            events.distinct_id
-                        FROM events
-                        WHERE event = '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            ${values.partialResponsesFilter}
-                            AND {filters}
-                        ORDER BY events.timestamp DESC
-                        LIMIT ${limit}
-                    `,
+                const query = hogql`
+                    -- QUERYING ALL SURVEY RESPONSES IN ONE GO
+                    SELECT
+                        ${questionFields.join(',\n')},
+                        person.properties,
+                        events.distinct_id
+                    FROM events
+                    WHERE event = '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        ${values.partialResponsesFilter}
+                        AND {filters}
+                    ORDER BY events.timestamp DESC
+                    LIMIT ${limit}`
+
+                const responseJSON = await api.queryHogQL(query, {
                     filters: {
                         properties: values.propertyFilters,
                     },
-                }
-
-                const responseJSON = await api.query(query)
+                })
                 const { results } = responseJSON
 
                 // Process the results into a format that can be used by each question type
