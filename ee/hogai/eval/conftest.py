@@ -1,18 +1,22 @@
+from collections import namedtuple
 import datetime
 from collections.abc import Generator
 import os
-from pathlib import Path
 from collections.abc import Sequence
+from unittest import mock
+from _pytest.terminal import TerminalReporter
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from braintrust import Eval, init_logger
 from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
-from django.conf import settings
 import pytest
 from django.test import override_settings
-
-from ee.models.assistant import CoreMemory
+from ee.hogai.eval.scorers import PlanAndQueryOutput
+from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.models.assistant import Conversation, CoreMemory
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
+from posthog.schema import HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 # We want the PostHog django_db_setup fixture here
@@ -38,6 +42,8 @@ def MaxEval(
         task=task,
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
+        timeout=180,
+        is_public=True,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
@@ -45,13 +51,59 @@ def MaxEval(
     return result
 
 
+@pytest.fixture
+def call_root_for_insight_generation(demo_org_team_user):
+    # This graph structure will first get a plan, then generate the SQL query.
+
+    insights_subgraph = (
+        # Insights subgraph without query execution, so we only create the queries
+        InsightsAssistantGraph(demo_org_team_user[1]).add_query_creation_flow(next_node=AssistantNodeName.END).compile()
+    )
+    graph = (
+        AssistantGraph(demo_org_team_user[1])
+        .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        .add_root(
+            path_map={
+                "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                "root": AssistantNodeName.END,
+                "search_documentation": AssistantNodeName.END,
+                "memory_onboarding": AssistantNodeName.END,
+                "end": AssistantNodeName.END,
+            }
+        )
+        .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
+        .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
+        .compile()
+    )
+
+    def callable(query: str) -> PlanAndQueryOutput:
+        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
+        # Initial state for the graph
+        initial_state = AssistantState(
+            messages=[HumanMessage(content=f"Answer this question: {query}")],
+        )
+
+        # Invoke the graph. The state will be updated through planner and then generator.
+        final_state_raw = graph.invoke(
+            initial_state,
+            {"configurable": {"thread_id": conversation.id}},
+        )
+        final_state = AssistantState.model_validate(final_state_raw)
+
+        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
+            return {"plan": None, "query": None}
+        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+
+    return callable
+
+
 @pytest.fixture(scope="package")
 def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
     with django_db_blocker.unblock():
-        should_create_new_team = True
         team = Team.objects.order_by("-created_at").first()
-        if team and team.created_at.date() >= datetime.date.today():
-            should_create_new_team = False  # Project doesn't exist or is from yesterday, let's get a new one
+        today = datetime.date.today()
+        # If there's no eval team or it's older than today, we need to create a new one with fresh data
+        should_create_new_team = not team or team.created_at.date() < today
 
         if should_create_new_team:
             print(f"Generating fresh demo data for evals...")  # noqa: T201
@@ -68,7 +120,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
                 # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
                 # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
                 org, team, user = matrix_manager.ensure_account_and_save(
-                    "eval@posthog.com", "Eval Doe", "Hedgebox Inc."
+                    f"eval-{today.isoformat()}", "Eval Doe", "Hedgebox Inc."
                 )
         else:
             print(f"Using existing demo data for evals...")  # noqa: T201
@@ -78,7 +130,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
         yield org, team, user
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="package", autouse=True)
 def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
     initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.
 
@@ -97,21 +149,63 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
     with django_db_blocker.unblock():
         core_memory, _ = CoreMemory.objects.get_or_create(
             team=demo_org_team_user[1],
-            text=initial_memory,
-            initial_text=initial_memory,
-            scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
+            defaults={
+                "text": initial_memory,
+                "initial_text": initial_memory,
+                "scraping_status": CoreMemory.ScrapingStatus.COMPLETED,
+            },
         )
     yield core_memory
 
 
-# TODO: Remove below `pytest_collection_modifyitems` with `skipif` injection once deepeval is refactored away,
-#       because newer braintrust-based structure uses a different prefix for test files (eval_*.py)
+_nodeid_to_results_url_map: dict[str, str] = {}
+"""Map of test nodeid (file + test name) to Braintrust results URL."""
 
 
-def pytest_collection_modifyitems(items):
-    current_dir = Path(__file__).parent
-    for item in items:
-        if Path(item.fspath).is_relative_to(current_dir):
-            item.add_marker(
-                pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
+@pytest.fixture(autouse=True)
+def capture_stdout(request, capsys):
+    yield
+    captured = capsys.readouterr()
+    if "See results for " in captured.out:
+        # Get only the line with the results link. The output we are extracting from is something like this:
+        # [...]
+        # 0.00$ (-00.02%) 'estimated_cost'        (4 improvements, 3 regressions)
+        # See results for braintrust-more-evals-1747934384 at https://www.braintrust.dev/app/PostHog/p/max-ai-memory/experiments/braintrust-more-evals-1747934384
+        # Experiment braintrust-more-evals-1747934384 is running at https://www.braintrust.dev/app/PostHog/p/max-ai-memory/experiments/braintrust-more-evals-1747934384
+        # [...]
+        results_url = next(line for line in captured.out.split("\n") if "See results for " in line).split(" at ")[1]
+        _nodeid_to_results_url_map[request.node.nodeid] = results_url
+
+
+class BraintrustURLReporter(TerminalReporter):  # type: ignore
+    """
+    Our reporter adds one feature to the default one: for each passed eval_ test, it adds a link to the Braintrust results.
+    By default, passed tests don't get any short summary, but we can override that - which is what we do here.
+    """
+
+    # No idea what type report.longrepr or report.longrrepr.reprcrash _should_ be, but this works
+    DummyLongRepr = namedtuple("DummyLongRepr", ["reprcrash"])
+    DummyReprCrash = namedtuple("DummyReprCrash", ["message"])
+
+    def short_test_summary(self):
+        for report in self.stats.get("passed", []):
+            report.longrepr = self.DummyLongRepr(
+                reprcrash=self.DummyReprCrash(
+                    message=_nodeid_to_results_url_map.get(report.nodeid, f"No Braintrust results for {report.nodeid}")
+                )
             )
+        with mock.patch("_pytest.terminal.running_on_ci", return_value=True):
+            # Make pytest think we're running in CI, because annoyingly _pytest.terminal._get_line_with_reprcrash_message
+            # trims the short test summary (i.e. Braintrust URL) terminal width if it thinks we're not in CI
+            super().short_test_summary()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_configure(config):
+    if not str(config.rootdir).endswith("/ee/hogai/eval"):
+        return  # No-op if not running specifically evals
+    # Register a custom reporter that adds a link to the Braintrust results
+    vanilla_reporter = config.pluginmanager.getplugin("terminalreporter")
+    braintrust_url_reporter = BraintrustURLReporter(config)
+    config.pluginmanager.unregister(vanilla_reporter)
+    config.pluginmanager.register(braintrust_url_reporter, "terminalreporter")

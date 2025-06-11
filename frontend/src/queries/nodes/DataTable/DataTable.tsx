@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -135,6 +136,10 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
+
+    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const usedWebAnalyticsPreAggregatedTables =
+        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -522,7 +527,6 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
-
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -550,7 +554,9 @@ export function DataTable({
                     {showResultsTable && (
                         <LemonTable
                             data-attr={dataAttr}
-                            className="DataTable"
+                            className={clsx('DataTable', {
+                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
+                            })}
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
                             embedded={embedded}

@@ -48,6 +48,7 @@ def get_query_results() -> list[Any]:
         WHERE initial_query_id REGEXP '\d+_[0-9a-f]{8}-'
         AND type = 'QueryFinish'
         AND event_time > subtractSeconds(now(), 10)
+        SETTINGS skip_unavailable_shards=1
         """
 
     raw_results = sync_execute(SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE)

@@ -85,7 +85,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         }}
                         introOverride={{
                             headline: 'What data do you want to analyze?',
-                            description: 'On this page, I can help you write and tweak SQL queries.',
+                            description: 'Let me help you quickly write SQL, and tweak it.',
                         }}
                     >
                         <div className="relative" />

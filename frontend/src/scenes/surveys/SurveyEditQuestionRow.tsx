@@ -8,9 +8,22 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
-import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import {
+    defaultSurveyFieldValues,
+    NewSurvey,
+    SCALE_OPTIONS,
+    SURVEY_RATING_SCALE,
+    SurveyQuestionLabel,
+} from './constants'
 import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
@@ -102,7 +115,16 @@ export function SurveyEditQuestionHeader({
     )
 }
 
-export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
+function canQuestionSkipSubmitButton(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    )
+}
+
+export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
 
@@ -124,6 +146,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     const handleTabChange = (key: string): void => {
         handleQuestionValueChange('descriptionContentType', key)
     }
+
+    const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
 
     return (
         <Group name={`questions.${index}`} key={index}>
@@ -216,7 +240,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
                                     onChange={(val) => {
-                                        const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
+                                        const newQuestion = {
+                                            ...survey.questions[index],
+                                            display: val,
+                                            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                        }
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
@@ -230,19 +258,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
-                                    options={[
-                                        ...(question.display === 'emoji' ? [{ label: '1 - 3', value: 3 }] : []),
-                                        {
-                                            label: '1 - 5',
-                                            value: 5,
-                                        },
-                                        ...(question.display === 'number'
-                                            ? [
-                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
-                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
-                                              ]
-                                            : []),
-                                    ]}
+                                    options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
                                         const newQuestions = [...survey.questions]
@@ -369,14 +385,48 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </LemonField>
                     </div>
                 )}
-                <LemonField name="buttonText" label="Button text">
-                    <LemonInput
-                        value={
-                            question.buttonText === undefined
-                                ? survey.appearance?.submitButtonText ?? 'Submit'
-                                : question.buttonText
-                        }
-                    />
+                <LemonField
+                    name="buttonText"
+                    label="Submit button text"
+                    className="flex-1 flex gap-1 justify-center"
+                    info={
+                        canSkipSubmitButton
+                            ? "When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                            : undefined
+                    }
+                >
+                    <>
+                        {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
+                            <LemonInput
+                                value={
+                                    question.buttonText === undefined
+                                        ? survey.appearance?.submitButtonText ?? 'Submit'
+                                        : question.buttonText
+                                }
+                                onChange={(val) => handleQuestionValueChange('buttonText', val)}
+                            />
+                        )}
+                        {canSkipSubmitButton && (
+                            <LemonField
+                                name="skipSubmitButton"
+                                info={
+                                    <>
+                                        If enabled, the survey will submit immediately after the user makes a selection
+                                        (for single-choice without open-ended, or rating questions), and the submit
+                                        button will be hidden/text ignored.
+                                    </>
+                                }
+                            >
+                                {({ value: skipSubmitButtonValue, onChange: onSkipSubmitButtonChange }) => (
+                                    <LemonCheckbox
+                                        label="Automatically submit on selection"
+                                        checked={!!skipSubmitButtonValue}
+                                        onChange={onSkipSubmitButtonChange}
+                                    />
+                                )}
+                            </LemonField>
+                        )}
+                    </>
                 </LemonField>
                 <QuestionBranchingInput questionIndex={index} question={question} />
             </div>

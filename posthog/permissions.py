@@ -20,10 +20,12 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import Conflict, EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.scopes import APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 from rest_framework.exceptions import AuthenticationFailed
+from posthog.constants import AvailableFeature
+
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -617,3 +619,43 @@ class ProjectSecretAPITokenPermission(BasePermission):
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
         )
+
+
+class UserCanInvitePermission(BasePermission):
+    """
+    Only allows Admins+, and Members if members_can_invite flag is True
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        user = cast(User, request.user)
+        org_invite_settings_available = user.organization and user.organization.is_feature_available(
+            AvailableFeature.ORGANIZATION_INVITE_SETTINGS
+        )
+
+        if not org_invite_settings_available:
+            return True
+
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, user), organization=user.organization)
+        except OrganizationMembership.DoesNotExist:
+            raise NotFound("Organization not found.")
+
+        members_can_invite = bool(user.organization and user.organization.members_can_invite)
+        user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
+
+        if user_is_admin:
+            return True
+
+        return members_can_invite
+
+
+class OrganizationInviteSettingsPermission(BasePermission):
+    """
+    Only Admins+ can update org invite settings
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        user = cast(User, request.user)
+        membership = user.organization_memberships.get(organization=user.organization)
+
+        return membership.level >= OrganizationMembership.Level.ADMIN

@@ -1,9 +1,15 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/auto-assignment/ErrorTrackingAutoAssignment'
-import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { ErrorTrackingAlerting } from 'products/error_tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/configuration/ExceptionAutocaptureSettings'
+import { ErrorTrackingAutoAssignment } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingCustomGrouping } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
+import { ErrorTrackingSymbolSets } from 'products/error_tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
+import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -18,15 +24,13 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { Realm } from '~/types'
 
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './environment/AutocaptureSettings'
+import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -40,7 +44,6 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -164,6 +167,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamTimezone />,
             },
             {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
@@ -233,6 +241,48 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-revenue-analytics',
+        title: 'Revenue analytics',
+        settings: [
+            {
+                id: 'revenue-base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
+            },
+            {
+                id: 'revenue-analytics-events',
+                title: 'Revenue events',
+                component: <EventConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-external-data-sources',
+                title: 'External data sources',
+                component: <ExternalDataSourceConfiguration />,
+                flag: 'REVENUE_ANALYTICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        settings: [
+            {
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         settings: [
@@ -245,11 +295,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
-            },
-            {
-                id: 'revenue-base-currency',
-                title: 'Revenue base currency',
-                component: <RevenueBaseCurrencySettings />,
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -362,26 +407,52 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <UserGroups />,
             },
             {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <ErrorTrackingAutoAssignment />,
+                flag: 'ERROR_TRACKING_ALERT_ROUTING',
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <ErrorTrackingCustomGrouping />,
+                flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
+            },
+            {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
                 flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
-                id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment',
-                component: <ErrorTrackingAutoAssignment />,
-                flag: 'ERROR_TRACKING_ALERT_ROUTING',
-            },
-            {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <ErrorTrackingSymbolSets />,
             },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
             {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                component: <ErrorTrackingAlerting />,
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
             },
         ],
     },
@@ -668,6 +739,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-notifications',
+        title: 'Notifications',
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -675,11 +758,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
-            },
-            {
-                id: 'notifications',
-                title: 'Notifications',
-                component: <UpdateEmailPreferences />,
             },
             {
                 id: 'optout',

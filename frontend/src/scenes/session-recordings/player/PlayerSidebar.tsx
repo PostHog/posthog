@@ -81,10 +81,19 @@ export function PlayerSidebar(): JSX.Element {
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
-                            tabs={sidebarTabs.map((tabId) => ({
-                                key: tabId,
-                                label: capitalizeFirstLetter(splitKebabCase(tabId)),
-                            }))}
+                            tabs={sidebarTabs.map((tabId) => {
+                                if (tabId === SessionRecordingSidebarTab.SESSION_SUMMARY) {
+                                    return {
+                                        key: tabId,
+                                        label: 'AI summary',
+                                    }
+                                }
+
+                                return {
+                                    key: tabId,
+                                    label: capitalizeFirstLetter(splitKebabCase(tabId)),
+                                }
+                            })}
                             barClassName="!mb-0"
                             size="small"
                         />

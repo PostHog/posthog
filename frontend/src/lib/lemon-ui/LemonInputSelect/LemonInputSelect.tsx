@@ -368,11 +368,11 @@ export function LemonInputSelect({
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
     const countPlaceholder = useMemo(() => {
-        if (displayMode !== 'count' || mode !== 'multiple' || inputValue) {
+        if (displayMode !== 'count' || mode !== 'multiple' || inputValue || loading) {
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">None selected</span>
+            <span className="-ml-2 text-muted">Select from {options.length} options</span>
         ) : (
             <span className="-ml-2">
                 {values.length === options.length
@@ -380,7 +380,7 @@ export function LemonInputSelect({
                     : `${values.length}/${options.length} selected`}
             </span>
         )
-    }, [displayMode, mode, inputValue, values.length, options.length])
+    }, [displayMode, mode, inputValue, loading, values.length, options.length])
 
     return (
         <LemonDropdown

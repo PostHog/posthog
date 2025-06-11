@@ -4,9 +4,14 @@ use common_types::{Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
 
 use crate::{
-    app_context::AppContext, assignment_rules::AssignmentRule, config::Config,
-    error::UnhandledError, fingerprinting::grouping_rules::GroupingRule,
-    metric_consts::ANCILLARY_CACHE, pipeline::IncomingEvent, sanitize_string, WithIndices,
+    app_context::AppContext,
+    assignment_rules::AssignmentRule,
+    config::Config,
+    error::{PipelineFailure, UnhandledError},
+    fingerprinting::grouping_rules::GroupingRule,
+    metric_consts::ANCILLARY_CACHE,
+    pipeline::IncomingEvent,
+    sanitize_string, WithIndices,
 };
 
 pub struct TeamManager {
@@ -117,7 +122,7 @@ impl TeamManager {
 pub async fn do_team_lookups(
     context: Arc<AppContext>,
     events: &[IncomingEvent],
-) -> Result<HashMap<String, Option<Team>>, (usize, UnhandledError)> {
+) -> Result<HashMap<String, Option<Team>>, PipelineFailure> {
     let mut team_lookups: HashMap<_, WithIndices<_>> = HashMap::new();
     for (index, event) in events.iter().enumerate() {
         let IncomingEvent::Captured(event) = event else {
@@ -150,7 +155,7 @@ pub async fn do_team_lookups(
         let (indices, task) = (lookup.indices, lookup.inner);
         match task.await.expect("Task was not cancelled") {
             Ok(maybe_team) => results.insert(token, maybe_team),
-            Err(err) => return Err((indices[0], err)),
+            Err(err) => return Err((indices[0], err).into()),
         };
     }
 

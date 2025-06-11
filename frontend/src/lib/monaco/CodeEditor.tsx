@@ -1,8 +1,7 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
@@ -11,6 +10,7 @@ import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
+import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import * as monaco from 'monaco-editor'
@@ -69,6 +69,9 @@ function initEditor(
     }
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
+    }
+    if (editorProps?.language === 'liquid') {
+        initLiquidLanguage(monaco)
     }
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
@@ -274,9 +277,10 @@ export function CodeEditor({
         return (
             <MonacoDiffEditor
                 key={queryKey}
+                loading={<Spinner />}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
-                modified={value ?? null}
+                modified={value}
                 options={{
                     ...editorOptions,
                     renderSideBySide: false,

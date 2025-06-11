@@ -21,6 +21,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
+from django.forms.models import model_to_dict
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -204,6 +205,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
 
         query_runner = ExperimentExposuresQueryRunner(
@@ -318,6 +325,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
 
         query_runner = ExperimentExposuresQueryRunner(
@@ -496,6 +509,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -515,6 +534,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -634,6 +659,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -762,6 +793,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -844,6 +881,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -875,6 +918,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,

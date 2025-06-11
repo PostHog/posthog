@@ -111,7 +111,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                     value={typeof currentValue === 'string' ? currentValue : undefined}
                                                     options={
                                                         feature_flag.filters?.multivariate?.variants.map((variant) => ({
-                                                            label: `${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`,
+                                                            label: `${variant.key}${
+                                                                variant.name ? ` - ${variant.name}` : ''
+                                                            } (${variant.rollout_percentage}%)`,
                                                             value: variant.key,
                                                         })) || []
                                                     }

@@ -13,12 +13,10 @@ import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionInvocationLogEntry,
-    HogFunctionLogEntrySerialized,
     HogFunctionType,
+    LogEntry,
+    LogEntrySerialized,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
@@ -291,8 +289,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return parseJSON(res.toString())
 }
 
-export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
-    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
+    const preparedLogs: LogEntrySerialized[] = []
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -311,7 +309,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
         previousTimestamp = logEntry.timestamp
 
-        const sanitized: HogFunctionLogEntrySerialized = {
+        const sanitized: LogEntrySerialized = {
             ...logEntry,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
@@ -321,45 +319,12 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
     return preparedLogs
 }
 
-export function createInvocation(
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType
-): HogFunctionInvocation {
-    return {
-        id: new UUIDT().toString(),
-        globals,
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: isLegacyPluginHogFunction(hogFunction) ? 'plugin' : 'hog',
-        queuePriority: 1,
-        timings: [],
-    }
-}
-
-/**
- * Clones an invocation, removing all queue related values
- */
-export function cloneInvocation(
-    invocation: HogFunctionInvocation,
-    params: Pick<
-        Partial<HogFunctionInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<HogFunctionInvocation, 'queue'>
-): HogFunctionInvocation {
-    return {
-        ...invocation,
-        queueMetadata: params.queueMetadata ?? undefined,
-        queueScheduledAt: params.queueScheduledAt ?? undefined,
-        queuePriority: params.queuePriority ?? 0,
-        queue: params.queue,
-        queueParameters: params.queueParameters ?? undefined,
-        queueSource: undefined, // This is always set by the consumer
-    }
-}
-
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {

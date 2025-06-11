@@ -33,7 +33,7 @@ export function Intro(): JSX.Element {
                             if (Math.random() < 0.01) {
                                 actor.setOnFire()
                             } else {
-                                actor.setRandomAnimation()
+                                actor.setRandomAnimation(['stop'])
                             }
                         }}
                         onActorLoaded={(actor) =>

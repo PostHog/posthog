@@ -1,4 +1,5 @@
 from collections import defaultdict
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from typing import cast
 
@@ -110,6 +111,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             group_key__icontains=self.request.GET.get("group_key", ""),
         )
 
+    def safely_get_object(self, queryset):
+        queryset = queryset.filter(
+            group_type_index=self.request.GET["group_type_index"],
+            group_key=self.request.GET.get("group_key", ""),
+        )
+
+        return get_object_or_404(queryset)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -196,7 +205,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def update_property(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get()
+            group = self.get_object()
             for key in ["value", "key"]:
                 if request.data.get(key) is None:
                     return response.Response(
@@ -287,7 +296,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def delete_property(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get()
+            group = self.get_object()
             for key in ["$unset"]:
                 if request.data.get(key) is None:
                     return response.Response(
@@ -371,7 +380,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["GET"], detail=False, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, pk=None, **kwargs):
         try:
-            group = self.get_queryset().get()
+            group = self.get_object()
         except Group.DoesNotExist:
             raise NotFound()
 

@@ -54,7 +54,7 @@ export function NotebookPanel(): JSX.Element | null {
                             onClick={() => closeSidePanel()}
                             icon={<IconExternal />}
                             tooltip="Open as main focus"
-                            tooltipPlacement="bottom"
+                            tooltipPlacement="bottom-end"
                         />
                     </SidePanelPaneHeader>
 

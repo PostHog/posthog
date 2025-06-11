@@ -22,6 +22,7 @@ pub enum Error {
 // An unhandled failure at some stage of the event pipeline, as
 // well as the index of the item in the input buffer that caused
 // the failure, so we can print the offset of problematic message
+#[derive(Debug)]
 pub struct PipelineFailure {
     pub index: usize,
     pub error: UnhandledError,

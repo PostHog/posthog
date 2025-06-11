@@ -7,18 +7,12 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumer, parseKafkaHeaders } from '../../../kafka/consumer'
+import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginsServerConfig } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
-import {
-    HogFunctionInvocation,
-    HogFunctionInvocationJobQueue,
-    HogFunctionInvocationResult,
-    HogFunctionInvocationSerialized,
-} from '../../types'
-import { HogFunctionManagerService } from '../hog-function-manager.service'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
@@ -27,9 +21,8 @@ export class CyclotronJobQueueKafka {
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: HogFunctionInvocationJobQueue,
-        private hogFunctionManager: HogFunctionManagerService,
-        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<any>
+        private queue: CyclotronJobQueueKind,
+        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {}
 
     /**
@@ -54,7 +47,8 @@ export class CyclotronJobQueueKafka {
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
-            await this.consumeKafkaBatch(messages)
+            const { backgroundTask } = await this.consumeKafkaBatch(messages)
+            return { backgroundTask }
         })
     }
 
@@ -63,10 +57,10 @@ export class CyclotronJobQueueKafka {
     }
 
     public isHealthy() {
-        return this.kafkaConsumer!.isHealthy()
+        return this.kafkaConsumer?.isHealthy() ?? false
     }
 
-    public async queueInvocations(invocations: HogFunctionInvocation[]) {
+    public async queueInvocations(invocations: CyclotronJobInvocation[]) {
         if (invocations.length === 0) {
             return
         }
@@ -75,7 +69,7 @@ export class CyclotronJobQueueKafka {
 
         await Promise.all(
             invocations.map(async (x) => {
-                const serialized = serializeHogFunctionInvocation(x)
+                const serialized = serializeInvocation(x)
 
                 const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
                     ? await compress(JSON.stringify(serialized))
@@ -89,17 +83,18 @@ export class CyclotronJobQueueKafka {
                         key: Buffer.from(x.id),
                         topic: `cdp_cyclotron_${x.queue}`,
                         headers: {
-                            hogFunctionId: x.hogFunction.id,
-                            teamId: x.globals.project.id.toString(),
+                            // NOTE: Later we should remove hogFunctionId as it is no longer used
+                            hogFunctionId: x.functionId,
+                            functionId: x.functionId,
+                            teamId: x.teamId.toString(),
                         },
                     })
                     .catch((e) => {
                         logger.error('🔄', 'Error producing kafka message', {
                             error: String(e),
                             teamId: x.teamId,
-                            hogFunctionId: x.hogFunction.id,
+                            functionId: x.functionId,
                             payloadSizeKb: value.length / 1024,
-                            eventUrl: x.globals.event.url,
                         })
 
                         throw e
@@ -108,7 +103,7 @@ export class CyclotronJobQueueKafka {
         )
     }
 
-    public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
+    public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished
         const invocations = invocationResults.reduce((acc, res) => {
             if (res.finished) {
@@ -120,7 +115,7 @@ export class CyclotronJobQueueKafka {
             }
 
             return [...acc, res.invocation]
-        }, [] as HogFunctionInvocation[])
+        }, [] as CyclotronJobInvocation[])
 
         await this.queueInvocations(invocations)
     }
@@ -132,25 +127,13 @@ export class CyclotronJobQueueKafka {
         return this.kafkaProducer
     }
 
-    private async consumeKafkaBatch(messages: Message[]) {
+    private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
             return await this.consumeBatch([])
         }
 
-        const invocations: HogFunctionInvocation[] = []
-        const hogFunctionIds = new Set<string>()
+        const invocations: CyclotronJobInvocation[] = []
 
-        messages.forEach((message) => {
-            const headers = parseKafkaHeaders(message.headers ?? [])
-            const hogFunctionId = headers['hogFunctionId']
-            if (hogFunctionId) {
-                hogFunctionIds.add(hogFunctionId)
-            }
-        })
-
-        const hogFunctions = await this.hogFunctionManager.getHogFunctions(Array.from(hogFunctionIds))
-
-        // Parse all the messages into invocations
         for (const message of messages) {
             const rawValue = message.value
             if (!rawValue) {
@@ -159,39 +142,59 @@ export class CyclotronJobQueueKafka {
 
             // Try to decompress, otherwise just use the value as is
             const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
-            const invocationSerialized: HogFunctionInvocationSerialized = parseJSON(decompressedValue.toString())
+            const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
+                parseJSON(decompressedValue.toString())
+            )
 
-            // NOTE: We might crash out here and thats fine as it would indicate that the schema changed
-            // which we have full control over so shouldn't be possible
-            const hogFunction = hogFunctions[invocationSerialized.hogFunctionId]
-
-            if (!hogFunction) {
-                logger.error('⚠️', 'Error finding hog function', {
-                    id: invocationSerialized.hogFunctionId,
-                })
-                continue
-            }
-
-            const invocation: HogFunctionInvocation = {
-                ...invocationSerialized,
-                hogFunction,
-                queueSource: 'kafka', // NOTE: We always set this here, as we know it came from kafka
-            }
-
+            invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
         }
 
-        await this.consumeBatch(invocations)
+        return await this.consumeBatch(invocations)
     }
 }
 
-export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
-    const serializedInvocation: HogFunctionInvocationSerialized = {
-        ...invocation,
-        hogFunctionId: invocation.hogFunction.id,
+// NOTE: https://github.com/PostHog/posthog/pull/32588 modified the job format to move more things to the generic "state" value
+// This function migrates any legacy jobs to the new format. We can remove this shortly after full release.
+export function migrateKafkaCyclotronInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+    // Type casting but keeping as a reference
+    const unknownInvocation = invocation as Record<string, any>
+
+    if ('hogFunctionId' in unknownInvocation) {
+        // Must be the old format
+        unknownInvocation.functionId = unknownInvocation.hogFunctionId
+        unknownInvocation.state = {}
+        delete unknownInvocation.hogFunctionId
+
+        if ('vmState' in unknownInvocation) {
+            unknownInvocation.state.vmState = unknownInvocation.vmState
+            delete unknownInvocation.vmState
+        }
+        if ('globals' in unknownInvocation) {
+            unknownInvocation.state.globals = unknownInvocation.globals
+            delete unknownInvocation.globals
+        }
+        if ('timings' in unknownInvocation) {
+            unknownInvocation.state.timings = unknownInvocation.timings
+            delete unknownInvocation.timings
+        }
     }
 
-    delete (serializedInvocation as any).hogFunction
+    return invocation
+}
 
-    return serializedInvocation
+export function serializeInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+    // NOTE: We are copying the object to ensure it is clean of any spare params
+    return {
+        id: invocation.id,
+        teamId: invocation.teamId,
+        functionId: invocation.functionId,
+        state: invocation.state,
+        queue: invocation.queue,
+        queueParameters: invocation.queueParameters,
+        queuePriority: invocation.queuePriority,
+        queueScheduledAt: invocation.queueScheduledAt,
+        queueMetadata: invocation.queueMetadata,
+        queueSource: invocation.queueSource,
+    }
 }

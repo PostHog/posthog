@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import posthog from 'posthog-js'
-import { proxyLogic, ProxyRecord } from 'scenes/settings/environment/proxyLogic'
+import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 function snippetFunctions(arrayJs = '/static/array.js'): string {
@@ -30,19 +30,6 @@ type SnippetOption = {
     comment?: string
 }
 
-function domainFor(proxyRecord: ProxyRecord | undefined): string {
-    if (!proxyRecord) {
-        return apiHostOrigin()
-    }
-
-    let domain = proxyRecord.domain
-    if (!domain.startsWith('https://')) {
-        domain = `https://${domain}`
-    }
-
-    return domain
-}
-
 export function useJsSnippet(indent = 0, arrayJs?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -60,8 +47,12 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
         },
         ui_host: {
             content: apiHostOrigin(),
-            comment: "neccessary because you're using a proxy, this way links will point back to PostHog properly",
+            comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
             enabled: !!proxyRecord,
+        },
+        defaults: {
+            content: '2025-05-24',
+            enabled: true,
         },
         person_profiles: {
             content: 'identified_only',

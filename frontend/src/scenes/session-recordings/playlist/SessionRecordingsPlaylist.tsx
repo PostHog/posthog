@@ -2,7 +2,9 @@ import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
@@ -10,6 +12,10 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
+import {
+    RecordingsUniversalFiltersEmbed,
+    RecordingsUniversalFiltersEmbedButton,
+} from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -45,17 +51,19 @@ export function SessionRecordingsPlaylist({
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
-        allowFlagsFilters,
         allowHogQLFilters,
+        allowReplayGroupsFilters,
         totalFiltersCount,
     } = useValues(playlistLogic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection[] = []
 
-    if (logicProps.logicKey) {
+    if (pinnedRecordings.length) {
         sections.push({
             key: 'pinned',
             title: (
@@ -72,7 +80,7 @@ export function SessionRecordingsPlaylist({
         })
     }
 
-    if (!logicProps.logicKey) {
+    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
         sections.push({
             key: 'other',
             title: (
@@ -114,14 +122,22 @@ export function SessionRecordingsPlaylist({
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     filterActions={
-                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
+                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : featureFlags[
+                              FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST
+                          ] === 'new' ? (
+                            <RecordingsUniversalFiltersEmbedButton
+                                filters={filters}
+                                setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
+                            />
+                        ) : (
                             <RecordingsUniversalFilters
                                 resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
                                 allowReplayHogQLFilters={allowHogQLFilters}
-                                allowReplayFlagsFilters={allowFlagsFilters}
+                                allowReplayGroupsFilters={allowReplayGroupsFilters}
                             />
                         )
                     }
@@ -166,6 +182,18 @@ export function SessionRecordingsPlaylist({
                                 />
                             </div>
                         )
+                    }
+                    filterContent={
+                        featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' ? (
+                            <RecordingsUniversalFiltersEmbed
+                                resetFilters={resetFilters}
+                                filters={filters}
+                                setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
+                                allowReplayHogQLFilters={allowHogQLFilters}
+                                allowReplayGroupsFilters={allowReplayGroupsFilters}
+                            />
+                        ) : null
                     }
                 />
             </div>

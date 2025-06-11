@@ -12,7 +12,9 @@ logger = structlog.get_logger(__name__)
 
 class RawKeyActionSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
-    failure = serializers.BooleanField(required=False, default=None, allow_null=True)
+    abandonment = serializers.BooleanField(required=False, default=False, allow_null=True)
+    confusion = serializers.BooleanField(required=False, default=False, allow_null=True)
+    exception = serializers.ChoiceField(choices=["blocking", "non-blocking"], required=False, allow_null=True)
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
@@ -72,6 +74,9 @@ class SegmentMetaSerializer(serializers.Serializer):
     events_percentage = serializers.FloatField(min_value=0, max_value=1, required=False, allow_null=True)
     key_action_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     failure_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    abandonment_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    confusion_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    exception_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
 class EnrichedSegmentSerializer(RawSegmentSerializer):
@@ -356,14 +361,27 @@ def _calculate_segment_meta(
     segment_meta_data["key_action_count"] = len(key_group_events)
     # Calculate failure count
     failure_count = 0
+    abandonment_count = 0
+    confusion_count = 0
+    exception_count = 0
     for key_action_event in key_group_events:
-        if_failure = key_action_event.get("failure")
-        if if_failure is None:
-            # If failure isn't generated yet - skip this event
-            continue
-        if if_failure:
+        abandonment = key_action_event.get("abandonment")
+        confusion = key_action_event.get("confusion")
+        exception = key_action_event.get("exception")
+        # Count each type of issue
+        if abandonment:
+            abandonment_count += 1
+        if confusion:
+            confusion_count += 1
+        if exception:
+            exception_count += 1
+        # If any of the fields indicate a failure, increment the total count
+        if abandonment or confusion or exception:
             failure_count += 1
     segment_meta_data["failure_count"] = failure_count
+    segment_meta_data["abandonment_count"] = abandonment_count
+    segment_meta_data["confusion_count"] = confusion_count
+    segment_meta_data["exception_count"] = exception_count
     # Fallback - if enough events processed and the data drastically changes - calculate the meta from the key actions
     if len(key_group_events) < 2:
         # If not enough events yet

@@ -7,13 +7,13 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useEffect } from 'react'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
     AssigneeResolver,
-} from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
-import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
+} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
+import { useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,

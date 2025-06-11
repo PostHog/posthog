@@ -46,7 +46,12 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
                     />
                 ))}
             </div>
-            <LemonButton className="rounded-none" onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
+            <LemonButton
+                className="rounded-none"
+                onClick={() => onAdd()}
+                icon={<IconPlus fontSize={14} />}
+                data-attr="sql-editor-new-tab-button"
+            />
         </>
     )
 }
@@ -89,7 +94,6 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                     onChange={(e) => setTabName(e.target.value)}
                     onBlur={handleRename}
                     autoFocus
-                    handleRename={() => onRename(model, tabName)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             handleRename()

@@ -1,19 +1,19 @@
 import decimal
-from unittest.mock import MagicMock
 import uuid
 from ipaddress import IPv4Address, IPv6Address
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
 from dateutil import parser
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import should_partition_table
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_max_decimal_type,
-    should_partition_table,
-    table_from_py_list,
     normalize_table_column_names,
+    table_from_py_list,
 )
 
 

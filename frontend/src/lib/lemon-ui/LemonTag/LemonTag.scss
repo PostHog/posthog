@@ -45,6 +45,10 @@
         color: var(--warning);
         background-color: none;
         border-color: var(--warning);
+
+        [theme='dark'] & {
+            background-color: var(--bg-surface-primary);
+        }
     }
 
     &.LemonTag--danger {

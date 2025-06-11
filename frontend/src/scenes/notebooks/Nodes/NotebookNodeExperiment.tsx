@@ -18,7 +18,7 @@ import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, metricResults } = useValues(
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyMetricResults } = useValues(
         experimentLogic({ experimentId: id })
     )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
@@ -41,7 +41,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         return <NotFound object="experiment" />
     }
 
-    if (!metricResults) {
+    if (!legacyMetricResults) {
         return <></>
     }
 
@@ -83,10 +83,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 <div className="p-2">
                                     <SummaryTable metric={experiment.metrics[0]} />
                                     {/* TODO: Only show results if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                                    {metricResults[0] &&
-                                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                                            <ResultsQuery result={metricResults[0]} showTable={true} />
+                                    {legacyMetricResults[0] &&
+                                        (legacyMetricResults[0].kind === 'ExperimentTrendsQuery' ||
+                                            legacyMetricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                                            <ResultsQuery result={legacyMetricResults[0]} showTable={true} />
                                         )}
                                 </div>
                             </>
