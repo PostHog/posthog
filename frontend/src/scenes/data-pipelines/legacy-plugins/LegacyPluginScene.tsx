@@ -2,6 +2,7 @@ import { actions, kea, key, path, props, reducers, selectors, useActions, useVal
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
+import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
 import { PipelinePluginConfiguration } from 'scenes/pipeline/PipelinePluginConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,7 +11,7 @@ import { Breadcrumb, PipelineStage } from '~/types'
 
 import type { legacyPluginSceneLogicType } from './LegacyPluginSceneType'
 
-const LEGACY_PLUGIN_SCENE_TABS = ['configuration', 'logs'] as const
+const LEGACY_PLUGIN_SCENE_TABS = ['configuration', 'metrics', 'logs'] as const
 export type LegacyPluginSceneTab = (typeof LEGACY_PLUGIN_SCENE_TABS)[number]
 
 export interface LegacyPluginSceneLogicProps {
@@ -107,6 +108,11 @@ export function LegacyPluginScene(): JSX.Element {
             label: 'Configuration',
             key: 'configuration',
             content: <PipelinePluginConfiguration stage={PipelineStage.Destination} pluginConfigId={pluginConfigId} />,
+        },
+        {
+            label: 'Metrics',
+            key: 'metrics',
+            content: <PipelineNodeMetrics id={pluginConfigId} />,
         },
         {
             label: 'Logs',
