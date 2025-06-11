@@ -19,7 +19,7 @@ use crate::{
     },
     properties::{
         property_matching::match_property,
-        property_models::{PropertyFilter, PropertyType},
+        property_models::{OperatorType, PropertyFilter, PropertyType},
     },
 };
 
@@ -239,13 +239,25 @@ pub fn all_flag_condition_properties_match(
 ) -> bool {
     flag_condition_properties
         .iter()
-        .all(|property| match_flag_filter_value(property, flag_evaluation_results))
+        .all(|property| match_flag_value_to_flag_filter(property, flag_evaluation_results))
 }
 
-pub fn match_flag_filter_value(
+// Attempts to match a flag condition filter that depends on another flag
+// evaluation result to a flag evaluation result
+pub fn match_flag_value_to_flag_filter(
     filter: &PropertyFilter,
     flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
 ) -> bool {
+    // If the operator is not exact, we can't match the flag value to the flag filter
+    if filter.operator != Some(OperatorType::Exact) {
+        // Should we log this?
+        tracing::error!(
+            "Flag filter operator for property type Flag is not `exact`, skipping flag value matching: {:?}",
+            filter
+        );
+        return false;
+    }
+
     let Some(flag_id) = filter.get_feature_flag_id() else {
         return false;
     };
@@ -683,13 +695,30 @@ mod tests {
         let filter = PropertyFilter {
             key: filter_flag_id.to_string(),
             value: Some(filter_value),
-            operator: None,
+            operator: Some(OperatorType::Exact),
             prop_type: PropertyType::Flag,
             negation: None,
             group_type_index: None,
         };
 
-        let result = match_flag_filter_value(&filter, &flag_evaluation_results);
+        let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
         assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn test_match_flag_value_to_flag_filter_returns_false_if_operator_is_not_exact() {
+        let flag_evaluation_results = HashMap::from([(1, FlagValue::Boolean(true))]);
+
+        let filter = PropertyFilter {
+            key: "1".to_string(),
+            value: Some(json!(true)),
+            operator: Some(OperatorType::Icontains),
+            prop_type: PropertyType::Flag,
+            group_type_index: None,
+            negation: None,
+        };
+
+        let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
+        assert!(!result);
     }
 }
