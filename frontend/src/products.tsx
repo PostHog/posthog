@@ -19,7 +19,7 @@ import {
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
-import { isEmptyObject, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -299,9 +299,7 @@ export const productUrls = {
     ): string => {
         const params = [
             { param: 'dashboard', value: dashboardId },
-            ...(variablesOverride && !isEmptyObject(variablesOverride)
-                ? [{ param: 'variables_override', value: variablesOverride }]
-                : []),
+            { param: 'variables_override', value: variablesOverride },
         ]
             .filter((n) => Boolean(n.value))
             .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
@@ -520,7 +518,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         category: 'Tools',
         tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
     { path: 'Product analytics', category: 'Analytics', type: 'insight', href: urls.insights() },
     {
