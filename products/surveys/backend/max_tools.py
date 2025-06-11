@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from ee.hogai.tool import MaxTool
 from posthog.models import Team
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
-from .survey_schema import SurveyCreationOutput
+from .survey_schema import SurveyCreationOutput, DEFAULT_SURVEY_APPEARANCE
 
 
 class SurveyCreatorArgs(BaseModel):
@@ -20,14 +20,14 @@ class SurveyCreatorArgs(BaseModel):
 class SurveyCreatorTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
-    thinking_message: str = "Creating your survey..."
+    thinking_message: str = "Creating your survey"
 
     root_system_prompt_template: str = """
     You are helping create surveys for this PostHog team.
 
     Current context:
-    - Total surveys: {total_surveys_count}
-    - Recent surveys: {existing_surveys}
+    - Total surveys: {{{total_surveys_count}}}
+    - Recent surveys: {{{existing_surveys}}}
 
     When creating surveys, consider the existing surveys to avoid duplication and suggest complementary survey strategies.
     """
@@ -45,8 +45,9 @@ class SurveyCreatorTool(MaxTool):
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SURVEY_CREATION_SYSTEM_PROMPT),
-                ("human", "Create a survey based on these instructions: {instructions}"),
-            ]
+                ("human", "Create a survey based on these instructions: {{{instructions}}}"),
+            ],
+            template_format="mustache",
         )
 
         # Set up the LLM with structured output
@@ -172,25 +173,22 @@ class SurveyCreatorTool(MaxTool):
             if conditions:
                 survey_data["conditions"] = conditions
 
-        # Add appearance settings
+        # Add appearance settings with proper defaults
+        # Start with the frontend default appearance
+        appearance = DEFAULT_SURVEY_APPEARANCE.copy()
+
+        # Override with team-specific defaults if they exist
+        team_appearance = self._get_team_survey_config(team).get("appearance", {})
+        if team_appearance:
+            appearance.update(team_appearance)
+
+        # Finally, override with LLM-specified appearance settings
         if llm_output.appearance:
-            appearance = {}
-            for field in [
-                "backgroundColor",
-                "borderColor",
-                "position",
-                "thankYouMessageHeader",
-                "thankYouMessageDescription",
-            ]:
-                value = getattr(llm_output.appearance, field, None)
-                if value:
-                    appearance[field] = value
+            llm_appearance = llm_output.appearance.model_dump(exclude_unset=False)
+            # Only update fields that are actually set (not None)
+            appearance.update({k: v for k, v in llm_appearance.items() if v is not None})
 
-            # Merge with team defaults
-            team_appearance = self._get_team_survey_config(team).get("appearance", {})
-            appearance = {**team_appearance, **appearance}
-
-            if appearance:
-                survey_data["appearance"] = appearance
+        # Always set appearance to ensure surveys have consistent defaults
+        survey_data["appearance"] = appearance
 
         return survey_data
