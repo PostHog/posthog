@@ -19,11 +19,14 @@ use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
 
+use crate::metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT;
+
 pub mod api;
 pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+pub mod update_cache;
 pub mod v2_batch_ingestion;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
@@ -42,6 +45,8 @@ pub async fn update_consumer_loop(
         let batch_time = common_metrics::timing_guard(BATCH_ACQUIRE_TIME, &[]);
         while batch.len() < config.update_batch_size {
             context.worker_liveness.report_healthy().await;
+
+            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT).set(channel.len() as f64);
 
             let remaining_capacity = config.update_batch_size - batch.len();
             // We race these two, so we can escape this loop and do a small batch if we've been waiting too long
@@ -278,14 +283,13 @@ pub async fn update_producer_loop(
                     continue;
                 }
 
-                // for v1 processing pipeline, we cache before we know the batch is
-                // persisted safely. for v2, we do this downstream. The bonus: this
-                // avoids the internal queue backups that can occur when batch writes
-                // fail and the entire contents must be manually removed from the cache
-                if !config.enable_v2 {
-                    metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                    shared_cache.insert(update.clone(), ());
-                }
+                // TEMPORARY: both old (v1) and new (v2) write paths will utilize the old
+                // not-great caching strategy for now: optimistically add entries before
+                // they are safely persisted to Postgres, and painfully extract them
+                // when batch writes fail. This may be a fine trade for now, since
+                // v2 batch writes fail much less often than v1
+                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
+                shared_cache.insert(update.clone(), ());
 
                 match channel.try_send(update) {
                     Ok(_) => {}

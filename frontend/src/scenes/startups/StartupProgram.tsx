@@ -2,7 +2,6 @@ import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -13,24 +12,34 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { RAISED_OPTIONS, startupProgramLogic, YC_BATCH_OPTIONS } from './startupProgramLogic'
+import { RAISED_OPTIONS } from './constants'
+import { startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
 export const scene: SceneExport = {
     component: StartupProgram,
+    logic: startupProgramLogic,
+    paramsToProps: ({ params: { referrer } }): { referrer?: string } => ({
+        referrer: referrer || undefined,
+    }),
 }
 
 export function StartupProgram(): JSX.Element {
     const {
-        location: { pathname },
-    } = useValues(router)
-    const isYC = pathname.endsWith('/yc')
+        startupProgram,
+        formSubmitted,
+        isCurrentlyOnStartupPlan,
+        wasPreviouslyOnStartupPlan,
+        isUserOrganizationOwnerOrAdmin,
+        isYC,
+        isReferralProgram,
+        referrerDisplayName,
+        ycBatchOptions,
+    } = useValues(startupProgramLogic)
+    const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
+    const { setStartupProgramValue, showPaymentEntryModal } = useActions(startupProgramLogic)
 
-    const logic = startupProgramLogic({ isYC })
-    const { startupProgram, formSubmitted, isAlreadyOnStartupPlan, isUserOrganizationOwnerOrAdmin } = useValues(logic)
-    const { billing, billingLoading } = useValues(billingLogic)
-    const { setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -43,14 +52,36 @@ export function StartupProgram(): JSX.Element {
         },
     })
 
-    if (isAlreadyOnStartupPlan) {
+    if (isCurrentlyOnStartupPlan || wasPreviouslyOnStartupPlan) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
-                    <h2 className="mb-2">You're already in the {programName}</h2>
+                    <h2 className="mb-2">
+                        You {wasPreviouslyOnStartupPlan ? 'were' : 'are'} already in the {programName}
+                    </h2>
                     <p>
-                        It looks like your organization is already part of our {programName}. If you have any questions,
-                        please contact our support team.
+                        It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
+                        {programName}. If you have any questions, please contact our support team.
+                    </p>
+                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                        Return to PostHog
+                    </LemonButton>
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    if (isAnnualPlanCustomer) {
+        return (
+            <div className="mx-auto max-w-200 mt-6 px-4">
+                <LemonBanner type="info">
+                    <h2 className="mb-2">You are already on an annual plan</h2>
+                    <p>
+                        It looks like your organization is already on our annual plan. If you have any questions, please
+                        contact{' '}
+                        {accountOwner?.name && accountOwner?.email
+                            ? `your PostHog human ${accountOwner.name.split(' ')[0]} at ${accountOwner.email}`
+                            : 'our support team'}
                     </p>
                     <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
                         Return to PostHog
@@ -105,7 +136,11 @@ export function StartupProgram(): JSX.Element {
                             </div>
                         </div>
                         <div className="text-center">
-                            <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">Apply for PostHog's startup program</h1>
+                            <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">
+                                {isReferralProgram && referrerDisplayName
+                                    ? `PostHog x ${referrerDisplayName}`
+                                    : "Apply for PostHog's startup program"}
+                            </h1>
                             <p className="text-sm sm:text-base text-muted">
                                 Get $50,000 in credits (plus extras you'll actually use) to help you get to
                                 product-market fit.
@@ -122,7 +157,11 @@ export function StartupProgram(): JSX.Element {
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
                 <div className="bg-surface-secondary rounded-lg p-6">
-                    <h2 className="text-xl mb-4">What you can get</h2>
+                    <h2 className="text-xl mb-4">
+                        {isReferralProgram && referrerDisplayName
+                            ? `We've teamed up with ${referrerDisplayName} to offer you`
+                            : 'What you can get'}
+                    </h2>
                     <div className="space-y-3">
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
@@ -149,7 +188,7 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
+                                <h4 className="font-semibold">50% off Mintlify and Speakeasy for 6 months</h4>
                                 <p className="text-muted text-sm">The best products deserve the best documentation</p>
                             </div>
                         </div>
@@ -263,7 +302,6 @@ export function StartupProgram(): JSX.Element {
                         ) : (
                             <Form
                                 logic={startupProgramLogic}
-                                props={{ isYC }}
                                 formKey="startupProgram"
                                 enableFormOnSubmit
                                 className="space-y-3"
@@ -327,7 +365,7 @@ export function StartupProgram(): JSX.Element {
                                 {isYC && (
                                     <>
                                         <LemonField name="yc_batch" label="Which YC batch are you?">
-                                            <LemonSelect options={YC_BATCH_OPTIONS} className="bg-bg-light" />
+                                            <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
                                         </LemonField>
 
                                         <LemonField

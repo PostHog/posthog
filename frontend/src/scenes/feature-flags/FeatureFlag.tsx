@@ -85,6 +85,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof featureFlagLogic)['props'] => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
+    settingSectionId: 'environment-feature-flags',
 }
 
 function focusVariantKeyField(index: number): void {

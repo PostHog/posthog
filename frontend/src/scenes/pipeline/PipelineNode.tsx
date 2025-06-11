@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
@@ -101,7 +100,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     return (
         <>
-            <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
                 tabs={Object.entries(tabToContent).map(
