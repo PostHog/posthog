@@ -176,6 +176,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             # For DataWarehouse nodes we have a timestamp field we need to use
             # This timestamp data can be nullable, so we need to handle NULL values
             # to avoid ClickHouse errors with dictGetOrDefault expecting non-nullable dates
+            timestamp_expr: ast.Expr
             if isinstance(self.series, DataWarehouseNode):
                 timestamp_expr = ast.Call(
                     name="ifNull",
