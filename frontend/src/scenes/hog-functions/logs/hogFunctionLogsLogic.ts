@@ -51,9 +51,12 @@ const loadClickhouseEvents = async (
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}`
 
-    const response = await api.queryHogQL(query, undefined, 'force_blocking', undefined, {
-        date_from: date_from,
-        date_to: date_to,
+    const response = await api.queryHogQL(query, {
+        refresh: 'force_blocking',
+        filtersOverride: {
+            date_from: date_from,
+            date_to: date_to,
+        },
     })
 
     return response.results.map((x) => {

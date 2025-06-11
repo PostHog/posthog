@@ -685,8 +685,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     GROUP BY event`
 
                 const response = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
@@ -730,8 +732,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ) AS PersonsWithBothEvents`
 
                 const response = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters, // Property filters applied in WHERE
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters, // Property filters applied in WHERE
+                        },
                     },
                 })
                 const count = response.results?.[0]?.[0] ?? 0
@@ -765,8 +769,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     GROUP BY survey_response`
 
                 const responseJSON = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 // TODO:Dylan - I don't like how we lose our types here
@@ -815,8 +821,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     GROUP BY survey_response, survey_iteration`
 
                 const responseJSON = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 const { results } = responseJSON
@@ -893,8 +901,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     GROUP BY survey_response`
 
                 const responseJSON = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 const { results } = responseJSON
@@ -938,8 +948,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ORDER BY count() DESC`
 
                 const responseJSON = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 let { results } = responseJSON
@@ -1001,8 +1013,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     LIMIT 20`
 
                 const responseJSON = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 const { results } = responseJSON
@@ -1059,8 +1073,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     LIMIT ${limit}`
 
                 const responseJSON = await api.queryHogQL(query, {
-                    filters: {
-                        properties: values.propertyFilters,
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
                     },
                 })
                 const { results } = responseJSON

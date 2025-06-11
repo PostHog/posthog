@@ -76,9 +76,12 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         GROUP BY instance_id
         ORDER BY latest_timestamp DESC`
 
-    const response = await api.queryHogQL(query, undefined, 'force_blocking', undefined, {
-        date_from: request.date_from ?? '-7d',
-        date_to: request.date_to,
+    const response = await api.queryHogQL(query, {
+        refresh: 'force_blocking',
+        filtersOverride: {
+            date_from: request.date_from ?? '-7d',
+            date_to: request.date_to,
+        },
     })
 
     return response.results.map((result) => ({
