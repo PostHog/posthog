@@ -274,12 +274,10 @@ export const FEATURE_FLAGS = {
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_FILTERS: 'revenue-analytics-filters', // owner: @rafaeelaudibert #team-revenue-analytics
     SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
-    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN: 'experiments-new-query-runner-for-users-on-free-plan', // owner: #team-experiments
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     EXPERIMENTS_FREQUENTIST: 'experiments-frequentist', // owner: @jurajmajerik #team-experiments
-    TAXONOMIC_EVENT_SORTING: 'taxonomic-event-sorting', // owner: @pauldambra #team-replay
     AI_HOG_FUNCTION_CREATION: 'ai-hog-function-creation', // owner: @meikel #team-cdp
     REPLAY_FILTERS_IN_PLAYLIST: 'replay-filters-in-playlist', // owner: @veryayskiy #team-replay
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
