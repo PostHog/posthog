@@ -35,6 +35,10 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
 )
 
+COHORT_STUCK_COUNT_GAUGE = Gauge(
+    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 12 hours "
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
@@ -79,6 +83,19 @@ def update_stale_cohort_metrics() -> None:
     COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
     COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
     COHORTS_STALE_COUNT_GAUGE.labels(hours="48").set(stale_48h)
+
+    stuck_count = (
+        Cohort.objects.filter(
+            is_calculating=True,
+            last_calculation__lte=now - relativedelta(hours=12),
+            last_calculation__isnull=False,
+            deleted=False,
+        )
+        .exclude(is_static=True)
+        .count()
+    )
+
+    COHORT_STUCK_COUNT_GAUGE.set(stuck_count)
 
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
