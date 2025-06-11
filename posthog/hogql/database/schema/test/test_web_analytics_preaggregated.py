@@ -11,7 +11,6 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     DEVICE_BROWSER_FIELDS,
     GEOIP_FIELDS,
     UTM_FIELDS,
-    ATTRIBUTION_TRACKING_FIELDS,
     PATH_FIELDS,
     WEB_STATS_SPECIFIC_FIELDS,
     WEB_BOUNCES_SPECIFIC_FIELDS,
@@ -19,31 +18,11 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 
 
 class TestWebAnalyticsPreAggregatedSchema:
-    DEVICE_BROWSER_FIELD_NAMES = ["browser", "browser_version", "os", "os_version", "viewport_width", "viewport_height"]
-    GEOIP_FIELD_NAMES = ["country_code", "country_name", "city_name", "region_code", "region_name", "time_zone"]
+    DEVICE_BROWSER_FIELD_NAMES = ["browser", "os", "viewport_width", "viewport_height"]
+    GEOIP_FIELD_NAMES = ["country_code", "city_name", "region_code", "region_name", "time_zone"]
     UTM_FIELD_NAMES = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "referring_domain"]
     PATH_FIELD_NAMES = ["entry_pathname", "end_pathname"]
     AGGREGATION_FIELD_NAMES = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
-    ATTRIBUTION_FIELD_NAMES = [
-        "gclid",
-        "gad_source",
-        "gclsrc",
-        "dclid",
-        "gbraid",
-        "wbraid",
-        "fbclid",
-        "msclkid",
-        "twclid",
-        "li_fat_id",
-        "mc_cid",
-        "igshid",
-        "ttclid",
-        "epik",
-        "qclid",
-        "sccid",
-        "_kx",
-        "irclid",
-    ]
 
     TABLE_CONFIGS = [
         ("WebStatsDailyTable", WebStatsDailyTable, "web_stats_daily"),
@@ -74,13 +53,11 @@ class TestWebAnalyticsPreAggregatedSchema:
 
     def _assert_fields_in_tables(self, field_names: list[str], tables: dict[str, Table], should_contain: bool = True):
         for field_name in field_names:
-            for table_name, table_instance in tables.items():
+            for _, table_instance in tables.items():
                 if should_contain:
-                    assert field_name in table_instance.fields, f"Field '{field_name}' missing from {table_name}"
+                    assert field_name in table_instance.fields
                 else:
-                    assert (
-                        field_name not in table_instance.fields
-                    ), f"Field '{field_name}' should not be in {table_name}"
+                    assert field_name not in table_instance.fields
 
     def _assert_field_groups_in_tables(self, field_groups: dict[str, list[str]], tables: dict[str, Table]):
         for _, field_names in field_groups.items():
@@ -95,7 +72,6 @@ class TestWebAnalyticsPreAggregatedSchema:
             ("device_browser", "DEVICE_BROWSER_FIELD_NAMES"),
             ("geoip", "GEOIP_FIELD_NAMES"),
             ("utm", "UTM_FIELD_NAMES"),
-            ("attribution", "ATTRIBUTION_FIELD_NAMES"),
             ("path", "PATH_FIELD_NAMES"),
             ("aggregation", "AGGREGATION_FIELD_NAMES"),
         ]
@@ -128,7 +104,6 @@ class TestWebAnalyticsPreAggregatedSchema:
                 len(DEVICE_BROWSER_FIELDS),
                 len(GEOIP_FIELDS),
                 len(UTM_FIELDS),
-                len(ATTRIBUTION_TRACKING_FIELDS),
                 len(PATH_FIELDS),
             ]
         )
@@ -141,7 +116,6 @@ class TestWebAnalyticsPreAggregatedSchema:
             "device_browser": list(DEVICE_BROWSER_FIELDS.keys()),
             "geoip": list(GEOIP_FIELDS.keys()),
             "utm": list(UTM_FIELDS.keys()),
-            "attribution": list(ATTRIBUTION_TRACKING_FIELDS.keys()),
             "path": list(PATH_FIELDS.keys()),
         }
 

@@ -11,7 +11,8 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/src/utils/posthog'
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import {
     ClickHouseEvent,
@@ -29,7 +30,6 @@ import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { BatchWritingGroupStoreForDistinctIdBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -120,16 +120,9 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
-    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
-    const runner = new EventPipelineRunner(
-        hub,
-        pluginEvent,
-        null,
-        [],
-        personsStoreForDistinctId,
-        groupStoreForDistinctId
-    )
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
 
     await delayUntilEventIngested(async () => {
@@ -191,13 +184,9 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
-        hub.db,
-        String(team.id),
-        event.distinct_id
-    )
-    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
-    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId, groupStoreForDistinctId)
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -547,7 +536,7 @@ test('capture new person', async () => {
 })
 
 test('capture bad team', async () => {
-    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
@@ -559,7 +548,7 @@ test('capture bad team', async () => {
             now,
             new UUIDT().toString(),
             false,
-            groupStoreForDistinctId
+            groupStoreForBatch
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })

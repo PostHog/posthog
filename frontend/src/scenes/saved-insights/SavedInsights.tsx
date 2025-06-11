@@ -16,6 +16,7 @@ import {
     IconPiggyBank,
     IconPlusSmall,
     IconRetention,
+    IconRetentionHeatmap,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -89,7 +90,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
         name: 'Calendar Heatmap',
         description: 'Visualize total or unique users broken down by day and hour.',
-        icon: IconHogQL,
+        icon: IconRetentionHeatmap,
         inMenu: true,
         // tooltipDescription TODO: Add tooltip description
     },
@@ -491,6 +492,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
+    settingSectionId: 'environment-product-analytics',
 }
 
 export function InsightIcon({

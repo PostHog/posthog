@@ -2,14 +2,17 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
+import { ExperimentStatsMethod } from '~/types'
+
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { MetricsView } from '../MetricsView/MetricsView'
-import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
+import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
+import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import {
     EditConclusionModal,
@@ -31,13 +34,14 @@ import { SummaryTable } from './SummaryTable'
 const ResultsTab = (): JSX.Element => {
     const {
         experiment,
-        metricResults,
+        legacyMetricResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         metricResultsLoading,
         hasMinimumExposureForResults,
+        statsMethod,
     } = useValues(experimentLogic)
-    const hasSomeResults = metricResults?.some((result) => result?.insight)
+    const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
@@ -58,29 +62,38 @@ const ResultsTab = (): JSX.Element => {
                     <Overview />
                 </div>
             )}
-            <MetricsView isSecondary={false} />
-            {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
-                <div>
-                    <div className="pb-4">
-                        <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
-                    </div>
-                    {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                    {metricResults?.[0] &&
-                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                            <>
-                                <div className="flex justify-end">
-                                    <ExploreButton result={metricResults[0]} size="xsmall" />
-                                </div>
-                                <div className="pb-4">
-                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
-                                </div>
-                            </>
-                        )}
-                </div>
+            {statsMethod === ExperimentStatsMethod.Bayesian ? (
+                <>
+                    <MetricsViewLegacy isSecondary={false} />
+                    {/* Show detailed results if there's only a single primary metric */}
+                    {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+                        <div>
+                            <div className="pb-4">
+                                <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
+                            </div>
+                            {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                            {legacyMetricResults?.[0] &&
+                                (legacyMetricResults[0].kind === 'ExperimentTrendsQuery' ||
+                                    legacyMetricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                                    <>
+                                        <div className="flex justify-end">
+                                            <ExploreButton result={legacyMetricResults[0]} size="xsmall" />
+                                        </div>
+                                        <div className="pb-4">
+                                            <ResultsQuery result={legacyMetricResults?.[0] || null} showTable={true} />
+                                        </div>
+                                    </>
+                                )}
+                        </div>
+                    )}
+                    <MetricsViewLegacy isSecondary={true} />
+                </>
+            ) : (
+                <>
+                    <Metrics isSecondary={false} />
+                    <Metrics isSecondary={true} />
+                </>
             )}
-            <MetricsView isSecondary={true} />
         </>
     )
 }

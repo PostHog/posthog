@@ -18,7 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig
+from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -32,6 +32,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPI
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
@@ -163,7 +164,9 @@ TEAM_CONFIG_FIELDS = (
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
+    "marketing_analytics_config",
     "onboarding_tasks",
+    "base_currency",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -194,6 +197,31 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
         return internal_value
 
 
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+    sources_map = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamMarketingAnalyticsConfig
+        fields = ["sources_map"]
+
+    def update(self, instance, validated_data):
+        # Handle sources_map with partial updates
+        if "sources_map" in validated_data:
+            new_sources_map = validated_data["sources_map"]
+
+            # For each source in the new data, update it individually
+            for source_id, field_mapping in new_sources_map.items():
+                if field_mapping is None:
+                    # If None is passed, remove the source entirely
+                    instance.remove_source_mapping(source_id)
+                else:
+                    # Update the source mapping (this preserves other sources)
+                    instance.update_source_mapping(source_id, field_mapping)
+
+        instance.save()
+        return instance
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -204,6 +232,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
+    marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
+    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
         model = Team
@@ -311,6 +341,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
 
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_marketing_analytics_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamMarketingAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
     @staticmethod
@@ -478,6 +518,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
 
             serializer.save()
+
+        if config_data := validated_data.pop("marketing_analytics_config", None):
+            marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
+                instance.marketing_analytics_config, data=config_data, partial=True
+            )
+            if not marketing_serializer.is_valid():
+                raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
+
+            marketing_serializer.save()
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:

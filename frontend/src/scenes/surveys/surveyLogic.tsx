@@ -44,7 +44,13 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_RATING_SCALE,
+} from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
@@ -57,9 +63,8 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
-    sanitizeHTML,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
-    sanitizeSurveyDisplayConditions,
     validateSurveyAppearance,
 } from './utils'
 
@@ -215,6 +220,25 @@ export interface ConsolidatedSurveyResults {
     }
 }
 
+/**
+ * Raw survey response data from the SQL query.
+ * Each SurveyResponseRow represents one user's complete response to all questions.
+ *
+ * Structure:
+ * - response[questionIndex] contains the answer to that specific question
+ * - For rating/single choice/open questions: response[questionIndex] is a string
+ * - For multiple choice questions: response[questionIndex] is a string[]
+ * - The last elements may contain metadata like person properties and distinct_id
+ *
+ * Example:
+ * [
+ *   ["9", ["Customer case studies"], "Great product!", "user123"],
+ *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
+ * ]
+ */
+export type SurveyResponseRow = Array<string | string[]>
+export type SurveyRawResults = SurveyResponseRow[]
+
 function isEmptyOrUndefined(value: any): boolean {
     return value === null || value === undefined || value === ''
 }
@@ -230,7 +254,7 @@ function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): bo
 function processSingleChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     let total = 0
@@ -243,7 +267,7 @@ function processSingleChoiceQuestion(
     })
 
     // Count responses
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (!isEmptyOrUndefined(value)) {
             counts[value] = (counts[value] || 0) + 1
@@ -269,28 +293,51 @@ function processSingleChoiceQuestion(
 function processRatingQuestion(
     question: RatingSurveyQuestion,
     questionIndex: number,
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
-    const scaleSize = question.scale === 10 ? 11 : question.scale
+    const scaleSize = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? 11 : question.scale
     const counts = new Array(scaleSize).fill(0)
     let total = 0
 
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (!isEmptyOrUndefined(value)) {
             const parsedValue = parseInt(value, 10)
-            if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue < scaleSize) {
-                counts[parsedValue] += 1
-                total += 1
+            if (!isNaN(parsedValue)) {
+                let arrayIndex: number
+                let isValid = false
+
+                if (question.scale === SURVEY_RATING_SCALE.NPS_10_POINT) {
+                    // NPS scale: 0-10 (11 values)
+                    isValid = parsedValue >= 0 && parsedValue <= 10
+                    arrayIndex = parsedValue
+                } else {
+                    // Regular rating scales: 1-N (N values, but we use 0-based indexing)
+                    // For a 5-point scale, accept ratings 1-5 and map them to indices 0-4
+                    isValid = parsedValue >= 1 && parsedValue <= question.scale
+                    arrayIndex = parsedValue - 1 // Convert 1-based to 0-based
+                }
+
+                if (isValid) {
+                    counts[arrayIndex] += 1
+                    total += 1
+                }
             }
         }
     })
 
-    const data = counts.map((count, index) => ({
-        label: index.toString(),
-        value: count,
-        isPredefined: true,
-    }))
+    const data = counts.map((count, index) => {
+        // For display labels:
+        // - NPS (scale 10): show 0-10
+        // - Regular scales: show 1-N (convert from 0-based index)
+        const label = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? index.toString() : (index + 1).toString()
+
+        return {
+            label,
+            value: count,
+            isPredefined: true,
+        }
+    })
 
     return {
         type: SurveyQuestionType.Rating,
@@ -302,7 +349,7 @@ function processRatingQuestion(
 function processMultipleChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     let total = 0
@@ -314,7 +361,7 @@ function processMultipleChoiceQuestion(
         }
     })
 
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string[]
         if (value !== null && value !== undefined) {
             total += 1
@@ -342,18 +389,18 @@ function processMultipleChoiceQuestion(
     }
 }
 
-function processOpenQuestion(questionIndex: number, results: Array<string | string[]>): OpenQuestionProcessedResponses {
+function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
     const data: { distinctId: string; response: string; personProperties?: Record<string, any> }[] = []
     let totalResponses = 0
 
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (isEmptyOrUndefined(value)) {
             return
         }
 
         const response = {
-            distinctId: row.at(-1),
+            distinctId: row.at(-1) as string,
             response: value,
             personProperties: undefined as Record<string, any> | undefined,
         }
@@ -361,7 +408,7 @@ function processOpenQuestion(questionIndex: number, results: Array<string | stri
         const unparsedPersonProperties = row.at(-2)
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
-                response.personProperties = JSON.parse(unparsedPersonProperties)
+                response.personProperties = JSON.parse(unparsedPersonProperties as string)
             } catch (e) {
                 // Ignore parsing errors for person properties as there's no real action here
                 // It just means we won't show the person properties in the question visualization
@@ -379,9 +426,9 @@ function processOpenQuestion(questionIndex: number, results: Array<string | stri
     }
 }
 
-function processResultsForSurveyQuestions(
+export function processResultsForSurveyQuestions(
     questions: SurveyQuestion[],
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ResponsesByQuestion {
     const responsesByQuestion: ResponsesByQuestion = {}
 
@@ -555,10 +602,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(sanitizeQuestions(surveyPayload))
+                return await api.surveys.create(surveyPayload)
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, surveyPayload)
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -577,7 +624,7 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
                 lemonToast.success('Survey duplicated.', {
                     toastId: `survey-duplicated-${createdSurvey.id}`,
@@ -2187,14 +2234,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 }
 
-                const payload = {
-                    ...surveyPayload,
-                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
-                    appearance: sanitizeSurveyAppearance(
-                        surveyPayload.appearance,
-                        !!surveyPayload.enable_partial_responses
-                    ),
-                }
+                const payload = sanitizeSurvey(surveyPayload)
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
@@ -2265,37 +2305,3 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
 ])
-
-function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
-    if (!surveyPayload.questions) {
-        return surveyPayload
-    }
-
-    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
-
-    const appearance = {
-        ...surveyPayload.appearance,
-        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-    }
-
-    // Remove widget-specific fields if survey type is not Widget
-    if (surveyPayload.type !== 'widget') {
-        delete appearance.widgetType
-        delete appearance.widgetLabel
-        delete appearance.widgetColor
-    }
-
-    return {
-        ...surveyPayload,
-        questions: surveyPayload.questions?.map((rawQuestion) => {
-            return {
-                ...rawQuestion,
-                description: sanitizeHTML(rawQuestion.description || ''),
-                question: sanitizeHTML(rawQuestion.question || ''),
-            }
-        }),
-        appearance,
-    }
-}

@@ -10,14 +10,11 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function SaveToModal(): JSX.Element {
-    const { isOpen, form, isFeatureEnabled } = useValues(saveToLogic)
+    const { isOpen, form } = useValues(saveToLogic)
     const { closeSaveToModal, submitForm } = useActions(saveToLogic)
     const allFolders = splitPath(form.folder || '')
     const lastFolder = form.folder === '' ? 'Project root' : allFolders[allFolders.length - 1]
 
-    if (!isFeatureEnabled) {
-        return <></>
-    }
     const destinationFolder = form.folder || 'Project root'
 
     return (
@@ -27,7 +24,7 @@ export function SaveToModal(): JSX.Element {
             title="Select a folder to save to"
             description={
                 <>
-                    Saving to: <LemonSnack>{destinationFolder}</LemonSnack>`
+                    Saving to: <LemonSnack>{destinationFolder}</LemonSnack>
                 </>
             }
             // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->

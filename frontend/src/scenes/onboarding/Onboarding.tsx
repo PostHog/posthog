@@ -1,12 +1,14 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { productsLogic } from 'scenes/products/productsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
@@ -61,7 +63,13 @@ const OnboardingWrapper = ({
     } = useValues(logic)
     const { setAllOnboardingSteps } = useActions(logic)
     const { billing, billingLoading } = useValues(billingLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
+
+    const minAdminRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     useEffect(() => {
         let steps = []
@@ -88,11 +96,16 @@ const OnboardingWrapper = ({
             steps = [...steps, BillingStep]
         }
 
-        const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
-        steps = [...steps, inviteTeammatesStep].filter(Boolean)
+        const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
+        if (!userCannotInvite) {
+            const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
+            steps = [...steps, inviteTeammatesStep]
+        }
+
+        steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading])
+    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization])
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {

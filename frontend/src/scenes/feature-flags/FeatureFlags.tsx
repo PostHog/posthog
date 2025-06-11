@@ -46,6 +46,7 @@ import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFla
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
+    settingSectionId: 'environment-feature-flags',
 }
 
 export function OverViewTab({

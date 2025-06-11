@@ -44,12 +44,14 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
+        searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => searchQuery }],
         isRenderingMarkdown: [
             true as boolean,
             {

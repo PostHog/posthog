@@ -1,14 +1,14 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
-import { BatchWritingGroupStoreForDistinctIdBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { BatchWritingGroupStoreForBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
@@ -61,21 +61,13 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
-            hub.db,
-            String(teamId),
-            event.distinct_id
-        )
-        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         await expect(
-            new EventPipelineRunner(
-                hub,
+            new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(
                 event,
-                null,
-                [],
-                personsStoreForDistinctId,
-                groupStoreForDistinctId
-            ).runEventPipeline(event, team)
+                team
+            )
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
     })

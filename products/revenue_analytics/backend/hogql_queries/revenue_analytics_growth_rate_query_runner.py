@@ -9,6 +9,7 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 
@@ -20,11 +21,11 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # If there are no revenue views, we return a query that returns 0 for all values
-        charge_subquery, _, _, _ = self.revenue_subqueries()
-        if charge_subquery is None:
+        _, _, invoice_item_subquery, _ = self.revenue_subqueries
+        if invoice_item_subquery is None:
             return ast.SelectQuery.empty()
 
-        monthly_revenue_cte = self.monthly_revenue_cte(charge_subquery)
+        monthly_revenue_cte = self.monthly_revenue_cte()
         revenue_with_growth_cte = self.revenue_with_growth_cte(monthly_revenue_cte)
 
         return ast.SelectQuery(
@@ -44,7 +45,10 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
             },
         )
 
-    def monthly_revenue_cte(self, select_from: ast.SelectQuery | ast.SelectSetQuery) -> ast.CTE:
+    def monthly_revenue_cte(self) -> ast.CTE:
+        # Guaranteed to be not None because we check for that in `to_query`
+        _, _, invoice_item_subquery, _ = self.revenue_subqueries
+
         return ast.CTE(
             name="monthly_revenue",
             expr=ast.SelectQuery(
@@ -58,10 +62,15 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                         expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
                     ),
                 ],
-                select_from=ast.JoinExpr(table=select_from),
+                select_from=self.append_joins(
+                    ast.JoinExpr(
+                        alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), table=invoice_item_subquery
+                    ),
+                    self.joins_for_properties,
+                ),
+                where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
                 group_by=[ast.Field(chain=["month"])],
                 order_by=[ORDER_BY_MONTH_ASC],
-                where=self.timestamp_where_clause(),
             ),
             cte_type="subquery",
         )
