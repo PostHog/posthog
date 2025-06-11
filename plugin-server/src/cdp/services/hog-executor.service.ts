@@ -30,7 +30,7 @@ import { createInvocation, createInvocationResult } from '../utils/invocation-ut
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
-export const DEFAULT_TIMEOUT_MS = 550
+export const DEFAULT_TIMEOUT_MS = 100
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -387,6 +387,7 @@ export class HogExecutorService {
 
                 execRes = execHog(invocationInput, {
                     globals,
+                    timeout: this.config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS || DEFAULT_TIMEOUT_MS,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
