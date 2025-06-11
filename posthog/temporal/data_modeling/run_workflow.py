@@ -310,15 +310,13 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
                 if node["type"] == "view" and node["id"] != model.label and node["sync_frequency"]
             ]
 
-            i = 0
-            for upstream_node in upstream_nodes:
+            for i, upstream_node in enumerate(upstream_nodes, start=1):
                 upstream_saved_query = await get_saved_query(team, upstream_node["id"])
                 saved_query.progress = (
-                    f"Updating upstream {i + 1} view of {len(upstream_nodes)}: {upstream_saved_query.name}..."
+                    f"Updating upstream view, {i} of {len(upstream_nodes)}: {upstream_saved_query.name}..."
                 )
                 await database_sync_to_async(lambda: saved_query.save())()
                 await materialize_model(upstream_node["id"], team, upstream_saved_query, job)
-                i += 1
 
             # Update progress for current node
             saved_query.progress = f"Updating current view..."

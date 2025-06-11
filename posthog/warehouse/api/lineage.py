@@ -182,7 +182,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 if edge not in dag["edges"]:
                     dag["edges"].append(edge)
 
-    # Order nodes by execution priority
+    # Order nodes by dependency order
     ordered_nodes = topological_sort(list(node_data.keys()), dag["edges"])
     dag["nodes"] = [node_data[node_id] for node_id in ordered_nodes]
 
