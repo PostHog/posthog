@@ -140,7 +140,7 @@ class QueryPlannerNode(AssistantNode):
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names
-        DynamicEntityLiteral = Literal[tuple("person", "session", *self._team_group_types)]  # type: ignore
+        DynamicEntityLiteral = Literal["person", "session", *self._team_group_types]  # type: ignore
         # Create dynamic retrieve_entity_properties model
         retrieve_entity_properties_dynamic = create_model(
             "retrieve_entity_properties",
@@ -184,6 +184,7 @@ class QueryPlannerNode(AssistantNode):
                         {
                             "type": "text",
                             "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
+                            # Caching this block is critical, this makes this node 80% cheaper
                             "cache_control": {"type": "ephemeral"},
                         },
                         {"type": "text", "text": QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT},
