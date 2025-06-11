@@ -6,7 +6,7 @@ use crate::frames::{Context, ContextLine, Frame};
 // Generic frame layout, meant for users hacking up their own implementations
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CustomFrame {
-    pub platform: String,             // The platform/language, e.g. "elixir"
+    pub lang: String,                 // The platform/language, e.g. "elixir"
     pub function: String,             // The name of the function
     pub filename: Option<String>,     // The path of the file the context line is in
     pub lineno: Option<u32>,          // The line number of the frame/function
@@ -39,7 +39,7 @@ impl CustomFrame {
         hasher.update(self.function.as_bytes());
         hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
         hasher.update(self.colno.unwrap_or_default().to_be_bytes());
-        hasher.update(self.platform.as_bytes());
+        hasher.update(self.lang.as_bytes());
         hasher.update(self.resolved.to_string().as_bytes());
         self.module
             .as_ref()
@@ -91,7 +91,7 @@ impl From<&CustomFrame> for Frame {
             source: value.filename.clone(),
             in_app: value.in_app,
             resolved_name: Some(value.function.clone()),
-            lang: value.platform.clone(),
+            lang: value.lang.clone(),
             resolved: value.resolved,
             resolve_failure: None,
             junk_drawer: None,

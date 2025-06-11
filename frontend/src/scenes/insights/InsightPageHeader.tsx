@@ -25,7 +25,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { isObject } from 'lib/utils'
+import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -96,7 +96,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
-    const dashboardOverridesExist = isObject(filtersOverride) || isObject(variablesOverride)
+    const dashboardOverridesExist =
+        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
+
     const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
 
     const showCohortButton =

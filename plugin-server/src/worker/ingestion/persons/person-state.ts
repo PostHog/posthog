@@ -3,23 +3,18 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
-import { ONE_HOUR } from '../../config/constants'
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../types'
-import { TransactionClient } from '../../utils/db/postgres'
-import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
-import { promiseRetry } from '../../utils/retries'
-import { uuidFromDistinctId } from './person-uuid'
-import { PersonsStoreForBatch } from './persons/persons-store-for-batch'
-import { captureIngestionWarning } from './utils'
-
-interface PropertyUpdates {
-    toSet: Properties
-    toUnset: string[]
-    hasChanges: boolean
-}
+import { ONE_HOUR } from '../../../config/constants'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../../types'
+import { TransactionClient } from '../../../utils/db/postgres'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../../utils/db/utils'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
+import { promiseRetry } from '../../../utils/retries'
+import { uuidFromDistinctId } from '../person-uuid'
+import { captureIngestionWarning } from '../utils'
+import { applyEventPropertyUpdates, applyEventPropertyUpdatesOptimized } from './person-update'
+import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -36,12 +31,6 @@ export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
-})
-
-export const personPropertyKeyUpdateCounter = new Counter({
-    name: 'person_property_key_update_total',
-    help: 'Number of person updates triggered by this property value changing.',
-    labelNames: ['key'],
 })
 
 // temporary: for fetchPerson properties JSONB size observation
@@ -82,10 +71,6 @@ const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRU<string, boolean>({
 })
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
-const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
-// These events are processed in a separate pipeline, so we don't allow person property updates
-// because there is no ordering guaranteed across them with other person updates
-const NO_PERSON_UPDATE_EVENTS = new Set(['$exception', '$$heatmap'])
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -344,7 +329,7 @@ export class PersonState {
     private async updatePersonPropertiesOptimized(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
-        const propertyUpdate = this.applyEventPropertyUpdatesOptimized(person.properties)
+        const propertyUpdate = applyEventPropertyUpdatesOptimized(this.event, person.properties)
 
         const otherUpdates: Partial<InternalPerson> = {}
         if (this.updateIsIdentified && !person.is_identified) {
@@ -375,7 +360,7 @@ export class PersonState {
         person.properties ||= {}
 
         const update: Partial<InternalPerson> = {}
-        if (this.applyEventPropertyUpdates(person.properties)) {
+        if (applyEventPropertyUpdates(this.event, person.properties)) {
             update.properties = person.properties
         }
         if (this.updateIsIdentified && !person.is_identified) {
@@ -408,136 +393,6 @@ export class PersonState {
             return key
         }
         return 'other'
-    }
-
-    // Minimize useless person updates by not overriding properties if it's not a person event and we added from the event
-    // They will still show up for PoE as it's not removed from the event, we just don't update the person in PG anymore
-    private shouldUpdatePersonIfOnlyChange(key: string): boolean {
-        if (PERSON_EVENTS.has(this.event.event)) {
-            // for person events always update everything
-            return true
-        }
-        // These are properties we add from the event and some change often, it's useless to update person always
-        if (eventToPersonProperties.has(key)) {
-            return false
-        }
-        // same as above, coming from GeoIP plugin
-        if (key.startsWith('$geoip_')) {
-            return false
-        }
-        return true
-    }
-
-    private applyEventPropertyUpdatesOptimized(personProperties: Properties): PropertyUpdates {
-        if (NO_PERSON_UPDATE_EVENTS.has(this.event.event)) {
-            return { toSet: {}, toUnset: [], hasChanges: false }
-        }
-
-        const properties: Properties = this.eventProperties['$set'] || {}
-        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
-        const unsetProps = this.eventProperties['$unset']
-        const unsetProperties: Array<string> = Array.isArray(unsetProps)
-            ? unsetProps
-            : Object.keys(unsetProps || {}) || []
-
-        const toSet: Properties = {}
-        const toUnset: string[] = []
-        let hasChanges = false
-        const metricsKeys = new Set<string>()
-
-        Object.entries(propertiesOnce).forEach(([key, value]) => {
-            if (typeof personProperties[key] === 'undefined') {
-                toSet[key] = value
-                personProperties[key] = value
-                hasChanges = true
-                metricsKeys.add(this.getMetricKey(key))
-            }
-        })
-
-        // note: due to the type of equality check here
-        // if there is an array or object nested as a $set property
-        // we'll always return true even if those objects/arrays contain the same values
-        // This results in a shallow merge of the properties from event into the person properties
-        Object.entries(properties).forEach(([key, value]) => {
-            if (personProperties[key] !== value) {
-                toSet[key] = value
-                personProperties[key] = value
-                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
-                    hasChanges = true
-                }
-                metricsKeys.add(this.getMetricKey(key))
-            }
-        })
-
-        unsetProperties.forEach((propertyKey) => {
-            if (propertyKey in personProperties) {
-                toUnset.push(propertyKey)
-                delete personProperties[propertyKey]
-                hasChanges = true
-                metricsKeys.add(this.getMetricKey(propertyKey))
-            }
-        })
-
-        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
-
-        return { toSet, toUnset, hasChanges }
-    }
-
-    /**
-     * @param personProperties Properties of the person to be updated, these are updated in place.
-     * @returns true if the properties were changed, false if they were not
-     */
-    private applyEventPropertyUpdates(personProperties: Properties): boolean {
-        // this relies on making changes to the object instance, so...
-        // if we should not update the person,
-        // we return early before changing any values
-        if (NO_PERSON_UPDATE_EVENTS.has(this.event.event)) {
-            return false
-        }
-
-        const properties: Properties = this.eventProperties['$set'] || {}
-        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
-        const unsetProps = this.eventProperties['$unset']
-        const unsetProperties: Array<string> = Array.isArray(unsetProps)
-            ? unsetProps
-            : Object.keys(unsetProps || {}) || []
-
-        let updated = false
-        // tracking as set because we only care about if other or geoip was the cause of the update, not how many properties got updated
-        const metricsKeys = new Set<string>()
-        Object.entries(propertiesOnce).map(([key, value]) => {
-            if (typeof personProperties[key] === 'undefined') {
-                updated = true
-                metricsKeys.add(this.getMetricKey(key))
-                personProperties[key] = value
-            }
-        })
-        Object.entries(properties).map(([key, value]) => {
-            // note: due to the type of equality check here
-            // if there is an array or object nested as a $set property
-            // we'll always return true even if those objects/arrays contain the same values
-            // This results in a shallow merge of the properties from event into the person properties
-            if (personProperties[key] !== value) {
-                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
-                    updated = true
-                }
-                metricsKeys.add(this.getMetricKey(key))
-                personProperties[key] = value
-            }
-        })
-        unsetProperties.forEach((propertyKey) => {
-            if (propertyKey in personProperties) {
-                if (typeof propertyKey !== 'string') {
-                    logger.warn('🔔', 'unset_property_key_not_string', { propertyKey, unsetProperties })
-                    return
-                }
-                updated = true
-                metricsKeys.add(this.getMetricKey(propertyKey))
-                delete personProperties[propertyKey]
-            }
-        })
-        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
-        return updated
     }
 
     // Alias & merge
@@ -831,7 +686,7 @@ export class PersonState {
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        this.applyEventPropertyUpdates(properties)
+        applyEventPropertyUpdates(this.event, properties)
 
         const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
             mergeInto,

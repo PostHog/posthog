@@ -518,7 +518,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         category: 'Tools',
         tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
     { path: 'Product analytics', category: 'Analytics', type: 'insight', href: urls.insights() },
     {
