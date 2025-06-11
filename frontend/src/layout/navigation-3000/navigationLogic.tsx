@@ -45,12 +45,6 @@ import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/typ
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
-import { dashboardsSidebarLogic } from './sidebars/dashboards'
-import { dataManagementSidebarLogic } from './sidebars/dataManagement'
-import { experimentsSidebarLogic } from './sidebars/experiments'
-import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
-import { insightsSidebarLogic } from './sidebars/insights'
-import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
@@ -77,7 +71,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
             ['playlists', 'playlistsLoading'],
         ],
-        actions: [navigationLogic, ['closeAccountPopover']],
+        actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
     actions({
         hideSidebar: true,
@@ -168,6 +162,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
+                setScene: (state, { scene }) => scene || state,
             },
         ],
         isSearchShown: [
@@ -235,12 +230,21 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     }),
     listeners(({ actions, values }) => ({
         initiateNewItemInCategory: ({ category: categoryKey }) => {
-            const category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
+            let category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
             if (!category) {
-                throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
-            } else if (!category.onAdd || typeof category.onAdd !== 'function') {
+                // Only the SQL editor uses this component, with the tree view, the activeNavbarItem doesnt get properly set, so lets fallback
+                category = (
+                    values.navbarItemIdMapping[Scene.SQLEditor] as SidebarNavbarItem
+                )?.logic.values.contents?.find((item) => item.key === categoryKey)
+                if (!category) {
+                    throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
+                }
+            }
+
+            if (!category.onAdd || typeof category.onAdd !== 'function') {
                 throw new Error(`Sidebar category '${categoryKey}' doesn't support onAdd`)
             }
+
             if (category.onAdd.length === 0) {
                 ;(category.onAdd as () => void)() // If a zero-arg function, call it immediately
             } else {
@@ -354,8 +358,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 s.playlistsLoading,
             ],
             (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
-                const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
-
                 return [
                     [
                         {
@@ -369,8 +371,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Dashboards',
                             icon: <IconDashboard />,
                             tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
-                            logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.dashboards(),
+                            to: urls.dashboards(),
                             sideAction:
                                 pinnedDashboards.length > 0
                                     ? {
@@ -410,16 +411,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.DataManagement,
                             label: 'Data management',
                             icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                            to: urls.eventDefinitions(),
                             tooltipDocLink: 'https://posthog.com/docs/data',
                         },
                         {
                             identifier: Scene.PersonsManagement,
                             label: 'People and groups',
                             icon: <IconPeople />,
-                            logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.persons(),
+                            to: urls.persons(),
                             tooltipDocLink: 'https://posthog.com/docs/data/persons',
                         },
                         {
@@ -435,9 +434,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.SavedInsights,
                             label: 'Product analytics',
                             icon: <IconGraph />,
-                            logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             tooltipDocLink: 'https://posthog.com/docs/product-analytics/insights',
-                            to: isUsingSidebar ? undefined : urls.savedInsights(),
+                            to: urls.savedInsights(),
                             sideAction:
                                 getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight] ===
                                 AccessControlLevel.Editor
@@ -453,7 +451,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.WebAnalytics,
                             label: 'Web analytics',
                             icon: <IconPieChart />,
-                            to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                            to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
 
@@ -518,16 +516,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',
                             icon: <IconToggle />,
-                            logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.featureFlags(),
+                            to: urls.featureFlags(),
                             tooltipDocLink: 'https://posthog.com/docs/feature-flags/creating-feature-flags',
                         },
                         {
                             identifier: Scene.Experiments,
                             label: 'Experiments',
                             icon: <IconTestTube />,
-                            logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.experiments(),
+                            to: urls.experiments(),
                             tooltipDocLink: 'https://posthog.com/docs/experiments/creating-an-experiment',
                         },
                         {
@@ -599,7 +595,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: Scene.Heatmaps,
                                   label: 'Heatmaps',
                                   icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  to: urls.heatmaps(),
                                   tag: 'alpha' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
                               }
@@ -609,12 +605,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: Scene.Links,
                                   label: 'Links',
                                   icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.links(),
+                                  to: urls.links(),
                                   tag: 'alpha' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING]
+                        featureFlags[FEATURE_FLAGS.MESSAGING_AUTOMATION]
                             ? {
                                   identifier: Scene.MessagingBroadcasts,
                                   label: 'Messaging',
@@ -701,15 +697,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         activeNavbarItemId: [
-            (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
-            (activeNavbarItemIdRaw, featureFlags): string | null => {
+            (s) => [s.activeNavbarItemIdRaw],
+            (activeNavbarItemIdRaw): string | null => {
                 if (activeNavbarItemIdRaw === Scene.SQLEditor) {
                     return Scene.SQLEditor
                 }
-                if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
-                    return null
-                }
-                return activeNavbarItemIdRaw
+                return null
             },
         ],
         newItemCategory: [

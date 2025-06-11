@@ -45,7 +45,7 @@ export const shouldShowHogFunctionTemplate = (
     if (!user) {
         return false
     }
-    if (hogFunctionTemplate.status === 'alpha' && !user.is_staff) {
+    if (hogFunctionTemplate.status === 'hidden' && !user.is_staff) {
         return false
     }
     return true

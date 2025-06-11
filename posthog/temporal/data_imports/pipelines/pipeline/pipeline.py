@@ -1,10 +1,11 @@
 import gc
 import time
-from typing import Any
+from typing import Any, Literal
 
 import deltalake as deltalake
 import posthoganalytics
 import pyarrow as pa
+import pyarrow.compute as pc
 from django.db.models import F
 from dlt.sources import DltSource
 
@@ -21,6 +22,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
@@ -46,6 +48,7 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from posthog.warehouse.models.external_data_schema import process_incremental_value
 
 
 class PipelineNonDLT:
@@ -101,6 +104,9 @@ class PipelineNonDLT:
         self._internal_schema = HogQLSchema()
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
+        self._earliest_incremental_field_value: Any = process_incremental_value(
+            schema.incremental_field_earliest_value, schema.incremental_field_type
+        )
 
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
@@ -114,6 +120,12 @@ class PipelineNonDLT:
             ):
                 self._job.rows_synced = 0
                 self._job.save()
+
+            # Check for duplicate primary keys
+            if self._is_incremental and self._resource.has_duplicate_primary_keys:
+                raise DuplicatePrimaryKeysException(
+                    f"The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key. Primary keys being used are: {self._resource.primary_keys}"
+                )
 
             # Setup row tracking
             if self._resource.rows_to_sync:
@@ -218,8 +230,11 @@ class PipelineNonDLT:
         if should_partition_table(delta_table, self._schema, self._resource):
             partition_count = self._schema.partition_count or self._resource.partition_count
             partition_size = self._schema.partition_size or self._resource.partition_size
-            partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
-            partition_format = self._schema.partition_format
+            partition_keys = (
+                self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
+            )
+            partition_format = self._schema.partition_format or self._resource.partition_format
+            partition_mode = self._schema.partition_mode or self._resource.partition_mode
             if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
                 pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
@@ -227,7 +242,7 @@ class PipelineNonDLT:
                     partition_count=partition_count,
                     partition_size=partition_size,
                     partition_keys=partition_keys,
-                    partition_mode=self._schema.partition_mode,
+                    partition_mode=partition_mode,
                     partition_format=partition_format,
                     logger=self._logger,
                 )
@@ -258,14 +273,28 @@ class PipelineNonDLT:
         # `incremental_field_last_value` in the schema.
         # However, if the data is returned in descending order, we only want to update the
         # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
-        # we'd not process older data the next time we retry.
-        last_value = _get_incremental_field_last_value(self._schema, pa_table)
+        # we'd not process older data the next time we retry. But we do store the earliest available value so that we
+        # can resume syncs if they stop mid way through without having to start from the beginning
+        last_value = _get_incremental_field_value(self._schema, pa_table)
         if last_value is not None:
             if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
                 self._last_incremental_field_value = last_value
+
             if self._resource.sort_mode == "asc":
                 self._logger.debug(f"Updating incremental_field_last_value with {self._last_incremental_field_value}")
-                self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
+                self._schema.update_incremental_field_value(self._last_incremental_field_value)
+
+            if self._resource.sort_mode == "desc":
+                earliest_value = _get_incremental_field_value(self._schema, pa_table, aggregate="min")
+
+                if (
+                    self._earliest_incremental_field_value is None
+                    or earliest_value < self._earliest_incremental_field_value
+                ):
+                    self._earliest_incremental_field_value = earliest_value
+
+                    self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
+                    self._schema.update_incremental_field_value(earliest_value, type="earliest")
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
         decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
@@ -353,7 +382,7 @@ class PipelineNonDLT:
                 f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
             )
             self._schema.refresh_from_db()
-            self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
+            self._schema.update_incremental_field_value(self._last_incremental_field_value)
 
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
@@ -376,7 +405,9 @@ def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger)
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
-def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
+def _get_incremental_field_value(
+    schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
+) -> Any:
     if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
         return
 
@@ -385,11 +416,15 @@ def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: 
         return
 
     column = table[normalize_column_name(incremental_field_name)]
-    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
 
-    # TODO(@Gilbert09): support different operations here (e.g. min)
-    last_value = numpy_arr.max()
-    return last_value
+    if aggregate == "max":
+        last_value = pc.max(column)
+    elif aggregate == "min":
+        last_value = pc.min(column)
+    else:
+        raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
+
+    return last_value.as_py()
 
 
 def should_partition_table(

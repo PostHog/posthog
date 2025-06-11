@@ -15,28 +15,6 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
-export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
-    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
-    {
-        value: 'zapier',
-        label: 'Zapier integration',
-        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
-    },
-    { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
-    {
-        value: 'project_management',
-        label: 'Project & user management',
-        scopes: ['project:write', 'organization:read', 'organization_member:write'],
-    },
-    {
-        value: 'editor',
-        label: 'PostHog Editor',
-        scopes: ['feature_flag:write', 'insight:read', 'project:read', 'organization:read', 'user:read'],
-        isCloudOnly: true,
-    },
-    { value: 'all_access', label: 'All access', scopes: ['*'] },
-]
-
 export type APIScope = {
     key: APIScopeObject
     info?: string | JSX.Element
@@ -107,6 +85,31 @@ export const APIScopes: APIScope[] = [
         },
     },
     { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
+    { key: 'warehouse_view' },
+    { key: 'warehouse_table' },
+]
+
+export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
+    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
+    {
+        value: 'zapier',
+        label: 'Zapier integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
+    { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
+    {
+        value: 'project_management',
+        label: 'Project & user management',
+        scopes: ['project:write', 'organization:read', 'organization_member:write'],
+    },
+    {
+        value: 'mcp_server',
+        label: 'MCP Server',
+        scopes: APIScopes.map(({ key }) =>
+            ['feature_flag', 'insight'].includes(key) ? `${key}:write` : `${key}:read`
+        ),
+    },
+    { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
 
 export type EditingKeyFormValues = Pick<

@@ -35,13 +35,7 @@ import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import {
-    isAssistantMessage,
-    isAssistantToolCallMessage,
-    isHumanMessage,
-    isReasoningMessage,
-    isVisualizationMessage,
-} from './utils'
+import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -106,7 +100,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'prependOrReplaceConversation as updateGlobalConversationCache',
                 'setActiveStreamingThreads',
                 'setConversationId',
-                'scrollThreadToBottom',
                 'setAutoRun',
             ],
         ],
@@ -314,16 +307,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (e) {
                 // Exclude AbortController exceptions
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
-                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
-                    if (e instanceof ApiError && e.status === 409 && generationAttempt < 6) {
-                        await breakpoint(1000 * (generationAttempt + 1))
-                        actions.askMax(prompt, generationAttempt + 1)
-                        return
-                    }
-
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
-                    if (e instanceof ApiError && e.status === 429) {
-                        relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
+
+                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                    if (e instanceof ApiError) {
+                        if (e.status === 409 && generationAttempt < 6) {
+                            await breakpoint(1000 * (generationAttempt + 1))
+                            actions.askMax(prompt, generationAttempt + 1)
+                            return
+                        }
+
+                        if (e.status === 429) {
+                            relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                        }
+
+                        if (e.status === 400 && e.data?.attr === 'content') {
+                            relevantErrorMessage.content =
+                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                        }
                     } else {
                         posthog.captureException(e)
                         console.error(e)
@@ -360,18 +361,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
-            }
-        },
-
-        addMessage: (payload) => {
-            if (isHumanMessage(payload.message) || isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
-            }
-        },
-
-        replaceMessage: (payload) => {
-            if (isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
             }
         },
 

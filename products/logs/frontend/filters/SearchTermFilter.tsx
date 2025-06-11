@@ -12,7 +12,7 @@ export const SearchTermFilter = (): JSX.Element => {
             <LemonInput
                 size="small"
                 value={searchTerm}
-                onChange={(value) => setSearchTerm(value === '' ? undefined : value)}
+                onChange={(value) => setSearchTerm(value)}
                 placeholder="Search logs..."
             />
         </span>

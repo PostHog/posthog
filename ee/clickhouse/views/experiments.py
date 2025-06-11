@@ -1,10 +1,11 @@
 from typing import Any, Literal
+from enum import Enum
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -413,6 +414,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
+class ExperimentStatus(str, Enum):
+    DRAFT = "draft"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    ALL = "all"
+
+
 class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
@@ -422,8 +430,50 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        """Override to filter out deleted experiments for both list and detail views."""
+        """Override to filter out deleted experiments and apply filters."""
         queryset = queryset.exclude(deleted=True)
+
+        # Only apply filters for list view, not detail view
+        if self.action == "list":
+            # filtering by status
+            status = self.request.query_params.get("status")
+            if status:
+                try:
+                    status_enum = ExperimentStatus(status.lower())
+                except ValueError:
+                    status_enum = None
+
+                if status_enum and status_enum != ExperimentStatus.ALL:
+                    if status_enum == ExperimentStatus.DRAFT:
+                        queryset = queryset.filter(start_date__isnull=True)
+                    elif status_enum == ExperimentStatus.RUNNING:
+                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
+                    elif status_enum == ExperimentStatus.COMPLETE:
+                        queryset = queryset.filter(end_date__isnull=False)
+
+            # filtering by creator id
+            created_by_id = self.request.query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
+
+            # archived
+            archived = self.request.query_params.get("archived")
+            if archived is not None:
+                archived_bool = archived.lower() == "true"
+                queryset = queryset.filter(archived=archived_bool)
+            else:
+                queryset = queryset.filter(archived=False)
+
+        # search by name
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search))
+
+        # Ordering
+        order = self.request.query_params.get("order")
+        if order:
+            queryset = queryset.order_by(order)
+
         return queryset
 
     # ******************************************

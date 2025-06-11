@@ -34,13 +34,19 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
+        setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
     })),
     reducers(({ values }) => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
-        sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        userPreferenceSidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        urlOverrideSidebarOpen: [
+            null as boolean | null,
+            { persist: false },
+            { setURLOverrideSidebarOpen: (_, { open }) => open },
+        ],
         playlistOpen: [true, { setPlaylistOpen: (_, { open }) => open }],
         preferredSidebarStacking: [
             SessionRecordingSidebarStacking.Horizontal as SessionRecordingSidebarStacking,
@@ -103,6 +109,15 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     selectors({
+        sidebarOpen: [
+            (s) => [s.userPreferenceSidebarOpen, s.urlOverrideSidebarOpen],
+            (userPreferenceSidebarOpen, urlOverrideSidebarOpen): boolean => {
+                if (urlOverrideSidebarOpen !== null) {
+                    return urlOverrideSidebarOpen
+                }
+                return userPreferenceSidebarOpen
+            },
+        ],
         isVerticallyStacked: [
             (s) => [s.preferredSidebarStacking],
             (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
@@ -153,6 +168,17 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             const inspectorSideBarOpen = searchParams.inspectorSideBar === true
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
+            }
+        },
+        ['**/shared/*']: (_, searchParams) => {
+            // when sharing a recording, you can specify whether the inspector should be open.
+            // we should obey that regardless of the preference stored here.
+            // the sharing URLs historically added showInspector with no value.
+            // so we need to check for the presence of the key.
+            // if the key is present but "null", that is equivalent to true
+            const inspectorSideBarOpen = 'showInspector' in searchParams && (searchParams.showInspector ?? true)
+            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                actions.setURLOverrideSidebarOpen(inspectorSideBarOpen)
             }
         },
     })),

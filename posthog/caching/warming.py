@@ -20,7 +20,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
 from posthog.tasks.utils import CeleryQueue
-from posthog.ph_client import ph_us_client
+from posthog.ph_client import ph_scoped_capture
 import posthoganalytics
 
 
@@ -162,7 +162,7 @@ def schedule_warming_for_teams_task():
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
             insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
@@ -234,7 +234,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 is_cached=is_cached,
             ).inc()
 
-            with ph_us_client() as capture_ph_event:
+            with ph_scoped_capture() as capture_ph_event:
                 capture_ph_event(
                     str(insight.team.uuid),
                     "cache warming - warming insight",

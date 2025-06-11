@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
-import { useEffect, useRef } from 'react'
-import { sanitizeSurveyAppearance } from 'scenes/surveys/utils'
+import { useEffect, useMemo, useRef } from 'react'
+import { sanitizeSurvey } from 'scenes/surveys/utils'
 
 import { Survey } from '~/types'
 
@@ -36,13 +36,22 @@ export function SurveyAppearancePreview({
 
     const { surveysHTMLAvailable } = useValues(surveysLogic)
 
+    const sanitizedSurvey = useMemo(
+        () =>
+            sanitizeSurvey({
+                ...survey,
+                appearance: {
+                    ...survey.appearance,
+                    zIndex: '1',
+                },
+            }),
+        [survey]
+    )
+
     useEffect(() => {
         if (surveyPreviewRef.current) {
             renderSurveysPreview({
-                survey: {
-                    ...survey,
-                    appearance: { ...sanitizeSurveyAppearance(survey.appearance), zIndex: 1000 },
-                },
+                survey: sanitizedSurvey,
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
                 forceDisableHtml: !surveysHTMLAvailable,
@@ -53,10 +62,7 @@ export function SurveyAppearancePreview({
 
         if (feedbackWidgetPreviewRef.current) {
             renderFeedbackWidgetPreview({
-                survey: {
-                    ...survey,
-                    appearance: sanitizeSurveyAppearance(survey.appearance),
-                },
+                survey: sanitizedSurvey,
                 root: feedbackWidgetPreviewRef.current,
                 forceDisableHtml: !surveysHTMLAvailable,
             })

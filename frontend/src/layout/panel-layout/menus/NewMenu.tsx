@@ -46,6 +46,7 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                             e.stopPropagation()
                             createFolder(item?.record?.path)
                         }}
+                        data-attr="tree-item-menu-new-folder-button"
                     >
                         <ButtonPrimitive menuItem>
                             <IconFolder />
@@ -60,7 +61,7 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                     return (
                         <MenuSub key={treeItem.id}>
                             <MenuSubTrigger asChild inset>
-                                <ButtonPrimitive menuItem>
+                                <ButtonPrimitive menuItem data-attr="tree-item-menu-new-sub-menu-button">
                                     {treeItem.name || treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
                                     ...
                                     <IconChevronRight className="ml-auto size-3" />
@@ -85,6 +86,7 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                                                 )
                                             }
                                         }}
+                                        data-attr={`tree-item-menu-new-sub-menu-${child.name}-button`}
                                     >
                                         <ButtonPrimitive menuItem className="capitalize">
                                             {child.icon}
@@ -115,7 +117,7 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                             }
                         }}
                     >
-                        <ButtonPrimitive menuItem>
+                        <ButtonPrimitive menuItem data-attr={`tree-item-menu-new-${treeItem.name}-button`}>
                             {treeItem.icon}
                             {treeItem.name}
                         </ButtonPrimitive>

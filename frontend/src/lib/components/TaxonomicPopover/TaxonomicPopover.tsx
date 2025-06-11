@@ -15,7 +15,7 @@ import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-genera
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
     groupType: TaxonomicFilterGroupType
-    value?: ValueType
+    value?: ValueType | null
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
     filter?: LocalFilter

@@ -90,7 +90,8 @@
                       max_bytes_before_external_group_by=23622320128,
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrends.test_timezones_trends.1
@@ -184,7 +185,8 @@
                       max_bytes_before_external_group_by=23622320128,
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrends.test_week_interval
@@ -278,7 +280,8 @@
                       max_bytes_before_external_group_by=23622320128,
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrends.test_week_interval.1

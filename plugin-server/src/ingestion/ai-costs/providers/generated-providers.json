@@ -227,13 +227,6 @@
         }
     },
     {
-        "model": "codestral-mamba",
-        "cost": {
-            "prompt_token": 2.5e-7,
-            "completion_token": 2.5e-7
-        }
-    },
-    {
         "model": "codex-mini",
         "cost": {
             "prompt_token": 0.0000015,
@@ -333,13 +326,6 @@
         }
     },
     {
-        "model": "deepseek-coder",
-        "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 1.2e-7
-        }
-    },
-    {
         "model": "deepseek-prover-v2",
         "cost": {
             "prompt_token": 5e-7,
@@ -356,8 +342,36 @@
     {
         "model": "deepseek-r1",
         "cost": {
+            "prompt_token": 4.5e-7,
+            "completion_token": 0.00000215
+        }
+    },
+    {
+        "model": "deepseek-r1-0528",
+        "cost": {
             "prompt_token": 5e-7,
-            "completion_token": 0.00000218
+            "completion_token": 0.00000215
+        }
+    },
+    {
+        "model": "deepseek-r1-0528-qwen3-8b",
+        "cost": {
+            "prompt_token": 5e-8,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-0528-qwen3-8b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-0528:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
@@ -417,6 +431,13 @@
         }
     },
     {
+        "model": "deepseek-r1-distill-qwen-7b",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
         "model": "deepseek-r1-zero:free",
         "cost": {
             "prompt_token": 0,
@@ -440,8 +461,8 @@
     {
         "model": "devstral-small",
         "cost": {
-            "prompt_token": 7e-8,
-            "completion_token": 1e-7
+            "prompt_token": 6e-8,
+            "completion_token": 1.2e-7
         }
     },
     {
@@ -527,6 +548,15 @@
         }
     },
     {
+        "model": "gemini-2.5-pro-preview-05-06",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.00001,
+            "cache_read_token": 3.1e-7,
+            "cache_write_token": 0.000001625
+        }
+    },
+    {
         "model": "gemini-flash-1.5",
         "cost": {
             "prompt_token": 7.5e-8,
@@ -554,15 +584,15 @@
     {
         "model": "gemma-2-27b-it",
         "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 3e-7
+            "prompt_token": 8e-7,
+            "completion_token": 8e-7
         }
     },
     {
         "model": "gemma-2-9b-it",
         "cost": {
-            "prompt_token": 2e-8,
-            "completion_token": 6e-8
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
         }
     },
     {
@@ -689,20 +719,6 @@
         "cost": {
             "prompt_token": 0.00001,
             "completion_token": 0.00003
-        }
-    },
-    {
-        "model": "gpt-4-32k",
-        "cost": {
-            "prompt_token": 0.00006,
-            "completion_token": 0.00012
-        }
-    },
-    {
-        "model": "gpt-4-32k-0314",
-        "cost": {
-            "prompt_token": 0.00006,
-            "completion_token": 0.00012
         }
     },
     {
@@ -871,7 +887,7 @@
     {
         "model": "llama-3.1-8b-instruct",
         "cost": {
-            "prompt_token": 2e-8,
+            "prompt_token": 1.9e-8,
             "completion_token": 3e-8
         }
     },
@@ -969,7 +985,7 @@
     {
         "model": "llama-4-maverick",
         "cost": {
-            "prompt_token": 1.6e-7,
+            "prompt_token": 1.5e-7,
             "completion_token": 6e-7
         }
     },
@@ -1013,6 +1029,27 @@
         "cost": {
             "prompt_token": 5e-8,
             "completion_token": 5e-8
+        }
+    },
+    {
+        "model": "magistral-medium-2506",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.000005
+        }
+    },
+    {
+        "model": "magistral-medium-2506:thinking",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.000005
+        }
+    },
+    {
+        "model": "magistral-small-2506",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
         }
     },
     {
@@ -1102,8 +1139,8 @@
     {
         "model": "mistral-nemo",
         "cost": {
-            "prompt_token": 2e-8,
-            "completion_token": 7e-8
+            "prompt_token": 1e-8,
+            "completion_token": 2.8e-8
         }
     },
     {
@@ -1130,8 +1167,8 @@
     {
         "model": "mistral-small-24b-instruct-2501",
         "cost": {
-            "prompt_token": 6e-8,
-            "completion_token": 1.2e-7
+            "prompt_token": 5e-8,
+            "completion_token": 1e-7
         }
     },
     {
@@ -1165,8 +1202,8 @@
     {
         "model": "mixtral-8x22b-instruct",
         "cost": {
-            "prompt_token": 4e-7,
-            "completion_token": 0.0000012
+            "prompt_token": 9e-7,
+            "completion_token": 9e-7
         }
     },
     {
@@ -1226,9 +1263,9 @@
     {
         "model": "o3",
         "cost": {
-            "prompt_token": 0.00001,
-            "completion_token": 0.00004,
-            "cache_read_token": 0.0000025
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008,
+            "cache_read_token": 5e-7
         }
     },
     {
@@ -1245,6 +1282,13 @@
             "prompt_token": 0.0000011,
             "completion_token": 0.0000044,
             "cache_read_token": 5.5e-7
+        }
+    },
+    {
+        "model": "o3-pro",
+        "cost": {
+            "prompt_token": 0.00002,
+            "completion_token": 0.00008
         }
     },
     {

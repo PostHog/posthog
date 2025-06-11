@@ -158,6 +158,7 @@ impl From<&RawNodeFrame> for Frame {
             resolve_failure: None,
             junk_drawer: None,
             context: raw.get_context(),
+            release: None,
         }
     }
 }
@@ -197,6 +198,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             resolve_failure: None,
             junk_drawer: None,
             context: get_context(&location),
+            release: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -237,6 +239,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             resolve_failure: Some(resolve_err.to_string()),
             junk_drawer: None,
             context: raw_frame.get_context(),
+            release: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

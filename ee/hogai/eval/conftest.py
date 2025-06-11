@@ -10,9 +10,13 @@ from braintrust import Eval, init_logger
 from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
 import pytest
 from django.test import override_settings
-from ee.models.assistant import CoreMemory
+from ee.hogai.eval.scorers import PlanAndQueryOutput
+from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.models.assistant import Conversation, CoreMemory
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
+from posthog.schema import HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 # We want the PostHog django_db_setup fixture here
@@ -45,6 +49,52 @@ def MaxEval(
         with open("eval_results.jsonl", "a") as f:
             f.write(result.summary.as_json() + "\n")
     return result
+
+
+@pytest.fixture
+def call_root_for_insight_generation(demo_org_team_user):
+    # This graph structure will first get a plan, then generate the SQL query.
+
+    insights_subgraph = (
+        # Insights subgraph without query execution, so we only create the queries
+        InsightsAssistantGraph(demo_org_team_user[1]).add_query_creation_flow(next_node=AssistantNodeName.END).compile()
+    )
+    graph = (
+        AssistantGraph(demo_org_team_user[1])
+        .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        .add_root(
+            path_map={
+                "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                "root": AssistantNodeName.END,
+                "search_documentation": AssistantNodeName.END,
+                "memory_onboarding": AssistantNodeName.END,
+                "end": AssistantNodeName.END,
+            }
+        )
+        .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
+        .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
+        .compile()
+    )
+
+    def callable(query: str) -> PlanAndQueryOutput:
+        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
+        # Initial state for the graph
+        initial_state = AssistantState(
+            messages=[HumanMessage(content=f"Answer this question: {query}")],
+        )
+
+        # Invoke the graph. The state will be updated through planner and then generator.
+        final_state_raw = graph.invoke(
+            initial_state,
+            {"configurable": {"thread_id": conversation.id}},
+        )
+        final_state = AssistantState.model_validate(final_state_raw)
+
+        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
+            return {"plan": None, "query": None}
+        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+
+    return callable
 
 
 @pytest.fixture(scope="package")

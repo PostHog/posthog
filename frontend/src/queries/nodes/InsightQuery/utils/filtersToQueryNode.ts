@@ -456,9 +456,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
-        meanRetentionCalculation:
-            filters.mean_retention_calculation ||
-            (typeof filters.show_mean === 'boolean' ? (filters.show_mean ? 'simple' : 'none') : 'simple'),
+        meanRetentionCalculation: filters.mean_retention_calculation || 'simple',
         cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index

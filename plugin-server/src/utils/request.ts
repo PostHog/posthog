@@ -119,7 +119,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
         }
 
         // TRICKY: We need this for tests and local dev
-        const allowUnsafe = process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv()
+        const allowUnsafe = !isProdEnv()
 
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(parsed)) {

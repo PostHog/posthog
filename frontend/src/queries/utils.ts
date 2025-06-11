@@ -40,6 +40,7 @@ import {
     ResultCustomizationBy,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
@@ -151,6 +152,12 @@ export function isRevenueAnalyticsOverviewQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsOverviewQuery {
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsInsightsQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsInsightsQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
@@ -484,7 +491,7 @@ export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty
 
 export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
     const filterProperty = nodeKindToFilterProperty[node.kind]
-    return node[filterProperty]
+    return node[filterProperty as keyof InsightQueryNode] as InsightFilter | undefined
 }
 
 export function isQuoted(identifier: string): boolean {

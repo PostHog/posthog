@@ -16,8 +16,12 @@ from posthog.schema import (
     CachedWebOverviewQueryResponse,
     WebOverviewQueryResponse,
     WebOverviewQuery,
+    HogQLQueryModifiers,
 )
 from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
@@ -44,12 +48,19 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             return None
 
         try:
+            # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
+            # to prevent HogQL from automatically converting DateTime fields to team timezone.
+            # We don't plot or show the actual bucket dates anywhere, so since this is just filtering,
+            # we can rely on the bucket aggregation to get the correct results for the time window.
+            pre_agg_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            pre_agg_modifiers.convertToProjectTimezone = False
+
             response = execute_hogql_query(
                 query_type="web_overview_preaggregated_query",
                 query=self.preaggregated_query_builder.get_query(),
                 team=self.team,
                 timings=self.timings,
-                modifiers=self.modifiers,
+                modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
             )
 
@@ -59,7 +70,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             assert response.results
 
             return response
-        except Exception:
+        except Exception as e:
+            logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
     def calculate(self) -> WebOverviewQueryResponse:
@@ -198,7 +210,7 @@ HAVING {inside_start_timestamp_period}
                 parsed_select.select.append(
                     ast.Alias(
                         alias="session_revenue",
-                        expr=revenue_sum_expression_for_events(self.team.revenue_analytics_config),
+                        expr=revenue_sum_expression_for_events(self.team),
                     )
                 )
 

@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
@@ -61,7 +62,13 @@ from posthog.test.base import (
 )
 from posthog.test.fixtures import create_app_metric2
 from posthog.utils import get_previous_day
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSource
+from posthog.warehouse.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSource,
+    ExternalDataSchema,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -858,6 +865,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "active_external_data_schemas_in_period": 0,
+                            "active_batch_exports_in_period": 0,
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
@@ -1282,6 +1291,59 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_active_hog_destinations_and_transformations_per_team(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+
+        self._setup_teams()
+
+        # Team 1: 2 active destinations, 1 active transformation
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 1"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 2"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 1"
+        )
+        # Team 2: 1 active destination, 2 active transformations
+        HogFunction.objects.create(
+            team=self.org_1_team_2, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 3"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_2, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 2"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_2, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 3"
+        )
+        # Add some inactive/deleted ones (should not be counted)
+        HogFunction.objects.create(
+            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=False, deleted=False, name="Inactive Dest"
+        )
+        HogFunction.objects.create(
+            team=self.org_1_team_2,
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=True,
+            name="Deleted Trans",
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["teams"][str(self.org_1_team_1.id)]["active_hog_destinations_in_period"] == 2
+        assert org_1_report["teams"][str(self.org_1_team_1.id)]["active_hog_transformations_in_period"] == 1
+        assert org_1_report["teams"][str(self.org_1_team_2.id)]["active_hog_destinations_in_period"] == 1
+        assert org_1_report["teams"][str(self.org_1_team_2.id)]["active_hog_transformations_in_period"] == 2
+
 
 @freeze_time("2022-01-10T00:01:00Z")
 class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
@@ -1492,6 +1554,86 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_active_external_data_schemas_in_period(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        # created at doesn't matter. just what's running or completed at run time
+        self._setup_teams()
+
+        source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+
+        for _ in range(5):
+            ExternalDataSchema.objects.create(
+                team_id=3,
+                status=ExternalDataSchema.Status.RUNNING,
+                source=source,
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["active_external_data_schemas_in_period"] == 5
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["active_external_data_schemas_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_active_batch_exports_in_period(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        # created at doesn't matter. just what's running or completed at run time
+        self._setup_teams()
+
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        BatchExport.objects.create(team_id=3, name="A batch export", destination=batch_export_destination, paused=False)
+
+        BatchExport.objects.create(
+            team=self.analytics_team, name="A batch export", destination=batch_export_destination, paused=False
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["active_batch_exports_in_period"] == 1
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["active_batch_exports_in_period"] == 0
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2524,13 +2666,13 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # Verify the calls
         self.assertEqual(mock_execute_split_query.call_count, 2)
 
-        # First call (get_teams_with_billable_event_count_in_period) should use 2 splits
+        # First call (get_teams_with_billable_event_count_in_period) should use 3 splits
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 2)
+        self.assertEqual(first_call_kwargs["num_splits"], 3)
 
-        # Second call (get_all_event_metrics_in_period) should use 2 splits
+        # Second call (get_all_event_metrics_in_period) should use 3 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 2)
+        self.assertEqual(second_call_kwargs["num_splits"], 3)
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""

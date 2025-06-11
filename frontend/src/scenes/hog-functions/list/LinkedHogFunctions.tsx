@@ -7,19 +7,19 @@ import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
-    logicKey?: string
     type: HogFunctionTypeType
-    filters: HogFunctionFiltersType
+    filters?: HogFunctionFiltersType
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
+    hideFeedback?: boolean
 }
 
 export function LinkedHogFunctions({
-    logicKey,
     type,
     filters,
     subTemplateIds,
     newDisabledReason,
+    hideFeedback,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
 
@@ -44,9 +44,9 @@ export function LinkedHogFunctions({
         />
     ) : (
         <HogFunctionList
-            logicKey={logicKey}
             forceFilters={{ filters }}
             type={type}
+            hideFeedback={hideFeedback}
             extraControls={
                 <>
                     <LemonButton

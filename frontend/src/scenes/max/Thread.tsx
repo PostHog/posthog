@@ -80,9 +80,9 @@ export function Thread(): JSX.Element | null {
             ) : threadGrouped.length > 0 ? (
                 threadGrouped.map((group, index) => (
                     <MessageGroup
-                        key={index}
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
                         messages={group}
-                        index={index}
                         isFinal={index === threadGrouped.length - 1}
                     />
                 ))
@@ -130,7 +130,6 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
-    index: number
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
@@ -260,7 +259,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words',
+                'flex flex-col gap-px w-full break-words scroll-mt-12',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
@@ -360,7 +359,7 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
     )
 }
 
-function VisualizationAnswer({
+const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
@@ -458,7 +457,7 @@ function VisualizationAnswer({
                   </MessageTemplate>
               </>
           )
-}
+})
 
 function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxThreadLogic)

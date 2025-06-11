@@ -13,6 +13,7 @@ import {
     formChunk,
     generationFailureChunk,
     humanMessage,
+    longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
@@ -163,7 +164,8 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(ctx.text(chatResponseChunk), ctx.status(429)),
+                // Retry-After header is present so we should be showing its value in the UI
+                res(ctx.text(chatResponseChunk), ctx.set({ 'Retry-After': '3899' }), ctx.status(429)),
         },
     })
 
@@ -173,6 +175,26 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax('Is Bielefeld real?')
+    }, [])
+
+    return <Template />
+}
+
+export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                // Testing rate limit error when the Retry-After header is MISSING
+                res(ctx.text(chatResponseChunk), ctx.status(429)),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+
+    useEffect(() => {
+        setConversationId(CONVERSATION_ID)
+        askMax('Is Finland real?')
     }, [])
 
     return <Template />
@@ -363,6 +385,46 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     return <Template sidePanel />
 }
 ThreadWithOpenedSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(ctx.delay(100), ctx.text(longResponseChunk)),
+        },
+    })
+
+    const { conversation } = useValues(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const logic = maxThreadLogic({ conversationId: 'poem', conversation })
+    const { threadRaw } = useValues(logic)
+    const { askMax } = useActions(logic)
+
+    useEffect(() => {
+        setConversationId('poem')
+    }, [setConversationId])
+
+    const messagesSet = threadRaw.length > 0
+    useEffect(() => {
+        if (messagesSet) {
+            askMax('This message must be on the top of the container')
+        }
+    }, [messagesSet, askMax])
+
+    return (
+        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+            <Template />
+        </div>
+    )
+}
+ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

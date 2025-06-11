@@ -1,4 +1,5 @@
 import {
+    HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,
     HogFunctionSubTemplateType,
     HogFunctionTemplateType,
@@ -10,11 +11,12 @@ import {
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
-    Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type'> &
-        Omit<Partial<HogFunctionSubTemplateType>, 'sub_template_id' | 'type'>
+    Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
+        Omit<Partial<HogFunctionSubTemplateType>, 'sub_template_id' | 'type' | 'context_id'>
 > = {
     'survey-response': {
         sub_template_id: 'survey-response',
+        context_id: 'standard',
         type: 'destination',
         filters: {
             events: [
@@ -36,22 +38,32 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     'early-access-feature-enrollment': {
         sub_template_id: 'early-access-feature-enrollment',
         type: 'destination',
+        context_id: 'standard',
         filters: { events: [{ id: '$feature_enrollment_update', type: 'events' }] },
     },
     'activity-log': {
         sub_template_id: 'activity-log',
         type: 'internal_destination',
+        context_id: 'activity-log',
         filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
+        context_id: 'error-tracking',
         filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
     },
     'error-tracking-issue-reopened': {
         sub_template_id: 'error-tracking-issue-reopened',
         type: 'internal_destination',
+        context_id: 'error-tracking',
         filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+    },
+    'insight-alert-firing': {
+        sub_template_id: 'insight-alert-firing',
+        type: 'internal_destination',
+        context_id: 'insight-alerts',
+        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
 }
 
@@ -378,6 +390,55 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'insight-alert-firing': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['insight-alert-firing'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on insight alert firing',
+            description: 'Post to a Slack channel when this insight alert fires',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'plain_text',
+                                text: '{event.properties.breaches}',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [
+                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+                                { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/insights/{event.properties.insight_id}',
+                                    text: { text: 'View Insight', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Alert triggered: {event.properties.insight_name}',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -385,4 +446,18 @@ export const getSubTemplate = (
     subTemplateId: HogFunctionSubTemplateIdType
 ): HogFunctionSubTemplateType | null => {
     return HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id) || null
+}
+
+export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId => {
+    switch (event) {
+        case '$error_tracking_issue_created':
+        case '$error_tracking_issue_reopened':
+            return 'error-tracking'
+        case '$insight_alert_firing':
+            return 'insight-alerts'
+        case '$activity_log_entry_created':
+            return 'activity-log'
+        default:
+            return 'standard'
+    }
 }

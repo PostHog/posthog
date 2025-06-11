@@ -194,16 +194,21 @@ def build_kafka_event_data(
     token: str,
 ) -> dict:
     logger.debug("build_kafka_event_data", token=token)
-    return {
+    res = {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
         "ip": safe_clickhouse_string(ip) if ip else ip,
         "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
         "token": token,
     }
+
+    # Equivalent to rust captures "skip_serialising_if = Option::is_none"
+    if sent_at:
+        res["sent_at"] = sent_at.isoformat()
+
+    return res
 
 
 def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = False) -> str:
@@ -436,6 +441,20 @@ def get_csp_event(request):
     # we want to handle this as early as possible and avoid any processing
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
+
+    debug_enabled = request.GET.get("debug", "").lower() == "true"
+    if debug_enabled:
+        logger.exception(
+            "CSP debug request",
+            error=ValueError("CSP debug request"),
+            method=request.method,
+            url=request.build_absolute_uri(),
+            content_type=request.content_type,
+            headers=dict(request.headers),
+            query_params=dict(request.GET),
+            body_size=len(request.body) if request.body else 0,
+            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
+        )
 
     csp_report, error_response = process_csp_report(request)
 

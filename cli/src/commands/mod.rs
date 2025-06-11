@@ -12,8 +12,8 @@ use crate::error::CapturedError;
 #[command(version, about, long_about = None)]
 pub struct Cli {
     /// The PostHog host to connect to
-    #[arg(long, default_value = "https://us.posthog.com")]
-    host: String,
+    #[arg(long)]
+    host: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -52,9 +52,16 @@ pub enum SourcemapCommand {
         #[arg(short, long)]
         directory: PathBuf,
 
-        /// The build ID to associate with the uploaded chunks
-        #[arg(short, long)]
-        build: Option<String>,
+        /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
+        /// a specific release, auto-discovered from git information on disk if not provided.
+        #[arg(long)]
+        project: Option<String>,
+
+        /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
+        /// to have the uploaded chunks associated with a specific release. Auto-discovered from git information on
+        /// disk if not provided.
+        #[arg(long)]
+        version: Option<String>,
     },
 }
 
@@ -70,11 +77,20 @@ impl Cli {
                 SourcemapCommand::Inject { directory } => {
                     sourcemap::inject::inject(directory)?;
                 }
-                SourcemapCommand::Upload { directory, build } => {
-                    sourcemap::upload::upload(&command.host, directory, build)?;
+                SourcemapCommand::Upload {
+                    directory,
+                    project,
+                    version,
+                } => {
+                    sourcemap::upload::upload(
+                        command.host,
+                        directory,
+                        project.clone(),
+                        version.clone(),
+                    )?;
                 }
             },
-            Commands::Query { cmd } => query::query_command(&command.host, cmd)?,
+            Commands::Query { cmd } => query::query_command(command.host, cmd)?,
         }
 
         Ok(())

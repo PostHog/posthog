@@ -1,5 +1,5 @@
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -25,6 +25,10 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
     background?: boolean
     isGrandfathered?: boolean
     docsLink?: string
+    /**
+     * Custom loading state to show while billing data is loading
+     */
+    loadingSkeleton?: JSX.Element
 }
 
 /** A sort of paywall for premium features.
@@ -41,6 +45,7 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
     docsLink,
+    loadingSkeleton,
 }: PayGateMiniProps): JSX.Element | null {
     const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
         payGateMiniLogic({ feature, currentUsage })
@@ -71,7 +76,26 @@ export function PayGateMini({
     }
 
     if (billingLoading) {
-        return null
+        return (
+            loadingSkeleton || (
+                <div
+                    className={clsx(
+                        className,
+                        background && 'bg-primary border border-primary',
+                        'PayGateMini rounded flex flex-col items-center p-4 text-center'
+                    )}
+                >
+                    <LemonSkeleton className="w-20 h-10 mb-2" />
+                    <LemonSkeleton className="w-48 h-12 mb-2" />
+                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
+                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
+                    <div className="flex items-center justify-center gap-x-2 mt-3">
+                        <LemonSkeleton className="w-32 h-10" />
+                        <LemonSkeleton className="w-32 h-10" />
+                    </div>
+                </div>
+            )
+        )
     }
 
     if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {

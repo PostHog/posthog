@@ -18,8 +18,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 import products
+from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
@@ -304,6 +304,7 @@ class RootNodeTools(AssistantNode):
                         ui_payload={tool_call.name: result.artifact},
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
+                        visible=True,
                     )
                 ],
                 root_tool_call_id=None,  # Tool handled already

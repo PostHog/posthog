@@ -94,16 +94,5 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
             }
-        // This is only for functional tests, which time out if all capabilities are used
-        // ideally we'd run just the specific capability needed per test, but that's not easy to do atm
-        case PluginServerMode.functional_tests:
-            return {
-                mmdb: true,
-                ingestionV2Combined: true,
-                cdpLegacyOnEvent: true,
-                processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                appManagementSingleton: true,
-            }
     }
 }

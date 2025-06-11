@@ -128,28 +128,23 @@ impl RawRequest {
         cmp_hint: Compression,
         request_id: &'a str,
         limit: usize,
-        is_mirror_deploy: bool,
+        path: String,
     ) -> Result<RawRequest, CaptureError> {
         Span::current().record("compression", cmp_hint.to_string());
-        Span::current().record("is_mirror_deploy", is_mirror_deploy);
+        Span::current().record("path", path.clone());
         Span::current().record("request_id", request_id);
 
-        if is_mirror_deploy {
-            warn!(len = bytes.len(), "from_bytes: decoding new event");
-        }
+        debug!(payload_len = bytes.len(), "from_bytes: decoding new event");
 
-        let mut payload = if (is_mirror_deploy && cmp_hint == Compression::Gzip)
-            || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
+        let mut payload = if cmp_hint == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
         {
             let len = bytes.len();
-
-            if is_mirror_deploy {
-                warn!(len = len, "from_bytes: matched GZIP compression");
-            }
+            debug!(payload_len = len, "from_bytes: matched GZIP compression");
 
             let mut zipstream = GzDecoder::new(bytes.reader());
             let chunk = &mut [0; 1024];
             let mut buf = Vec::with_capacity(len);
+
             loop {
                 let got = match zipstream.read(chunk) {
                     Ok(got) => got,
@@ -176,6 +171,7 @@ impl RawRequest {
                     )));
                 }
             }
+
             match String::from_utf8(buf) {
                 Ok(s) => s,
                 Err(e) => {
@@ -185,10 +181,11 @@ impl RawRequest {
                     )));
                 }
             }
-        } else if is_mirror_deploy && cmp_hint == Compression::LZString {
-            if is_mirror_deploy {
-                warn!(len = bytes.len(), "from_bytes: matched LZ64 compression");
-            }
+        } else if cmp_hint == Compression::LZString {
+            debug!(
+                payload_len = bytes.len(),
+                "from_bytes: matched LZ64 compression"
+            );
             match decompress_lz64(&bytes, limit) {
                 Ok(payload) => payload,
                 Err(e) => {
@@ -197,12 +194,11 @@ impl RawRequest {
                 }
             }
         } else {
-            if is_mirror_deploy {
-                warn!(
-                    len = bytes.len(),
-                    "from_bytes: best-effort, assuming no compression"
-                );
-            }
+            debug!(
+                path = &path,
+                payload_len = bytes.len(),
+                "from_bytes: best-effort, assuming no compression"
+            );
 
             let s = String::from_utf8(bytes.into()).map_err(|e| {
                 error!(
@@ -224,19 +220,21 @@ impl RawRequest {
         };
 
         // TODO(eli): remove special casing and additional logging after migration is completed
-        if is_mirror_deploy {
+        if path_is_legacy_endpoint(&path) {
             if is_likely_base64(payload.as_bytes(), Base64Option::Strict) {
-                warn!("from_bytes: payload still base64 after decoding step");
+                debug!("from_bytes: payload still base64 after decoding step");
                 payload = match decode_base64(payload.as_bytes(), "from_bytes_after_decoding") {
                     Ok(out) => {
                         match String::from_utf8(out) {
                             Ok(unwrapped_payload) => {
-                                if unwrapped_payload.len() > limit {
-                                    error!("from_bytes: request size limit exceeded after post-decode base64 unwrap");
+                                let unwrapped_size = unwrapped_payload.len();
+                                if unwrapped_size > limit {
+                                    error!(unwrapped_size,
+                                        "from_bytes: request size limit exceeded after post-decode base64 unwrap");
                                     report_dropped_events("event_too_big", 1);
                                     return Err(CaptureError::EventTooBig(format!(
                                         "from_bytes: payload size limit {} exceeded after post-decode base64 unwrap: {}",
-                                        limit, unwrapped_payload.len(),
+                                        limit, unwrapped_size,
                                     )));
                                 }
                                 unwrapped_payload
@@ -248,29 +246,30 @@ impl RawRequest {
                         }
                     }
                     Err(e) => {
-                        error!("from_bytes: failed post-decode base64 unwrap: {}", e);
+                        error!(
+                            path = &path,
+                            "from_bytes: failed post-decode base64 unwrap: {}", e
+                        );
                         payload
                     }
                 }
             } else {
-                warn!("from_bytes: payload may be LZ64 or other after decoding step");
+                debug!("from_bytes: payload may be LZ64 or other after decoding step");
             }
         }
 
-        if is_mirror_deploy {
-            let truncate_at: usize = payload
-                .char_indices()
-                .nth(MAX_PAYLOAD_SNIPPET_SIZE)
-                .map(|(n, _)| n)
-                .unwrap_or(0);
-            let payload_snippet = &payload[0..truncate_at];
-            warn!(
-                json = payload_snippet,
-                "from_bytes: event payload extracted"
-            );
-        }
-        // TODO(eli): find visible but less chatty happy medium once we unify legacy/common handling
-        debug!(json = payload, "from_bytes: decoded event data");
+        let truncate_at: usize = payload
+            .char_indices()
+            .nth(MAX_PAYLOAD_SNIPPET_SIZE)
+            .map(|(n, _)| n)
+            .unwrap_or(0);
+        let payload_snippet = &payload[0..truncate_at];
+        debug!(
+            path = &path,
+            json = payload_snippet,
+            "from_bytes: event payload extracted"
+        );
+
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
 
@@ -300,8 +299,8 @@ impl RawRequest {
                         properties: engage_event.properties,
                     }])
                 } else {
-                    Err(CaptureError::RequestParsingError(String::from(
-                        "non-engage event submitted without name",
+                    Err(CaptureError::RequestHydrationError(String::from(
+                        "non-engage request missing event name attribute",
                     )))
                 }
             }
@@ -336,8 +335,21 @@ pub struct ProcessingContext {
     pub now: String,
     pub client_ip: String,
     pub request_id: String,
+    pub path: String,
     pub is_mirror_deploy: bool, // TODO(eli): can remove after migration
     pub historical_migration: bool,
+}
+
+// these are the legacy endpoints capture maintains. Can eliminate this
+// during post-migration refactoring, once we validate we can safely unite
+// the legacy and "common" handling flows
+pub fn path_is_legacy_endpoint(path: &str) -> bool {
+    path == "/e"
+        || path.starts_with("/e/")
+        || path.starts_with("/e?")
+        || path.starts_with("/capture")
+        || path.starts_with("/engage")
+        || path.starts_with("/track")
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -368,27 +380,12 @@ mod tests {
     use crate::utils::extract_and_verify_token;
     use base64::Engine as _;
     use bytes::Bytes;
-    use common_types::util::empty_string_is_none;
     use common_types::RawEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
-    use serde::Deserialize;
     use serde_json::json;
-    use serde_json::Value;
-    use uuid::Uuid;
 
     use super::{CaptureError, Compression, RawRequest};
-
-    fn test_deserialize(json: Value) -> Result<Option<Uuid>, serde_json::Error> {
-        #[derive(Deserialize)]
-        struct TestStruct {
-            #[serde(deserialize_with = "empty_string_is_none")]
-            uuid: Option<Uuid>,
-        }
-
-        let result: TestStruct = serde_json::from_value(json)?;
-        Ok(result.uuid)
-    }
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -399,15 +396,16 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
+        let path = "/i/v0/e";
         let events = RawRequest::from_bytes(
             compressed_bytes,
             Compression::Unsupported,
             "decode_uncompressed_raw_event",
             1024,
-            false,
+            path.to_string(),
         )
         .expect("failed to parse")
-        .events("/i/v0/e")
+        .events(path)
         .unwrap();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token1".to_string()), events[0].extract_token());
@@ -428,15 +426,16 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
+        let path = "/i/v0/e";
         let events = RawRequest::from_bytes(
             compressed_bytes,
             Compression::Unsupported,
             "decode_gzipped_raw_event",
             2048,
-            false,
+            path.to_string(),
         )
         .expect("failed to parse")
-        .events("/i/v0/e")
+        .events(path)
         .unwrap();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token2".to_string()), events[0].extract_token());
@@ -451,6 +450,7 @@ mod tests {
 
     #[test]
     fn extract_non_engage_event_without_name_fails() {
+        let path = "/e/?ip=192.0.0.1&ver=2.3.4";
         let parse_and_extract_events =
             |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
                 RawRequest::from_bytes(
@@ -458,10 +458,10 @@ mod tests {
                     Compression::Unsupported,
                     "extract_distinct_id",
                     2048,
-                    false,
+                    path.to_string(),
                 )
                 .expect("failed to parse")
-                .events("/e/?ip=192.0.0.1&ver=2.3.4")
+                .events(path)
             };
 
         // since we're not extracting events against the /engage endpoint path,
@@ -470,12 +470,13 @@ mod tests {
             parse_and_extract_events(
                 r#"{"token": "token", "distinct_id": "distinct_id", "properties":{"foo": 42, "bar": true}}"#
             ),
-            Err(CaptureError::RequestParsingError(_))
+            Err(CaptureError::RequestHydrationError(_))
         ));
     }
 
     #[test]
     fn extract_engage_event_without_name_is_resolved() {
+        let path = "/engage/?ip=10.0.0.1&ver=1.2.3";
         let parse_and_extract_events =
             |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
                 RawRequest::from_bytes(
@@ -483,10 +484,10 @@ mod tests {
                     Compression::Unsupported,
                     "extract_distinct_id",
                     2048,
-                    false,
+                    path.to_string(),
                 )
                 .expect("failed to parse")
-                .events("/engage/?ip=10.0.0.1&ver=1.2.3")
+                .events(path)
             };
 
         let got = parse_and_extract_events(
@@ -499,16 +500,17 @@ mod tests {
 
     #[test]
     fn extract_distinct_id() {
+        let path = "/i/v0/e";
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
             let parsed = RawRequest::from_bytes(
                 input.into(),
                 Compression::Unsupported,
                 "extract_distinct_id",
                 2048,
-                false,
+                path.to_string(),
             )
             .expect("failed to parse")
-            .events("/i/v0/e")
+            .events(path)
             .unwrap();
             parsed[0]
                 .extract_distinct_id()
@@ -577,15 +579,16 @@ mod tests {
             "distinct_id": distinct_id
         }]);
 
+        let path = "/i/v0/e";
         let parsed = RawRequest::from_bytes(
             input.to_string().into(),
             Compression::Unsupported,
             "extract_distinct_id_trims_to_200_chars",
             2048,
-            false,
+            path.to_string(),
         )
         .expect("failed to parse")
-        .events("/i/v0/e")
+        .events(path)
         .unwrap();
         assert_eq!(
             parsed[0].extract_distinct_id().expect("failed to extract"),
@@ -596,19 +599,20 @@ mod tests {
     #[test]
     fn test_extract_and_verify_token() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
+            let path = "/i/v0/e";
             let raw_req = RawRequest::from_bytes(
                 input.into(),
                 Compression::Unsupported,
                 "extract_and_verify_token",
                 2048,
-                false,
+                path.to_string(),
             )
             .expect("failed to parse");
 
             let maybe_batch_token = raw_req.get_batch_token();
 
             let events = raw_req
-                .events("/i/v0/e")
+                .events(path)
                 .expect("failed to hydrate Vec<RawEvent>");
 
             extract_and_verify_token(&events, maybe_batch_token)
@@ -664,30 +668,5 @@ mod tests {
         // Return token from single event if present
         assert_extracted_token(r#"{"event":"e","$token":"single_token"}"#, "single_token");
         assert_extracted_token(r#"{"event":"e","api_key":"single_token"}"#, "single_token");
-    }
-
-    #[test]
-    fn test_empty_uuid_string_is_none() {
-        let json = serde_json::json!({"uuid": ""});
-        let result = test_deserialize(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
-    }
-
-    #[test]
-    fn test_valid_uuid_is_some() {
-        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
-        let json = serde_json::json!({"uuid": valid_uuid});
-        let result = test_deserialize(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some(Uuid::parse_str(valid_uuid).unwrap()));
-    }
-
-    #[test]
-    fn test_invalid_uuid_is_error() {
-        let invalid_uuid = "not-a-uuid";
-        let json = serde_json::json!({"uuid": invalid_uuid});
-        let result = test_deserialize(json);
-        assert!(result.is_err());
     }
 }

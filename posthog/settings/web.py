@@ -82,12 +82,12 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -204,8 +204,8 @@ SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
-# For sensitive actions we have an additional permission (default 1 hour)
-SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 6, type_cast=int)
+# For sensitive actions we have an additional permission (default 2 hour)
+SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
@@ -321,7 +321,7 @@ GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_POST_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
             ]
         ),
     )
@@ -333,31 +333,31 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/plugin_config/\\d+/frontend/?$",
-                "^/?api/projects/@current/property_definitions/?$",
-                "^/?api/projects/\\d+/event_definitions/?$",
-                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
-                "^/?api/projects/\\d+/insights/?$",
-                "^/?api/projects/\\d+/insights/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/?$",
-                "^/?api/projects/\\d+/actions/?$",
-                "^/?api/projects/\\d+/session_recordings/?$",
-                "^/?api/projects/\\d+/session_recordings/.*$",
-                "^/?api/projects/\\d+/session_recording_playlists/?$",
-                "^/?api/projects/\\d+/session_recording_playlists/.*$",
-                "^/?api/projects/\\d+/performance_events/?$",
-                "^/?api/projects/\\d+/performance_events/.*$",
-                "^/?api/projects/\\d+/exports/\\d+/content/?$",
-                "^/?api/projects/\\d+/activity_log/important_changes/?$",
-                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/?api/(environments|projects)/@current/property_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/event_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/(environments|projects)/\\d+/insights/?$",
+                "^/?api/(environments|projects)/\\d+/insights/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/?$",
+                "^/?api/(environments|projects)/\\d+/actions/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/.*$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/?$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/.*$",
+                "^/?api/(environments|projects)/\\d+/performance_events/?$",
+                "^/?api/(environments|projects)/\\d+/performance_events/.*$",
+                "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
+                "^/?api/(environments|projects)/\\d+/activity_log/important_changes/?$",
+                "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/projects/\\d+/groups/property_definitions/?$",
-                "^/api/projects/\\d+/cohorts/?$",
-                "^/api/projects/\\d+/persons/?$",
+                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
+                "^/api/(environments|projects)/\\d+/cohorts/?$",
+                "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
-                "^api/projects/@current/feature_flags/my_flags/?$",
-                "^/?api/projects/\\d+/query/?$",
+                "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]

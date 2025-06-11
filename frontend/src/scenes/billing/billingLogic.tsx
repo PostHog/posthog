@@ -15,7 +15,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -445,9 +444,18 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
         ],
-        startupProgramLabel: [
+        startupProgramLabelCurrent: [
             (s) => [s.billing],
             (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        startupProgramLabelPrevious: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null =>
+                billing?.startup_program_label_previous || null,
+        ],
+        isAnnualPlanCustomer: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
         ],
         showBillingSummary: [
             (s) => [s.billing, s.isOnboarding],
@@ -476,6 +484,10 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType): boolean => {
                 return !!(billing?.account_owner?.name || billing?.account_owner?.email)
             },
+        ],
+        accountOwner: [
+            (s) => [s.billing],
+            (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
         ],
     }),
     forms(({ actions, values }) => ({
@@ -780,7 +792,7 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -798,15 +810,6 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'Error',
                     message: _search.billing_error,
                 })
-            }
-
-            // Feature flag based redirect to same billing page but with new usage and spend dashboards accessible via tabs
-            if (
-                router.values.location.pathname === urls.organizationBilling() &&
-                values.featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-            ) {
-                router.actions.replace(urls.organizationBillingSection('overview'), router.values.searchParams)
-                return
             }
 
             actions.setRedirectPath()

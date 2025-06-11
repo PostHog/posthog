@@ -69,6 +69,7 @@ const FoldableFilters = (): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
         preAggregatedEnabled,
+        productTab,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
@@ -83,7 +84,7 @@ const FoldableFilters = (): JSX.Element => {
             <WebVitalsPercentileToggle />
             <PathCleaningToggle />
 
-            <WebPropertyFilters />
+            {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
         </div>
     )
 }

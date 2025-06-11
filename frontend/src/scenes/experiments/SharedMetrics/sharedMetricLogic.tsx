@@ -78,7 +78,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (props.action === 'duplicate' && values.sharedMetric) {
                 actions.setSharedMetric({
                     ...values.sharedMetric,
-                    name: `${values.sharedMetric.name} (Duplicate)`,
+                    name: `${values.sharedMetric.name} (duplicate)`,
                     id: undefined,
                 })
             }

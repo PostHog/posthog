@@ -1,8 +1,5 @@
-import { IconSearch } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
-import posthog from 'posthog-js'
 import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 
 import { SessionRecordingSidebarTab } from '~/types'
@@ -15,19 +12,15 @@ export function PlayerInspectorButton(): JSX.Element {
     const { setSidebarOpen } = useActions(playerSettingsLogic)
     const { sidebarOpen } = useValues(playerSettingsLogic)
 
-    const usesExploreText = useFeatureFlag('ACTIVITY_OR_EXPLORE', 'explore')
-    const label = usesExploreText ? 'Explore' : 'Activity'
-    const icon = usesExploreText ? <IconSearch /> : <IconUnverifiedEvent />
     return (
         <SettingsToggle
             title="View all activities from this session, including events, console logs, network requests, and an overview. Explore what happened in detail."
-            label={label}
-            icon={icon}
+            label="Activity"
+            icon={<IconUnverifiedEvent />}
             active={sidebarOpen}
             onClick={(): void => {
                 setSidebarOpen(!sidebarOpen)
                 setTab(SessionRecordingSidebarTab.INSPECTOR)
-                posthog.capture(!sidebarOpen ? 'opening player inspector' : 'closing player inspector', {})
             }}
             data-ph-capture-attribute-opening={!sidebarOpen}
             data-attr="open-player-inspector-button"

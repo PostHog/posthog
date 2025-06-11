@@ -127,7 +127,7 @@ function LLMObservabilityGenerations(): JSX.Element {
                     uuid: {
                         title: 'ID',
                         render: ({ record, value }) => {
-                            const traceId = (record as any[])[2]
+                            const traceId = (record as any[])[1]
                             if (!value) {
                                 return <></>
                             }

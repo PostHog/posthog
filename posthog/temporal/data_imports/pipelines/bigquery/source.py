@@ -226,9 +226,12 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
         return ["id"]
 
     query = f"""
-    SELECT constraint_name FROM `{table.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-    WHERE table_name = '{table.table_id}'
-      AND constraint_type = 'PRIMARY KEY'
+    SELECT kcu.column_name
+    FROM `{table.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+    JOIN `{table.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+    ON tc.constraint_name = kcu.constraint_name
+    WHERE tc.table_name = '{table.table_id}'
+    AND tc.constraint_type = 'PRIMARY KEY'
     """
 
     job_config = QueryJobConfig()
@@ -236,7 +239,7 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
 
     primary_keys = []
     for row in job.result():
-        field_name = row[0].removeprefix(f"{table.table_id}.")
+        field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:
             return None
@@ -246,6 +249,29 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
     if not primary_keys:
         return None
     return primary_keys
+
+
+def has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
+    if not primary_keys or len(primary_keys) == 0:
+        return False
+
+    try:
+        query = f"""
+            SELECT {", ".join(primary_keys)}
+            FROM `{table.dataset_id}`.`{table.table_id}`
+            GROUP BY {", ".join(primary_keys)}
+            HAVING COUNT(*) > 1
+        """
+
+        job_config = QueryJobConfig()
+        job = client.query(query, job_config=job_config)
+
+        for _ in job.result():
+            return True
+    except Exception as e:
+        capture_exception(e)
+
+    return False
 
 
 def _get_rows_to_sync(
@@ -355,6 +381,7 @@ def bigquery_source(
         bq_table = bq_client.get_table(fully_qualified_table_name)
         primary_keys = get_primary_keys(bq_table, bq_client)
         partition_settings = get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
+        has_duplicate_keys = has_duplicate_primary_keys(bq_table, bq_client, primary_keys)
         rows_to_sync = _get_rows_to_sync(
             bq_table,
             bq_client,
@@ -469,4 +496,5 @@ def bigquery_source(
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
+        has_duplicate_primary_keys=has_duplicate_keys,
     )
