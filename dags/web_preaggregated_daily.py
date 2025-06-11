@@ -312,3 +312,196 @@ def stats_daily_has_data() -> AssetCheckResult:
         return AssetCheckResult(
             passed=False, description=f"Error checking table: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
         )
+
+
+# Asset checks for export files - verify chdb can query them and they have data
+@asset_check(
+    asset=web_stats_daily_export,
+    name="stats_export_chdb_queryable",
+    description="Check if stats export file can be queried with chdb and has data",
+)
+def stats_export_chdb_queryable() -> AssetCheckResult:
+    """
+    Check if the web_stats_daily export file can be queried with chdb and contains data.
+    """
+    try:
+        import chdb
+        import structlog
+
+        logger = structlog.get_logger(__name__)
+
+        # Get the export path - in local dev use Minio URL
+        if DEBUG:
+            # For local development, use the Minio URL directly
+            export_url = f"http://objectstorage:19000/posthog/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_stats_daily_export.native"
+
+            try:
+                # Try to query the export file with chdb using Minio URL
+                result = chdb.query(f"SELECT COUNT(*) as row_count FROM url('{export_url}', 'Native')")
+                row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
+
+                passed = row_count > 0
+
+                logger.info("stats_export_chdb_check", export_url=export_url, row_count=row_count, queryable=True)
+
+                return AssetCheckResult(
+                    passed=passed,
+                    description=f"Export file queryable with chdb via Minio, contains {row_count} rows"
+                    if passed
+                    else "Export file queryable but empty",
+                    metadata={
+                        "row_count": MetadataValue.int(row_count),
+                        "export_url": MetadataValue.text(export_url),
+                        "chdb_queryable": MetadataValue.bool(True),
+                        "export_type": MetadataValue.text("web_stats_daily"),
+                    },
+                )
+
+            except (FileNotFoundError, Exception) as e:
+                # File doesn't exist yet or has format issues - this is ok for a check
+                error_msg = str(e)
+                if "Cannot stat file" in error_msg or "CANNOT_STAT" in error_msg:
+                    status = "file_not_found"
+                    description = "Export file not found - may not have been created yet"
+                elif "table structure cannot be extracted" in error_msg.lower():
+                    status = "format_issue"
+                    description = (
+                        "Export file exists but chdb cannot determine structure - this is expected for Native format"
+                    )
+                else:
+                    status = "other_error"
+                    description = f"Export file check failed: {error_msg}"
+
+                logger.info("stats_export_chdb_check", export_url=export_url, status=status, error=error_msg[:100])
+
+                return AssetCheckResult(
+                    passed=False,
+                    description=description,
+                    metadata={
+                        "export_url": MetadataValue.text(export_url),
+                        "error": MetadataValue.text(error_msg[:200]),
+                        "export_type": MetadataValue.text("web_stats_daily"),
+                        "status": MetadataValue.text(status),
+                    },
+                )
+        else:
+            # For production, we'd need to handle S3 access differently
+            # For now, just return a placeholder
+            return AssetCheckResult(
+                passed=True,
+                description="Production chdb export check not implemented yet",
+                metadata={
+                    "environment": MetadataValue.text("production"),
+                    "export_type": MetadataValue.text("web_stats_daily"),
+                },
+            )
+
+    except ImportError:
+        return AssetCheckResult(
+            passed=False,
+            description="chdb not available - cannot verify export queryability",
+            metadata={"error": MetadataValue.text("chdb import failed")},
+        )
+    except Exception as e:
+        logger.exception("stats_export_chdb_check_error", error=str(e))
+        return AssetCheckResult(
+            passed=False,
+            description=f"Error checking export with chdb: {str(e)}",
+            metadata={"error": MetadataValue.text(str(e))},
+        )
+
+
+@asset_check(
+    asset=web_bounces_daily_export,
+    name="bounces_export_chdb_queryable",
+    description="Check if bounces export file can be queried with chdb and has data",
+)
+def bounces_export_chdb_queryable() -> AssetCheckResult:
+    """
+    Check if the web_bounces_daily export file can be queried with chdb and contains data.
+    """
+    try:
+        import chdb
+        import structlog
+
+        logger = structlog.get_logger(__name__)
+
+        # Get the export path - in local dev use Minio URL
+        if DEBUG:
+            # For local development, use the Minio URL directly
+            export_url = f"http://objectstorage:19000/posthog/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_bounces_daily_export.native"
+
+            try:
+                # Try to query the export file with chdb using Minio URL
+                result = chdb.query(f"SELECT COUNT(*) as row_count FROM url('{export_url}', 'Native')")
+                row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
+
+                passed = row_count > 0
+
+                logger.info("bounces_export_chdb_check", export_url=export_url, row_count=row_count, queryable=True)
+
+                return AssetCheckResult(
+                    passed=passed,
+                    description=f"Export file queryable with chdb via Minio, contains {row_count} rows"
+                    if passed
+                    else "Export file queryable but empty",
+                    metadata={
+                        "row_count": MetadataValue.int(row_count),
+                        "export_url": MetadataValue.text(export_url),
+                        "chdb_queryable": MetadataValue.bool(True),
+                        "export_type": MetadataValue.text("web_bounces_daily"),
+                    },
+                )
+
+            except (FileNotFoundError, Exception) as e:
+                # File doesn't exist yet or has format issues - this is ok for a check
+                error_msg = str(e)
+                if "Cannot stat file" in error_msg or "CANNOT_STAT" in error_msg:
+                    status = "file_not_found"
+                    description = "Export file not found - may not have been created yet"
+                elif "table structure cannot be extracted" in error_msg.lower():
+                    status = "format_issue"
+                    description = (
+                        "Export file exists but chdb cannot determine structure - this is expected for Native format"
+                    )
+                else:
+                    status = "other_error"
+                    description = f"Export file check failed: {error_msg}"
+
+                logger.info("bounces_export_chdb_check", export_url=export_url, status=status, error=error_msg[:100])
+
+                return AssetCheckResult(
+                    passed=False,
+                    description=description,
+                    metadata={
+                        "export_url": MetadataValue.text(export_url),
+                        "error": MetadataValue.text(error_msg[:200]),
+                        "export_type": MetadataValue.text("web_bounces_daily"),
+                        "status": MetadataValue.text(status),
+                    },
+                )
+        else:
+            # For production, we'd need to handle S3 access differently
+            # For now, just return a placeholder
+            return AssetCheckResult(
+                passed=True,
+                description="Production chdb export check not implemented yet",
+                metadata={
+                    "environment": MetadataValue.text("production"),
+                    "export_type": MetadataValue.text("web_bounces_daily"),
+                },
+            )
+
+    except ImportError:
+        return AssetCheckResult(
+            passed=False,
+            description="chdb not available - cannot verify export queryability",
+            metadata={"error": MetadataValue.text("chdb import failed")},
+        )
+    except Exception as e:
+        logger.exception("bounces_export_chdb_check_error", error=str(e))
+        return AssetCheckResult(
+            passed=False,
+            description=f"Error checking export with chdb: {str(e)}",
+            metadata={"error": MetadataValue.text(str(e))},
+        )

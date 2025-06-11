@@ -135,8 +135,14 @@ def daily_tables_exist() -> AssetCheckResult:
     try:
         from posthog.clickhouse.client import sync_execute
 
-        # Check if tables exist
-        tables_result = sync_execute("SHOW TABLES LIKE '%bounces_daily%' OR LIKE '%stats_daily%'")
+        # Check if tables exist using system tables for efficient filtering
+        tables_result = sync_execute(
+            """
+            SELECT name FROM system.tables
+            WHERE database = currentDatabase()
+            AND (name LIKE '%bounces_daily%' OR name LIKE '%stats_daily%')
+        """
+        )
         table_names = [row[0] for row in tables_result]
 
         expected_tables = ["web_bounces_daily", "web_stats_daily"]
@@ -171,8 +177,14 @@ def hourly_tables_exist() -> AssetCheckResult:
     try:
         from posthog.clickhouse.client import sync_execute
 
-        # Check if tables exist
-        tables_result = sync_execute("SHOW TABLES LIKE '%bounces_hourly%' OR LIKE '%stats_hourly%'")
+        # Check if tables exist using system tables for efficient filtering
+        tables_result = sync_execute(
+            """
+            SELECT name FROM system.tables
+            WHERE database = currentDatabase()
+            AND (name LIKE '%bounces_hourly%' OR name LIKE '%stats_hourly%')
+        """
+        )
         table_names = [row[0] for row in tables_result]
 
         expected_tables = [
@@ -212,8 +224,14 @@ def combined_views_exist() -> AssetCheckResult:
     try:
         from posthog.clickhouse.client import sync_execute
 
-        # Check if views exist
-        views_result = sync_execute("SHOW TABLES LIKE '%combined%'")
+        # Check if views exist using system tables for efficient filtering
+        views_result = sync_execute(
+            """
+            SELECT name FROM system.tables
+            WHERE database = currentDatabase()
+            AND name LIKE '%combined%'
+        """
+        )
         view_names = [row[0] for row in views_result]
 
         expected_views = ["web_bounces_combined", "web_stats_combined"]
@@ -233,9 +251,11 @@ def combined_views_exist() -> AssetCheckResult:
 
         return AssetCheckResult(
             passed=passed,
-            description=f"Found {len(queryable_views)}/{len(expected_views)} working views"
-            if passed
-            else f"Issues with views: {missing_views}",
+            description=(
+                f"Found {len(queryable_views)}/{len(expected_views)} working views"
+                if passed
+                else f"Issues with views: {missing_views}"
+            ),
             metadata={
                 "found_views": MetadataValue.json(view_names),
                 "expected_views": MetadataValue.json(expected_views),
