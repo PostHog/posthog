@@ -27,6 +27,8 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
 
@@ -330,69 +332,75 @@ def stats_export_chdb_queryable() -> AssetCheckResult:
 
         logger = structlog.get_logger(__name__)
 
-        # Get the export path - in local dev use Minio URL
+        # Get the export path - follow same pattern as export_web_analytics_data
         if DEBUG:
-            # For local development, use the Minio URL directly
-            export_url = f"http://objectstorage:19000/posthog/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_stats_daily_export.native"
-
-            try:
-                # Try to query the export file with chdb using Minio URL
-                result = chdb.query(f"SELECT COUNT(*) as row_count FROM url('{export_url}', 'Native')")
-                row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
-
-                passed = row_count > 0
-
-                logger.info("stats_export_chdb_check", export_url=export_url, row_count=row_count, queryable=True)
-
-                return AssetCheckResult(
-                    passed=passed,
-                    description=f"Export file queryable with chdb via Minio, contains {row_count} rows"
-                    if passed
-                    else "Export file queryable but empty",
-                    metadata={
-                        "row_count": MetadataValue.int(row_count),
-                        "export_url": MetadataValue.text(export_url),
-                        "chdb_queryable": MetadataValue.bool(True),
-                        "export_type": MetadataValue.text("web_stats_daily"),
-                    },
-                )
-
-            except (FileNotFoundError, Exception) as e:
-                # File doesn't exist yet or has format issues - this is ok for a check
-                error_msg = str(e)
-                if "Cannot stat file" in error_msg or "CANNOT_STAT" in error_msg:
-                    status = "file_not_found"
-                    description = "Export file not found - may not have been created yet"
-                elif "table structure cannot be extracted" in error_msg.lower():
-                    status = "format_issue"
-                    description = (
-                        "Export file exists but chdb cannot determine structure - this is expected for Native format"
-                    )
-                else:
-                    status = "other_error"
-                    description = f"Export file check failed: {error_msg}"
-
-                logger.info("stats_export_chdb_check", export_url=export_url, status=status, error=error_msg[:100])
-
-                return AssetCheckResult(
-                    passed=False,
-                    description=description,
-                    metadata={
-                        "export_url": MetadataValue.text(export_url),
-                        "error": MetadataValue.text(error_msg[:200]),
-                        "export_type": MetadataValue.text("web_stats_daily"),
-                        "status": MetadataValue.text(status),
-                    },
-                )
+            # For local development, use Minio with s3() function for proper authentication
+            s3_endpoint = "http://objectstorage:19000"
+            bucket = "posthog"
+            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_stats_daily_export.native"
         else:
-            # For production, we'd need to handle S3 access differently
-            # For now, just return a placeholder
+            # For production, use S3 URL (same pattern as export method)
+            s3_endpoint = "https://s3.amazonaws.com"
+            bucket = DAGSTER_DATA_EXPORT_S3_BUCKET
+            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_stats_daily_export.native"
+
+        try:
+            # Try to query the export file with chdb using s3() function for proper AWS auth
+            s3_query = f"SELECT COUNT(*) as row_count FROM s3('{s3_endpoint}/{bucket}/{key}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native')"
+            result = chdb.query(s3_query)
+            row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
+
+            passed = row_count > 0
+            env_type = "Minio" if DEBUG else "S3"
+
+            export_path = f"{s3_endpoint}/{bucket}/{key}"
+            logger.info(
+                "stats_export_chdb_check", export_path=export_path, row_count=row_count, queryable=True, env=env_type
+            )
+
             return AssetCheckResult(
-                passed=True,
-                description="Production chdb export check not implemented yet",
+                passed=passed,
+                description=f"Export file queryable with chdb via {env_type}, contains {row_count} rows"
+                if passed
+                else f"Export file queryable via {env_type} but empty",
                 metadata={
-                    "environment": MetadataValue.text("production"),
+                    "row_count": MetadataValue.int(row_count),
+                    "export_path": MetadataValue.text(export_path),
+                    "chdb_queryable": MetadataValue.bool(True),
                     "export_type": MetadataValue.text("web_stats_daily"),
+                    "environment": MetadataValue.text(env_type),
+                },
+            )
+
+        except (FileNotFoundError, Exception) as e:
+            # File doesn't exist yet or has format issues - this is ok for a check
+            error_msg = str(e)
+            env_type = "Minio" if DEBUG else "S3"
+
+            if "Cannot stat file" in error_msg or "CANNOT_STAT" in error_msg:
+                status = "file_not_found"
+                description = f"Export file not found on {env_type} - may not have been created yet"
+            elif "table structure cannot be extracted" in error_msg.lower():
+                status = "format_issue"
+                description = f"Export file exists on {env_type} but chdb cannot determine structure - this is expected for Native format"
+            else:
+                status = "other_error"
+                description = f"Export file check failed on {env_type}: {error_msg}"
+
+            export_path = f"{s3_endpoint}/{bucket}/{key}"
+            logger.info(
+                "stats_export_chdb_check", export_path=export_path, status=status, error=error_msg[:100], env=env_type
+            )
+
+            return AssetCheckResult(
+                passed=False,
+                description=description,
+                metadata={
+                    "export_path": MetadataValue.text(export_path),
+                    "error": MetadataValue.text(error_msg[:200]),
+                    "export_type": MetadataValue.text("web_stats_daily"),
+                    "status": MetadataValue.text(status),
+                    "environment": MetadataValue.text(env_type),
                 },
             )
 
@@ -426,69 +434,75 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
 
         logger = structlog.get_logger(__name__)
 
-        # Get the export path - in local dev use Minio URL
+        # Get the export path - follow same pattern as export_web_analytics_data
         if DEBUG:
-            # For local development, use the Minio URL directly
-            export_url = f"http://objectstorage:19000/posthog/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_bounces_daily_export.native"
-
-            try:
-                # Try to query the export file with chdb using Minio URL
-                result = chdb.query(f"SELECT COUNT(*) as row_count FROM url('{export_url}', 'Native')")
-                row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
-
-                passed = row_count > 0
-
-                logger.info("bounces_export_chdb_check", export_url=export_url, row_count=row_count, queryable=True)
-
-                return AssetCheckResult(
-                    passed=passed,
-                    description=f"Export file queryable with chdb via Minio, contains {row_count} rows"
-                    if passed
-                    else "Export file queryable but empty",
-                    metadata={
-                        "row_count": MetadataValue.int(row_count),
-                        "export_url": MetadataValue.text(export_url),
-                        "chdb_queryable": MetadataValue.bool(True),
-                        "export_type": MetadataValue.text("web_bounces_daily"),
-                    },
-                )
-
-            except (FileNotFoundError, Exception) as e:
-                # File doesn't exist yet or has format issues - this is ok for a check
-                error_msg = str(e)
-                if "Cannot stat file" in error_msg or "CANNOT_STAT" in error_msg:
-                    status = "file_not_found"
-                    description = "Export file not found - may not have been created yet"
-                elif "table structure cannot be extracted" in error_msg.lower():
-                    status = "format_issue"
-                    description = (
-                        "Export file exists but chdb cannot determine structure - this is expected for Native format"
-                    )
-                else:
-                    status = "other_error"
-                    description = f"Export file check failed: {error_msg}"
-
-                logger.info("bounces_export_chdb_check", export_url=export_url, status=status, error=error_msg[:100])
-
-                return AssetCheckResult(
-                    passed=False,
-                    description=description,
-                    metadata={
-                        "export_url": MetadataValue.text(export_url),
-                        "error": MetadataValue.text(error_msg[:200]),
-                        "export_type": MetadataValue.text("web_bounces_daily"),
-                        "status": MetadataValue.text(status),
-                    },
-                )
+            # For local development, use Minio with s3() function for proper authentication
+            s3_endpoint = "http://objectstorage:19000"
+            bucket = "posthog"
+            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_bounces_daily_export.native"
         else:
-            # For production, we'd need to handle S3 access differently
-            # For now, just return a placeholder
+            # For production, use S3 URL (same pattern as export method)
+            s3_endpoint = "https://s3.amazonaws.com"
+            bucket = DAGSTER_DATA_EXPORT_S3_BUCKET
+            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/web_bounces_daily_export.native"
+
+        try:
+            # Try to query the export file with chdb using s3() function for proper AWS auth
+            s3_query = f"SELECT COUNT(*) as row_count FROM s3('{s3_endpoint}/{bucket}/{key}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native')"
+            result = chdb.query(s3_query)
+            row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
+
+            passed = row_count > 0
+            env_type = "Minio" if DEBUG else "S3"
+
+            export_path = f"{s3_endpoint}/{bucket}/{key}"
+            logger.info(
+                "bounces_export_chdb_check", export_path=export_path, row_count=row_count, queryable=True, env=env_type
+            )
+
             return AssetCheckResult(
-                passed=True,
-                description="Production chdb export check not implemented yet",
+                passed=passed,
+                description=f"Export file queryable with chdb via {env_type}, contains {row_count} rows"
+                if passed
+                else f"Export file queryable via {env_type} but empty",
                 metadata={
-                    "environment": MetadataValue.text("production"),
+                    "row_count": MetadataValue.int(row_count),
+                    "export_path": MetadataValue.text(export_path),
+                    "chdb_queryable": MetadataValue.bool(True),
                     "export_type": MetadataValue.text("web_bounces_daily"),
+                    "environment": MetadataValue.text(env_type),
+                },
+            )
+
+        except (FileNotFoundError, Exception) as e:
+            # File doesn't exist yet or has format issues - this is ok for a check
+            error_msg = str(e)
+            env_type = "Minio" if DEBUG else "S3"
+
+            if "Cannot stat file" in error_msg or "CANNOT_STAT" in error_msg:
+                status = "file_not_found"
+                description = f"Export file not found on {env_type} - may not have been created yet"
+            elif "table structure cannot be extracted" in error_msg.lower():
+                status = "format_issue"
+                description = f"Export file exists on {env_type} but chdb cannot determine structure - this is expected for Native format"
+            else:
+                status = "other_error"
+                description = f"Export file check failed on {env_type}: {error_msg}"
+
+            export_path = f"{s3_endpoint}/{bucket}/{key}"
+            logger.info(
+                "bounces_export_chdb_check", export_path=export_path, status=status, error=error_msg[:100], env=env_type
+            )
+
+            return AssetCheckResult(
+                passed=False,
+                description=description,
+                metadata={
+                    "export_path": MetadataValue.text(export_path),
+                    "error": MetadataValue.text(error_msg[:200]),
+                    "export_type": MetadataValue.text("web_bounces_daily"),
+                    "status": MetadataValue.text(status),
+                    "environment": MetadataValue.text(env_type),
                 },
             )
 
