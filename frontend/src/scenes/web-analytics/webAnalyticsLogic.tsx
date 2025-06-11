@@ -30,6 +30,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     ConversionGoalFilter,
+    CurrencyCode,
     CustomEventConversionGoal,
     DatabaseSchemaDataWarehouseTable,
     DataTableNode,
@@ -421,7 +422,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'baseCurrency'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
@@ -765,8 +766,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     selectors(({ actions, values }) => ({
         // Helper functions for dynamic marketing analytics
         createMarketingDataWarehouseNodes: [
-            (s) => [s.validExternalTables],
-            (validExternalTables: ExternalTable[]): DataWarehouseNode[] => {
+            (s) => [s.validExternalTables, s.baseCurrency],
+            (validExternalTables: ExternalTable[], baseCurrency: string): DataWarehouseNode[] => {
                 if (!validExternalTables || validExternalTables.length === 0) {
                     return []
                 }
@@ -788,6 +789,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             table_name: table.name,
                             math: PropertyMathType.Sum,
                             math_property: table.source_map.total_cost,
+                            math_property_revenue_currency: {
+                                static: (table.source_map.currency || baseCurrency) as CurrencyCode,
+                            },
                         }
                         return returning
                     })
@@ -798,8 +802,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
 
         createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables, s.conversion_goals],
-            (validExternalTables: ExternalTable[], conversionGoals: ConversionGoalFilter[]): string | null => {
+            (s) => [s.validExternalTables, s.conversion_goals, s.baseCurrency],
+            (
+                validExternalTables: ExternalTable[],
+                conversionGoals: ConversionGoalFilter[],
+                baseCurrency: string
+            ): string | null => {
                 if (!validExternalTables || validExternalTables.length === 0) {
                     return null
                 }
@@ -821,11 +829,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         const sourceNameField =
                             table.source_map.utm_source_name || table.source_map.source_name || `'${schemaName}'`
                         const campaignNameField = table.source_map.utm_campaign_name || table.source_map.campaign_name
+
+                        const costSelect = table.source_map.currency
+                            ? `toFloat(convertCurrency('${table.source_map.currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0))))`
+                            : `toFloat(coalesce(${table.source_map.total_cost}, 0))`
+
                         // TODO: we should replicate this logic for the area charts once we build the query runner
                         return `
                         SELECT 
                             ${campaignNameField} as campaignname,
-                            toFloat(coalesce(${table.source_map.total_cost}, 0)) as cost,
+                            ${costSelect} as cost,
                             toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
                             toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
                             ${sourceNameField} as source_name

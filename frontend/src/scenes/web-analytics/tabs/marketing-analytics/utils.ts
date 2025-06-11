@@ -6,6 +6,7 @@ type MarketingAnalyticsSchemaField = {
 export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchemaField> = {
     campaign_name: { type: ['string'], required: true },
     clicks: { type: ['integer', 'number', 'float'], required: false },
+    currency: { type: ['string'], required: false },
     date: { type: ['datetime', 'date', 'string'], required: true }, // self managed sources dates are not converted to date type
     impressions: { type: ['integer', 'number', 'float'], required: false },
     source_name: { type: ['string'], required: false },
