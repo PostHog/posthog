@@ -6,7 +6,11 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { ResultsQuery } from '~/scenes/experiments/components/ResultsBreakdown'
+import {
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsQuery,
+} from '~/scenes/experiments/components/ResultsBreakdown'
 import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
 import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
@@ -35,6 +39,7 @@ export function ChartModal({
 }: ChartModalProps): JSX.Element {
     const isLegacyResult =
         result && (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery)
+
     return (
         <LemonModal
             isOpen={isOpen}
@@ -47,22 +52,38 @@ export function ChartModal({
                 </LemonButton>
             }
         >
-            {isLegacyResult && (
-                <div className="flex justify-end">
-                    <LegacyExploreButton result={result} />
-                </div>
-            )}
-            <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
-                <div className="items-center inline-flex flex-wrap">
-                    <WinningVariantText result={result} experimentId={experimentId} />
-                    <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
-                </div>
-            </LemonBanner>
-            <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
             {isLegacyResult ? (
-                <LegacyResultsQuery result={result} showTable={true} />
+                <>
+                    <div className="flex justify-end">
+                        <LegacyExploreButton result={result} />
+                    </div>
+                    <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
+                        <div className="items-center inline-flex flex-wrap">
+                            <WinningVariantText result={result} experimentId={experimentId} />
+                            <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
+                        </div>
+                    </LemonBanner>
+                    <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                    <LegacyResultsQuery result={result} showTable={true} />
+                </>
             ) : (
-                <ResultsQuery experiment={experiment} result={result} />
+                <ResultsBreakdown result={result} experiment={experiment}>
+                    {(query, breakdownResults) => (
+                        <>
+                            <div className="flex justify-end">
+                                <ExploreAsInsightButton query={query} />
+                            </div>
+                            <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
+                                <div className="items-center inline-flex flex-wrap">
+                                    <WinningVariantText result={result} experimentId={experimentId} />
+                                    <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
+                                </div>
+                            </LemonBanner>
+                            <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                            <ResultsQuery query={query} results={breakdownResults} />
+                        </>
+                    )}
+                </ResultsBreakdown>
             )}
         </LemonModal>
     )
