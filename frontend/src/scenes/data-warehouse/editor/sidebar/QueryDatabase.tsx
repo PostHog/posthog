@@ -41,7 +41,7 @@ export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
 }
 
 const QueryDatabaseTreeView = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, viableItems, editingItemId } =
+    const { treeDataFinal, expandedFolders, expandedSearchFolders, searchTerm, viableItems, editingItemId } =
         useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -53,6 +53,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
         addFolder,
         setEditingItemId,
         rename,
+        deleteItem,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
@@ -65,7 +66,9 @@ const QueryDatabaseTreeView = (): JSX.Element => {
     // Helper function to find any file in the unfiled tree by ID
     const findFileById = (fileId: string): FileSystemEntry | undefined => {
         return viableItems.find(
-            (item) => item.path.startsWith(UNFILED_SAVED_QUERIES_PATH) && `file-${item.id}` === fileId
+            (item) =>
+                item.path.startsWith(UNFILED_SAVED_QUERIES_PATH) &&
+                `file-${item.path.replace(UNFILED_SAVED_QUERIES_PATH + '/', '')}` === fileId
         )
     }
 
@@ -81,7 +84,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
             <div className="h-full overflow-y-auto flex">
                 <LemonTree
                     ref={treeRef}
-                    data={treeData}
+                    data={treeDataFinal}
                     expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                     onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
                     isItemEditing={(item) => {
@@ -105,10 +108,8 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                             void copyToClipboard(item.record.columnName, item.record.columnName)
                         }
 
-                        // Handle file clicks - open the file
-                        if (item && item.record?.type === 'file' && item.record.file?.href) {
-                            window.open(item.record.file.href, '_blank')
-                        }
+                        // Files now expand to show columns instead of opening
+                        // Removed the file opening behavior to allow expansion
                     }}
                     enableDragAndDrop={!searchTerm}
                     onDragEnd={(dragEvent) => {
@@ -120,7 +121,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                         }
 
                         // Only allow drag and drop within Files section
-                        const isFileItem = (id: string): boolean => id.startsWith('file-') || id === 'files'
+                        const isFileItem = (id: string): boolean => id.startsWith('file-') || id === 'views'
 
                         if (!isFileItem(oldId) || !isFileItem(newId)) {
                             return false
@@ -163,16 +164,16 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                     }}
                     isItemDraggable={(item) => {
                         // Only files in the Files section are draggable (not folders)
-                        const draggable =
-                            item.id.startsWith('file-') && item.record?.type === 'file' && item.record?.file
+                        const draggable = item.id.startsWith('file-') && item.record?.type === 'view'
                         return draggable
                     }}
                     isItemDroppable={(item) => {
                         // Can drop on the Files folder itself or on file/folder items within Files
                         const droppable =
-                            item.id === 'files' ||
+                            item.id === 'views' ||
                             (item.id.startsWith('file-') && item.record?.type === 'folder') ||
-                            (item.id.startsWith('file-') && item.record?.type === 'file')
+                            (item.id.startsWith('file-') && item.record?.type === 'view')
+
                         return droppable
                     }}
                     renderItem={(item) => {
@@ -286,40 +287,9 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                             )
                         }
 
-                        if (item.record?.type === 'sources' || item.record?.type === 'files-folder') {
+                        if (item.record?.type === 'sources' || item.id === 'views') {
                             // used to override default icon behavior
                             return null
-                        }
-
-                        // Show menu for files
-                        if (item.record?.type === 'file') {
-                            return (
-                                <DropdownMenuGroup>
-                                    {item.record?.file?.href && (
-                                        <DropdownMenuItem
-                                            asChild
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                if (item.record?.file?.href) {
-                                                    window.open(item.record.file.href, '_blank')
-                                                }
-                                            }}
-                                        >
-                                            <ButtonPrimitive menuItem>Open file</ButtonPrimitive>
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            const fileName = item.record?.file?.path?.split('/').pop() || 'file'
-                                            void copyToClipboard(fileName)
-                                        }}
-                                    >
-                                        <ButtonPrimitive menuItem>Copy file name</ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </DropdownMenuGroup>
-                            )
                         }
 
                         // Show menu for files
@@ -339,6 +309,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
+                                            deleteItem(item.record as unknown as FileSystemEntry, 'query-database')
                                         }}
                                     >
                                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
@@ -365,7 +336,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                 </ButtonPrimitive>
                             )
                         }
-                        if (item.record?.type === 'files-folder') {
+                        if (item.id === 'views') {
                             return (
                                 <ButtonPrimitive
                                     iconOnly

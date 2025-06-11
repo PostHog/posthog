@@ -54,7 +54,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     actions({
         loadUnfiledItems: true,
 
-        loadFolder: (folder: string) => ({ folder }),
+        loadFolder: (folder: string, force: boolean = false) => ({ folder, force }),
         loadFolderIfNotLoaded: (folderId: string) => ({ folderId }),
         loadFolderStart: (folder: string) => ({ folder }),
         loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
@@ -708,9 +708,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadFolder: async ({ folder }) => {
+        loadFolder: async ({ folder, force }) => {
             const currentState = values.folderStates[folder]
-            if (currentState === 'loading' || currentState === 'loaded') {
+            if (currentState === 'loading' || (currentState === 'loaded' && !force)) {
                 return
             }
             actions.loadFolderStart(folder)

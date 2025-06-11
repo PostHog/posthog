@@ -64,12 +64,20 @@ const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
     includeMatches: true,
 }
 
+const FILE_FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
+    keys: [{ name: 'path', weight: 2 }],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+}
+
 const UNFILED_SAVED_QUERIES_PATH = 'Unfiled/Saved queries'
 
 const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
+const filesFuse = new Fuse<FileSystemEntry>([], FILE_FUSE_OPTIONS)
 
 // Factory functions for creating tree nodes
 const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearch = false): TreeDataItem => ({
@@ -199,13 +207,13 @@ const createSourceFolderNode = (
 }
 
 const createTopLevelFolderNode = (
-    type: 'sources' | 'views',
+    type: 'sources' | 'managed-views',
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
 ): TreeDataItem => ({
     id: isSearch ? `search-${type}` : type,
-    name: type === 'sources' ? 'Sources' : 'Views',
+    name: type === 'sources' ? 'Sources' : 'Managed views',
     type: 'node',
     icon: icon,
     record: {
@@ -219,7 +227,8 @@ const createFileNode = (
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     folderStates: any = {},
-    folders: any = {}
+    folders: any = {},
+    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> = {}
 ): TreeDataItem => {
     const isFolder = file.type === 'folder'
     const fileId = `${isSearch ? 'search-' : ''}file-${file.path.replace(UNFILED_SAVED_QUERIES_PATH + '/', '')}`
@@ -258,7 +267,7 @@ const createFileNode = (
                 ]
             } else {
                 children = folderContents.map((item: FileSystemEntry) =>
-                    createFileNode(item, null, isSearch, folderStates, folders)
+                    createFileNode(item, null, isSearch, folderStates, folders, dataWarehouseSavedQueryMapById)
                 )
             }
         } else {
@@ -289,16 +298,32 @@ const createFileNode = (
         }
     }
 
+    // For files, check if it's a saved query and add columns as children
+    const fileChildren: TreeDataItem[] = []
+
+    // Try to find the saved query by matching the file name or path
+    const savedQuery = Object.values(dataWarehouseSavedQueryMapById).find(
+        (query) => file.path.includes(query.name) || fileName.includes(query.name)
+    )
+
+    if (savedQuery && savedQuery.columns) {
+        Object.values(savedQuery.columns).forEach((column) => {
+            fileChildren.push(createColumnNode(savedQuery.name, column, isSearch))
+        })
+    }
+
     return {
         id: fileId,
         name: fileName,
         type: 'node',
         icon: <IconDocument />,
         record: {
-            type: 'file',
-            file: file,
+            type: 'view',
+            view: savedQuery,
+            isSavedQuery: true,
             ...(matches && { searchMatches: matches }),
         },
+        children: fileChildren.length > 0 ? fileChildren : undefined,
     }
 }
 
@@ -308,7 +333,8 @@ const createFilesFolderNode = (
     isSearch = false,
     isLoading = false,
     folderStates: any = {},
-    folders: any = {}
+    folders: any = {},
+    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> = {}
 ): TreeDataItem => {
     const filesChildren: TreeDataItem[] = []
 
@@ -323,22 +349,24 @@ const createFilesFolderNode = (
         })
     } else if (isSearch && matches.length > 0) {
         matches.forEach(([file, fileMatches]) => {
-            filesChildren.push(createFileNode(file, fileMatches, true, folderStates, folders))
+            filesChildren.push(
+                createFileNode(file, fileMatches, true, folderStates, folders, dataWarehouseSavedQueryMapById)
+            )
         })
     } else {
         files.forEach((file) => {
-            filesChildren.push(createFileNode(file, null, false, folderStates, folders))
+            filesChildren.push(createFileNode(file, null, false, folderStates, folders, dataWarehouseSavedQueryMapById))
         })
     }
 
-    const filesFolderId = isSearch ? 'search-files' : 'files'
+    const filesFolderId = isSearch ? 'search-files' : 'views'
 
     return {
         id: filesFolderId,
-        name: 'Files',
+        name: 'Views',
         type: 'node',
         record: {
-            type: 'files-folder',
+            type: 'folder',
         },
         children: filesChildren,
     }
@@ -387,8 +415,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['loadDatabase'],
             dataWarehouseJoinsLogic,
             ['loadJoins'],
+            dataWarehouseViewsLogic,
+            ['createDataWarehouseSavedQuerySuccess', 'updateDataWarehouseSavedQuerySuccess'],
             projectTreeDataLogic,
-            ['loadFolder', 'moveItem', 'queueAction'],
+            ['loadFolder', 'moveItem', 'queueAction', 'loadUnfiledItems', 'deleteItem'],
         ],
     })),
     reducers({
@@ -399,13 +429,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         expandedFolders: [
-            ['sources', 'views', 'files'] as string[], // Default expanded folders
+            ['sources', 'views', 'managed-views'] as string[], // Default expanded folders
             {
                 setExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
         expandedSearchFolders: [
-            ['sources', 'views', 'search-posthog', 'search-datawarehouse', 'search-views'] as string[],
+            ['sources', 'managed-views', 'search-posthog', 'search-datawarehouse', 'search-managed-views'] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
             },
@@ -511,8 +541,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [s.unfiledSavedQueryFiles, s.searchTerm],
             (unfiledFiles: FileSystemEntry[], searchTerm: string): [FileSystemEntry, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    // Create a temporary Fuse instance for file search
-                    const filesFuse = new Fuse(unfiledFiles, FUSE_OPTIONS)
                     return filesFuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
@@ -530,16 +558,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.folderStates,
                 s.folders,
                 s.searchTerm,
+                s.dataWarehouseSavedQueryMapById,
             ],
             (
-                relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
-                relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
-                relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
-                relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
-                relevantFiles: [FileSystemEntry, FuseSearchMatch[] | null][],
-                folderStates: any,
-                folders: any,
-                searchTerm: string
+                relevantPosthogTables,
+                relevantDataWarehouseTables,
+                relevantSavedQueries,
+                relevantManagedViews,
+                relevantFiles,
+                folderStates,
+                folders,
+                searchTerm,
+                dataWarehouseSavedQueryMapById
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -578,11 +608,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 // Create views children
                 const viewsChildren: TreeDataItem[] = []
 
-                // Add saved queries
-                relevantSavedQueries.forEach(([view, matches]) => {
-                    viewsChildren.push(createViewNode(view, matches, true))
-                })
-
                 // Add managed views
                 relevantManagedViews.forEach(([view, matches]) => {
                     viewsChildren.push(createViewNode(view, matches, true))
@@ -592,7 +617,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const filesChildren: TreeDataItem[] = []
                 // Add files from unfiled/saved queries
                 relevantFiles.forEach(([file, matches]) => {
-                    filesChildren.push(createFileNode(file, matches, true, folderStates, folders))
+                    filesChildren.push(
+                        createFileNode(file, matches, true, folderStates, folders, dataWarehouseSavedQueryMapById)
+                    )
                 })
 
                 const searchResults: TreeDataItem[] = []
@@ -604,12 +631,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (viewsChildren.length > 0) {
                     expandedIds.push('search-views')
-                    searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
+                    searchResults.push(createTopLevelFolderNode('managed-views', viewsChildren, true))
                 }
 
                 if (filesChildren.length > 0) {
                     expandedIds.push('search-files')
-                    searchResults.push(createFilesFolderNode([], relevantFiles, true, false, folderStates, folders))
+                    searchResults.push(
+                        createFilesFolderNode(
+                            [],
+                            relevantFiles,
+                            true,
+                            false,
+                            folderStates,
+                            folders,
+                            dataWarehouseSavedQueryMapById
+                        )
+                    )
                 }
 
                 // Auto-expand only parent folders, not the matching nodes themselves
@@ -629,28 +666,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.unfiledSavedQueryFiles,
                 s.folderStates,
                 s.folders,
-                s.searchTerm,
-                s.searchTreeData,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
+                s.dataWarehouseSavedQueryMapById,
             ],
             (
-                posthogTables: DatabaseSchemaTable[],
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-                managedViews: DatabaseSchemaManagedViewTable[],
-                unfiledSavedQueryFiles: FileSystemEntry[],
-                folderStates: any,
-                folders: any,
-                searchTerm: string,
-                searchTreeData: TreeDataItem[],
-                databaseLoading: boolean,
-                dataWarehouseSavedQueriesLoading: boolean
+                posthogTables,
+                dataWarehouseTables,
+                dataWarehouseSavedQueries,
+                managedViews,
+                unfiledSavedQueryFiles,
+                folderStates,
+                folders,
+                databaseLoading,
+                dataWarehouseSavedQueriesLoading,
+                dataWarehouseSavedQueryMapById
             ): TreeDataItem[] => {
-                if (searchTerm) {
-                    return searchTreeData
-                }
-
                 const sourcesChildren: TreeDataItem[] = []
 
                 // Add loading indicator for sources if still loading
@@ -706,11 +737,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         type: 'loading-indicator',
                     })
                 } else {
-                    // Add saved queries
-                    dataWarehouseSavedQueries.forEach((view) => {
-                        viewsChildren.push(createViewNode(view))
-                    })
-
                     // Add managed views
                     managedViews.forEach((view) => {
                         viewsChildren.push(createViewNode(view))
@@ -725,9 +751,26 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 return [
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
-                    createTopLevelFolderNode('views', viewsChildren),
-                    createFilesFolderNode(unfiledSavedQueryFiles, [], false, isFilesLoading, folderStates, folders),
+                    createFilesFolderNode(
+                        unfiledSavedQueryFiles,
+                        [],
+                        false,
+                        isFilesLoading,
+                        folderStates,
+                        folders,
+                        dataWarehouseSavedQueryMapById
+                    ),
+                    createTopLevelFolderNode('managed-views', viewsChildren),
                 ]
+            },
+        ],
+        treeDataFinal: [
+            (s) => [s.treeData, s.searchTreeData, s.searchTerm],
+            (treeData, searchTreeData, searchTerm): TreeDataItem[] => {
+                if (searchTerm) {
+                    return searchTreeData
+                }
+                return treeData
             },
         ],
         sidebarOverlayTreeItems: [
@@ -906,6 +949,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 actions.setEditingItemId(`file-${folderName}`)
             }, 50)
         },
+        createDataWarehouseSavedQuerySuccess: () => {
+            actions.loadFolder(UNFILED_SAVED_QUERIES_PATH, true)
+        },
+        updateDataWarehouseSavedQuerySuccess: () => {
+            actions.loadFolder(UNFILED_SAVED_QUERIES_PATH, true)
+        },
     })),
     subscriptions({
         posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
@@ -919,6 +968,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         managedViews: (managedViews: DatabaseSchemaManagedViewTable[]) => {
             managedViewsFuse.setCollection(managedViews)
+        },
+        unfiledSavedQueryFiles: (unfiledSavedQueryFiles: FileSystemEntry[]) => {
+            filesFuse.setCollection(unfiledSavedQueryFiles)
         },
     }),
     afterMount(({ actions }) => {
