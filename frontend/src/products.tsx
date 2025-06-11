@@ -19,7 +19,7 @@ import {
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
-import { toParams } from 'lib/utils'
+import { isEmptyObject, toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +41,10 @@ import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniver
 export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
+    ErrorTracking: () => import('../../products/error_tracking/frontend/ErrorTrackingScene'),
+    ErrorTrackingIssue: () => import('../../products/error_tracking/frontend/ErrorTrackingIssueScene'),
+    ErrorTrackingConfiguration: () =>
+        import('../../products/error_tracking/frontend/configuration/ErrorTrackingConfigurationScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     Links: () => import('../../products/links/frontend/LinksScene'),
     Link: () => import('../../products/links/frontend/LinkScene'),
@@ -65,6 +69,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
 export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
+    '/error_tracking': ['ErrorTracking', 'errorTracking'],
+    '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
+    '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
+    '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
+    '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/links': ['Links', 'links'],
     '/link/:id': ['Link', 'link'],
@@ -116,6 +125,9 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
+    ErrorTracking: { projectBased: true, name: 'Error tracking', defaultDocsPath: '/docs/error-tracking' },
+    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue' },
+    ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     Links: { name: 'Links', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
     Link: { name: 'Link', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
@@ -187,6 +199,12 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+    errorTrackingIssue: (id: string, fingerprint?: string): string =>
+        combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
+    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
+    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     experiment: (
         id: string | number,
         formMode?: string | null,
@@ -281,7 +299,9 @@ export const productUrls = {
     ): string => {
         const params = [
             { param: 'dashboard', value: dashboardId },
-            { param: 'variables_override', value: variablesOverride },
+            ...(variablesOverride && !isEmptyObject(variablesOverride)
+                ? [{ param: 'variables_override', value: variablesOverride }]
+                : []),
         ]
             .filter((n) => Boolean(n.value))
             .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
@@ -480,6 +500,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
     },
+    { path: 'Error tracking', category: 'Behavior', iconType: 'errorTracking', href: urls.errorTracking() },
     { path: `Experiments`, category: 'Features', type: 'experiment', href: urls.experiments() },
     { path: `Feature flags`, category: 'Features', type: 'feature_flag', href: urls.featureFlags() },
     {

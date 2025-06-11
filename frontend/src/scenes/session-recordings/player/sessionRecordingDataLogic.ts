@@ -9,7 +9,7 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
 import {
-    InspectorListItemComment,
+    InspectorListItemAnnotationComment,
     RecordingComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
@@ -64,7 +64,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
         actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam'], annotationsModel, ['annotations']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+            annotationsModel,
+            ['annotations', 'annotationsLoading'],
+        ],
     })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -495,7 +502,7 @@ AND properties.$lib != 'web'`
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 50))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
                 }
 
                 if (!props.blobV2PollingDisabled) {
@@ -585,12 +592,12 @@ AND properties.$lib != 'web'`
     selectors(({ cache }) => ({
         sessionAnnotations: [
             (s) => [s.annotations, s.start, s.end],
-            (annotations, start, end): InspectorListItemComment[] => {
-                const allowedScopes = [AnnotationScope.Project, AnnotationScope.Organization]
+            (annotations, start, end): InspectorListItemAnnotationComment[] => {
+                const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
                 const startValue = start?.valueOf()
                 const endValue = end?.valueOf()
 
-                const result: InspectorListItemComment[] = []
+                const result: InspectorListItemAnnotationComment[] = []
                 for (const annotation of annotations) {
                     if (!allowedScopes.includes(annotation.scope)) {
                         continue

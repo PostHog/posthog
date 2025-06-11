@@ -226,9 +226,12 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
         return ["id"]
 
     query = f"""
-    SELECT constraint_name FROM `{table.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-    WHERE table_name = '{table.table_id}'
-      AND constraint_type = 'PRIMARY KEY'
+    SELECT kcu.column_name
+    FROM `{table.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+    JOIN `{table.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+    ON tc.constraint_name = kcu.constraint_name
+    WHERE tc.table_name = '{table.table_id}'
+    AND tc.constraint_type = 'PRIMARY KEY'
     """
 
     job_config = QueryJobConfig()
@@ -236,7 +239,7 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
 
     primary_keys = []
     for row in job.result():
-        field_name = row[0].removeprefix(f"{table.table_id}.")
+        field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:
             return None
