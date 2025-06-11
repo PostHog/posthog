@@ -1,4 +1,3 @@
-import json
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
@@ -69,25 +68,6 @@ def add_and_merge_messages(
 IntermediateStep = tuple[AgentAction, Optional[str]]
 
 
-def update_intermediate_steps(
-    left: Optional[list[IntermediateStep]], right: list[IntermediateStep]
-) -> list[IntermediateStep]:
-    """If a step with the same tool and tool input already exists, update that; otherwise append."""
-    if not right:
-        return []  # Reset on empty `right`
-    left_action_map = {
-        (step[0].tool, json.dumps(step[0].tool_input, sort_keys=True)): i for i, step in enumerate(left or [])
-    }
-    new_left = left.copy() if left else []
-    for new_step in right:
-        key = (new_step[0].tool, json.dumps(new_step[0].tool_input, sort_keys=True))
-        if existing_step_idx := left_action_map.get(key):
-            new_left[existing_step_idx] = new_step
-        else:
-            new_left.append(new_step)
-    return new_left
-
-
 class _SharedAssistantState(BaseModel):
     """
     The state of the root node.
@@ -102,7 +82,7 @@ class _SharedAssistantState(BaseModel):
     Whether the graph was interrupted or resumed.
     """
 
-    intermediate_steps: Annotated[Optional[list[IntermediateStep]], update_intermediate_steps] = Field(default=None)
+    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the ReAct agent.
     """

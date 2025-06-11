@@ -249,7 +249,8 @@ class QueryPlannerNode(AssistantNode):
             else tool_call["id"],
         )
 
-        return PartialAssistantState(intermediate_steps=[(result, None)])
+        intermediate_steps = state.intermediate_steps or []
+        return PartialAssistantState(intermediate_steps=[*intermediate_steps, (result, None)])
 
     @property
     def _model(self) -> ChatAnthropic:
