@@ -21,13 +21,14 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-    CyclotronJobConfigurationType,
     CyclotronJobInputSchemaType,
     CyclotronJobInputType,
-    CyclotronJobMappingType,
+    HogFunctionConfigurationType,
+    HogFunctionMappingType,
 } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../../../scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -47,14 +48,16 @@ export type CyclotronJobInputProps = {
 }
 
 export interface CyclotronJobInputsProps {
-    configuration: CyclotronJobConfigurationType | CyclotronJobMappingType
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
     setConfigurationValue: (key: string, value: any) => void
+    showSource: boolean
 }
 
 export type CyclotronJobInputWithSchemaProps = {
-    configuration: CyclotronJobConfigurationType | CyclotronJobMappingType
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
     setConfigurationValue: (key: string, value: any) => void
     schema: CyclotronJobInputSchemaType
+    showSource: boolean
 }
 
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
@@ -424,9 +427,9 @@ export function CyclotronJobInputWithSchema({
     schema,
     configuration,
     setConfigurationValue,
+    showSource,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
-    const { showSource } = useValues(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key] ?? { value: null }
@@ -592,9 +595,8 @@ export function CyclotronJobInputWithSchema({
 export function CyclotronJobInputs({
     configuration,
     setConfigurationValue,
+    showSource,
 }: CyclotronJobInputsProps): JSX.Element | null {
-    const { showSource } = useValues(hogFunctionConfigurationLogic)
-
     const config = configuration
 
     if (!config.inputs_schema?.length) {
@@ -631,6 +633,7 @@ export function CyclotronJobInputs({
                                     schema={schema}
                                     configuration={config}
                                     setConfigurationValue={setConfigurationValue}
+                                    showSource={showSource}
                                 />
                             )
                         })}

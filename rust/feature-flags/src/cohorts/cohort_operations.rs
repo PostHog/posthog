@@ -13,7 +13,6 @@ use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
-use crate::properties::property_models::PropertyType;
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::Client as DatabaseClient;
 
@@ -25,7 +24,11 @@ impl Cohort {
         project_id: i64,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("Failed to get database connection: {}", e);
+            tracing::error!(
+                "Failed to get database connection for project {}: {}",
+                project_id,
+                e
+            );
             FlagError::DatabaseUnavailable
         })?;
 
@@ -55,32 +58,15 @@ impl Cohort {
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch cohorts from database: {}", e);
+                tracing::error!(
+                    "Failed to fetch cohorts from database for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::Internal(format!("Database query error: {}", e))
             })?;
 
         Ok(cohorts)
-    }
-
-    /// Parses the filters JSON into a CohortProperty structure
-    // TODO: this doesn't handle the deprecated "groups" field, see
-    // https://github.com/PostHog/posthog/blob/feat/dynamic-cohorts-rust/posthog/models/cohort/cohort.py#L114-L169
-    // I'll handle that in a separate PR.
-    pub fn parse_filters(&self) -> Result<Vec<PropertyFilter>, FlagError> {
-        let filters = match &self.filters {
-            Some(filters) => filters,
-            None => return Ok(Vec::new()), // Return empty vec if no filters
-        };
-
-        let cohort_property: CohortProperty =
-            serde_json::from_value(filters.to_owned()).map_err(|e| {
-                tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
-                FlagError::CohortFiltersParsingError
-            })?;
-
-        let mut props = cohort_property.properties.to_inner();
-        props.retain(|f| !(f.key == "id" && f.prop_type == PropertyType::Cohort));
-        Ok(props)
     }
 
     /// Extracts dependent CohortIds from the cohort's filters
@@ -89,6 +75,14 @@ impl Cohort {
     /// * `HashSet<CohortId>` - A set of dependent cohort IDs
     /// * `FlagError` - If there is an error parsing the filters
     pub fn extract_dependencies(&self) -> Result<HashSet<CohortId>, FlagError> {
+        // NB: static cohorts have no filters, so they have no dependencies
+        // BUT, sometimes instead of having `None` or `{}`, they have an object like this
+        // `{"properties": {}}`
+        // So we need to explicitly check for this case and just return an empty set rather than trying to parse the filters at all
+        if self.is_static {
+            return Ok(HashSet::new());
+        }
+
         let filters = match &self.filters {
             Some(filters) => filters,
             None => return Ok(HashSet::new()), // Return empty set if no filters
@@ -96,7 +90,12 @@ impl Cohort {
 
         let cohort_property: CohortProperty =
             serde_json::from_value(filters.clone()).map_err(|e| {
-                tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
+                tracing::error!(
+                    "Failed to parse filters for cohort {} (team {}): {}",
+                    self.id,
+                    self.team_id,
+                    e
+                );
                 FlagError::CohortFiltersParsingError
             })?;
 
@@ -525,35 +524,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cohort_parse_filters() {
-        let cohort = Cohort {
-            id: 1,
-            name: Some("Test Cohort".to_string()),
-            description: None,
-            team_id: 1,
-            deleted: false,
-            filters: Some(
-                json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
-            ),
-            query: None,
-            version: None,
-            pending_version: None,
-            count: None,
-            is_calculating: false,
-            is_static: false,
-            errors_calculating: 0,
-            groups: json!({}),
-            created_by_id: None,
-        };
-
-        let result = cohort.parse_filters().unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].key, "$initial_browser_version");
-        assert_eq!(result[0].value, Some(json!(["125"])));
-        assert_eq!(result[0].prop_type, PropertyType::Person);
-    }
-
-    #[test]
     fn test_cohort_property_to_inner() {
         let cohort_property = InnerCohortProperty {
             prop_type: CohortPropertyType::AND,
@@ -633,5 +603,84 @@ mod tests {
             [dependent_cohort.id].iter().cloned().collect();
 
         assert_eq!(dependencies, expected_dependencies);
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_with_malformed_filters() {
+        // Test that static cohorts with malformed filters don't cause parsing errors
+        let static_cohort_with_bad_filters = Cohort {
+            id: 999,
+            name: Some("Static Cohort with Bad Filters".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            // This is the problematic case - static cohorts sometimes have {"properties": {}}
+            // instead of null, which would fail JSON parsing if we tried to parse it
+            filters: Some(json!({"properties": {}})),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: Some(100),
+            is_calculating: false,
+            is_static: true, // This is the key - it's static
+            errors_calculating: 0,
+            groups: json!({}),
+            created_by_id: None,
+        };
+
+        // This should not fail even though the filters are malformed
+        let dependencies = static_cohort_with_bad_filters
+            .extract_dependencies()
+            .unwrap();
+        assert_eq!(dependencies, HashSet::new());
+
+        // Test another malformed case - empty object
+        let static_cohort_empty_filters = Cohort {
+            id: 998,
+            name: Some("Static Cohort Empty".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({})), // Empty object
+            query: None,
+            version: None,
+            pending_version: None,
+            count: Some(50),
+            is_calculating: false,
+            is_static: true,
+            errors_calculating: 0,
+            groups: json!({}),
+            created_by_id: None,
+        };
+
+        let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
+        assert_eq!(dependencies, HashSet::new());
+
+        // Verify that a dynamic cohort with the same malformed filters WOULD fail
+        let dynamic_cohort_with_bad_filters = Cohort {
+            id: 997,
+            name: Some("Dynamic Cohort with Bad Filters".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({"properties": {}})), // Same malformed filters
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false, // This is dynamic, so it should fail
+            errors_calculating: 0,
+            groups: json!({}),
+            created_by_id: None,
+        };
+
+        // This should fail because it's dynamic and the filters are malformed
+        let result = dynamic_cohort_with_bad_filters.extract_dependencies();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            FlagError::CohortFiltersParsingError
+        ));
     }
 }

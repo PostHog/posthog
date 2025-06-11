@@ -793,6 +793,7 @@ export type ReplayTab = {
     key: ReplayTabs
     tooltip?: string
     tooltipDocLink?: string
+    'data-attr'?: string
 }
 
 export enum ExperimentsTabs {
@@ -2292,6 +2293,7 @@ export enum AnnotationScope {
     Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
+    Recording = 'recording',
 }
 
 export interface RawAnnotationType {
@@ -2310,6 +2312,7 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
+    recording_id?: string | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -5169,14 +5172,14 @@ export interface CyclotronJobFiltersType {
     bytecode_error?: string
 }
 
-export interface CyclotronJobMappingType {
+export interface HogFunctionMappingType {
     name: string
     disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronJobInputType> | null
     filters?: CyclotronJobFiltersType | null
 }
-export interface CyclotronJobMappingTemplateType extends CyclotronJobMappingType {
+export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
     include_by_default?: boolean
 }
@@ -5212,7 +5215,7 @@ export type HogFunctionType = {
     execution_order?: number
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronJobInputType> | null
-    mappings?: CyclotronJobMappingType[] | null
+    mappings?: HogFunctionMappingType[] | null
     masking?: CyclotronJobMasking | null
     filters?: CyclotronJobFiltersType | null
     template?: HogFunctionTemplateType
@@ -5269,7 +5272,7 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
-    mapping_templates?: CyclotronJobMappingTemplateType[]
+    mapping_templates?: HogFunctionMappingTemplateType[]
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {

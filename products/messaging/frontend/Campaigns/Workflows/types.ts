@@ -37,8 +37,6 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
-    inputs: z.record(z.string(), CyclotronJobInput),
-    inputs_schema: z.array(CyclotronJobInputSchema),
     trigger: z.object({
         type: z.literal('event'),
         filters: z.any(),
@@ -80,6 +78,8 @@ export const HogFlowSchema = z.object({
                 'hog_function',
                 'exit',
             ]),
+            inputs: z.record(z.string(), CyclotronJobInput),
+            inputs_schema: z.array(CyclotronJobInputSchema),
             config: z.any(),
             on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
             created_at: z.number(),

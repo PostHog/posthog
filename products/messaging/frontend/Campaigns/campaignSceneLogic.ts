@@ -21,7 +21,6 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
     props({ id: 'new' } as CampaignSceneLogicProps),
     connect((props: CampaignSceneLogicProps) => ({
         values: [campaignLogic(props), ['campaign']],
-        actions: [campaignLogic(props), ['updateCampaign']],
     })),
     actions({
         setCurrentTab: (tab: CampaignTab) => ({ tab }),

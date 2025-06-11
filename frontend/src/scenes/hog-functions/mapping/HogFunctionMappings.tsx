@@ -21,7 +21,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { CyclotronJobInputs } from '~/lib/components/CyclotronJob/CyclotronJobInputs'
 import { groupsModel } from '~/models/groupsModel'
-import { CyclotronJobMappingType, EntityTypes, HogFunctionConfigurationType } from '~/types'
+import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -38,7 +38,7 @@ const humanize = (value: string): string => {
 const MappingSummary = memo(function MappingSummary({
     mapping,
 }: {
-    mapping: CyclotronJobMappingType
+    mapping: HogFunctionMappingType
 }): JSX.Element | null {
     const events = mapping.filters?.events?.map((event) => event.name ?? event.id) ?? []
     const actions = mapping.filters?.actions?.map((action) => action.name ?? action.id) ?? []
@@ -84,8 +84,8 @@ export function HogFunctionMapping({
     onChange,
 }: {
     index: number
-    mapping: CyclotronJobMappingType
-    onChange: (mapping: CyclotronJobMappingType | null) => void
+    mapping: HogFunctionMappingType
+    onChange: (mapping: HogFunctionMappingType | null) => void
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { showSource } = useValues(hogFunctionConfigurationLogic)
@@ -192,8 +192,8 @@ export function HogFunctionMappings(): JSX.Element | null {
                 value,
                 onChange,
             }: {
-                value: CyclotronJobMappingType[]
-                onChange: (mappings: CyclotronJobMappingType[]) => void
+                value: HogFunctionMappingType[]
+                onChange: (mappings: HogFunctionMappingType[]) => void
             }) => {
                 const addMapping = (template: string): void => {
                     const mappingTemplate = mappingTemplates.find((t) => t.name === template)
@@ -213,7 +213,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                     return
                 }
 
-                const duplicateMapping = (mapping: CyclotronJobMappingType): void => {
+                const duplicateMapping = (mapping: HogFunctionMappingType): void => {
                     const index = value.findIndex((m) => m === mapping)
                     if (index !== -1) {
                         const newMappings = [...value]
@@ -223,7 +223,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                     }
                 }
 
-                const removeMapping = (mapping: CyclotronJobMappingType): void => {
+                const removeMapping = (mapping: HogFunctionMappingType): void => {
                     const index = value.findIndex((m) => m === mapping)
                     if (index !== -1) {
                         onChange(value.filter((_, i) => i !== index))
@@ -231,14 +231,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                     }
                 }
 
-                const toggleDisabled = (mapping: CyclotronJobMappingType): void => {
+                const toggleDisabled = (mapping: HogFunctionMappingType): void => {
                     const index = value.findIndex((m) => m === mapping)
                     if (index !== -1) {
                         onChange(value.map((m, i) => (i === index ? { ...m, disabled: !m.disabled } : m)))
                     }
                 }
 
-                const renameMapping = (mapping: CyclotronJobMappingType): void => {
+                const renameMapping = (mapping: HogFunctionMappingType): void => {
                     LemonDialog.openForm({
                         title: 'Rename mapping',
                         initialValues: { mappingName: mapping.name },
