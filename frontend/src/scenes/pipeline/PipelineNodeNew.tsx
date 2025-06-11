@@ -16,7 +16,6 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { PipelineBatchExportConfiguration } from '../data-pipelines/batch-exports/PipelineBatchExportConfiguration'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { NewDestinations } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
@@ -97,7 +96,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
         }
         return (
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                <PipelineBatchExportConfiguration service={batchExportDestination} />
+                <BatchExportConfiguration service={batchExportDestination} />
             </PayGateMini>
         )
     }

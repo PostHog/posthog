@@ -8,7 +8,7 @@ import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/typ
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
-import { pipelineBatchExportConfigurationLogic } from '../data-pipelines/batch-exports/pipelineBatchExportConfigurationLogic'
+import { batchExportConfigurationLogic } from '../data-pipelines/batch-exports/batchExportConfigurationLogic'
 
 const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {
@@ -21,7 +21,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     path((key) => ['scenes', 'pipeline', 'batchExportRunsLogic', key]),
     connect((props: BatchExportRunsLogicProps) => ({
         values: [
-            pipelineBatchExportConfigurationLogic({
+            batchExportConfigurationLogic({
                 id: props.id,
                 service: null,
             }),

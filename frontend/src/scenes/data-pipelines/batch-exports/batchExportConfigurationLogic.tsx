@@ -19,10 +19,9 @@ import {
 import { DESTINATION_TYPES } from '../../pipeline/destinations/constants'
 import { pipelineDestinationsLogic } from '../../pipeline/destinations/destinationsLogic'
 import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
-import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 import { humanizeBatchExportName } from './utils'
 
-export interface PipelineBatchExportConfigurationLogicProps {
+export interface BatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
@@ -433,16 +432,15 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
-// Should likely be somewhat similar to pipelinePluginConfigurationLogic
-export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConfigurationLogicType>([
-    props({} as PipelineBatchExportConfigurationLogicProps),
-    key(({ service, id }: PipelineBatchExportConfigurationLogicProps) => {
+export const batchExportConfigurationLogic = kea([
+    props({} as BatchExportConfigurationLogicProps),
+    key(({ service, id }: BatchExportConfigurationLogicProps) => {
         if (id) {
             return `ID:${id}`
         }
         return `NEW:${service}`
     }),
-    path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
+    path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
     connect(() => ({
         values: [pipelineAccessLogic, ['canEnableNewDestinations']],
     })),

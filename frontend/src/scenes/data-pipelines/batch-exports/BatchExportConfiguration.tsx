@@ -28,14 +28,14 @@ import {
 } from '~/types'
 
 import { RenderBatchExportIcon } from '../../pipeline/utils'
+import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
-import { getDefaultConfiguration, pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
 import { humanizeBatchExportName } from './utils'
 
-export function PipelineBatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
+export function BatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
     const logicProps = { service: (service as BatchExportService['type']) || null, id: id || null }
-    const logic = pipelineBatchExportConfigurationLogic(logicProps)
+    const logic = batchExportConfigurationLogic(logicProps)
 
     const {
         isNew,
@@ -116,7 +116,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
             <>
                 <PageHeader buttons={buttons} />
                 <Form
-                    logic={pipelineBatchExportConfigurationLogic}
+                    logic={batchExportConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
                     className="deprecated-space-y-3"

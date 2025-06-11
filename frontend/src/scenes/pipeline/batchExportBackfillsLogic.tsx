@@ -9,7 +9,7 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { pipelineBatchExportConfigurationLogic } from '../data-pipelines/batch-exports/pipelineBatchExportConfigurationLogic'
+import { batchExportConfigurationLogic } from '../data-pipelines/batch-exports/batchExportConfigurationLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string
@@ -23,7 +23,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
         values: [
             teamLogic(),
             ['currentTeamId'],
-            pipelineBatchExportConfigurationLogic({
+            batchExportConfigurationLogic({
                 id: props.id,
                 service: null,
             }),
