@@ -32,5 +32,5 @@ export type BillingUsageInteractionProps = {
     teams_count: number
     teams_total: number
     has_team_breakdown: boolean
-    interval: string
+    interval: BillingFilters['interval']
 }
