@@ -138,11 +138,11 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                             window.location.pathname = values.redirectPath
                         } else {
                             // Push success to the url
+                            await breakpoint(1000)
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 success: true,
                             })
-                            await breakpoint(1000)
                             actions.loadBilling()
                             actions.loadCurrentOrganization()
                             actions.loadUser()
