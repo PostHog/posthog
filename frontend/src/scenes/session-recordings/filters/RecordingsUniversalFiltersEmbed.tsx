@@ -5,6 +5,7 @@ import {
     LemonButtonProps,
     LemonInput,
     LemonModal,
+    LemonTab,
     LemonTabs,
     Popover,
 } from '@posthog/lemon-ui'
@@ -126,6 +127,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                             setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth
+                        data-attr="filter-recordings-button"
                     >
                         {isFiltersExpanded ? 'Hide' : 'Show'} filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
@@ -295,7 +297,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         )
     }
 
-    const tabs = [
+    const tabs: LemonTab<string>[] = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
@@ -479,6 +481,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                     {SaveFiltersModal()}
                 </div>
             ),
+            'data-attr': 'session-recordings-filters-tab',
         },
         {
             key: 'saved',
@@ -493,6 +496,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                 </div>
             ),
             content: <SavedFilters setFilters={setFilters} />,
+            'data-attr': 'session-recordings-saved-tab',
         },
     ]
 
@@ -509,6 +513,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                     <ReplayActiveHoursHeatMap />
                 </div>
             ),
+            'data-attr': 'session-recordings-explore-tab',
         })
     }
 

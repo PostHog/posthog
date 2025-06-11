@@ -18,8 +18,8 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
-import { toParams } from 'lib/utils'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { isEmptyObject, toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +41,10 @@ import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniver
 export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
+    ErrorTracking: () => import('../../products/error_tracking/frontend/ErrorTrackingScene'),
+    ErrorTrackingIssue: () => import('../../products/error_tracking/frontend/ErrorTrackingIssueScene'),
+    ErrorTrackingConfiguration: () =>
+        import('../../products/error_tracking/frontend/configuration/ErrorTrackingConfigurationScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     Links: () => import('../../products/links/frontend/LinksScene'),
     Link: () => import('../../products/links/frontend/LinkScene'),
@@ -50,9 +54,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservabilityPlayground: () =>
         import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
-    MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/TemplateLibrary/MessageLibrary'),
+    MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns/Campaigns'),
+    MessagingCampaign: () => import('../../products/messaging/frontend/Campaigns/CampaignScene'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/TemplateLibrary/MessageTemplate'),
     MessageSenders: () => import('../../products/messaging/frontend/Senders/MessageSenders'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
@@ -64,6 +69,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
 export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
+    '/error_tracking': ['ErrorTracking', 'errorTracking'],
+    '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
+    '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
+    '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
+    '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/links': ['Links', 'links'],
     '/link/:id': ['Link', 'link'],
@@ -76,8 +86,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/playground': ['LLMObservability', 'llmObservabilityPlayground'],
     '/logs': ['Logs', 'logs'],
     '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
-    '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
-    '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
+    '/messaging/campaigns/:id': ['MessagingCampaign', 'messagingCampaign'],
+    '/messaging/campaigns/new': ['MessagingCampaign', 'messagingCampaignNew'],
+    '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
     '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
@@ -98,7 +109,7 @@ export const productRoutes: Record<string, [string, string]> = {
 export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
-> = { '/messaging': '/messaging/broadcasts' }
+> = { '/messaging': '/messaging/broadcasts', '/messaging/campaigns/new': '/messaging/campaigns/new/trigger' }
 
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
@@ -114,6 +125,9 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
+    ErrorTracking: { projectBased: true, name: 'Error tracking', defaultDocsPath: '/docs/error-tracking' },
+    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue' },
+    ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     Links: { name: 'Links', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
     Link: { name: 'Link', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
@@ -146,9 +160,10 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
     Logs: { projectBased: true, name: 'Logs', activityScope: 'Logs', layout: 'app-container' },
-    MessagingCampaigns: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
+    MessagingCampaigns: { name: 'Messaging', projectBased: true },
+    MessagingCampaign: { name: 'Messaging', projectBased: true },
     MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
     MessageSenders: { name: 'Messaging', projectBased: true },
     RevenueAnalytics: {
@@ -184,6 +199,12 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
+    errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+    errorTrackingIssue: (id: string, fingerprint?: string): string =>
+        combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
+    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
+    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     experiment: (
         id: string | number,
         formMode?: string | null,
@@ -227,6 +248,7 @@ export const productUrls = {
     logs: (): string => '/logs',
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
+    messagingCampaignTab: (id?: string, tab?: string): string => `/messaging/campaigns/${id}/${tab}`,
     messagingCampaignNew: (): string => '/messaging/campaigns/new',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
@@ -277,7 +299,9 @@ export const productUrls = {
     ): string => {
         const params = [
             { param: 'dashboard', value: dashboardId },
-            { param: 'variables_override', value: variablesOverride },
+            ...(variablesOverride && !isEmptyObject(variablesOverride)
+                ? [{ param: 'variables_override', value: variablesOverride }]
+                : []),
         ]
             .filter((n) => Boolean(n.value))
             .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
@@ -353,22 +377,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
-    'hog_function/broadcast': {
-        name: 'Broadcast',
-        icon: <IconCursor />,
-        href: (ref: string) => urls.messagingBroadcast(ref),
-        iconColor: ['var(--product-messaging-light)'],
-        filterKey: 'broadcast',
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    'hog_function/campaign': {
-        name: 'Campaign',
-        icon: <IconCursor />,
-        href: (ref: string) => urls.messagingCampaign(ref),
-        iconColor: ['var(--product-messaging-light)'],
-        filterKey: 'campaign',
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
     insight: {
         name: 'Insight',
         icon: <IconGraph />,
@@ -383,6 +391,13 @@ export const fileSystemTypes = {
         iconColor: ['var(--product-links-light)'],
         filterKey: 'link',
         flag: FEATURE_FLAGS.LINKS,
+    },
+    messaging: {
+        name: 'Campaign',
+        icon: <IconCursor />,
+        iconColor: ['var(--product-messaging-light)'],
+        href: (ref: string) => urls.messagingCampaign(ref),
+        filterKey: 'messaging',
     },
     notebook: {
         name: 'Notebook',
@@ -417,18 +432,6 @@ export const fileSystemTypes = {
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsNew = (): FileSystemImport[] => [
     { type: 'action', path: 'Action', href: urls.createAction() },
-    {
-        path: `Broadcast`,
-        type: 'hog_function/broadcast',
-        href: urls.messagingBroadcastNew(),
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    {
-        path: `Campaign`,
-        type: 'hog_function/campaign',
-        href: urls.messagingCampaignNew(),
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
     { path: `Early access feature`, type: 'early_access_feature', href: urls.earlyAccessFeature('new') },
@@ -492,27 +495,12 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
-        path: 'Broadcasts',
-        category: 'Behavior',
-        href: urls.messagingBroadcasts(),
-        type: 'hog_function/broadcast',
-        tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    {
-        path: 'Campaigns',
-        category: 'Behavior',
-        href: urls.messagingCampaigns(),
-        type: 'hog_function/campaign',
-        tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
-    },
-    {
         path: 'Early access features',
         category: 'Features',
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
     },
+    { path: 'Error tracking', category: 'Behavior', iconType: 'errorTracking', href: urls.errorTracking() },
     { path: `Experiments`, category: 'Features', type: 'experiment', href: urls.experiments() },
     { path: `Feature flags`, category: 'Features', type: 'feature_flag', href: urls.featureFlags() },
     {
@@ -525,6 +513,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     { path: 'Links', category: 'Tools', type: 'link', href: urls.links(), flag: FEATURE_FLAGS.LINKS, tags: ['alpha'] },
     { path: 'Logs', category: 'Tools', iconType: 'live', href: urls.logs(), flag: FEATURE_FLAGS.LOGS, tags: ['alpha'] },
+    {
+        path: 'Messaging',
+        href: urls.messagingCampaigns(),
+        type: 'messaging',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        category: 'Tools',
+        tags: ['alpha'],
+        flag: FEATURE_FLAGS.MESSAGING,
+    },
     { path: 'Product analytics', category: 'Analytics', type: 'insight', href: urls.insights() },
     {
         path: 'Revenue analytics',
@@ -558,6 +555,13 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
     { path: 'Actions', category: 'Definitions', iconType: 'cursor', href: urls.actions() },
+    {
+        path: 'Marketing settings',
+        category: 'Definitions',
+        iconType: 'definitions',
+        href: urls.marketingAnalytics(),
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    },
     {
         path: 'Revenue settings',
         category: 'Definitions',

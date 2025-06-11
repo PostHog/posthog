@@ -37,6 +37,7 @@ import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
+
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
@@ -72,6 +73,10 @@ const typeToIconAndDescription = {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
+    annotation: {
+        Icon: IconChat,
+        tooltip: 'An annotation was added to this timestamp',
+    },
     'inspector-summary': {
         Icon: undefined,
         tooltip: undefined,
@@ -100,7 +105,7 @@ export function eventToIcon(event: string | undefined | null) {
         return IconLogomark
     }
 
-    // technically we should have the select all icon for "All events" completeness,
+    // technically, we should have the select all icon for "All events" completeness,
     // but we never actually display it, and it messes up the type signatures for the icons
     if (event === null) {
         return BaseIcon
