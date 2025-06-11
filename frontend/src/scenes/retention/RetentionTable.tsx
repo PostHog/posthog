@@ -88,7 +88,9 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                     </div>
                                 </td>
 
-                                {!hideSizeColumn && <td>{meanData?.totalCohortSize ?? 0}</td>}
+                                {!hideSizeColumn && (
+                                    <td>{((meanData?.totalCohortSize ?? 0) / cohortRows.length).toFixed(1)}</td>
+                                )}
 
                                 {range(0, totalIntervals).map((interval) => (
                                     <td key={interval}>
