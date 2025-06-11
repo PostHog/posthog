@@ -173,11 +173,17 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
 
-            # For DataWarehouse nodes we have a timestamp field we need to use
+            # For DataWarehouse nodes, timestamp can be nullable, so we need to handle NULL values
             if isinstance(self.series, DataWarehouseNode):
-                timestamp_expr = ast.Field(chain=[self.series.timestamp_field])
+                timestamp_expr = ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Field(chain=["timestamp"]),
+                        ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                    ],
+                )
             else:
-                # For events, timestamp is the default field
+                # For events, timestamp is never null
                 timestamp_expr = ast.Field(chain=["timestamp"])
 
             return ast.Call(
