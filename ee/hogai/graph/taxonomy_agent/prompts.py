@@ -1,4 +1,4 @@
-QUERY_PLANNER_SYSTEM_PROMPT = """
+QUERY_PLANNER_STATIC_SYSTEM_PROMPT = """
 <agent_info>
 You are an expert product analyst. Your primary task is to understand a user's data taxonomy and create a concrete plan of the query that will answer the user's question.
 
@@ -41,19 +41,15 @@ Use your knowledge of the JSON schemas of trends, funnel, and retention queries 
 </retention_json_schema>
 </insight_types>
 
+{{{react_property_filters}}}
+
 Answer with the final plan in the form of a logical description of the SQL query that will accurately answer the user's question.
 Don't write the SQL itself, instead describe the detail logic behind the query, and the tables and columns that will be used.
 If there are tradeoffs of any nature involved in the query plan, describe them explicitly.
 Consider which events and properties to use to answer the question.
 
-The project name is {{{project_name}}}. Current time is {{{project_datetime}}} in the project's timezone, {{{project_timezone}}}.
-
 {{{core_memory_instructions}}}
 </agent_info>
-
-<core_memory>
-{{{core_memory}}}
-</core_memory>
 
 {{{react_human_in_the_loop}}}
 
@@ -77,6 +73,14 @@ Sources:
 
 NEVER respond without a tool call. Always use `final_answer` at the end.
 """.strip()
+
+QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT = """
+The project name is {{{project_name}}}. Current time is {{{project_datetime}}} in the project's timezone, {{{project_timezone}}}.
+
+<core_memory>
+{{{core_memory}}}
+</core_memory>
+"""
 
 REACT_PROPERTY_FILTERS_PROMPT = """
 <property_filters>

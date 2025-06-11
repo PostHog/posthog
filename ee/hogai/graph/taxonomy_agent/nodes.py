@@ -24,7 +24,8 @@ from ee.hogai.tool import MaxSupportedQueryKind
 
 from .prompts import (
     CORE_MEMORY_INSTRUCTIONS,
-    QUERY_PLANNER_SYSTEM_PROMPT,
+    QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT,
+    QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
     REACT_ACTIONS_PROMPT,
     REACT_DEFINITIONS_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
@@ -184,9 +185,16 @@ class QueryPlannerNode(AssistantNode):
             [
                 (
                     "system",
-                    [{"type": "text", "text": QUERY_PLANNER_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                    [
+                        {
+                            "type": "text",
+                            "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {"type": "text", "text": QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT},
+                    ],
                 ),
-                ("user", [{"type": "text", "text": REACT_DEFINITIONS_PROMPT, "cache_control": {"type": "ephemeral"}}]),
+                ("user", REACT_DEFINITIONS_PROMPT),
             ],
             template_format="mustache",
         )
