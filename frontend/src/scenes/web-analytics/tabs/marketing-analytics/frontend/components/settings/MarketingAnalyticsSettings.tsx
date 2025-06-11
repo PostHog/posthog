@@ -1,4 +1,5 @@
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
