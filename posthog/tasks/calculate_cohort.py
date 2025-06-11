@@ -36,7 +36,7 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
-    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 1 hours"
+    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 1 hour"
 )
 
 logger = structlog.get_logger(__name__)
