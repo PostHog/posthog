@@ -856,13 +856,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 : 'TBD'
                         } 
                         WHERE ${conversionGoal.type === EntityTypes.EVENTS ? `event = '${conversionGoal.id}'` : '1=1'}
-                            AND ${propertyName}${conversionGoal.schema.utm_campaign_name} IS NOT NULL
-                            AND ${propertyName}${conversionGoal.schema.utm_campaign_name} != ''
-                            AND ${propertyName}${conversionGoal.schema.utm_source_name} IS NOT NULL
-                            AND ${propertyName}${conversionGoal.schema.utm_source_name} != ''
-                        GROUP BY ${propertyName}${conversionGoal.schema.utm_campaign_name}, ${propertyName}${
-                            conversionGoal.schema.utm_source_name
-                        }
+                            AND campaign_name IS NOT NULL
+                            AND campaign_name != ''
+                            AND source_name IS NOT NULL
+                            AND source_name != ''
+                        GROUP BY campaign_name, source_name
                     )`
                     })
                     .join(',\n                    ')
