@@ -474,7 +474,8 @@ export class SessionRecordingIngester {
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
                 this.sharedClusterProducerWrapper,
-                this.persistentHighWaterMarker
+                this.persistentHighWaterMarker,
+                this.metadataSwitchoverDate
             )
         }
 
@@ -482,7 +483,7 @@ export class SessionRecordingIngester {
             this.replayEventsIngester = new ReplayEventsIngester(
                 this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker,
-                this.metadataSwitchoverDate
+                this.metadataSwitchoverDate || undefined
             )
         }
 

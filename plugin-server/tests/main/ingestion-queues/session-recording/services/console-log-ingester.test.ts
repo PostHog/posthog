@@ -8,19 +8,20 @@ jest.mock('../../../../../src/utils/logger')
 
 const makeIncomingMessage = (
     data: Record<string, unknown>[],
-    consoleLogIngestionEnabled: boolean
+    consoleLogIngestionEnabled: boolean,
+    timestamp: number = 1704067200000 // 2024-01-01 00:00:00 UTC
 ): IncomingRecordingMessage => {
     // @ts-expect-error TODO: Fix incorrect underlying types
     return {
         distinct_id: '',
-        eventsRange: { start: 0, end: 0 },
-        eventsByWindowId: { window_id: data.map((d) => ({ type: 6, timestamp: 0, data: { ...d } })) },
+        eventsRange: { start: timestamp, end: timestamp },
+        eventsByWindowId: { window_id: data.map((d) => ({ type: 6, timestamp: timestamp, data: { ...d } })) },
         metadata: {
             lowOffset: 0,
             highOffset: 0,
             partition: 0,
             topic: 'topic',
-            timestamp: 0,
+            timestamp: timestamp,
             consoleLogIngestionEnabled,
             rawSize: 0,
         },
@@ -63,7 +64,7 @@ describe('console log ingester', () => {
                         log_source: 'session_replay',
                         log_source_id: '',
                         instance_id: null,
-                        timestamp: '1970-01-01 00:00:00.000',
+                        timestamp: '2024-01-01 00:00:00.000',
                     },
                 },
             ])
@@ -104,7 +105,7 @@ describe('console log ingester', () => {
                           "log_source_id": "",
                           "message": "aaaaa",
                           "team_id": 0,
-                          "timestamp": "1970-01-01 00:00:00.000",
+                          "timestamp": "2024-01-01 00:00:00.000",
                         },
                       },
                     ],
@@ -122,7 +123,7 @@ describe('console log ingester', () => {
                           "log_source_id": "",
                           "message": "ccccc",
                           "team_id": 0,
-                          "timestamp": "1970-01-01 00:00:00.000",
+                          "timestamp": "2024-01-01 00:00:00.000",
                         },
                       },
                     ],
@@ -162,7 +163,7 @@ describe('console log ingester', () => {
                           "log_source_id": "",
                           "message": "aaaaa",
                           "team_id": 0,
-                          "timestamp": "1970-01-01 00:00:00.000",
+                          "timestamp": "2024-01-01 00:00:00.000",
                         },
                       },
                     ],
@@ -181,6 +182,186 @@ describe('console log ingester', () => {
         test('it does not drop events with no console logs', async () => {
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'some-other-plugin' }], false))
             expect(mockProducerObserver.produceSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('switchover date', () => {
+        const switchoverDate = new Date('2024-01-01T12:00:00.000Z') // 2024-01-01 12:00:00 UTC
+        const beforeSwitchover = new Date('2024-01-01T11:59:59.000Z').getTime() // 1 second before
+        const atSwitchover = switchoverDate.getTime()
+        const afterSwitchover = new Date('2024-01-01T12:00:01.000Z').getTime() // 1 second after
+
+        test('processes all logs when switchover date is null', async () => {
+            const ingester = new ConsoleLogsIngester(mockProducer, undefined, null)
+
+            // Create a batch with mixed timestamps
+            const messages = [
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['before1'] },
+                        },
+                    ],
+                    true,
+                    beforeSwitchover
+                ),
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['at'] },
+                        },
+                    ],
+                    true,
+                    atSwitchover
+                ),
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['after'] },
+                        },
+                    ],
+                    true,
+                    afterSwitchover
+                ),
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['before2'] },
+                        },
+                    ],
+                    true,
+                    beforeSwitchover
+                ),
+            ]
+
+            await ingester.consumeBatch(messages)
+
+            // Should process all messages since switchover is null
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(4)
+            const topicMessages = mockProducerObserver.getParsedQueuedMessages()
+            expect(topicMessages).toHaveLength(4)
+
+            // Verify each message's content
+            const processedMessages = topicMessages.map((msg) => msg.messages[0].value?.message)
+            expect(processedMessages).toEqual(['before1', 'at', 'after', 'before2'])
+        })
+
+        test('processes logs before switchover date', async () => {
+            const ingester = new ConsoleLogsIngester(mockProducer, undefined, switchoverDate)
+            await ingester.consume(
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['before'] },
+                        },
+                    ],
+                    true,
+                    beforeSwitchover
+                )
+            )
+
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+            const topicMessages = mockProducerObserver.getParsedQueuedMessages()
+            expect(topicMessages[0].topic).toEqual('log_entries_test')
+            expect(topicMessages[0].messages[0].value?.message).toEqual('before')
+        })
+
+        test('drops logs at or after switchover date', async () => {
+            const ingester = new ConsoleLogsIngester(mockProducer, undefined, switchoverDate)
+
+            // Test at switchover
+            await ingester.consume(
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['at'] },
+                        },
+                    ],
+                    true,
+                    atSwitchover
+                )
+            )
+            expect(mockProducerObserver.produceSpy).not.toHaveBeenCalled()
+
+            // Test after switchover
+            await ingester.consume(
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['after'] },
+                        },
+                    ],
+                    true,
+                    afterSwitchover
+                )
+            )
+            expect(mockProducerObserver.produceSpy).not.toHaveBeenCalled()
+        })
+
+        test('processes mixed batch of logs correctly', async () => {
+            const ingester = new ConsoleLogsIngester(mockProducer, undefined, switchoverDate)
+
+            // Create a batch with mixed timestamps
+            const messages = [
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['before1'] },
+                        },
+                    ],
+                    true,
+                    beforeSwitchover
+                ),
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['at'] },
+                        },
+                    ],
+                    true,
+                    atSwitchover
+                ),
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['after'] },
+                        },
+                    ],
+                    true,
+                    afterSwitchover
+                ),
+                makeIncomingMessage(
+                    [
+                        {
+                            plugin: 'rrweb/console@1',
+                            payload: { level: 'info', payload: ['before2'] },
+                        },
+                    ],
+                    true,
+                    beforeSwitchover
+                ),
+            ]
+
+            await ingester.consumeBatch(messages)
+
+            // Should only process the two messages before switchover
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)
+            const topicMessages = mockProducerObserver.getParsedQueuedMessages()
+            expect(topicMessages).toHaveLength(2)
+
+            // Verify only the before-switchover messages were processed
+            const processedMessages = topicMessages.map((msg) => msg.messages[0].value?.message)
+            expect(processedMessages).toEqual(['before1', 'before2'])
         })
     })
 })
