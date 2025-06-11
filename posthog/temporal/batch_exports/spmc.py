@@ -1207,11 +1207,24 @@ class ConsumerFromStage:
             include_inserted_at=include_inserted_at,
         )
 
+        record_batches_count = 0
+        records_count = 0
+        bytes_count = 0
         try:
-            batch_count = 0
             async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
-                batch_count += 1
+                record_batches_count += 1
                 record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+                records_count += record_batch.num_rows
+                bytes_count += record_batch.nbytes
+
+                await self.logger.adebug(
+                    "Consuming %s records, %s bytes from record batch %s; total records so far: %s, total MiB so far: %s",
+                    record_batch.num_rows,
+                    record_batch.nbytes,
+                    record_batches_count,
+                    records_count,
+                    bytes_count / 1024**2,
+                )
 
                 # Transform batch to chunks
                 for chunk in transformer.transform_batch(record_batch):
@@ -1242,27 +1255,18 @@ class ConsumerFromStage:
 
             # Finalize upload
             await self.finalize()
-            # print("Upload completed successfully")
-
-            # Final progress report
-            # final_progress = self.get_progress_info()
-            # print(f"Final stats: {final_progress}")
 
         except Exception:
-            # print(f"Upload failed: {e}")
+            await self.logger.aexception("Unexpected error occurred while consuming record batches")
             raise
 
-        # record_batches_count = 0
-        # record_batches_count_total = 0
-        # records_count = 0
-
-        # await self.logger.adebug(
-        #     "Finished consuming %s records from %s record batches, will flush any pending data",
-        #     records_count,
-        #     record_batches_count_total,
-        # )
-
-        # return records_count
+        await self.logger.adebug(
+            "Finished consuming %s records, %s MiB from %s record batches",
+            records_count,
+            bytes_count / 1024**2,
+            record_batches_count,
+        )
+        return records_count
 
     async def generate_record_batches_from_queue(
         self,

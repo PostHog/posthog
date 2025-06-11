@@ -939,9 +939,9 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
     await logger.ainfo("Exporting data to S3: %s", get_s3_key(inputs))
 
     async with Heartbeater():
-        # NOTE: we don't currently support resuming from heartbeats for this activity, as resuming from old heartbeats
-        # doesn't play nicely with S3 multipart uploads.
-        details = S3HeartbeatDetails()
+        # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
+        # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
+        # - we don't order the events in the query to ClickHouse
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
@@ -980,7 +980,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
         )
 
-        await run_consumer_from_stage(
+        records_completed = await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
@@ -991,7 +991,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             json_columns=("properties", "person_properties", "set", "set_once"),
         )
 
-        return details.records_completed
+        return records_completed
 
 
 class ConcurrentS3Consumer(ConsumerFromStage):
@@ -1325,6 +1325,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         if not self.upload_id:
             await self._initialize_multipart_upload()
+
+        await self.logger.adebug(
+            "Uploading final part of file %s with upload id %s", self._get_current_key(), self.upload_id
+        )
 
         part_data = bytes(self.current_buffer)
         part_number = self.part_counter
