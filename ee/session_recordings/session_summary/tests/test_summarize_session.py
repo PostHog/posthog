@@ -121,7 +121,6 @@ class TestSummarizeSession:
                     limit=3000,
                 )
 
-    # TODO: Add temporal tests (instead of mocking the whole workflow)
     @pytest.mark.asyncio
     async def test_stream_recording_summary_asgi(
         self,

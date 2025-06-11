@@ -91,6 +91,9 @@ def get_session_data_from_db(
     # TODO Get product analytics data on custom events/funnels/conversions
     # to understand what actions are seen as valuable or are the part of the conversion flow
 
+    # TODO Get feature flag data to understand what version of the app the user was using
+    # and how different features enabled/disabled affect the session
+
     return _SessionSummaryDBData(
         session_metadata=session_metadata,
         session_events_columns=session_events_columns,
