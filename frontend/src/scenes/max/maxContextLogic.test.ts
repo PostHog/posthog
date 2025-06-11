@@ -294,13 +294,12 @@ describe('maxContextLogic', () => {
             })
         })
 
-        it('includes both insights and dashboard when they have different IDs', async () => {
+        it('does not include both insights and dashboard insights when they have same IDs', async () => {
             logic.actions.addOrUpdateContextInsight(mockInsight)
             logic.actions.addOrUpdateContextDashboard(mockDashboard)
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
-                    insights: [partial({ id: 'insight-1' })],
                     dashboards: [
                         partial({
                             insights: [partial({ id: 'insight-1' })],
@@ -310,14 +309,13 @@ describe('maxContextLogic', () => {
             })
         })
 
-        it('includes active insights and dashboard when current page context is enabled', async () => {
+        it('includes active dashboard when current page context is enabled without insights', async () => {
             logic.actions.addOrUpdateActiveInsight(mockInsight, false)
             logic.actions.setActiveDashboard(mockDashboard)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
-                    insights: [partial({ id: 'insight-1' })],
                     dashboards: [partial({ id: 1, insights: [partial({ id: 'insight-1' })] })],
                 }),
             })
