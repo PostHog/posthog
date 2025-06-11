@@ -1,6 +1,7 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useActions } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'
+import { useEffect } from 'react'
 import { exceptionCardLogic } from 'scenes/error-tracking/components/ExceptionCard/exceptionCardLogic'
 
 import javascript_empty from './javascript_empty.json'
@@ -35,11 +36,13 @@ export function ExceptionLogicWrapper({
     children: JSX.Element
 }): JSX.Element {
     const properties = getEventProperties(eventName)
+    const { setLoading } = useActions(exceptionCardLogic)
+    useEffect(() => {
+        setLoading(loading)
+    }, [loading, setLoading])
     return (
-        <BindLogic logic={exceptionCardLogic} props={{ loading }}>
-            <BindLogic logic={errorPropertiesLogic} props={{ properties: properties, id: eventName }}>
-                {children}
-            </BindLogic>
+        <BindLogic logic={errorPropertiesLogic} props={{ properties: properties, id: eventName }}>
+            {children}
         </BindLogic>
     )
 }
