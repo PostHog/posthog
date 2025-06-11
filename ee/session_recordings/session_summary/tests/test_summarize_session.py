@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 
 import pytest
+from temporalio.client import WorkflowExecutionStatus
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
@@ -53,8 +54,8 @@ class TestSummarizeSession:
             mock_handle = MagicMock()
             mock_workflow.return_value = mock_handle
             mock_desc = MagicMock()
-            mock_desc.status.name = "COMPLETED"
-            mock_asyncio_run.side_effect = [mock_handle, mock_desc, mock_valid_llm_yaml_response]
+            mock_desc.status = WorkflowExecutionStatus.COMPLETED
+            mock_asyncio_run.side_effect = [mock_handle, (mock_desc, mock_valid_llm_yaml_response)]
             # Get the generator (stream simulation)
             empty_context = ExtraSummaryContext()
             result_generator = execute_summarize_session(

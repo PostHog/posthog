@@ -18,6 +18,7 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     SessionSummaryInputs,
     SummarizeSessionWorkflow,
 )
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import WorkflowEnvironment
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
@@ -249,16 +250,11 @@ class TestSummarizeSessionWorkflow:
 
         # Simulate workflow states: RUNNING -> RUNNING with data -> COMPLETED
         mock_workflow_handle = MagicMock()
-        # Create proper status mocks where .name returns the actual string value
-        running_status = MagicMock()
-        running_status.name = "RUNNING"
-        completed_status = MagicMock()
-        completed_status.name = "COMPLETED"
         mock_workflow_handle.describe = AsyncMock(
             side_effect=[
-                MagicMock(status=running_status),  # First poll - no data yet
-                MagicMock(status=running_status),  # Second poll - with streaming data
-                MagicMock(status=completed_status),  # Final poll - completed
+                MagicMock(status=WorkflowExecutionStatus.RUNNING),  # First poll - no data yet
+                MagicMock(status=WorkflowExecutionStatus.RUNNING),  # Second poll - with streaming data
+                MagicMock(status=WorkflowExecutionStatus.COMPLETED),  # Final poll - completed
             ]
         )
         mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)

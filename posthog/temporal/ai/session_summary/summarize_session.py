@@ -25,7 +25,7 @@ from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import connect
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-from temporalio.client import Client as TemporalClient, WorkflowHandle
+from temporalio.client import Client as TemporalClient, WorkflowHandle, WorkflowExecutionStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -204,6 +204,16 @@ def _prepare_single_session_summary_input(
     return input_data
 
 
+async def _check_handle_data(handle: WorkflowHandle) -> tuple[WorkflowExecutionStatus | None, str | None]:
+    desc = await handle.describe()
+    final_result = None
+    if not desc.status:
+        return None, None
+    if desc.status == WorkflowExecutionStatus.COMPLETED:
+        final_result = await handle.result()
+    return desc.status, final_result
+
+
 def execute_summarize_session(
     session_id: str,
     user_pk: int,
@@ -255,23 +265,27 @@ def execute_summarize_session(
     last_summary_state = ""
     while True:
         try:
-            desc = asyncio.run(handle.describe())
+            status, final_result = asyncio.run(_check_handle_data(handle))
             # If no status yet, wait a bit
-            if not desc.status:
+            if status is None:
                 continue
             # If the workflow is completed
-            if desc.status.name == "COMPLETED":
-                final_result = asyncio.run(handle.result())
+            if final_result is not None:
                 # Yield final result if it's different from the last state OR if we haven't yielded anything yet
                 if final_result != last_summary_state or not last_summary_state:
                     yield final_result
                 _clean_up_redis(redis_client, redis_input_key, redis_output_key)
                 return
             # Check if the workflow is completed unsuccessfully
-            if desc.status.name in ("FAILED", "CANCELED", "TERMINATED", "TIMED_OUT"):
+            if status in (
+                WorkflowExecutionStatus.FAILED,
+                WorkflowExecutionStatus.CANCELED,
+                WorkflowExecutionStatus.TERMINATED,
+                WorkflowExecutionStatus.TIMED_OUT,
+            ):
                 yield serialize_to_sse_event(
                     event_label="session-summary-error",
-                    event_data=f"Failed to generate summary: {desc.status.name}",
+                    event_data=f"Failed to generate summary: {status.name}",
                 )
                 _clean_up_redis(redis_client, redis_input_key, redis_output_key)
                 return
