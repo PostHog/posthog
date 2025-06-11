@@ -20,7 +20,7 @@ export function OrganizationExperimentStatsMethod(): JSX.Element {
 
     return (
         <LemonSelect
-            value={currentOrganization?.default_experiment_stats_method || ExperimentStatsMethod.Bayesian}
+            value={currentOrganization?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
             onChange={handleChange}
             options={[
                 {
