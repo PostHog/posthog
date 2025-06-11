@@ -307,7 +307,7 @@ class Assistant:
                                     substeps.append(f"Exploring {action.tool_input['entity']} properties")
                                 case "retrieve_event_property_values":
                                     substeps.append(
-                                        f"Analyzing `{action.tool_input['property_name']}` event's property `{action.tool_input['event_name']}`"
+                                        f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
                                     )
                                 case "retrieve_entity_property_values":
                                     substeps.append(
