@@ -23,7 +23,7 @@ export interface BillingFilters {
 
 export type BillingUsageInteractionProps = {
     action: 'filters_changed' | 'date_changed' | 'breakdown_toggled' | 'series_toggled' | 'filters_cleared'
-    filters: Record<string, any>
+    filters: BillingFilters
     date_from: string | null
     date_to: string | null
     exclude_empty: boolean
