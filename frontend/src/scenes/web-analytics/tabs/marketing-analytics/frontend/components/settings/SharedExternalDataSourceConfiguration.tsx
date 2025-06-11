@@ -64,7 +64,7 @@ export function SharedExternalDataSourceConfiguration({
         const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
 
         let columnOptions: LemonSelectSection<string | null>[]
-        if (fieldName === 'base_currency') {
+        if (fieldName === 'currency') {
             columnOptions = [
                 { options: [{ label: 'None', value: null }] },
                 { options: OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED, title: 'Most Popular' },

@@ -173,6 +173,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
 
+            # For DataWarehouse nodes we have a timestamp field we need to use
+            if isinstance(self.series, DataWarehouseNode):
+                timestamp_expr = ast.Field(chain=[self.series.timestamp_field])
+            else:
+                # For events, timestamp is the default field
+                timestamp_expr = ast.Field(chain=["timestamp"])
+
             return ast.Call(
                 name=method,
                 args=[
@@ -180,7 +187,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                         ast.Field(chain=chain),
                         event_currency,
                         base_currency,
-                        ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
+                        ast.Call(name="_toDate", args=[timestamp_expr]),
                     )
                 ],
             )
