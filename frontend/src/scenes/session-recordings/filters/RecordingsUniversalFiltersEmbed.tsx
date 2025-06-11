@@ -5,6 +5,7 @@ import {
     LemonButtonProps,
     LemonInput,
     LemonModal,
+    LemonTab,
     LemonTabs,
     Popover,
 } from '@posthog/lemon-ui'
@@ -296,7 +297,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         )
     }
 
-    const tabs = [
+    const tabs: LemonTab<string>[] = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
