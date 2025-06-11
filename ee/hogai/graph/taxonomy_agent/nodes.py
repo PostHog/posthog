@@ -26,13 +26,13 @@ from .prompts import (
     CORE_MEMORY_INSTRUCTIONS,
     QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT,
     QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
-    REACT_ACTIONS_PROMPT,
-    REACT_DEFINITIONS_PROMPT,
+    ACTIONS_EXPLANATION_PROMPT,
+    EVENT_DEFINITIONS_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
-    REACT_HUMAN_IN_THE_LOOP_PROMPT,
-    REACT_PROPERTY_FILTERS_PROMPT,
+    HUMAN_IN_THE_LOOP_PROMPT,
+    PROPERTY_FILTERS_EXPLANATION_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
-    REACT_REACHED_LIMIT_PROMPT,
+    ITERATION_LIMIIT_PROMPT,
 )
 from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
 from ee.hogai.utils.helpers import remove_line_breaks
@@ -190,7 +190,7 @@ class QueryPlannerNode(AssistantNode):
                         {"type": "text", "text": QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT},
                     ],
                 ),
-                ("user", REACT_DEFINITIONS_PROMPT),
+                ("user", EVENT_DEFINITIONS_PROMPT),
             ],
             template_format="mustache",
         )
@@ -220,7 +220,7 @@ class QueryPlannerNode(AssistantNode):
             {
                 "core_memory": self.core_memory.text if self.core_memory else "",
                 "react_property_filters": self._get_react_property_filters_prompt(),
-                "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
+                "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
                 "events": self._events_prompt,
                 "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
@@ -228,7 +228,7 @@ class QueryPlannerNode(AssistantNode):
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
                 "actions": state.rag_context,
-                "actions_prompt": REACT_ACTIONS_PROMPT,
+                "actions_prompt": ACTIONS_EXPLANATION_PROMPT,
                 "trends_json_schema": TRENDS_SCHEMA,
                 "funnel_json_schema": FUNNEL_SCHEMA,
                 "retention_json_schema": RETENTION_SCHEMA,
@@ -266,7 +266,7 @@ class QueryPlannerNode(AssistantNode):
     def _get_react_property_filters_prompt(self) -> str:
         return cast(
             str,
-            ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
+            ChatPromptTemplate.from_template(PROPERTY_FILTERS_EXPLANATION_PROMPT, template_format="mustache")
             .format_messages(groups=self._team_group_types)[0]
             .content,
         )
@@ -419,7 +419,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
 
         # If we're still here, the final prompt hasn't helped.
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
-            return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
+            return self._get_reset_state(state, ITERATION_LIMIIT_PROMPT)
 
         if input and not output:
             output = self._handle_tool(input, toolkit)

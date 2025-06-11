@@ -82,7 +82,7 @@ The project name is {{{project_name}}}. Current time is {{{project_datetime}}} i
 </core_memory>
 """
 
-REACT_PROPERTY_FILTERS_PROMPT = """
+PROPERTY_FILTERS_EXPLANATION_PROMPT = """
 <property_filters>
 Use property filters to provide a narrowed results. Only include property filters when they are essential to directly answer the user’s question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question. Properties have one of the four types: String, Numeric, Boolean, and DateTime.
 
@@ -133,7 +133,7 @@ Examples:
 </time_period_and_property_filters>
 """.strip()
 
-REACT_HUMAN_IN_THE_LOOP_PROMPT = """
+HUMAN_IN_THE_LOOP_PROMPT = """
 <human_in_the_loop>
 Ask the user for clarification if:
 - The user's question is ambiguous.
@@ -143,7 +143,7 @@ Use the tool `ask_user_for_help` to ask the user.
 </human_in_the_loop>
 """.strip()
 
-REACT_DEFINITIONS_PROMPT = """
+EVENT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{{events}}}
 {{#actions}}
@@ -169,11 +169,11 @@ CORE_MEMORY_INSTRUCTIONS = """
 You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.
 """.strip()
 
-REACT_REACHED_LIMIT_PROMPT = """
+ITERATION_LIMIIT_PROMPT = """
 The tool has reached the maximum number of iterations, a security measure to prevent infinite loops. To create this insight, you must request additional information from the user, such as specific events, properties, or property values.
 """.strip()
 
-REACT_ACTIONS_PROMPT = """
+ACTIONS_EXPLANATION_PROMPT = """
 <actions>
 Actions unify multiple events and filtering conditions into one. Use action names as events in queries if there are suitable choices. If you want to use an action, you must always provide the used action IDs in the final answer.
 </actions>
