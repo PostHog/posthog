@@ -194,7 +194,8 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
             {nextJsRouter === 'instrumentation-client' && (
                 <>
                     <p>
-                        If you're using Next.js 15.3+ you can use <code>instrumentation-client.ts|js</code> for a light-weight, fast integration
+                        If you're using Next.js 15.3+ you can use <code>instrumentation-client.ts|js</code> for a
+                        light-weight, fast integration
                     </p>
                     <NextInstrumentationClientSnippet />
                 </>
