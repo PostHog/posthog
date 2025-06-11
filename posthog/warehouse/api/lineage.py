@@ -59,7 +59,7 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
     """
     # Build adjacency list and in-degree count
     graph = defaultdict(list)
-    in_degree = defaultdict(int)
+    in_degree: dict[str, int] = defaultdict(int)
 
     for edge in edges:
         source, target = edge["source"], edge["target"]
