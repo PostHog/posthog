@@ -28,6 +28,8 @@ from posthog.models import (
     Survey,
     Experiment,
     Cohort,
+    Annotation,
+    EarlyAccessFeature,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -374,6 +376,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             Survey,
             Experiment,
             Cohort,
+            Annotation,
+            EarlyAccessFeature,
         ]
 
         with transaction.atomic():

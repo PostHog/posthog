@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.models import Team, User, Insight, Dashboard, FeatureFlag
+from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.constants import AvailableFeature
@@ -315,25 +315,26 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 403)
 
     def test_environments_rollback_success(self):
-        # Create additional environments for testing
-        project_2 = Team.objects.create(organization=self.organization, name="Project 2")
-        project_3 = Team.objects.create(organization=self.organization, name="Project 3")
-        env_2 = Team.objects.create(organization=self.organization, name="Env 2", project_id=project_2.id)
-        env_3 = Team.objects.create(organization=self.organization, name="Env 3", project_id=project_3.id)
+        # Create a project with two environments
+        project = Team.objects.create(organization=self.organization, name="Main Project")
+        env_1 = Team.objects.create(organization=self.organization, name="Production", project_id=project.id)
+        env_2 = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Create some test data
-        insight = Insight.objects.create(team=project_2, name="Test Insight")
-        dashboard = Dashboard.objects.create(team=project_2, name="Test Dashboard")
-        feature_flag = FeatureFlag.objects.create(team=project_2, name="Test Flag", key="test-flag")
+        # Create test data in the second environment (staging)
+        insight = Insight.objects.create(team=env_2, name="Test Insight")
+        dashboard = Dashboard.objects.create(team=env_2, name="Test Dashboard")
+        feature_flag = FeatureFlag.objects.create(team=env_2, name="Test Flag", key="test-flag")
+        annotation = Annotation.objects.create(team=env_2, content="Test Annotation")
+        early_access_feature = EarlyAccessFeature.objects.create(team=env_2, name="Test EAF")
 
+        # Migrate all models from env_2 (staging) to env_1 (production)
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/environments_rollback/",
             {
-                str(project_2.id): env_2.id,
-                str(project_3.id): env_3.id,
+                str(env_2.id): env_1.id,  # Migrate from staging to production
             },
             format="json",
         )
@@ -341,17 +342,29 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"success": True})
 
-        # Verify data was migrated
+        # Verify all data was migrated to the production environment
         insight.refresh_from_db()
         dashboard.refresh_from_db()
         feature_flag.refresh_from_db()
-        self.assertEqual(insight.team_id, env_2.id)
-        self.assertEqual(dashboard.team_id, env_2.id)
-        self.assertEqual(feature_flag.team_id, env_2.id)
+        annotation.refresh_from_db()
+        early_access_feature.refresh_from_db()
 
-        # Verify project was created for source team
-        project_2.refresh_from_db()
-        self.assertEqual(project_2.project_id, project_2.id)
+        # All models should now be in env_1 (production)
+        self.assertEqual(insight.team_id, env_1.id)
+        self.assertEqual(dashboard.team_id, env_1.id)
+        self.assertEqual(feature_flag.team_id, env_1.id)
+        self.assertEqual(annotation.team_id, env_1.id)
+        self.assertEqual(early_access_feature.team_id, env_1.id)
+
+        # Verify env_2 got detached and has a new project
+        env_2.refresh_from_db()
+        self.assertNotEqual(env_2.project_id, project.id)  # Should no longer be attached to original project
+        self.assertEqual(env_2.project_id, env_2.id)  # Should have a new project with same ID as the environment
+
+        # Verify the new project exists
+        new_project = Team.objects.get(id=env_2.project_id)
+        self.assertEqual(new_project.name, env_2.name)  # New project should inherit environment's name
+        self.assertEqual(new_project.organization, self.organization)
 
     def test_environments_rollback_empty_mappings(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -424,3 +437,102 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Not found.")
+
+    def test_environments_rollback_multiple_sources_to_one_target(self):
+        # Create a project with three environments
+        project = Team.objects.create(organization=self.organization, name="Main Project")
+        env_1 = Team.objects.create(organization=self.organization, name="Production", project_id=project.id)
+        env_2 = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
+        env_3 = Team.objects.create(organization=self.organization, name="Dev", project_id=project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create test data in both source environments
+        insight_2 = Insight.objects.create(team=env_2, name="Staging Insight")
+        insight_3 = Insight.objects.create(team=env_3, name="Dev Insight")
+        flag_2 = FeatureFlag.objects.create(team=env_2, name="Staging Flag", key="staging-flag")
+        flag_3 = FeatureFlag.objects.create(team=env_3, name="Dev Flag", key="dev-flag")
+
+        # Migrate both env_2 and env_3 to env_1
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(env_2.id): env_1.id,
+                str(env_3.id): env_1.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify all data was migrated to the production environment
+        insight_2.refresh_from_db()
+        insight_3.refresh_from_db()
+        flag_2.refresh_from_db()
+        flag_3.refresh_from_db()
+
+        self.assertEqual(insight_2.team_id, env_1.id)
+        self.assertEqual(insight_3.team_id, env_1.id)
+        self.assertEqual(flag_2.team_id, env_1.id)
+        self.assertEqual(flag_3.team_id, env_1.id)
+
+        # Verify both source environments got detached and have new projects
+        env_2.refresh_from_db()
+        env_3.refresh_from_db()
+        self.assertNotEqual(env_2.project_id, project.id)
+        self.assertNotEqual(env_3.project_id, project.id)
+        self.assertEqual(env_2.project_id, env_2.id)
+        self.assertEqual(env_3.project_id, env_3.id)
+
+    def test_environments_rollback_multiple_sources_to_different_targets(self):
+        # Create two projects with environments
+        project_1 = Team.objects.create(organization=self.organization, name="Project 1")
+        project_2 = Team.objects.create(organization=self.organization, name="Project 2")
+
+        proj_1_prod = Team.objects.create(organization=self.organization, name="P1 Production", project_id=project_1.id)
+        proj_1_staging = Team.objects.create(organization=self.organization, name="P1 Staging", project_id=project_1.id)
+        proj_2_prod = Team.objects.create(organization=self.organization, name="P2 Production", project_id=project_2.id)
+        proj_2_staging = Team.objects.create(organization=self.organization, name="P2 Staging", project_id=project_2.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create test data in staging environments
+        insight_1 = Insight.objects.create(team=proj_1_staging, name="P1 Staging Insight")
+        insight_2 = Insight.objects.create(team=proj_2_staging, name="P2 Staging Insight")
+        flag_1 = FeatureFlag.objects.create(team=proj_1_staging, name="P1 Staging Flag", key="p1-staging-flag")
+        flag_2 = FeatureFlag.objects.create(team=proj_2_staging, name="P2 Staging Flag", key="p2-staging-flag")
+
+        # Migrate staging environments to their respective production environments
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(proj_1_staging.id): proj_1_prod.id,
+                str(proj_2_staging.id): proj_2_prod.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify data was migrated to the correct production environments
+        insight_1.refresh_from_db()
+        insight_2.refresh_from_db()
+        flag_1.refresh_from_db()
+        flag_2.refresh_from_db()
+
+        self.assertEqual(insight_1.team_id, proj_1_prod.id)
+        self.assertEqual(insight_2.team_id, proj_2_prod.id)
+        self.assertEqual(flag_1.team_id, proj_1_prod.id)
+        self.assertEqual(flag_2.team_id, proj_2_prod.id)
+
+        # Verify staging environments got detached and have new projects
+        proj_1_staging.refresh_from_db()
+        proj_2_staging.refresh_from_db()
+        self.assertNotEqual(proj_1_staging.project_id, project_1.id)
+        self.assertNotEqual(proj_2_staging.project_id, project_2.id)
+        self.assertEqual(proj_1_staging.project_id, proj_1_staging.id)
+        self.assertEqual(proj_2_staging.project_id, proj_2_staging.id)
