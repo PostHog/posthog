@@ -26,6 +26,12 @@ declare module '@storybook/types' {
             /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
             waitForSelector?: string | string[]
             /**
+             * By default we wait for images to have width as an indication the page is ready for screenshot testing
+             * Some stories have broken images on purpose to test what the UI does
+             * in those cases set `allowImagesWithoutWidth` to `true`
+             */
+            allowImagesWithoutWidth?: boolean
+            /**
              * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
              * @default false
              */
@@ -65,7 +71,7 @@ const LOADER_SELECTORS = [
 ]
 
 const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')
-console.log("[test-runner] Storybook snapshots will be saved to", customSnapshotsDir)
+console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
@@ -129,10 +135,7 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add(`storybook-test-runner--${layout}`)
     }, storyContext.parameters?.layout || 'padded')
 
-    const {
-        waitForLoadersToDisappear = true,
-        waitForSelector,
-    } = storyContext.parameters?.testOptions ?? {}
+    const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
@@ -150,21 +153,37 @@ async function expectStoryToMatchSnapshot(
     await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
 }
 
+async function takeSnapshotWithTheme(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName,
+    theme: SnapshotTheme,
+    storyContext: StoryContext
+) {
+    const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
-async function takeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
     // Wait until we're sure we've finished loading everything
     await waitForPageReady(page)
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    // check if all images have width, unless purposefully skipped
+    if (!allowImagesWithoutWidth) {
+        await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    }
     await page.waitForTimeout(2000)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
 }
 
-async function doTakeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
+async function doTakeSnapshotWithTheme(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName,
+    theme: SnapshotTheme,
+    storyContext: StoryContext
+) {
     const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
 
     // Figure out what's the right check function depending on the parameters
@@ -184,7 +203,7 @@ async function doTakeSnapshotWithTheme(page: Page, context: TestContext, browser
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
-    
+
     await check(page, context, browser, theme, snapshotTargetSelector)
 }
 

@@ -13,6 +13,7 @@
         "eslint": "*",
         "eslint-plugin-posthog": "*",
         "jest": "*",
+        "fast-deep-equal": "*",
         "kea": "*",
         "kea-loaders": "*",
         "kea-router": "*",

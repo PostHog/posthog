@@ -67,6 +67,7 @@ class AssistantContextualTool(StrEnum):
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
+    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
 
 
 class AssistantDateRange(BaseModel):
@@ -1027,6 +1028,9 @@ class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
     UNIQUE_SESSION = "unique_session"
+    MIN = "min"
+    MAX = "max"
+    AVG = "avg"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -1841,14 +1845,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: Optional[str] = None
     static: Optional[CurrencyCode] = None
-
-
-class RevenueSources(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dataWarehouseSources: list[str]
-    events: list[str]
 
 
 class RootAssistantMessage1(BaseModel):
@@ -2667,6 +2663,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
     showLegend: Optional[bool] = None
+    showTotalRow: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -3056,7 +3053,7 @@ class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    attributes: str
+    attributes: dict[str, Any]
     body: str
     event_name: str
     instrumentation_scope: str
@@ -7371,7 +7368,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
@@ -7385,7 +7381,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -7399,7 +7394,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -7413,7 +7407,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsConfig(BaseModel):
@@ -7435,7 +7428,6 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsInsightsQuery(BaseModel):
@@ -7451,7 +7443,6 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsOverviewQuery(BaseModel):
@@ -7465,7 +7456,6 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -7480,7 +7470,6 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
-    revenueSources: RevenueSources
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):

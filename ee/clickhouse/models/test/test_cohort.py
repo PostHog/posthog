@@ -1099,7 +1099,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
         )
         self.assertEqual(len(result), 2)  # because we didn't precalculate the cohort, both people are in the cohort
-        self.assertEqual(result[0][1], "2")
+        distinct_ids = [r[1] for r in result]
+        self.assertCountEqual(distinct_ids, ["1", "2"])
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts(self):
