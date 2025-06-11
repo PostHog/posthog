@@ -404,6 +404,17 @@ export function SidePanelSupport(): JSX.Element {
                                             Request a feature
                                         </LemonButton>
                                     </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to="https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml"
+                                            icon={<IconBug />}
+                                            targetBlank
+                                        >
+                                            Report a bug
+                                        </LemonButton>
+                                    </li>
                                 </ul>
                             </Section>
                         </>
