@@ -2,7 +2,7 @@ import json
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
-from typing import cast, Literal
+from typing import Any, cast, Literal
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -334,7 +334,7 @@ class QueryPlannerNode(AssistantNode):
 
         for action, output in state.intermediate_steps or []:
             tool_call_id = action.log.split(LOG_SEPARATOR)[0]
-            assistant_content = [
+            assistant_content: list[dict[str, Any]] = [
                 {
                     "type": "tool_use",
                     "id": tool_call_id,
@@ -354,7 +354,7 @@ class QueryPlannerNode(AssistantNode):
                 )
             conversation.append(
                 LangchainAssistantMessage(
-                    content=assistant_content,
+                    content=assistant_content,  # type: ignore
                     tool_calls=[{"id": tool_call_id, "name": action.tool, "args": action.tool_input}],
                 )
             )
