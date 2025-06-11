@@ -1386,7 +1386,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The last call should be an append
@@ -1396,7 +1395,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1466,7 +1464,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The subsequent call should be an append
@@ -1476,7 +1473,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
