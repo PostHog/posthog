@@ -85,9 +85,38 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
             <h3>Expanded</h3>
             <ItemCommentDetail {...propsToUse} />
             <LemonDivider />
+            <h3>Expanded with overflowing comment</h3>
+            <div className="w-52">
+                <ItemCommentDetail
+                    {...propsToUse}
+                    item={
+                        {
+                            ...propsToUse.item,
+                            data: {
+                                ...propsToUse.item.data,
+                                comment:
+                                    'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                            },
+                        } as InspectorListItemNotebookComment
+                    }
+                />
+            </div>
+            <LemonDivider />
             <h3>Collapsed with overflowing comment</h3>
             <div className="w-52">
-                <ItemComment {...propsToUse} />
+                <ItemComment
+                    {...propsToUse}
+                    item={
+                        {
+                            ...propsToUse.item,
+                            data: {
+                                ...propsToUse.item.data,
+                                comment:
+                                    'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                            },
+                        } as InspectorListItemNotebookComment
+                    }
+                />
             </div>
         </div>
     )
