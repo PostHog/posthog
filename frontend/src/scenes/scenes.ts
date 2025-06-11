@@ -497,6 +497,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Data warehouse source',
     },
+    [Scene.LegacyPlugin]: {
+        projectBased: true,
+        name: 'Legacy plugin',
+    },
     [Scene.Game368]: {
         name: '368 Hedgehogs',
         projectBased: true,
@@ -714,6 +718,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],

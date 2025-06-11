@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, PipelineStage } from '~/types'
+import { HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
@@ -28,7 +28,7 @@ import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
-        return urls.pipelineNode(PipelineStage.Destination, hogFunction.id.replace('plugin-', ''))
+        return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
     }
     if (hogFunction.id.startsWith('batch-export-')) {
         return urls.batchExport(hogFunction.id.replace('batch-export-', ''))

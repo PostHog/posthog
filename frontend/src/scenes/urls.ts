@@ -192,6 +192,7 @@ export const urls = {
     dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
     batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
+    legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,

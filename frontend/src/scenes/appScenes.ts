@@ -97,4 +97,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DataWarehouseSourceNew]: () => import('./data-warehouse/new/NewSourceWizard'),
     [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
+    [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
 }
