@@ -2,11 +2,11 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
-import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
+import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import {
     ActionsNode,
     EventsNode,
@@ -30,7 +30,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/utils'
+import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -455,14 +455,14 @@ describe('getViewRecordingFiltersLegacy', () => {
 
     it('returns the correct filters for an experiment query', () => {
         const filters = getViewRecordingFiltersLegacy(
-            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentMetric,
+            EXPERIMENT_WITH_MEAN_METRIC.metrics[0] as ExperimentMetric,
             featureFlagKey,
             'control'
         )
         expect(filters).toEqual([
             {
-                id: 'storybook-click',
-                name: 'storybook-click',
+                id: '$pageview',
+                name: '$pageview',
                 type: 'events',
                 properties: [
                     {
@@ -1175,6 +1175,44 @@ describe('metricToQuery', () => {
                     name: 'test action',
                     math: PropertyMathType.Sum,
                     math_property: 'property_value',
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a mean metric with an event source and max math type', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                name: 'purchase',
+                math_property: 'amount',
+                math: ExperimentMetricMathType.Max,
+            },
+        }
+
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                    math_property: 'amount',
+                    math: ExperimentMetricMathType.Max,
                 },
             ],
         })

@@ -161,6 +161,9 @@ class S3BatchExportInputs(BaseBatchExportInputs):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
 
+        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
+            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
+
 
 @dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
@@ -917,6 +920,9 @@ class BatchExportInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
+    # TODO - pass these in to all inherited classes
+    batch_export_id: str | None = None
+    destination_default_fields: list[BatchExportField] | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

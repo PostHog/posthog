@@ -161,6 +161,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
             TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.RevenueAnalyticsProperties,
             TaxonomicFilterGroupType.NumericalEventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.Cohorts,

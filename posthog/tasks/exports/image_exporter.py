@@ -58,13 +58,6 @@ def get_driver() -> webdriver.Chrome:
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
 
-    # Ensure completely fresh profile
-    options.add_argument("--incognito")
-    options.add_argument("--no-first-run")
-    options.add_argument("--no-default-browser-check")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-sync")
-
     # Create a unique prefix for the temporary directory
     pid = os.getpid()
     timestamp = int(time.time() * 1000)
@@ -73,6 +66,9 @@ def get_driver() -> webdriver.Chrome:
     # Use TemporaryDirectory which will automatically clean up when the context manager exits
     temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
     options.add_argument(f"--user-data-dir={temp_dir.name}")
+
+    # Necessary to let the nobody user run chromium
+    os.environ["HOME"] = temp_dir.name
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])

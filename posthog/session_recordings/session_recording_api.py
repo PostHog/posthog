@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -5,43 +6,46 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from typing import Any, Optional, cast, Literal
-
-import structlog
-from clickhouse_driver.errors import ServerException
-from posthoganalytics.ai.openai import OpenAI
+from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 import posthoganalytics
 import requests
+import structlog
+from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import extend_schema
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
+from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
-from pydantic import ValidationError, BaseModel
+from pydantic import BaseModel, ValidationError
 from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
-from rest_framework.request import Request
-from rest_framework.exceptions import Throttled, NotFound
 
-from ee.api.conversation import ServerSentEventRenderer
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-
-import posthog.session_recordings.queries.sub_queries.events_subquery
-from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
+import posthog.session_recordings.queries.sub_queries.events_subquery
 from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
@@ -49,7 +53,10 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
+from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import HogQLQueryModifiers, PropertyFilterType, QueryTiming, RecordingsQuery
+from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
+from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -60,22 +67,13 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.storage import object_storage, session_recording_v2_object_storage
-from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
-from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
-from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-    ChatCompletionAssistantMessageParam,
-)
-from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.session_recordings.utils import clean_prompt_whitespace
+from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
+from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-from posthog.exceptions_capture import capture_exception
 
-import asyncio
+from ..models.product_intent.product_intent import ProductIntent
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",

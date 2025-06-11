@@ -40,6 +40,7 @@ import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 export const scene: SceneExport = {
     component: SurveysWithMaxTool,
     logic: surveysLogic,
+    settingSectionId: 'environment-surveys',
 }
 
 function SurveysWithMaxTool(): JSX.Element {

@@ -282,7 +282,7 @@ export const maxLogic = kea<maxLogicType>([
                     return null
                 }
 
-                return 'Max'
+                return 'Max AI'
             },
         ],
 

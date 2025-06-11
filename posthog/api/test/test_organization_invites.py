@@ -11,6 +11,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
+from posthog.constants import AvailableFeature
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -665,14 +666,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        # Should be forbidden
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
             "You cannot invite a user with a higher permission level than your own.",
         )
 
-        # Verify no invite was created
         self.assertEqual(OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count(), 0)
 
     def test_admin_cannot_invite_owner(self):
@@ -691,7 +690,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        # Should be forbidden
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
@@ -717,7 +715,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        # Should be successful
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify invite was created
@@ -741,7 +738,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        # Should be successful
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify invite was created
@@ -820,6 +816,138 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             ).count(),
             2,
         )
+
+    def test_member_cannot_invite_when_members_can_invite_false_and_feature_available(self):
+        """Test that members cannot invite when members_can_invite is False and ORGANIZATION_INVITE_SETTINGS is available."""
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_can_invite_when_members_can_invite_true_and_feature_available(self):
+        """Test that members can invite when members_can_invite is True and ORGANIZATION_INVITE_SETTINGS is available."""
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to True
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_admin_can_always_invite_regardless_of_members_can_invite(self):
+        """Test that admins can always invite regardless of members_can_invite setting."""
+        # Create an admin user
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_member_can_invite_when_feature_not_available(self):
+        """Test that members can invite when ORGANIZATION_INVITE_SETTINGS feature is not available."""
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        # Ensure ORGANIZATION_INVITE_SETTINGS feature is not available
+        self.organization.available_product_features = []
+        self.organization.members_can_invite = False  # This should be ignored since feature is not available
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_can_invite_with_new_access_control_as_org_admin(self):
         """

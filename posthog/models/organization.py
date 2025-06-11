@@ -12,6 +12,8 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 from posthog.models.personal_api_key import PersonalAPIKey
+from django.db.models.signals import post_save
+from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
@@ -130,6 +132,11 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
+    session_cookie_age = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
+    )
     for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
@@ -165,6 +172,8 @@ class Organization(UUIDModel):
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
+
+    is_platform = models.BooleanField(default=False, null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -388,3 +397,12 @@ def organization_membership_saved(sender: Any, instance: OrganizationMembership,
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=Organization)
+def cache_organization_session_age(sender, instance, **kwargs):
+    """Cache organization's session_cookie_age in Redis when it changes."""
+    if instance.session_cookie_age is not None:
+        cache.set(f"org_session_age:{instance.id}", instance.session_cookie_age)
+    else:
+        cache.delete(f"org_session_age:{instance.id}")

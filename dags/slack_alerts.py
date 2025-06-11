@@ -10,6 +10,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_CLICKHOUSE.value: "#alerts-clickhouse",
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
     JobOwners.TEAM_REVENUE_ANALYTICS.value: "#alerts-revenue-analytics",
+    JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
 }
 
 
@@ -48,6 +49,10 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     # Only send notifications in prod environment
     if not settings.CLOUD_DEPLOYMENT:
         context.log.info("Skipping Slack notification in non-prod environment")
+        return
+
+    if tags.get("disable_slack_notifications"):
+        context.log.debug("Skipping Slack notification for %s, notifications are disabled", job_name)
         return
 
     # Construct Dagster URL based on environment

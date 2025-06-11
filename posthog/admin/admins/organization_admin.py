@@ -42,6 +42,8 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage",
         "customer_trust_scores",
         "is_hipaa",
+        "is_platform",
+        "members_can_invite",
     ]
     inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline]
     readonly_fields = [

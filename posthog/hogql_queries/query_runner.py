@@ -641,7 +641,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     is_query_service: bool = False
-    workload: Optional[Workload] = None
+    workload: Workload
 
     def __init__(
         self,
@@ -651,7 +651,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
-        workload: Optional[Workload] = None,
+        workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
