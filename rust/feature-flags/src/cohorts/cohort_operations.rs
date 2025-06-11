@@ -412,6 +412,10 @@ impl DependencyProvider for Cohort {
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
         self.extract_dependencies()
     }
+
+    fn dependency_type() -> DependencyType {
+        DependencyType::Cohort
+    }
 }
 
 // Update the original build_cohort_dependency_graph to use the generic version

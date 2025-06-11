@@ -2,7 +2,7 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::{PropertyFilter, PropertyType};
-use crate::utils::graph_utils::DependencyProvider;
+use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::collections::HashSet;
@@ -98,6 +98,10 @@ impl DependencyProvider for FeatureFlag {
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
         self.extract_dependencies()
+    }
+
+    fn dependency_type() -> DependencyType {
+        DependencyType::Flag
     }
 }
 

@@ -14,30 +14,15 @@ pub trait DependencyProvider {
 
     /// Extract dependencies for this item
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error>;
+
+    /// Get the dependency type for this provider
+    fn dependency_type() -> DependencyType;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DependencyType {
     Flag,
     Cohort,
-}
-
-impl DependencyType {
-    const FEATURE_FLAG_TYPE: &'static str = "FeatureFlag";
-    const COHORT_TYPE: &'static str = "Cohort";
-
-    /// Determine the dependency type from a generic type parameter
-    pub fn from_type<T>() -> Result<Self, FlagError> {
-        let type_name = std::any::type_name::<T>();
-        match type_name {
-            t if t.contains(Self::FEATURE_FLAG_TYPE) => Ok(Self::Flag),
-            t if t.contains(Self::COHORT_TYPE) => Ok(Self::Cohort),
-            _ => Err(FlagError::Internal(format!(
-                "Unknown dependency type: {}",
-                type_name
-            ))),
-        }
-    }
 }
 
 impl std::fmt::Display for DependencyType {
@@ -99,11 +84,7 @@ where
     let initial_item = items
         .iter()
         .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| {
-            DependencyType::from_type::<T>()
-                .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
-                .unwrap_or_else(|e| e)
-        })?;
+        .ok_or_else(|| FlagError::DependencyNotFound(T::dependency_type(), initial_id.into()))?;
 
     // Check if the initial item meets the criteria
     if !criteria(initial_item) {
@@ -124,11 +105,7 @@ where
         let item = items
             .iter()
             .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| {
-                DependencyType::from_type::<T>()
-                    .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
-                    .unwrap_or_else(|e| e)
-            })?;
+            .ok_or_else(|| FlagError::DependencyNotFound(T::dependency_type(), item_id.into()))?;
 
         let dependencies = item.extract_dependencies()?;
         for dep_id in dependencies {
@@ -153,7 +130,7 @@ where
 
     if is_cyclic_directed(&graph) {
         return Err(FlagError::DependencyCycle(
-            DependencyType::from_type::<T>().expect("type detection should never fail here"),
+            T::dependency_type(),
             format!(
                 "Cyclic dependency detected starting at {} {}",
                 std::any::type_name::<T>(),
