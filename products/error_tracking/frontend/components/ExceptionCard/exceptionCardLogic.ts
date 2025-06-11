@@ -1,14 +1,9 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 
 import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
-export interface ExceptionCardLogicProps {
-    loading: boolean
-}
-
 export const exceptionCardLogic = kea<exceptionCardLogicType>([
     path(() => ['scenes', 'error-tracking', 'exceptionCardLogic']),
-    props({} as ExceptionCardLogicProps),
 
     actions({
         setShowDetails: (showDetails: boolean) => ({ showDetails }),
@@ -16,6 +11,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         setShowAsJson: (showAsJson: boolean) => ({ showAsJson }),
         setShowContext: (showContext: boolean) => ({ showContext }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
+        setLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers({
@@ -52,10 +48,15 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
                 setShowContext: (_, { showContext }: { showContext: boolean }) => showContext,
             },
         ],
+        loading: [
+            true,
+            {
+                setLoading: (_, { loading }: { loading: boolean }) => loading,
+            },
+        ],
     }),
 
     selectors({
-        loading: [() => [(_, props) => props.loading], (loading: boolean) => loading],
         isExpanded: [
             (s) => [s.showDetails, s.loading],
             (showDetails: boolean, loading: boolean) => showDetails && !loading,

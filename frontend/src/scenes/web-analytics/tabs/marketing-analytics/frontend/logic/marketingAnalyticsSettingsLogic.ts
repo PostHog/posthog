@@ -1,7 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { beforeUnload } from 'kea-router'
-import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
@@ -25,8 +23,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             fieldName,
             columnName,
         }),
-        save: true,
-        resetConfig: true,
     }),
     reducers(({ values }) => ({
         marketingAnalyticsConfig: [
@@ -57,9 +53,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, sources_map: updatedSourcesMap }
                 },
-                resetConfig: () => {
-                    return values.savedMarketingAnalyticsConfig
-                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -76,25 +69,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => marketingAnalyticsConfig?.sources_map || {},
         ],
-
-        changesMadeToSources: [
-            (s) => [s.marketingAnalyticsConfig, s.savedMarketingAnalyticsConfig],
-            (config: MarketingAnalyticsConfig | null, savedConfig: MarketingAnalyticsConfig | null): boolean => {
-                return !!config && !!savedConfig && !objectsEqual(config.sources_map, savedConfig.sources_map)
-            },
-        ],
-        saveSourcesDisabledReason: [
-            (s) => [s.marketingAnalyticsConfig, s.changesMadeToSources],
-            (config: MarketingAnalyticsConfig | null, changesMade: boolean): string | null => {
-                if (!config) {
-                    return 'Loading...'
-                }
-                if (!changesMade) {
-                    return 'No changes to save'
-                }
-                return null
-            },
-        ],
     }),
     listeners(({ actions, values }) => {
         const updateCurrentTeam = (): void => {
@@ -106,7 +80,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
 
         return {
             updateSourceMapping: updateCurrentTeam,
-            save: updateCurrentTeam,
         }
     }),
     loaders(({ values }) => ({
@@ -117,13 +90,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 }
                 return null
             },
-        },
-    })),
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => values.changesMadeToSources,
-        message: 'Changes you made will be discarded. Make sure you save your changes before leaving this page.',
-        onConfirm: () => {
-            actions.resetConfig()
         },
     })),
     afterMount(({ actions }) => {
