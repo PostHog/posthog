@@ -1,0 +1,114 @@
+import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { BatchExportService, Breadcrumb } from '~/types'
+
+import { BatchExportConfiguration } from './BatchExportConfiguration'
+import { BatchExportConfigurationLogicProps } from './batchExportConfigurationLogic'
+
+const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'history'] as const
+export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
+
+export const batchExportSceneLogic = kea([
+    props({} as BatchExportConfigurationLogicProps),
+    key(({ id }: BatchExportConfigurationLogicProps) => id ?? 'new'),
+    path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportSceneLogic', key]),
+    actions({
+        setCurrentTab: (tab: BatchExportSceneTab) => ({ tab }),
+    }),
+    reducers(() => ({
+        currentTab: [
+            'configuration' as BatchExportSceneTab,
+            {
+                setCurrentTab: (_, { tab }) => tab,
+            },
+        ],
+    })),
+    selectors({
+        logicProps: [() => [(_, props) => props], (props) => props],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Pipeline,
+                        name: 'Data pipelines',
+                        path: urls.dataPipelines(),
+                    },
+                    {
+                        key: Scene.Pipeline,
+                        name: 'Destinations',
+                        path: urls.dataPipelines('destination'),
+                    },
+
+                    {
+                        key: Scene.BatchExport,
+                        name: 'Batch export',
+                    },
+                ]
+            },
+        ],
+    }),
+    actionToUrl(({ values }) => ({
+        setCurrentTab: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    tab: values.currentTab,
+                },
+                router.values.hashParams,
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>): void => {
+            const possibleTab = (search.tab ?? 'configuration') as BatchExportSceneTab
+
+            const tab = BATCH_EXPORT_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
+            if (tab !== values.currentTab) {
+                actions.setCurrentTab(tab)
+            }
+        }
+
+        return {
+            // All possible routes for this scene need to be listed here
+            [urls.batchExport(':id')]: reactToTabChange,
+        }
+    }),
+])
+
+export const scene: SceneExport = {
+    component: BatchExportScene,
+    logic: batchExportSceneLogic,
+    paramsToProps: ({ params: { id, service } }): (typeof batchExportSceneLogic)['props'] => ({
+        id: id === 'new' ? null : id,
+        service: service as BatchExportService['type'] | null,
+    }),
+}
+
+export function BatchExportScene(): JSX.Element {
+    const { currentTab, logicProps } = useValues(batchExportSceneLogic)
+    const { setCurrentTab } = useActions(batchExportSceneLogic)
+
+    const { id } = logicProps
+
+    const tabs: (LemonTab<BatchExportSceneTab> | null)[] = [
+        {
+            label: 'Configuration',
+            key: 'configuration',
+            content: <BatchExportConfiguration id={id} />,
+        },
+
+        // {
+        //     label: 'History',
+        //     key: 'history',
+        //     content: <ActivityLog id={id} scope={ActivityScope.B} />,
+        // },
+    ]
+
+    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+}
