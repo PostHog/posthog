@@ -29,6 +29,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
+    ConversionGoalFilter,
     CustomEventConversionGoal,
     DatabaseSchemaDataWarehouseTable,
     DataTableNode,
@@ -56,6 +57,7 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
+    EntityTypes,
     EventDefinitionType,
     FilterLogicalOperator,
     InsightLogicProps,
@@ -427,7 +429,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map'],
+            ['sources_map', 'conversion_goals'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
@@ -796,8 +798,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
 
         createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables],
-            (validExternalTables: ExternalTable[]): string | null => {
+            (s) => [s.validExternalTables, s.conversion_goals],
+            (validExternalTables: ExternalTable[], conversionGoals: ConversionGoalFilter[]): string | null => {
                 if (!validExternalTables || validExternalTables.length === 0) {
                     return null
                 }
@@ -815,26 +817,89 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             return null
                         }
 
+                        // Get source name from schema mapping or fallback
+                        const sourceNameField =
+                            table.source_map.utm_source_name || table.source_map.source_name || `'${schemaName}'`
+                        const campaignNameField = table.source_map.utm_campaign_name || table.source_map.campaign_name
                         // TODO: we should replicate this logic for the area charts once we build the query runner
                         return `
                         SELECT 
-                            ${table.source_map.campaign_name} as campaignname,
+                            ${campaignNameField} as campaignname,
                             toFloat(coalesce(${table.source_map.total_cost}, 0)) as cost,
                             toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
                             toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
-                            ${table.source_map.source_name || `'${schemaName}'`} as source_name
+                            ${sourceNameField} as source_name
                         FROM ${tableName}
                         WHERE ${table.source_map.date} >= '2025-01-01'
                     `.trim()
                     })
                     .filter(Boolean)
+                // Generate CTEs for all conversion goals
+                const conversionGoalCTEs = conversionGoals
+                    .map((conversionGoal, index) => {
+                        const propertyName = conversionGoal.type === EntityTypes.EVENTS ? 'properties.' : ''
+                        // Sanitize the CTE name to be a valid SQL identifier
+                        const safeCTEName = `cg_${index}_${conversionGoal.conversion_goal_name}`.replace(
+                            /[^a-zA-Z0-9_]/g,
+                            '_'
+                        )
+                        return `${safeCTEName} AS (
+                        SELECT 
+                            ${propertyName}${conversionGoal.schema.utm_campaign_name} as campaign_name,
+                            ${propertyName}${conversionGoal.schema.utm_source_name} as source_name,
+                            count(*) as conversion_${index}
+                        FROM ${
+                            conversionGoal.type === EntityTypes.EVENTS
+                                ? 'events'
+                                : conversionGoal.type === EntityTypes.DATA_WAREHOUSE
+                                ? conversionGoal.name
+                                : 'TBD'
+                        } 
+                        WHERE ${conversionGoal.type === EntityTypes.EVENTS ? `event = '${conversionGoal.id}'` : '1=1'}
+                            AND ${propertyName}${conversionGoal.schema.utm_campaign_name} IS NOT NULL
+                            AND ${propertyName}${conversionGoal.schema.utm_campaign_name} != ''
+                            AND ${propertyName}${conversionGoal.schema.utm_source_name} IS NOT NULL
+                            AND ${propertyName}${conversionGoal.schema.utm_source_name} != ''
+                        GROUP BY ${propertyName}${conversionGoal.schema.utm_campaign_name}, ${propertyName}${
+                            conversionGoal.schema.utm_source_name
+                        }
+                    )`
+                    })
+                    .join(',\n                    ')
 
                 if (unionQueries.length === 0) {
                     return `SELECT 'No valid sources_map configured' as message`
                 }
 
-                const query = `
-                    WITH campaign_costs AS (
+                // Generate JOIN clauses for all conversion goals
+                const conversionJoins =
+                    conversionGoals.length > 0
+                        ? conversionGoals
+                              .map((conversionGoal, index) => {
+                                  const safeCTEName = `cg_${index}_${conversionGoal.conversion_goal_name}`.replace(
+                                      /[^a-zA-Z0-9_]/g,
+                                      '_'
+                                  )
+                                  return `LEFT JOIN ${safeCTEName} cg_${index} ON cc.campaignname = cg_${index}.campaign_name AND cc.source_name = cg_${index}.source_name`
+                              })
+                              .join('\n                    ')
+                        : ''
+
+                // Generate SELECT columns for all conversion goals
+                const conversionColumns =
+                    conversionGoals.length > 0
+                        ? conversionGoals
+                              .map((conversionGoal, index) => [
+                                  `cg_${index}.conversion_${index} as "${conversionGoal.conversion_goal_name}"`,
+                                  `round(cc.total_cost / nullif(coalesce(cg_${index}.conversion_${index}, 1), 0), 2) as "Cost per ${conversionGoal.conversion_goal_name}"`,
+                              ])
+                              .flat()
+                              .join(',\n                        ')
+                        : ''
+
+                // Build WITH clause correctly based on whether we have conversion goals
+                const withClause = conversionGoalCTEs
+                    ? `WITH campaign_costs AS (
                         SELECT 
                             campaignname,
                             source_name,
@@ -846,17 +911,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         )
                         GROUP BY campaignname, source_name
                     ),
-                    campaign_pageviews AS (
+                    ${conversionGoalCTEs}`
+                    : `WITH campaign_costs AS (
                         SELECT 
-                            properties.utm_campaign as campaign_name,
-                            count(*) as pageviews,
-                            uniq(distinct_id) as unique_visitors
-                        FROM events 
-                        WHERE event = '$pageview' 
-                            AND properties.utm_campaign IS NOT NULL
-                            AND properties.utm_campaign != ''
-                        GROUP BY properties.utm_campaign
-                    )
+                            campaignname,
+                            source_name,
+                            sum(cost) as total_cost,
+                            sum(clicks) as total_clicks,
+                            sum(impressions) as total_impressions
+                        FROM (
+                            ${unionQueries.join('\n                            UNION ALL\n')}
+                        )
+                        GROUP BY campaignname, source_name
+                    )`
+
+                const query = `
+                    ${withClause}
                     SELECT 
                         cc.campaignname as "Campaign",
                         cc.source_name as "Source",
@@ -864,12 +934,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         cc.total_clicks as "Total Clicks", 
                         cc.total_impressions as "Total Impressions",
                         round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
-                        round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR",
-                        coalesce(cp.pageviews, 0) as "Pageviews",
-                        coalesce(cp.unique_visitors, 0) as "Unique Visitors",
-                        round(cc.total_cost / nullif(coalesce(cp.pageviews, 1), 0), 2) as "Cost per Pageview"
+                        round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR"${
+                            conversionColumns ? `,\n                        ${conversionColumns}` : ''
+                        }
                     FROM campaign_costs cc
-                    LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
+                    ${conversionJoins}
                     ORDER BY cc.total_cost DESC
                     LIMIT 20
                 `.trim()

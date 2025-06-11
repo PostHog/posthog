@@ -11,6 +11,72 @@
             "required": ["actionId"],
             "type": "object"
         },
+        "ActionFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
+                "days": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "math_group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "math_hogql": {
+                    "type": ["string", "null"]
+                },
+                "math_property": {
+                    "type": ["string", "null"]
+                },
+                "math_property_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TaxonomicFilterGroupType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "required": ["id", "type"],
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -5933,6 +5999,81 @@
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
             "type": "object"
         },
+        "ConversionGoalFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "conversion_goal_id": {
+                    "type": "string"
+                },
+                "conversion_goal_name": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
+                "days": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "math_group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "math_hogql": {
+                    "type": ["string", "null"]
+                },
+                "math_property": {
+                    "type": ["string", "null"]
+                },
+                "math_property_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TaxonomicFilterGroupType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "schema": {
+                    "$ref": "#/definitions/SchemaMap"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "required": ["conversion_goal_id", "conversion_goal_name", "id", "schema", "type"],
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -8131,6 +8272,31 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
+            "type": "object"
+        },
+        "EntityFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "required": ["id"],
             "type": "object"
         },
         "EntityNode": {
@@ -12903,6 +13069,12 @@
         "MarketingAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "conversion_goals": {
+                    "items": {
+                        "$ref": "#/definitions/ConversionGoalFilter"
+                    },
+                    "type": "array"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -18373,6 +18545,19 @@
                 }
             },
             "required": ["kind", "shortId"],
+            "type": "object"
+        },
+        "SchemaMap": {
+            "additionalProperties": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "not": {}
+                    }
+                ]
+            },
             "type": "object"
         },
         "SessionAttributionExplorerQuery": {

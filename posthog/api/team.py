@@ -199,10 +199,11 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     sources_map = serializers.JSONField(required=False)
+    conversion_goals = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map"]
+        fields = ["sources_map", "conversion_goals"]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -217,6 +218,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
                 else:
                     # Update the source mapping (this preserves other sources)
                     instance.update_source_mapping(source_id, field_mapping)
+
+        if "conversion_goals" in validated_data:
+            instance.conversion_goals = validated_data["conversion_goals"]
 
         instance.save()
         return instance
