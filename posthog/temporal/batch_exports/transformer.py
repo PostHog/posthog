@@ -51,39 +51,46 @@ def get_stream_transformer(
             raise ValueError(f"Unsupported format: {format}")
 
 
+class TransformerChunk(typing.NamedTuple):
+    """A chunk of data from a transformer with a flag indicating if it's the end of file."""
+
+    data: bytes | None
+    eof: bool
+
+
 class StreamTransformer:
     """Transforms PyArrow RecordBatches to different formats with compression"""
 
-    def __init__(self, compression: str | None = None, include_inserted_at: bool = False):
+    def __init__(self, compression: str | None = None, include_inserted_at: bool = False, max_file_size_bytes: int = 0):
         self.compression = compression.lower() if compression else None
         self.include_inserted_at = include_inserted_at
+        self.max_file_size_bytes = max_file_size_bytes
 
+        self._bytes_written = 0
         self._brotli_compressor = None
 
-    def transform_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
+    def transform_batch(self, batch: pa.RecordBatch) -> typing.Generator[TransformerChunk, None, None]:
         """Transform a single batch and yield compressed bytes"""
         column_names = batch.column_names
         if not self.include_inserted_at:
             column_names.pop(column_names.index("_inserted_at"))
 
-        yield from self._write_batch(batch.select(column_names))
+        for chunk in self.write_batch(batch.select(column_names)):
+            self._bytes_written += len(chunk)
+            yield TransformerChunk(data=chunk, eof=False)
+            if self.max_file_size_bytes and self._bytes_written > self.max_file_size_bytes:
+                yield from self.finalize()
 
-    def finalize(self) -> typing.Generator[bytes | None, None, None]:
+    def finalize(self) -> typing.Generator[TransformerChunk, None, None]:
         """Finalize and yield any remaining data"""
         if self.compression == "brotli":
-            yield self.brotli_compressor.finish()
-        else:
-            yield None
+            yield TransformerChunk(data=self.brotli_compressor.finish(), eof=False)
+        yield TransformerChunk(data=None, eof=True)
 
     @abc.abstractmethod
-    def _write_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
+    def write_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Write a batch to the output format"""
         raise NotImplementedError("Subclasses must implement _write_batch")
-
-    def write(self, content: bytes | str):
-        """Write bytes to underlying file keeping track of how many bytes were written."""
-        compressed_content = self.compress(content)
-        yield compressed_content
 
     def compress(self, content: bytes | str) -> bytes:
         if isinstance(content, str):
@@ -108,7 +115,7 @@ class StreamTransformer:
             self._brotli_compressor = brotli.Compressor()
         return self._brotli_compressor
 
-    def finish_brotli_compressor(self):
+    def finish_brotli_compressor(self) -> typing.Generator[bytes, None, None]:
         """Flush remaining brotli bytes."""
         if self.compression != "brotli":
             raise ValueError(f"Compression is '{self.compression}', not 'brotli'")
@@ -118,10 +125,10 @@ class StreamTransformer:
 
 
 class JSONLStreamTransformer(StreamTransformer):
-    def write_dict(self, d: dict[str, typing.Any]) -> typing.Generator[bytes, None, None]:
+    def _write_dict(self, d: dict[str, typing.Any]) -> typing.Generator[bytes, None, None]:
         """Write a single row of JSONL."""
         try:
-            data_gen = self.write(orjson.dumps(d, default=str) + b"\n")
+            data_gen = self._write(orjson.dumps(d, default=str) + b"\n")
         except orjson.JSONEncodeError as err:
             # NOTE: `orjson.JSONEncodeError` is actually just an alias for `TypeError`.
             # This handler will catch everything coming from orjson, so we have to
@@ -141,33 +148,38 @@ class JSONLStreamTransformer(StreamTransformer):
                         # json.
                         logger.exception("PostHog $web_vitals event didn't match expected structure")
                         dumped = json.dumps(d, default=str).encode("utf-8")
-                        data_gen = self.write(dumped + b"\n")
+                        data_gen = self._write(dumped + b"\n")
                     else:
                         dumped = orjson.dumps(d, default=str)
-                        data_gen = self.write(dumped + b"\n")
+                        data_gen = self._write(dumped + b"\n")
 
                 else:
                     # In this case, we fallback to the slower but more permissive stdlib
                     # json.
                     logger.exception("Orjson detected a deeply nested dict: %s", d)
                     dumped = json.dumps(d, default=str).encode("utf-8")
-                    data_gen = self.write(dumped + b"\n")
+                    data_gen = self._write(dumped + b"\n")
             else:
                 # Orjson is very strict about invalid unicode. This slow path protects us
                 # against things we've observed in practice, like single surrogate codes, e.g.
                 # "\ud83d"
                 logger.exception("Failed to encode with orjson: %s", d)
                 cleaned_content = replace_broken_unicode(d)
-                data_gen = self.write(orjson.dumps(cleaned_content, default=str) + b"\n")
+                data_gen = self._write(orjson.dumps(cleaned_content, default=str) + b"\n")
         yield from data_gen
 
-    def _write_batch(self, record_batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
+    def write_batch(self, record_batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Write records to a temporary file as JSONL."""
         for record_dict in record_batch.to_pylist():
             if not record_dict:
                 continue
 
-            yield from self.write_dict(record_dict)
+            yield from self._write_dict(record_dict)
+
+    def _write(self, content: bytes | str):
+        """Write bytes to underlying file keeping track of how many bytes were written."""
+        compressed_content = self.compress(content)
+        yield compressed_content
 
 
 class ParquetStreamTransformer(StreamTransformer):
@@ -197,9 +209,10 @@ class ParquetStreamTransformer(StreamTransformer):
             )
         return self._parquet_writer
 
-    def finalize(self):
+    def finalize(self) -> typing.Generator[TransformerChunk, None, None]:
         """Ensure underlying Parquet writer is closed before flushing and closing temporary file."""
-        yield from super().finalize()
+        if self.compression == "brotli":
+            yield TransformerChunk(data=self.brotli_compressor.finish(), eof=False)
 
         if self._parquet_writer is not None:
             self._parquet_writer.close()
@@ -209,13 +222,14 @@ class ParquetStreamTransformer(StreamTransformer):
             self._parquet_buffer.seek(0)
             final_data = self._parquet_buffer.read()
             if final_data:
-                yield final_data
+                yield TransformerChunk(data=final_data, eof=False)
 
             # Cleanup
             self._parquet_buffer.close()
             self._parquet_buffer = BytesIO()
+        yield TransformerChunk(data=None, eof=True)
 
-    def _write_batch(self, record_batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
+    def write_batch(self, record_batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Write records to a temporary file as Parquet."""
 
         self.parquet_writer.write_batch(record_batch.select(self.parquet_writer.schema.names))

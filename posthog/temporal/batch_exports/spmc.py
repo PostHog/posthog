@@ -1227,8 +1227,9 @@ class ConsumerFromStage:
                 )
 
                 # Transform batch to chunks
-                for chunk in transformer.transform_batch(record_batch):
-                    await self.consume_chunk(chunk)
+                for chunk, eof in transformer.transform_batch(record_batch):
+                    if chunk is not None:
+                        await self.consume_chunk(data=chunk, is_eof=eof)
 
                 # Log progress periodically
                 # if batch_count % 100 == 0:
@@ -1249,9 +1250,9 @@ class ConsumerFromStage:
                 #         )
 
             # Finalize transformer and consume any remaining data
-            for chunk in transformer.finalize():
+            for chunk, _ in transformer.finalize():
                 if chunk:
-                    await self.consume_chunk(chunk)
+                    await self.consume_chunk(chunk, is_eof=True)
 
             # Finalize upload
             await self.finalize()
@@ -1290,7 +1291,7 @@ class ConsumerFromStage:
             yield record_batch
 
     @abc.abstractmethod
-    async def consume_chunk(self, data: bytes):
+    async def consume_chunk(self, data: bytes, is_eof: bool = False):
         """Consume a chunk of data."""
         pass
 
