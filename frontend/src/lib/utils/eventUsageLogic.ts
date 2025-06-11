@@ -490,6 +490,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
+        reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
     }),
@@ -499,6 +500,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportBillingUsageInteraction: ({ properties }) => {
             posthog.capture('billing usage interaction', properties)
+        },
+        reportBillingSpendInteraction: ({ properties }) => {
+            posthog.capture('billing spend interaction', properties)
         },
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
