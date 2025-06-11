@@ -900,7 +900,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? conversionGoals
                               .map((conversionGoal, index) => [
                                   `cg_${index}.conversion_${index} as "${conversionGoal.conversion_goal_name}"`,
-                                  `round(cc.total_cost / nullif(coalesce(cg_${index}.conversion_${index}, 1), 0), 2) as "Cost per ${conversionGoal.conversion_goal_name}"`,
+                                  `round(cc.total_cost / nullif(cg_${index}.conversion_${index}, 0), 2) as "Cost per ${conversionGoal.conversion_goal_name}"`,
                               ])
                               .flat()
                               .join(',\n                        ')
