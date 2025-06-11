@@ -62,7 +62,7 @@ pub enum FlagError {
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Cohort dependency cycle")]
-    CohortDependencyCycle(String),
+    DependencyCycle(DependencyType, String),
     #[error("Person not found")]
     PersonNotFound,
     #[error("Person properties not found")]
@@ -179,8 +179,8 @@ impl IntoResponse for FlagError {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
-            FlagError::CohortDependencyCycle(msg) => {
-                tracing::error!("Cohort dependency cycle: {}", msg);
+            FlagError::DependencyCycle(dependency_type, msg) => {
+                tracing::error!("{} dependency cycle: {}", dependency_type, msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
             FlagError::PersonNotFound => {

@@ -297,7 +297,10 @@ pub fn evaluate_dynamic_cohorts(
     // Keep the topological sort to handle dependencies correctly
     let sorted_cohort_ids_as_graph_nodes =
         toposort(&cohort_dependency_graph, None).map_err(|e| {
-            FlagError::CohortDependencyCycle(format!("Cyclic dependency detected: {:?}", e))
+            FlagError::DependencyCycle(
+                DependencyType::Cohort,
+                format!("Cyclic dependency detected: {:?}", e),
+            )
         })?;
 
     let mut evaluation_results = HashMap::new();

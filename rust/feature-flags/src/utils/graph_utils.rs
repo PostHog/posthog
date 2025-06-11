@@ -99,9 +99,11 @@ where
     let initial_item = items
         .iter()
         .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| DependencyType::from_type::<T>()
-            .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
-            .unwrap_or_else(|e| e))?;
+        .ok_or_else(|| {
+            DependencyType::from_type::<T>()
+                .map(|t| FlagError::DependencyNotFound(t, initial_id.into()))
+                .unwrap_or_else(|e| e)
+        })?;
 
     // Check if the initial item meets the criteria
     if !criteria(initial_item) {
@@ -122,9 +124,11 @@ where
         let item = items
             .iter()
             .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| DependencyType::from_type::<T>()
-                .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
-                .unwrap_or_else(|e| e))?;
+            .ok_or_else(|| {
+                DependencyType::from_type::<T>()
+                    .map(|t| FlagError::DependencyNotFound(t, item_id.into()))
+                    .unwrap_or_else(|e| e)
+            })?;
 
         let dependencies = item.extract_dependencies()?;
         for dep_id in dependencies {
@@ -133,9 +137,9 @@ where
             // and it keeps the borrow checker happy
             let current_node = node_map[&item_id];
 
-            // Add dependency node if we haven't seen this cohort ID before in our traversal.
+            // Add dependency node if we haven't seen this dependency ID before in our traversal.
             // This happens when we discover a new dependency that wasn't previously
-            // encountered while processing other cohorts in the graph.
+            // encountered while processing other dependencies in the graph.
             let is_new_dep = !node_map.contains_key(&dep_id);
             let dep_node = node_map
                 .entry(dep_id)
@@ -148,11 +152,14 @@ where
     }
 
     if is_cyclic_directed(&graph) {
-        return Err(FlagError::CohortDependencyCycle(format!(
-            "Cyclic dependency detected starting at {} {}",
-            std::any::type_name::<T>(),
-            initial_id
-        ))
+        return Err(FlagError::DependencyCycle(
+            DependencyType::from_type::<T>().expect("type detection should never fail here"),
+            format!(
+                "Cyclic dependency detected starting at {} {}",
+                std::any::type_name::<T>(),
+                initial_id
+            ),
+        )
         .into());
     }
 
