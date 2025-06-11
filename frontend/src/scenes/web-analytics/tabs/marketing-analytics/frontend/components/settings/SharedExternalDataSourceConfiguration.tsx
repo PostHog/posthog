@@ -66,19 +66,13 @@ export function SharedExternalDataSourceConfiguration({
         let columnOptions: LemonSelectSection<string | null>[]
         if (fieldName === 'base_currency') {
             columnOptions = [
+                { options: [{ label: 'None', value: null }] },
                 { options: OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED, title: 'Most Popular' },
                 { options: OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED, title: 'Other currencies' },
             ]
         } else {
             columnOptions = [
-                {
-                    options: [
-                        {
-                            label: 'None',
-                            value: null,
-                        },
-                    ],
-                },
+                { options: [{ label: 'None', value: null }] },
                 {
                     options: compatibleColumns.map((col) => ({
                         label: `${col.name} (${col.type})`,

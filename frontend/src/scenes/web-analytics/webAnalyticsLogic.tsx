@@ -816,7 +816,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         }
 
                         const costSelect = table.source_map.base_currency
-                            ? `convertCurrency('${table.source_map.base_currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0)))`
+                            ? `toFloat(convertCurrency('${table.source_map.base_currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0))))`
                             : `toFloat(coalesce(${table.source_map.total_cost}, 0))`
 
                         // TODO: we should replicate this logic for the area charts once we build the query runner
