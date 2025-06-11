@@ -1,5 +1,6 @@
 import json
 import structlog
+from datetime import datetime
 from typing import Optional
 
 from django.http import HttpResponse
@@ -39,16 +40,22 @@ def sample_csp_report(properties: dict, percent: float, add_metadata: bool = Fal
         return True
 
     document_url = properties.get("document_url", "")
-    should_ingest_report = sample_on_property(document_url, percent)
+    now = datetime.now().replace(second=0, microsecond=0)
+    time_str = now.isoformat()
+    sampling_key = f"{document_url}-{time_str}"
+
+    should_ingest_report = sample_on_property(sampling_key, percent)
 
     if add_metadata:
         properties["csp_sampled"] = should_ingest_report
         properties["csp_sample_threshold"] = percent
+        properties["csp_sampling_key"] = sampling_key
 
     if not should_ingest_report:
         logger.debug(
             "CSP report sampled out",
             document_url=document_url,
+            sampling_key=sampling_key,
             sample_rate=percent,
         )
 
