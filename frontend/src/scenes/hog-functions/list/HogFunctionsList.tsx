@@ -13,7 +13,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
@@ -52,6 +52,13 @@ export function HogFunctionList({
     const canChangeShowPaused = typeof props.forceFilters?.showPaused !== 'boolean'
 
     useEffect(() => loadHogFunctions(), [])
+
+    const isManualFunction = useCallback(
+        (hogFunction: HogFunctionType): boolean => {
+            return props.manualFunctions?.find((f) => f.id === hogFunction.id) !== undefined
+        },
+        [props.manualFunctions]
+    )
 
     const columns = useMemo(() => {
         const columns: LemonTableColumn<HogFunctionType, any>[] = [
@@ -113,21 +120,31 @@ export function HogFunctionList({
                         <More
                             overlay={
                                 <LemonMenuOverlay
-                                    items={[
-                                        {
-                                            label: hogFunction.enabled ? 'Pause' : 'Unpause',
-                                            onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
-                                            disabledReason:
-                                                !canEnableHogFunction(hogFunction) && !hogFunction.enabled
-                                                    ? `Data pipelines add-on is required for enabling new ${humanizedType}`
-                                                    : undefined,
-                                        },
-                                        {
-                                            label: 'Delete',
-                                            status: 'danger' as const, // for typechecker happiness
-                                            onClick: () => deleteHogFunction(hogFunction),
-                                        },
-                                    ]}
+                                    items={
+                                        isManualFunction(hogFunction)
+                                            ? [
+                                                  // TRICKY: Hack for now to just link out to the full view
+                                                  {
+                                                      label: 'View & configure',
+                                                      to: urlForHogFunction(hogFunction),
+                                                  },
+                                              ]
+                                            : [
+                                                  {
+                                                      label: hogFunction.enabled ? 'Pause' : 'Unpause',
+                                                      onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
+                                                      disabledReason:
+                                                          !canEnableHogFunction(hogFunction) && !hogFunction.enabled
+                                                              ? `Data pipelines add-on is required for enabling new ${humanizedType}`
+                                                              : undefined,
+                                                  },
+                                                  {
+                                                      label: 'Delete',
+                                                      status: 'danger' as const, // for typechecker happiness
+                                                      onClick: () => deleteHogFunction(hogFunction),
+                                                  },
+                                              ]
+                                    }
                                 />
                             }
                         />
@@ -158,7 +175,7 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction])
+    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction])
 
     return (
         <>

@@ -174,7 +174,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         type: template.type ?? 'destination',
         kind: template.kind,
         name: template.name,
-        description: template.description,
+        description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
         mappings: template.mappings?.map(
