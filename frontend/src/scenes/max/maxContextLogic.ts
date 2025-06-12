@@ -396,8 +396,27 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 if (filtersOverride) {
                     context.filters_override = filtersOverride
                 }
+
                 if (variablesOverride) {
                     context.variables_override = variablesOverride
+                }
+
+                // Deduplicate dashboards by ID
+                if (context.dashboards) {
+                    const uniqueDashboards = new Map()
+                    context.dashboards.forEach((dashboard) => {
+                        uniqueDashboards.set(dashboard.id, dashboard)
+                    })
+                    context.dashboards = Array.from(uniqueDashboards.values())
+                }
+
+                // Deduplicate insights by ID
+                if (context.insights) {
+                    const uniqueInsights = new Map()
+                    context.insights.forEach((insight) => {
+                        uniqueInsights.set(insight.id, insight)
+                    })
+                    context.insights = Array.from(uniqueInsights.values())
                 }
 
                 return hasData ? context : null
