@@ -2,7 +2,6 @@ import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
-import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,10 +15,6 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
         payGateMiniLogic({ feature, currentUsage })
     )
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
-
-    const { billingProductLoading } = useValues(
-        billingProductLogic({ product: productWithFeature as BillingProductV2Type })
-    )
 
     const ctaLink = useMemo(() => {
         if (gateVariant === 'add-card' && !isAddonProduct) {
@@ -53,7 +48,6 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
                 type="primary"
                 center
                 {...buttonProps}
-                loading={!!billingProductLoading}
                 onClick={(ev) => {
                     startPaymentEntryFlow(
                         productWithFeature as BillingProductV2Type,
