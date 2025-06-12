@@ -39,11 +39,9 @@ export function HogFunctionTemplateSuggestions({
     const { search, optionsFiltered } = useValues(logic)
     const { setSearch } = useActions(logic)
 
-    // TODO
-    // * Add a logic
-    // * Add a search
-    // * Use the correct search logic for the template language
-    // * Have a way to search for event / properties etc.
+    // FUTURE IDEAS:
+    // * Allow searching taxonomic properties to auto fill the data (events, person properties etc.)
+    // * Inline documentation for liquid
 
     return (
         <div className="flex overflow-hidden flex-col flex-1 gap-1 max-w-100">
