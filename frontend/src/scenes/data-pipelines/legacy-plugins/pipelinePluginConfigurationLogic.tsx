@@ -16,7 +16,11 @@ import {
     getPluginConfigFormData,
 } from '../../pipeline/configUtils'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
-import { loadPluginsFromUrl } from './utils'
+
+async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
+    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
+    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
+}
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
