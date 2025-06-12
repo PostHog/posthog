@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react'
 import { twJoin, twMerge } from 'tailwind-merge'
 
 function useTimingCapture(captureTime: boolean): void {
-    const mountTimeRef = useRef<number>(Date.now())
+    const mountTimeRef = useRef<number>(performance.now())
 
     useEffect(() => {
         if (!captureTime) {
@@ -15,7 +15,7 @@ function useTimingCapture(captureTime: boolean): void {
 
         const mountTime = mountTimeRef.current
         return () => {
-            const visibleTimeMs = Date.now() - mountTime
+            const visibleTimeMs = performance.now() - mountTime
             if (visibleTimeMs < 100) {
                 return // Don't bother capturing really short loads
             }
