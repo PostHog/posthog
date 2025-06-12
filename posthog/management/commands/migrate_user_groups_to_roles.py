@@ -29,12 +29,12 @@ class Command(BaseCommand):
 
             for user_group in user_groups:
                 # create roles for each user group
-                role = Role.objects.create(organization=team.organization, name=user_group.name)
+                (role, _) = Role.objects.get_or_create(organization=team.organization, name=user_group.name)
 
                 # create memberships for each user
                 members = user_group.members.all()
                 memberships = [RoleMembership(user=user, role=role) for user in members]
-                RoleMembership.objects.bulk_create(memberships)
+                RoleMembership.objects.bulk_create(memberships, ignore_conflicts=True)
 
                 # update references in error tracking models from user_group_id to role_id
                 ErrorTrackingIssueAssignment.objects.filter(user_group=user_group).update(role=role, user_group=None)
