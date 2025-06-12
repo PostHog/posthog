@@ -65,8 +65,8 @@ for module_info in pkgutil.iter_modules(products.__path__):
 
 
 # Map query kinds to their respective full UI query classes
-# NOTE: Update this when adding new query types
-MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery]] = {
+# NOTE: Update this and SupportedQueryTypes when adding new query types
+MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "TrendsQuery": TrendsQuery,
     "FunnelsQuery": FunnelsQuery,
     "RetentionQuery": RetentionQuery,

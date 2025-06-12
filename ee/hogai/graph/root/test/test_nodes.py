@@ -802,7 +802,7 @@ Query results: 42 events
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
-        self.assertEqual(result, "")
+        self.assertEqual(result, None)
         mock_query_runner.run_and_format_query.assert_not_called()
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -819,7 +819,7 @@ Query results: 42 events
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
-        self.assertEqual(result, "")
+        self.assertEqual(result, None)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
