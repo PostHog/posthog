@@ -26,11 +26,34 @@ const createTrendsInsight = async (page: Page, name: string): Promise<void> => {
 
 /** Changes the display type (Chart → Number, Pie, Bar … ) and saves the insight. */
 const setInsightDisplayTypeAndSave = async (page: Page, displayType: string): Promise<void> => {
-    await page.locator('[data-attr=insight-edit-button]').click()
-    await page.locator('[data-attr=chart-filter]').click()
-    await page.locator('.Popover').getByText(displayType).click()
-    await page.locator('[data-attr=insight-save-button]').first().click()
+    await page.locator('[data-attr="insight-edit-button"]').click()
+    await page.waitForTimeout(300)
+    await page.locator('[data-attr="chart-filter"]').click({ force: true })
+    await page.waitForTimeout(300)
+    await page.locator('.Popover button', { hasText: new RegExp(`.*${displayType}.*`, 'i') }).click({ force: true })
+    await page.waitForTimeout(300)
+    await page.locator('[data-attr="insight-save-button"]').first().click()
     await expect(page).not.toHaveURL(/\/edit$/)
+}
+
+const closeToast = async (page: Page): Promise<void> => {
+    const closeBtn = page.locator("button[data-attr='toast-close-button']").first()
+
+    if (await closeBtn.count()) {
+        await closeBtn.click()
+    }
+}
+
+async function clickLastVisible(locator: import('@playwright/test').Locator): Promise<void> {
+    const total = await locator.count()
+    for (let i = total - 1; i >= 0; i--) {
+        const candidate = locator.nth(i)
+        if (await candidate.isVisible()) {
+            await candidate.click()
+            return
+        }
+    }
+    throw new Error('No visible element matched the locator – nothing to click')
 }
 
 /** Creates an alert on the currently-open insight. */
@@ -64,18 +87,27 @@ const createAlert = async (
         await page.getByText('%').click()
     }
 
+    await page.locator('[data-attr=alertForm-lower-threshold]').click()
     await page.locator('[data-attr=alertForm-lower-threshold]').fill(lowerThreshold)
+    await page.locator('[data-attr=alertForm-upper-threshold]').click()
     await page.locator('[data-attr=alertForm-upper-threshold]').fill(upperThreshold)
-
+    await page.waitForTimeout(100)
+    await closeToast(page)
+    await closeToast(page)
+    // We have two modals in the dom, with one overlaying the other.
     await page.getByRole('button', { name: 'Create alert' }).click()
-    await expect(page.locator('.Toastify__toast-body')).toHaveText(/Alert created\./)
+    await page.waitForTimeout(100)
+    await expect(page.locator('.Toastify__toast-body', { hasText: 'Alert created.' })).toBeVisible()
     await expect(page).not.toHaveURL(/\/new$/)
+    await page.waitForTimeout(100)
 
     // Alert list should contain the new one
     await expect(page.locator('[data-attr=alert-list-item]')).toContainText(name)
 
-    // Close the slide-over
-    await page.locator('[data-attr="lemon-modal-close-button"]').click()
+    // Close the slide-over. We have two modals in the dom, with one overlaying the other.
+    await clickLastVisible(page.locator('[data-attr="lemon-modal-close-button"]'))
+    await page.waitForTimeout(100)
+    await clickLastVisible(page.locator('[data-attr="lemon-modal-close-button"]'))
 }
 
 /** Deletes the first alert in the list (assumes the details drawer is open). */
@@ -140,7 +172,6 @@ test.describe('Alerts', () => {
         // Save as incompatible “Funnels” → alerts should be removed
         await page.getByText('Funnels').click()
         await page.locator('[data-attr=insight-save-button]').first().click()
-        await page.locator('[data-attr="save-to-modal-save-button"]').click()
 
         await page.locator('[data-attr="manage-alerts-button"]').click()
         await expect(page.getByText('Alert to be deleted because of a changed insight')).toHaveCount(0)
@@ -149,7 +180,7 @@ test.describe('Alerts', () => {
     test('can create and delete a relative (“increases by”) alert', async ({ page }) => {
         await expect(page.locator('[data-attr="manage-alerts-button"]')).toHaveAttribute('aria-disabled', 'true')
 
-        await setInsightDisplayTypeAndSave(page, 'Bar chart')
+        await setInsightDisplayTypeAndSave(page, 'Trends over time as vertical bars')
         await createAlert(page, {
             lowerThreshold: '10',
             upperThreshold: '20',
