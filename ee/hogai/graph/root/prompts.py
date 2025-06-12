@@ -170,9 +170,50 @@ The user has directly provided you with additional context to help you answer th
 If the user's question is ambiguous, use the context to direct your answer as much as possible.
 If the user's provided context has nothing to do with previous interactions, ignore any past interaction and use this new context instead. The user probably wants to change topic.
 You can acknowledge that you are using this context to answer the user's question.
-
-$ui_context_dashboard
-$ui_context_insights
-
 </user_context>
+
+<attached_context>
+{{{ui_context_dashboard}}}
+{{{ui_context_insights}}}
+</attached_context>
 """
+
+ROOT_DASHBOARDS_CONTEXT_PROMPT = """
+# Attached Dashboards
+The user has attached the following dashboards.
+
+{{{dashboards}}}
+""".strip()
+
+ROOT_DASHBOARD_CONTEXT_PROMPT = """
+## Dashboard {{{name}}}
+{{#description}}
+
+Description: {{.}}
+{{/description}}
+
+### Dashboard Insights
+
+{{{insights}}}
+""".strip()
+
+ROOT_INSIGHTS_CONTEXT_PROMPT = """
+# Attached Insights
+The user has attached the following insights.
+
+{{{insights}}}
+""".strip()
+
+ROOT_INSIGHT_CONTEXT_PROMPT = """
+{{{heading}}} Insight: {{{name}}}
+
+Query schema:
+```json
+{{{query_schema}}}
+```
+
+Results:
+```
+{{{query}}}
+```
+""".strip()
