@@ -121,7 +121,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
-        force_refresh: bool = request.query_params.get("force_refresh", False)
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
         authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
