@@ -453,20 +453,6 @@ class HogFunctionViewSet(
                 combined_q = Q()
 
                 for filter_group in final_filter_groups:
-                    if "actions" in filter_group:
-                        action_ids = [
-                            str(action.get("id")) for action in filter_group.get("actions", []) if action.get("id")
-                        ]
-                        del filter_group["actions"]
-                        query = """
-                            EXISTS (
-                                SELECT 1
-                                FROM jsonb_array_elements(filters->'actions') AS elem
-                                WHERE elem->>'id' = ANY(%s)
-                            )
-                        """
-                        combined_q |= Q(extra__where=[query], extra__params=[action_ids])
-
                     if filter_group:
                         combined_q |= Q(filters__contains=filter_group)
 
