@@ -10709,7 +10709,7 @@ exports[`segment templates template segment-equals matches expected result 1`] =
             "order": 0,
             "properties": [
               {
-                "key": "type = track or type = page or type = screen or type = identify or type = group",
+                "key": "event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify') or event = '$pageview' or event = '$screen' or event in ('$identify', '$set') or event = '$groupidentify'",
                 "type": "hogql",
                 "value": null,
               },
