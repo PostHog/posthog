@@ -1,7 +1,7 @@
 import { closestCenter, DndContext } from '@dnd-kit/core'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconGear, IconInfo, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -17,7 +17,6 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -146,17 +145,19 @@ function HogFunctionTemplateInput(props: {
     }
 
     return (
-        <span className={clsx('relative', props.className)}>
+        <span className={clsx('group relative', props.className)}>
             <CodeEditorInline
+                minHeight="37" // Match other inputs
                 value={props.input.value ?? ''}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val ?? '' })}
                 language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
                 globals={sampleGlobalsWithInputs}
             />
-            <span className="absolute top-0 right-0">
+            <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
                 <HogFunctionTemplateSuggestionsButton
                     templating={templating}
                     value={props.input.value}
+                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
                         // TODO: Improve this - we shouldn't just append but rather be clever and wrap the last selected text in the template
                         // etc.
@@ -522,34 +523,6 @@ export function HogFunctionInputWithSchema({
                                         </LemonTag>
                                     )}
                                     <div className="flex-1" />
-
-                                    {supportsTemplating && (
-                                        <div className="flex gap-2 items-center opacity-0 transition-opacity group-hover:opacity-100">
-                                            <LemonButton
-                                                size="xsmall"
-                                                to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
-                                                sideIcon={<IconInfo />}
-                                                noPadding
-                                                className="p-1"
-                                            >
-                                                Supports templating
-                                            </LemonButton>
-
-                                            <FlaggedFeature flag="cdp-hog-input-liquid">
-                                                <LemonSelect
-                                                    size="xsmall"
-                                                    value={value?.templating ?? 'hog'}
-                                                    onChange={(templating) =>
-                                                        onChange({ value: value?.value, templating })
-                                                    }
-                                                    options={[
-                                                        { label: 'Hog', value: 'hog' },
-                                                        { label: 'Liquid', value: 'liquid' },
-                                                    ]}
-                                                />
-                                            </FlaggedFeature>
-                                        </div>
-                                    )}
 
                                     {showSource && (
                                         <LemonButton

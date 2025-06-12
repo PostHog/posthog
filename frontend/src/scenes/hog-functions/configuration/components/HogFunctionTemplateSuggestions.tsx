@@ -1,6 +1,7 @@
 import { STL as HOG_STL } from '@posthog/hogvm'
-import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonInput, Link } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useState } from 'react'
 
 export type HogFunctionTemplateOption = {
@@ -11,6 +12,7 @@ export type HogFunctionTemplateOption = {
 
 export type HogFunctionTemplateSuggestionsProps = {
     templating: 'hog' | 'liquid'
+    setTemplating?: (templating: 'hog' | 'liquid') => void
     value: string
     onOptionSelect: (option: HogFunctionTemplateOption) => void
 }
@@ -53,6 +55,7 @@ function HogFunctionTemplateSuggestionsItem({
 
 export function HogFunctionTemplateSuggestions({
     templating,
+    setTemplating,
     value,
     onOptionSelect,
 }: HogFunctionTemplateSuggestionsProps): JSX.Element {
@@ -67,16 +70,32 @@ export function HogFunctionTemplateSuggestions({
     return (
         <div className="flex overflow-hidden flex-col flex-1 gap-1 max-w-100">
             <div className="flex flex-col gap-1 p-2 flex-0">
-                <LemonInput
-                    type="search"
-                    placeholder="Search"
-                    autoFocus
-                    value={search}
-                    onChange={setSearch}
-                    fullWidth
-                />
+                <div className="flex gap-1">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search templating options"
+                        autoFocus
+                        value={search}
+                        onChange={setSearch}
+                        fullWidth
+                    />
+
+                    {setTemplating ? (
+                        <FlaggedFeature flag="cdp-hog-input-liquid">
+                            <LemonSelect
+                                value={templating}
+                                onChange={setTemplating}
+                                options={[
+                                    { label: 'Hog', value: 'hog' },
+                                    { label: 'Liquid', value: 'liquid' },
+                                ]}
+                                tooltip="Change the templating language"
+                            />
+                        </FlaggedFeature>
+                    ) : null}
+                </div>
                 <div className="text-xs text-secondary">
-                    Below are a list of available functions for templating your inputs.{' '}
+                    Below are a list of available functions for templating your inputs using <b>{templating}</b>.
                     <Link to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload">
                         Learn more
                     </Link>
@@ -121,7 +140,11 @@ export function HogFunctionTemplateSuggestionsButton({
             overlay={<HogFunctionTemplateSuggestions {...props} onOptionSelect={_onOptionSelect} />}
             overflowHidden
         >
-            <LemonButton size="small" icon={<IconMagicWand />} />
+            <LemonButton
+                size="small"
+                icon={<IconCode />}
+                tooltip="Supports templating - click to see available options"
+            />
         </LemonDropdown>
     )
 }
