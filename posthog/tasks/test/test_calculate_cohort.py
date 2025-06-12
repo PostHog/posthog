@@ -14,6 +14,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_ERRORS_CALCULATING,
     update_stale_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
+    COHORT_STUCK_COUNT_GAUGE,
 )
 from posthog.test.base import APIBaseTest
 
@@ -199,6 +200,55 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
             self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
             self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
+
+        @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
+        def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create stuck cohort - is_calculating=True and last_calculation > 12 hours ago
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort",
+                last_calculation=now - relativedelta(hours=2),
+                deleted=False,
+                is_calculating=True,  # Stuck calculating
+                errors_calculating=5,
+                is_static=False,
+            )
+
+            # Create another stuck cohort
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort_2",
+                last_calculation=now - relativedelta(hours=3),
+                deleted=False,
+                is_calculating=True,  # Stuck calculating
+                errors_calculating=2,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="not_calculating",
+                last_calculation=now - relativedelta(hours=24),  # Old but not calculating
+                deleted=False,
+                is_calculating=False,  # Not calculating
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="recent_calculation",
+                last_calculation=now - relativedelta(minutes=59),  # Recent calculation
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            update_stale_cohort_metrics()
+            mock_set.assert_called_with(2)
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")

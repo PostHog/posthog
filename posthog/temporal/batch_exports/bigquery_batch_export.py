@@ -296,7 +296,7 @@ class BigQueryClient(bigquery.Client):
 
         if "timestamp" in [field.name for field in table.schema]:
             query = f"""
-            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
             """
 
             if table.time_partitioning is not None and table.time_partitioning.field == "timestamp":
@@ -307,7 +307,7 @@ class BigQueryClient(bigquery.Client):
 
         else:
             query = f"""
-            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` LIMIT 1
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` TABLESAMPLE SYSTEM (0.0001 PERCENT) LIMIT 1
             """
 
         try:

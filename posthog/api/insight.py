@@ -3,6 +3,8 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
 from pydantic import BaseModel
 import structlog
@@ -60,9 +62,6 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    conversion_to_query_based,
-)
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     execution_mode_from_refresh,
@@ -263,6 +262,9 @@ class InsightBasicSerializer(
         else:
             filters = instance.dashboard_filters()
             representation["filters"] = filters
+
+        # upgrade the query to the latest version
+        representation["query"] = upgrade(representation["query"])
 
         return representation
 
@@ -697,7 +699,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        with conversion_to_query_based(insight):
+        with upgrade_query(insight):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
@@ -1093,7 +1095,8 @@ When set, the specified dashboard's filters and date range override will be appl
     def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
-        query = filter_to_query(filter.to_dict())
+        query = filter_to_query(filter.to_dict()).model_dump()
+        query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
@@ -1157,7 +1160,8 @@ When set, the specified dashboard's filters and date range override will be appl
         team = self.team
         filter = Filter(request=request, team=team)
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
-        query = filter_to_query(filter.to_dict())
+        query = filter_to_query(filter.to_dict()).model_dump()
+        query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
