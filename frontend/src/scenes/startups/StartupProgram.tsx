@@ -12,7 +12,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { RAISED_OPTIONS, startupProgramLogic, YC_BATCH_OPTIONS } from './startupProgramLogic'
+import { RAISED_OPTIONS } from './constants'
+import { startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
@@ -28,13 +29,15 @@ export function StartupProgram(): JSX.Element {
     const {
         startupProgram,
         formSubmitted,
-        isAlreadyOnStartupPlan,
+        isCurrentlyOnStartupPlan,
+        wasPreviouslyOnStartupPlan,
         isUserOrganizationOwnerOrAdmin,
         isYC,
         isReferralProgram,
         referrerDisplayName,
+        ycBatchOptions,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue, showPaymentEntryModal } = useActions(startupProgramLogic)
 
     const programName = isYC ? 'YC Program' : 'Startup Program'
@@ -49,14 +52,36 @@ export function StartupProgram(): JSX.Element {
         },
     })
 
-    if (isAlreadyOnStartupPlan) {
+    if (isCurrentlyOnStartupPlan || wasPreviouslyOnStartupPlan) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
-                    <h2 className="mb-2">You're already in the {programName}</h2>
+                    <h2 className="mb-2">
+                        You {wasPreviouslyOnStartupPlan ? 'were' : 'are'} already in the {programName}
+                    </h2>
                     <p>
-                        It looks like your organization is already part of our {programName}. If you have any questions,
-                        please contact our support team.
+                        It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
+                        {programName}. If you have any questions, please contact our support team.
+                    </p>
+                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                        Return to PostHog
+                    </LemonButton>
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    if (isAnnualPlanCustomer) {
+        return (
+            <div className="mx-auto max-w-200 mt-6 px-4">
+                <LemonBanner type="info">
+                    <h2 className="mb-2">You are already on an annual plan</h2>
+                    <p>
+                        It looks like your organization is already on our annual plan. If you have any questions, please
+                        contact{' '}
+                        {accountOwner?.name && accountOwner?.email
+                            ? `your PostHog human ${accountOwner.name.split(' ')[0]} at ${accountOwner.email}`
+                            : 'our support team'}
                     </p>
                     <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
                         Return to PostHog
@@ -340,7 +365,7 @@ export function StartupProgram(): JSX.Element {
                                 {isYC && (
                                     <>
                                         <LemonField name="yc_batch" label="Which YC batch are you?">
-                                            <LemonSelect options={YC_BATCH_OPTIONS} className="bg-bg-light" />
+                                            <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
                                         </LemonField>
 
                                         <LemonField

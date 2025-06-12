@@ -2,6 +2,8 @@ import { LogicWrapper } from 'kea'
 
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
+import { SettingSectionId } from './settings/types'
+
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
@@ -93,6 +95,7 @@ export enum Scene {
     Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     MessagingCampaigns = 'MessagingCampaigns',
+    MessagingCampaign = 'MessagingCampaign',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',
@@ -115,6 +118,8 @@ export interface SceneExport {
     component: SceneComponent
     /** logic to mount for this scene */
     logic?: LogicWrapper
+    /** setting section id to open when clicking the settings button */
+    settingSectionId?: SettingSectionId
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => SceneProps
     /** when was the scene last touched, unix timestamp for sortability */
