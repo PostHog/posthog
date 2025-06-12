@@ -122,7 +122,7 @@ impl<'a> HogVM<'a> {
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
                 } else {
-                    return Err(VmError::UnknownGlobal(format!("{:?}", chain)));
+                    self.push_stack(HogLiteral::Null)?;
                 }
             }
             // We don't implement DeclareFn, because it's not used in the current compiler - it uses
