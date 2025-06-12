@@ -7735,6 +7735,17 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     response: Optional[WebAnalyticsExternalSummaryQueryResponse] = None
 
 
+class WebAnalyticsExternalSummaryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str = Field(description="Start date for the query (YYYY-MM-DD)")
+    date_to: str = Field(description="End date for the query (YYYY-MM-DD)")
+    explicit_date: bool = Field(
+        default=False, description="Whether to use dates verbatim without rounding to period boundaries"
+    )
+
+
 class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

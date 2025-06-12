@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.database.s3_table import S3Table
+from django.conf import settings
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
@@ -15,14 +16,19 @@ from posthog.settings.object_storage import (
 
 
 def get_s3_url(team_id: int, table_name: str) -> str:
-    if OBJECT_STORAGE_ENDPOINT:
-        # Fix localhost to use Docker container name for ClickHouse access
-        endpoint = OBJECT_STORAGE_ENDPOINT.replace("localhost:19000", "objectstorage:19000")
-        base_url = f"{endpoint}/{OBJECT_STORAGE_BUCKET}"
+    if settings.DEBUG:
+        s3_endpoint = "http://objectstorage:19000"
+        bucket = "posthog"
+        key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
+        return f"{s3_endpoint}/{bucket}/{key}"
     else:
-        base_url = f"https://{OBJECT_STORAGE_BUCKET}.s3.amazonaws.com"
+        if OBJECT_STORAGE_ENDPOINT:
+            endpoint = OBJECT_STORAGE_ENDPOINT.replace("localhost:19000", "objectstorage:19000")
+            base_url = f"{endpoint}/{OBJECT_STORAGE_BUCKET}"
+        else:
+            base_url = f"https://{OBJECT_STORAGE_BUCKET}.s3.amazonaws.com"
 
-    return f"{base_url}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
+        return f"{base_url}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
 
 
 def get_s3_web_stats_structure() -> str:

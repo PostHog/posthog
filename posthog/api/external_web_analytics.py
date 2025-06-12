@@ -1,34 +1,37 @@
 from rest_framework import viewsets
-from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
 
+from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.hogql_queries.web_analytics.external.summary_query_runner import WebAnalyticsExternalSummaryQueryRunner
 from posthog.schema import (
     WebAnalyticsExternalSummaryQuery,
+    WebAnalyticsExternalSummaryRequest,
+    WebAnalyticsExternalSummaryQueryResponse,
     DateRange,
 )
 
 
-class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "query"
     scope_object_read_actions = ["summary"]
     scope_object_write_actions: list[str] = []
 
+    @extend_schema(
+        request=WebAnalyticsExternalSummaryRequest,
+        responses={200: WebAnalyticsExternalSummaryQueryResponse},
+        description="Get an overview of web analytics data.",
+    )
     @action(methods=["POST"], detail=False)
     def summary(self, request: Request, **kwargs) -> Response:
-        date_from = request.data.get("date_from")
-        date_to = request.data.get("date_to")
-        explicit_date = request.data.get("explicit_date", False)
-
-        if not date_from or not date_to:
-            raise ValidationError({"date_range": ["date_from and date_to are required"]}, code="required")
+        data = self.get_model(request.data, WebAnalyticsExternalSummaryRequest)
 
         query = WebAnalyticsExternalSummaryQuery(
             kind="WebAnalyticsExternalSummaryQuery",
-            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=DateRange(date_from=data.date_from, date_to=data.date_to, explicitDate=data.explicit_date),
             properties=[],
         )
 

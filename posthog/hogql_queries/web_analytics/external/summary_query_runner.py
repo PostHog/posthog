@@ -135,7 +135,6 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
         stats_data = stats_result.results[0] if stats_result.results else ["0", "0", "0"]
         bounces_data = bounces_result.results[0] if bounces_result.results else ["0", "0"]
 
-        # Convert CSV string values to integers
         unique_visitors = int(stats_data[0]) if stats_data[0] else 0
         total_sessions = int(stats_data[1]) if stats_data[1] else 0
         total_pageviews = int(stats_data[2]) if stats_data[2] else 0

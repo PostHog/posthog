@@ -61,7 +61,6 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         response = self.client.post(self.url, data={})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "date_from and date_to are required" in str(response.content)
 
     def test_summary_missing_date_from(self):
         response = self.client.post(
@@ -73,7 +72,6 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "date_from and date_to are required" in str(response.content)
 
     def test_summary_missing_date_to(self):
         response = self.client.post(
@@ -85,7 +83,6 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "date_from and date_to are required" in str(response.content)
 
     @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
     def test_summary_platform_access_required(self, mock_chdb):
@@ -171,3 +168,18 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_summary_included_in_openapi_schema(self):
+        schema_response = self.client.get("/api/schema/")
+
+        assert schema_response.status_code == 200
+        assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
+
+        import yaml
+
+        schema = yaml.safe_load(schema_response.content)
+
+        paths = schema.get("paths", {})
+        endpoint_path = f"/api/projects/{{project_id}}/external_web_analytics/summary/"
+
+        assert endpoint_path in paths
