@@ -42,6 +42,7 @@ export function HogFunctionTemplateSuggestions({
     // FUTURE IDEAS:
     // * Allow searching taxonomic properties to auto fill the data (events, person properties etc.)
     // * Inline documentation for liquid
+    // * Have the last selected text selection be passed in so we can fill it in the appropriate place
 
     return (
         <div className="flex overflow-hidden flex-col flex-1 gap-1 max-w-100">
