@@ -26,15 +26,17 @@ export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
 
 export type HogFunctionTemplateListFilters = {
     search?: string
-    filters?: Record<string, any>
 }
 
 export type HogFunctionTemplateListLogicProps = {
+    /** The primary type of hog function to list */
     type: HogFunctionTypeType
+    /** Additional types to list */
     additionalTypes?: HogFunctionTypeType[]
+    /** If provided, only those templates will be shown */
     subTemplateIds?: HogFunctionSubTemplateIdType[]
-    defaultFilters?: HogFunctionTemplateListFilters
-    forceFilters?: HogFunctionTemplateListFilters
+    /** Overrides to be used when creating a new hog function */
+    configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
     syncFiltersWithUrl?: boolean
 }
 
@@ -74,18 +76,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         filters: [
-            { ...(props.defaultFilters || {}), ...(props.forceFilters || {}) } as HogFunctionTemplateListFilters,
+            {} as HogFunctionTemplateListFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
-                    ...(props.forceFilters || {}),
                 }),
-                resetFilters: () => ({
-                    ...(props.forceFilters || {}),
-                }),
+                resetFilters: () => ({}),
             },
         ],
     })),
@@ -170,7 +169,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ forceFilters }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
+            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
@@ -178,12 +177,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     const configuration: Record<string, any> = {
                         ...(subTemplate ?? {}),
+                        ...(configurationOverrides ?? {}),
                     }
-                    if (forceFilters?.filters) {
-                        // Always use the forced filters if given
-                        configuration.filters = forceFilters.filters
-                    }
-                    // Add the filters to the url and the template id
 
                     return combineUrl(
                         urls.hogFunctionNew(template.id),

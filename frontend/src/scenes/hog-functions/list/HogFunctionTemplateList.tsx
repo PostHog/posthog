@@ -28,14 +28,12 @@ export function HogFunctionTemplateList({
     return (
         <>
             <div className="flex gap-2 items-center mb-2">
-                {!props.forceFilters?.search && (
-                    <LemonInput
-                        type="search"
-                        placeholder="Search..."
-                        value={filters.search ?? ''}
-                        onChange={(e) => setFilters({ search: e })}
-                    />
-                )}
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={filters.search ?? ''}
+                    onChange={(e) => setFilters({ search: e })}
+                />
                 {!hideFeedback ? (
                     <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
                         Can't find what you're looking for?

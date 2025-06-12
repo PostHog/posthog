@@ -3710,7 +3710,6 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "selenium" },
     { name = "semantic-version" },
-    { name = "sentry-sdk", extra = ["celery", "clickhouse-driver", "django", "openai"] },
     { name = "simple-salesforce" },
     { name = "slack-sdk" },
     { name = "snowflake-connector-python" },
@@ -3898,7 +3897,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=4.2.0" },
+    { name = "posthoganalytics", specifier = ">=4.6.2" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -3920,7 +3919,6 @@ requires-dist = [
     { name = "scikit-learn", specifier = "==1.5.0" },
     { name = "selenium", specifier = "==4.28.1" },
     { name = "semantic-version", specifier = "==2.8.5" },
-    { name = "sentry-sdk", extras = ["celery", "clickhouse-driver", "django", "openai"], specifier = "~=1.44.1" },
     { name = "simple-salesforce", specifier = ">=1.12.6" },
     { name = "slack-sdk", specifier = "==3.17.1" },
     { name = "snowflake-connector-python", specifier = "==3.15.0" },
@@ -4018,7 +4016,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "4.2.0"
+version = "4.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4027,9 +4025,9 @@ dependencies = [
     { name = "requests" },
     { name = "six" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/05/90dd1ab541498c72864b0395f1b0b3dd3970c3a6cba93b9a540903ceb1f0/posthoganalytics-4.2.0.tar.gz", hash = "sha256:8638da531a3b232bf935b84e138353c643a5cd68a70a078f56f004e7a765956a", size = 80332, upload-time = "2025-05-23T23:23:59.622Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/64/9d9b82c0ba828e6921ef67bab519bddfbb42c34475a7f48227e3f83a0717/posthoganalytics-4.6.2.tar.gz", hash = "sha256:46ceaad31533d5f5a96ed357d3e70867bc3caaa4c2d3ddf8a63bb7d0a9ee7f52", size = 84876, upload-time = "2025-06-10T10:06:00.427Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/5f/91a2a96e803a56aabecdae7d572fb0a31dba61288b1520b950e6e9e3977c/posthoganalytics-4.2.0-py2.py3-none-any.whl", hash = "sha256:d77c3fc7ea43e637f8add48bfb8f297ad53b1c201716549a6306c0bd591f0852", size = 97514, upload-time = "2025-05-23T23:23:58.074Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/89/9dc32d720eed8aa790d81f02ec0aec4948ce06dff04c7d7baac6b8db9f33/posthoganalytics-4.6.2-py3-none-any.whl", hash = "sha256:e757f60fb3256d9887ebd840a8ece4fe3f4e164e26423093584e255bd209623d", size = 103033, upload-time = "2025-06-10T10:05:58.677Z" },
 ]
 
 [[package]]
@@ -5095,34 +5093,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/72/d1/d3159231aec234a59dd7d601e9dd9fe96f3afff15efd33c1070019b26132/semver-3.0.4.tar.gz", hash = "sha256:afc7d8c584a5ed0a11033af086e8af226a9c0b206f313e0301f8dd7b6b589602", size = 269730, upload-time = "2025-01-24T13:19:27.617Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/24/4d91e05817e92e3a61c8a21e08fd0f390f5301f1c448b137c57c4bc6e543/semver-3.0.4-py3-none-any.whl", hash = "sha256:9c824d87ba7f7ab4a1890799cec8596f15c1241cb473404ea1cb0c55e4b04746", size = 17912, upload-time = "2025-01-24T13:19:24.949Z" },
-]
-
-[[package]]
-name = "sentry-sdk"
-version = "1.44.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "certifi" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/fd/72/85a8bc961d9160ac8c9f0a6d39dbdad21795d55c7b02a433bd0ffb75c037/sentry-sdk-1.44.1.tar.gz", hash = "sha256:24e6a53eeabffd2f95d952aa35ca52f0f4201d17f820ac9d3ff7244c665aaf68", size = 243446, upload-time = "2024-04-03T08:25:53.615Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/f8/2038661bc32579d0c11191fc1093e49db590bfb6e63d501d7995fb798d62/sentry_sdk-1.44.1-py2.py3-none-any.whl", hash = "sha256:5f75eb91d8ab6037c754a87b8501cc581b2827e923682f593bed3539ce5b3999", size = 266105, upload-time = "2024-04-03T08:25:50.628Z" },
-]
-
-[package.optional-dependencies]
-celery = [
-    { name = "celery" },
-]
-clickhouse-driver = [
-    { name = "clickhouse-driver" },
-]
-django = [
-    { name = "django" },
-]
-openai = [
-    { name = "openai" },
-    { name = "tiktoken" },
 ]
 
 [[package]]
