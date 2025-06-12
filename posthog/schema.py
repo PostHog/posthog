@@ -10130,7 +10130,6 @@ class LogsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[OrderBy1] = None
-    resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
     serviceNames: list[str]

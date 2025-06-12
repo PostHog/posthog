@@ -83,7 +83,6 @@ export const logsLogic = kea<logsLogicType>([
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
-        setResource: (resource: LogsQuery['resource']) => ({ resource }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
@@ -115,13 +114,6 @@ export const logsLogic = kea<logsLogicType>([
             { persist: true },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
-        resource: [
-            '' as LogsQuery['resource'],
-            { persist: true },
-            {
-                setResource: (_, { resource }) => resource,
             },
         ],
         severityLevels: [
@@ -216,7 +208,6 @@ export const logsLogic = kea<logsLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.dateRange,
                             searchTerm: values.searchTerm,
-                            resource: values.resource,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
@@ -247,7 +238,6 @@ export const logsLogic = kea<logsLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.dateRange,
                             searchTerm: values.searchTerm,
-                            resource: values.resource,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
