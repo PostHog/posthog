@@ -21,13 +21,14 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def summary(self, request: Request, **kwargs) -> Response:
         date_from = request.data.get("date_from")
         date_to = request.data.get("date_to")
+        explicit_date = request.data.get("explicit_date", False)
 
         if not date_from or not date_to:
             raise ValidationError({"date_range": ["date_from and date_to are required"]}, code="required")
 
         query = WebAnalyticsExternalSummaryQuery(
             kind="WebAnalyticsExternalSummaryQuery",
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             properties=[],
         )
 

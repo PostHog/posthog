@@ -1,0 +1,173 @@
+from unittest.mock import patch
+from rest_framework import status
+from posthog.test.base import APIBaseTest
+
+
+class ExternalWebAnalyticsAPITest(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/external_web_analytics/summary/"
+
+    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    def test_summary_success(self, mock_chdb):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
+        mock_chdb.query.side_effect = [
+            "100,50,200\n",
+            "25,50\n",
+        ]
+
+        response = self.client.post(
+            self.url,
+            data={
+                "date_from": "2023-01-01",
+                "date_to": "2023-01-31",
+                "explicit_date": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["data"]["unique_visitors"] == 100
+        assert data["data"]["total_sessions"] == 50
+        assert data["data"]["total_pageviews"] == 200
+        assert data["data"]["bounce_rate"] == 0.5
+
+    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    def test_summary_success_explicit_date_default_false(self, mock_chdb):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
+        mock_chdb.query.side_effect = [
+            "100,50,200\n",
+            "25,50\n",
+        ]
+
+        response = self.client.post(
+            self.url,
+            data={
+                "date_from": "2023-01-01",
+                "date_to": "2023-01-31",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "success"
+
+    def test_summary_missing_date_params(self):
+        response = self.client.post(self.url, data={})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "date_from and date_to are required" in str(response.content)
+
+    def test_summary_missing_date_from(self):
+        response = self.client.post(
+            self.url,
+            data={
+                "date_to": "2023-01-31",
+                "explicit_date": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "date_from and date_to are required" in str(response.content)
+
+    def test_summary_missing_date_to(self):
+        response = self.client.post(
+            self.url,
+            data={
+                "date_from": "2023-01-01",
+                "explicit_date": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "date_from and date_to are required" in str(response.content)
+
+    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    def test_summary_platform_access_required(self, mock_chdb):
+        self.team.organization.is_platform = False
+        self.team.organization.save()
+
+        response = self.client.post(
+            self.url,
+            data={
+                "date_from": "2023-01-01",
+                "date_to": "2023-01-31",
+                "explicit_date": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "error"
+        assert data["error"]["code"] == "platform_access_required"
+        assert mock_chdb.query.call_count == 0
+
+    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    def test_summary_query_execution_failed(self, mock_chdb):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
+        mock_chdb.query.side_effect = Exception("chdb connection failed")
+
+        response = self.client.post(
+            self.url,
+            data={
+                "date_from": "2023-01-01",
+                "date_to": "2023-01-31",
+                "explicit_date": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "error"
+        assert data["error"]["code"] == "query_execution_failed"
+
+    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    def test_summary_empty_results(self, mock_chdb):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
+        mock_chdb.query.side_effect = ["", ""]
+
+        response = self.client.post(
+            self.url,
+            data={
+                "date_from": "2023-01-01",
+                "date_to": "2023-01-31",
+                "explicit_date": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["data"]["unique_visitors"] == 0
+        assert data["data"]["total_sessions"] == 0
+        assert data["data"]["total_pageviews"] == 0
+        assert data["data"]["bounce_rate"] == 0.0
+
+    def test_summary_requires_post(self):
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_summary_team_isolation(self):
+        other_organization = self.create_organization_with_features([])
+        other_team = self.create_team_with_organization(organization=other_organization)
+        other_url = f"/api/projects/{other_team.id}/external_web_analytics/summary/"
+
+        response = self.client.post(
+            other_url,
+            data={
+                "date_from": "2023-01-01",
+                "date_to": "2023-01-31",
+                "explicit_date": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
