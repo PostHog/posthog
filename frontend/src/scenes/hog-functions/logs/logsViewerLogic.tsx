@@ -70,7 +70,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
             AND timestamp < {filters.dateRange.to}
             AND lower(level) IN ${request.levels.map((level) => `${level.toLowerCase()}`)}
             AND message ILIKE ${`%${request.search}%`}
-            ORDER BY timestamp ${request.order}
+            ORDER BY timestamp DESC
             LIMIT ${LOG_VIEWER_LIMIT}
         )
         GROUP BY instance_id
