@@ -203,8 +203,6 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(session_id)
         # Set up a spy to track Redis operations
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
-        # Add the input key to cleanup list
-        redis_test_setup.keys_to_cleanup.append(input_data.redis_input_key)
         with (
             patch("temporalio.activity.heartbeat") as mock_heartbeat,
             # Mock DB calls
@@ -235,6 +233,39 @@ class TestFetchSessionDataActivity:
             )
             assert decompressed_data.session_id == session_id
             assert decompressed_data.user_pk == input_data.user_pk
+
+    @pytest.mark.asyncio
+    async def test_fetch_session_data_activity_no_events_raises_error(
+        self,
+        mock_single_session_summary_inputs: Callable,
+        mock_team: MagicMock,
+        mock_raw_metadata: dict[str, Any],
+        mock_raw_events_columns: list[str],
+    ):
+        """Test that fetch_session_data_activity raises ApplicationError when no events are found (e.g., for fresh real-time replays)."""
+        session_id = "test_session_no_events"
+        input_data = mock_single_session_summary_inputs(session_id)
+        with (
+            patch("temporalio.activity.heartbeat") as mock_heartbeat,
+            # Mock DB calls - return columns but no events (empty list)
+            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                return_value=mock_raw_metadata,
+            ),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                return_value=(mock_raw_events_columns, []),  # Return columns but no events
+            ),
+        ):
+            # Call the activity and expect an ApplicationError with a specific message
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_data_activity(input_data)
+            # Verify the error is retryable and contains the expected message
+            assert not exc_info.value.non_retryable
+            assert "No events found for this replay yet" in str(exc_info.value)
+            # Verify heartbeat was called
+            assert mock_heartbeat.call_count >= 1
 
 
 class TestStreamLlmSummaryActivity:
