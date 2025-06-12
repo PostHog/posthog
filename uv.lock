@@ -285,6 +285,15 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncstdlib"
+version = "3.13.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/e1/72e388631c85233a2fd890d024fc20a8a9961dbba8614d78266636218f1f/asyncstdlib-3.13.1.tar.gz", hash = "sha256:f47564b9a3566f8f9172631d88c75fe074b0ce2127963b7265d310df9aeed03a", size = 49752, upload-time = "2025-03-09T07:52:51.587Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/4a/c86c045bc7bb0244044935ba80c83998f1fdee4f4cef64c6b078e043b0e6/asyncstdlib-3.13.1-py3-none-any.whl", hash = "sha256:a64da68176af1da8c699026cad98f70b184f82b4cb39739e0b9701a2a7541cf9", size = 43993, upload-time = "2025-03-09T07:52:50.108Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3627,6 +3636,7 @@ dependencies = [
     { name = "aiokafka" },
     { name = "anthropic" },
     { name = "antlr4-python3-runtime" },
+    { name = "asyncstdlib" },
     { name = "azure-ai-inference" },
     { name = "azure-ai-projects" },
     { name = "beautifulsoup4" },
@@ -3837,6 +3847,7 @@ requires-dist = [
     { name = "aiokafka", specifier = ">=0.8" },
     { name = "anthropic", specifier = "==0.49.0" },
     { name = "antlr4-python3-runtime", specifier = "==4.13.1" },
+    { name = "asyncstdlib", specifier = "==3.13.1" },
     { name = "azure-ai-inference", specifier = ">=1.0.0b9" },
     { name = "azure-ai-projects", specifier = ">=1.0.0b11" },
     { name = "beautifulsoup4", specifier = "==4.12.3" },

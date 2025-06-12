@@ -10,6 +10,7 @@ import re
 import typing
 import uuid
 
+import asyncstdlib
 import deltalake
 import structlog
 import temporalio.activity
@@ -19,16 +20,17 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
@@ -36,6 +38,7 @@ from posthog.warehouse.models import (
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
+    get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
@@ -368,12 +371,35 @@ async def materialize_model(
     hogql_query = saved_query.query["query"]
 
     try:
+        row_count = 0
+
         table_uri = f"{settings.BUCKET_URL}/team_{team.pk}_model_{model_label}/modeling/{saved_query.normalized_name}"
-        pa_table = await hogql_table(hogql_query, team)
-        deltalake.write_deltalake(
-            table_or_uri=table_uri, storage_options=_get_credentials(), data=pa_table, mode="overwrite"
-        )
-        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=_get_credentials())
+        storage_options = _get_credentials()
+
+        # Delete existing table first so that there are no schema conflicts
+        s3 = get_s3_client()
+        try:
+            await logger.adebug(f"Deleting existing delta table at {table_uri}")
+            s3.delete(table_uri, recursive=True)
+            await logger.adebug("Table deleted")
+        except FileNotFoundError:
+            await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
+
+        async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team)):
+            mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
+            if index == 0:
+                mode = "overwrite"
+
+            await logger.adebug(
+                f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
+            )
+
+            deltalake.write_deltalake(
+                table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode="overwrite"
+            )
+            row_count = row_count + batch.num_rows
+
+        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
     except Exception as e:
         error_message = str(e)
         if "Query exceeds memory limits" in error_message:
@@ -409,8 +435,6 @@ async def materialize_model(
 
     prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
 
-    # Count rows and update both DataWarehouseTable and DataModelingJob
-    row_count = pa_table.num_rows
     await update_table_row_count(saved_query, row_count)
 
     # Update the job record with the row count and completed status
@@ -455,27 +479,50 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
 async def hogql_table(query: str, team: Team):
     """A HogQL table given by a HogQL query."""
 
-    settings = HogQLGlobalSettings(
-        max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
-    )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
+    # settings = HogQLGlobalSettings(
+    #     max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
+    # )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
 
-    # Pass the query_type parameter to influence tags in a thread safe way
-    response = await asyncio.to_thread(
-        execute_hogql_query,
-        query,
-        team,
-        settings=settings,
-        limit_context=LimitContext.SAVED_QUERY,
-        workload=Workload.OFFLINE,
-        query_type="materialization",
+    # # Pass the query_type parameter to influence tags in a thread safe way
+    # response = await asyncio.to_thread(
+    #     execute_hogql_query,
+    #     query,
+    #     team,
+    #     settings=settings,
+    #     limit_context=LimitContext.SAVED_QUERY,
+    #     workload=Workload.OFFLINE,
+    #     query_type="materialization",
+    # )
+
+    # if not response.columns:
+    #     raise EmptyHogQLResponseColumnsError()
+
+    # columns: list[str] = response.columns
+
+    query_node = parse_select(query)
+
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+    )
+    context.output_format = "TabSeparatedWithNamesAndTypes"
+    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+
+    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+        query_node, context=context, dialect="clickhouse", stack=[]
+    )
+    printed = await database_sync_to_async(print_prepared_ast)(
+        prepared_hogql_query,
+        context=context,
+        dialect="clickhouse",
+        stack=[],
     )
 
-    if not response.columns:
-        raise EmptyHogQLResponseColumnsError()
-
-    columns: list[str] = response.columns
-
-    return table_from_iterator(dict(zip(columns, row)) for row in response.results)
+    async with get_client() as client:
+        async for batch, pa_schema in client.astream_query_in_batches(printed, query_parameters=context.values):
+            yield table_from_py_list(batch, pa_schema)
 
 
 def _get_credentials():

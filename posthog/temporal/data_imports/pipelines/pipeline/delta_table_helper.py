@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 import json
 from conditional_cache import lru_cache
-from typing import Any
+from typing import Any, Literal
 import deltalake.exceptions
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -185,8 +185,8 @@ class DeltaTableHelper:
                 self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
         else:
-            mode = "append"
-            schema_mode = "merge"
+            mode: Literal["error", "append", "overwrite", "ignore"] = "append"
+            schema_mode: Literal["merge", "overwrite"] | None = "merge"
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
