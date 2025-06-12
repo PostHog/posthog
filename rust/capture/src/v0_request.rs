@@ -281,7 +281,7 @@ impl RawRequest {
     }
 
     pub fn events(self, path: &str) -> Result<Vec<RawEvent>, CaptureError> {
-        match self {
+        let result = match self {
             RawRequest::Array(events) => Ok(events),
             RawRequest::One(event) => Ok(vec![*event]),
             RawRequest::Batch(req) => Ok(req.batch),
@@ -304,6 +304,15 @@ impl RawRequest {
                     )))
                 }
             }
+        };
+
+        // filter out event types we dont' want to ingest
+        match result {
+            Ok(mut events) => {
+                events.retain(|event| event.event != "$performance_event");
+                Ok(events)
+            }
+            _ => result,
         }
     }
 
