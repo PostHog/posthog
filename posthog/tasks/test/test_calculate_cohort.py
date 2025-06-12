@@ -10,8 +10,11 @@ from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
-    increment_version_and_enqueue_calculate_cohort,
     MAX_AGE_MINUTES,
+    MAX_ERRORS_CALCULATING,
+    update_stale_cohort_metrics,
+    COHORTS_STALE_COUNT_GAUGE,
+    COHORT_STUCK_COUNT_GAUGE,
 )
 from posthog.test.base import APIBaseTest
 
@@ -96,99 +99,193 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
 
-        @patch("posthog.tasks.calculate_cohort.chain")
-        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
-        def test_increment_version_and_enqueue_calculate_cohort_with_nested_cohorts(
-            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
-        ) -> None:
-            # Test dependency graph structure:
-            # A ──┐
-            #     ├─→ C ──→ D
-            # B ──┘
-            # Expected execution order: A, B, C, D
-            # Create leaf cohort A
-            cohort_a = Cohort.objects.create(
-                team=self.team,
-                name="Cohort A",
-                groups=[{"properties": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}]}],
+        @patch.object(COHORTS_STALE_COUNT_GAUGE, "labels")
+        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock) -> None:
+            mock_gauge = MagicMock()
+            mock_labels.return_value = mock_gauge
+
+            now = timezone.now()
+
+            # Create cohorts with different staleness levels
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="fresh_cohort",
+                last_calculation=now - relativedelta(hours=12),  # Not stale
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
                 is_static=False,
             )
 
-            # Create leaf cohort B
-            cohort_b = Cohort.objects.create(
-                team=self.team,
-                name="Cohort B",
-                groups=[{"properties": [{"key": "$some_prop_b", "value": "something_b", "type": "person"}]}],
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stale_24h",
+                last_calculation=now - relativedelta(hours=30),  # Stale for 24h
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
                 is_static=False,
             )
 
-            # Create cohort C that depends on both cohort A and B
-            cohort_c = Cohort.objects.create(
-                team=self.team,
-                name="Cohort C",
-                groups=[
-                    {
-                        "properties": [
-                            {"key": "id", "value": cohort_a.id, "type": "cohort"},
-                            {"key": "id", "value": cohort_b.id, "type": "cohort"},
-                        ]
-                    }
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stale_36h",
+                last_calculation=now - relativedelta(hours=40),  # Stale for 36h
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stale_48h",
+                last_calculation=now - relativedelta(hours=50),  # Stale for 48h
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Create cohorts that should be excluded
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="null_last_calc",  # Should be excluded
+                last_calculation=None,
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="deleted_cohort",
+                last_calculation=now - relativedelta(hours=50),
+                deleted=True,  # Should be excluded
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="static_cohort",
+                last_calculation=now - relativedelta(hours=50),
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=True,  # Should be excluded
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="high_errors",
+                last_calculation=now - relativedelta(hours=50),
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=MAX_ERRORS_CALCULATING + 1,  # Should be excluded (>20 errors)
+                is_static=False,
+            )
+
+            update_stale_cohort_metrics()
+
+            mock_labels.assert_any_call(hours="24")
+            mock_labels.assert_any_call(hours="36")
+            mock_labels.assert_any_call(hours="48")
+
+            set_calls = mock_gauge.set.call_args_list
+            self.assertEqual(len(set_calls), 3)
+
+            self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
+            self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
+            self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
+
+        @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
+        def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create stuck cohort - is_calculating=True and last_calculation > 12 hours ago
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort",
+                last_calculation=now - relativedelta(hours=2),
+                deleted=False,
+                is_calculating=True,  # Stuck calculating
+                errors_calculating=5,
+                is_static=False,
+            )
+
+            # Create another stuck cohort
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort_2",
+                last_calculation=now - relativedelta(hours=3),
+                deleted=False,
+                is_calculating=True,  # Stuck calculating
+                errors_calculating=2,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="not_calculating",
+                last_calculation=now - relativedelta(hours=24),  # Old but not calculating
+                deleted=False,
+                is_calculating=False,  # Not calculating
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            Cohort.objects.create(
+                team_id=self.team.pk,
+                name="recent_calculation",
+                last_calculation=now - relativedelta(minutes=59),  # Recent calculation
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            update_stale_cohort_metrics()
+            mock_set.assert_called_with(2)
+
+        @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_enqueue_cohorts_logs_correctly(self, mock_logger: MagicMock, mock_increment: MagicMock) -> None:
+            # Create cohorts that will be selected for calculation
+            last_calc_time = timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1)
+            cohort1 = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="test_cohort_1",
+                last_calculation=last_calc_time,
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+            cohort2 = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="test_cohort_2",
+                last_calculation=None,  # Never calculated
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            enqueue_cohorts_to_calculate(2)
+
+            # Verify the log was called for both cohorts
+            self.assertEqual(mock_logger.info.call_count, 2)
+
+            # Check the log calls have the expected format
+            self.assertCountEqual(
+                mock_logger.info.call_args_list,
+                [
+                    call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
+                    call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
                 ],
-                is_static=False,
             )
-
-            # Create cohort D that depends on cohort C
-            cohort_d = Cohort.objects.create(
-                team=self.team,
-                name="Cohort D",
-                groups=[{"properties": [{"key": "id", "value": cohort_c.id, "type": "cohort"}]}],
-                is_static=False,
-            )
-
-            # Mock chain application
-            mock_chain_instance = MagicMock()
-            mock_chain.return_value = mock_chain_instance
-
-            # Mock task signatures
-            mock_task_a = MagicMock()
-            mock_task_b = MagicMock()
-            mock_task_c = MagicMock()
-            mock_task_d = MagicMock()
-            mock_calculate_cohort_ch_si.side_effect = [mock_task_a, mock_task_b, mock_task_c, mock_task_d]
-
-            increment_version_and_enqueue_calculate_cohort(cohort_d, initiating_user=None)
-
-            # Verify that all cohorts have their versions incremented and are marked as calculating
-            cohort_a.refresh_from_db()
-            cohort_b.refresh_from_db()
-            cohort_c.refresh_from_db()
-            cohort_d.refresh_from_db()
-
-            self.assertEqual(cohort_a.pending_version, 1)
-            self.assertEqual(cohort_b.pending_version, 1)
-            self.assertEqual(cohort_c.pending_version, 1)
-            self.assertEqual(cohort_d.pending_version, 1)
-            self.assertTrue(cohort_a.is_calculating)
-            self.assertTrue(cohort_b.is_calculating)
-            self.assertTrue(cohort_c.is_calculating)
-            self.assertTrue(cohort_d.is_calculating)
-
-            # Verify that calculate_cohort_ch.si was called for each cohort in the correct order
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
-
-            # Check that tasks were created with correct arguments (order: A, B, C, D)
-            expected_calls = [
-                call(cohort_a.id, 1, None),
-                call(cohort_b.id, 1, None),
-                call(cohort_c.id, 1, None),
-                call(cohort_d.id, 1, None),
-            ]
-            mock_calculate_cohort_ch_si.assert_has_calls(expected_calls)
-
-            # Verify that chain was called with the tasks in the correct order
-            mock_chain.assert_called_once_with(mock_task_a, mock_task_b, mock_task_c, mock_task_d)
-
-            # Verify that the chain was applied async
-            mock_chain_instance.apply_async.assert_called_once()
 
     return TestCalculateCohort

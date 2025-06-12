@@ -473,11 +473,19 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
+        multipart = request.query_params.get("multipart", False)
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # file added to the request data by the FileUploadParser
-        data = request.data["file"].read()
+        if multipart:
+            data = bytearray()
+            for chunk in request.FILES["file"].chunks():
+                data.extend(chunk)
+        else:
+            # legacy: older versions of the CLI did not use multipart uploads
+            # file added to the request data by the FileUploadParser
+            data = request.data["file"].read()
+
         (storage_ptr, content_hash) = upload_content(bytearray(data))
 
         release_id = request.query_params.get("release_id", None)

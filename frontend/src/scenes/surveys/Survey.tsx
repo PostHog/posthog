@@ -25,6 +25,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
         id: id,
     }),
+    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {

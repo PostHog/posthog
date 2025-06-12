@@ -25,6 +25,7 @@ import { DashboardPlacement } from '~/types'
 export const scene: SceneExport = {
     component: ProjectHomepage,
     logic: projectHomepageLogic,
+    settingSectionId: 'environment-details',
 }
 
 export function ProjectHomepage(): JSX.Element {
@@ -58,7 +59,7 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="ProjectHomepage">
-            <PageHeader delimited buttons={headerButtons} />
+            <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (

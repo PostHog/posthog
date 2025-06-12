@@ -23,7 +23,7 @@
             view.session_id AS session_id,
             view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -40,7 +40,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -72,7 +72,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -89,7 +89,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -165,7 +165,7 @@
             view.session_id AS session_id,
             view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -183,7 +183,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -215,7 +215,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -233,7 +233,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -265,7 +265,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_c' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -283,7 +283,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -342,7 +342,7 @@
             view.session_id AS session_id,
             view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -360,7 +360,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -392,7 +392,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -410,7 +410,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -442,7 +442,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_c' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -460,7 +460,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -519,7 +519,7 @@
             view.session_id AS session_id,
             view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_a' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -536,7 +536,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -568,7 +568,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_b' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -585,7 +585,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -617,7 +617,7 @@
                       view.session_id AS session_id,
                       view.timestamp AS timestamp
      FROM
-       (SELECT events.uuid AS id,
+       (SELECT toString(events.uuid) AS id,
                'revenue_analytics.purchase_c' AS source_label,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
@@ -634,7 +634,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
-     INNER JOIN events ON equals(events.uuid, view.id)
+     INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -682,7 +682,7 @@
          view.session_id AS session_id,
          view.timestamp AS timestamp
   FROM
-    (SELECT events.uuid AS id,
+    (SELECT toString(events.uuid) AS id,
             'revenue_analytics.purchase' AS source_label,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.distinct_id AS customer_id,
@@ -699,7 +699,7 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
      ORDER BY timestamp DESC) AS view
-  INNER JOIN events ON equals(events.uuid, view.id)
+  INNER JOIN events ON equals(toString(events.uuid), view.id)
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -746,7 +746,7 @@
          view.session_id AS session_id,
          view.timestamp AS timestamp
   FROM
-    (SELECT events.uuid AS id,
+    (SELECT toString(events.uuid) AS id,
             'revenue_analytics.purchase' AS source_label,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.distinct_id AS customer_id,
@@ -764,7 +764,7 @@
      FROM events
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
      ORDER BY timestamp DESC) AS view
-  INNER JOIN events ON equals(events.uuid, view.id)
+  INNER JOIN events ON equals(toString(events.uuid), view.id)
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id

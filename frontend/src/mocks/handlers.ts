@@ -200,6 +200,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/file_system_shortcut/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/event_ingestion_restrictions/': [],
+        '/api/projects/:team_id/persisted_folder/': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,

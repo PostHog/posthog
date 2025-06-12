@@ -15,7 +15,7 @@ export type WindowWithPostHog = typeof globalThis & {
 declare module '@playwright/test' {
     interface Page {
         setAppContext<K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void>
-        goToMenuItem(name: Identifier): Promise<void>
+        goToMenuItem(name: string): Promise<void>
         // resetCapturedEvents(): Promise<void>
         //
         // capturedEvents(): Promise<CaptureResult[]>

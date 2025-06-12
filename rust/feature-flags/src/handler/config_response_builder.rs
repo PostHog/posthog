@@ -603,7 +603,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        println!("response: {:?}", response);
+        tracing::debug!("response: {:?}", response);
 
         // Test that defaults are applied correctly
         assert_eq!(response.config.surveys, Some(json!(false)));
