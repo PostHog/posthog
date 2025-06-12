@@ -422,36 +422,10 @@ impl FeatureFlagMatcher {
         let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
-        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
-        let has_type_indexes = feature_flags
-            .flags
-            .iter()
-            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
-
-        if has_type_indexes {
-            let group_type_mapping_timer =
-                common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
-
-            if self
-                .group_type_mapping_cache
-                .init(self.reader.clone())
-                .await
-                .is_err()
-            {
-                errors_while_computing_flags = true;
-            }
-
-            group_type_mapping_timer
-                .label(
-                    "outcome",
-                    if errors_while_computing_flags {
-                        "error"
-                    } else {
-                        "success"
-                    },
-                )
-                .fin();
-        }
+        // Initialize group type mappings if needed
+        errors_while_computing_flags |= self
+            .initialize_group_type_mappings_if_needed(&feature_flags)
+            .await;
 
         // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
@@ -1458,6 +1432,46 @@ impl FeatureFlagMatcher {
             .fin();
 
         (hash_key_overrides, flag_hash_key_override_error)
+    }
+
+    async fn initialize_group_type_mappings_if_needed(
+        &mut self,
+        feature_flags: &FeatureFlagList,
+    ) -> bool {
+        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
+        let has_type_indexes = feature_flags
+            .flags
+            .iter()
+            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
+
+        if !has_type_indexes {
+            return false;
+        }
+
+        let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
+        let mut errors_while_computing_flags = false;
+
+        if self
+            .group_type_mapping_cache
+            .init(self.reader.clone())
+            .await
+            .is_err()
+        {
+            errors_while_computing_flags = true;
+        }
+
+        group_type_mapping_timer
+            .label(
+                "outcome",
+                if errors_while_computing_flags {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
+
+        errors_while_computing_flags
     }
 }
 
