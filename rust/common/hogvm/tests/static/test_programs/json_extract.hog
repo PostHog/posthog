@@ -9,4 +9,7 @@ assert_eq(city, 'New York');
 let unknown := JSONExtract(test_data, 'unknown')
 assert_eq(unknown, null);
 
+// JSONExtract returns null on error
+assert_eq(JSONExtract(test_data, 1, 2, 3), null);
+
 return true
