@@ -58,7 +58,10 @@ DEFAULT_SURVEY_APPEARANCE = {
 class SurveyQuestionSchema(BaseModel):
     type: QuestionTypeEnum
     question: str = Field(description="The question text")
-    description: Optional[str] = Field(default="", description="Optional question description")
+    description: Optional[str] = Field(
+        default="",
+        description="Optional question description. Usually not needed, but can be used to provide more context for the question if it's a loaded question.",
+    )
     optional: bool = Field(default=False, description="Whether the question is optional")
     buttonText: str = Field(default="Submit", description="Text for submit button")
 
@@ -67,9 +70,15 @@ class SurveyQuestionSchema(BaseModel):
 
     # For rating questions
     display: Optional[RatingDisplayEnum] = Field(default=None, description="Rating display type")
-    scale: Optional[int] = Field(default=None, description="Rating scale (e.g., 5, 7, 10)")
+    scale: Optional[int] = Field(
+        default=None, description="Rating scale (e.g., 5, 7, 10). NPS Surveys are always scale 10."
+    )
     lowerBoundLabel: Optional[str] = Field(default=None, description="Label for lowest rating")
     upperBoundLabel: Optional[str] = Field(default=None, description="Label for highest rating")
+    skipSubmitButton: Optional[bool] = Field(
+        default=True,
+        description="Whether to skip the submit button for questions that require a single click, like rating or single choice. Default to True when a question is Rating or Single Choice.",
+    )
 
     # For link questions
     link: Optional[str] = Field(default=None, description="URL for link questions")
@@ -115,13 +124,17 @@ class SurveyAppearanceSchema(BaseModel):
 
 class SurveyCreationOutput(BaseModel):
     name: str = Field(description="Survey name")
-    description: str = Field(description="Survey description")
+    description: str = Field(description="Survey description.")
     type: SurveyTypeEnum = Field(default=SurveyTypeEnum.POPOVER, description="Survey type")
     questions: list[SurveyQuestionSchema] = Field(description="List of survey questions")
     should_launch: bool = Field(default=False, description="Whether to launch immediately")
     conditions: Optional[SurveyDisplayConditionsSchema] = Field(default=None, description="Display conditions")
     appearance: Optional[SurveyAppearanceSchema] = Field(
         default_factory=lambda: SurveyAppearanceSchema(), description="Appearance settings"
+    )
+    enable_partial_responses: bool = Field(
+        default=True,
+        description="Should always be True by default, unless the user explicitly asks for it to be False.",
     )
 
     def get_appearance_with_defaults(self) -> dict:

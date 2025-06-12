@@ -150,6 +150,10 @@ class SurveyCreatorTool(MaxTool):
             elif q.type.value == "link" and q.link:
                 question_data["link"] = q.link
 
+            # Add skipSubmitButton for rating and single_choice questions
+            if q.type.value in ["rating", "single_choice"] and q.skipSubmitButton is not None:
+                question_data["skipSubmitButton"] = q.skipSubmitButton
+
             questions.append(question_data)
 
         # Build the survey data
@@ -159,6 +163,7 @@ class SurveyCreatorTool(MaxTool):
             "type": llm_output.type.value,
             "questions": questions,
             "archived": False,
+            "enable_partial_responses": llm_output.enable_partial_responses,
         }
 
         # Add conditions if specified
