@@ -367,6 +367,37 @@ const translateInputsSchema = (
         })) as HogFunctionInputSchemaType[]
 }
 
+const getIconUrl = (id: string, slug: string | undefined) => {
+    const icon_overrides = {
+        'segment-gameball': 'gameball.co',
+        'segment-angler-ai': 'getangler.ai',
+        'segment-amazon-amc': 'amazon.com',
+        'segment-canvas': 'supernova.ai',
+        'segment-voucherify-actions': 'voucherify.io',
+        'segment-voyage': 'voyagesms.com',
+        'segment-encharge-cloud-actions': 'encharge.io',
+        'segment-cloud-gwen': 'gwenplatform.com',
+        'segment-heap-cloud': 'heap.io',
+        'segment-hyperengage': 'hyperengage.io',
+        'segment-inleads-ai': 'inleads.ai',
+        'segment-metronome-actions': 'metronome.com',
+        'segment-movable-ink': 'movableink.com',
+        'segment-outfunnel': 'outfunnel.com',
+        'segment-playerzero-cloud': 'playerzero.ai',
+        'segment-revx': 'revx.io',
+        'segment-saleswings': 'saleswingsapp.com',
+        'segment-schematic': 'schematichq.com',
+    }
+
+    if (!slug && !(id in icon_overrides)) {
+        return '/static/posthog-icon.svg'
+    }
+
+    return `/api/environments/@current/hog_functions/icon/?id=${
+        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] : `${slug}.com`
+    }`
+}
+
 // hide all destinations for now
 const APPROVED_DESTINATIONS: string[] = [
     // 'segment-mixpanel',
@@ -406,6 +437,7 @@ const HIDDEN_DESTINATIONS = [
     'segment-tiktok-conversions-sandbox',
     'segment-tiktok-offline-conversions',
     'segment-tiktok-offline-conversions-sandbox',
+    'segment-toplyne-cloud',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -442,7 +474,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 id,
                 name,
                 description: `Send event data to ${name}`,
-                icon_url: `/api/environments/@current/hog_functions/icon/?id=${destination.slug?.split('-')[1]}.com`,
+                icon_url: getIconUrl(id, destination.slug?.split('-')[1]),
                 category: [],
                 inputs_schema: [
                     ...translateInputsSchema(destination.authentication?.fields),
