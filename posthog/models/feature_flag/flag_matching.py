@@ -73,13 +73,15 @@ PERSON_KEY = "person"
 # Define which database to use for persons only.
 # This is temporary while we migrate persons to its own database.
 # It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
-DATABASE_FOR_PERSONS = (
+READ_ONLY_DATABASE_FOR_PERSONS = (
     "persons_db_reader"
     if "persons_db_reader" in connections
     else "replica"
     if "replica" in connections and "decide" in settings.READ_REPLICA_OPT_IN
     else "default"
 )  # Fallback if persons DB not configured
+
+WRITE_DATABASE_FOR_PERSONS = "persons_db_writer" if "persons_db_writer" in connections else "default"
 
 
 class FeatureFlagMatchReason(StrEnum):
@@ -669,14 +671,13 @@ class FeatureFlagMatcher:
                     key = f"flag_{feature_flag.pk}_condition_{index}"
                     condition_eval(key, condition)
 
-            if len(person_fields) > 0:
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_PERSONS):
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, READ_ONLY_DATABASE_FOR_PERSONS):
+                if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)
                     if len(person_query) > 0:
                         all_conditions = {**all_conditions, **person_query[0]}
 
-            if len(group_query_per_group_type_mapping) > 0:
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
+                if len(group_query_per_group_type_mapping) > 0:
                     for (
                         group_query,
                         group_fields,
@@ -794,7 +795,7 @@ class FeatureFlagMatcher:
 def get_feature_flag_hash_key_overrides(
     team_id: int,
     distinct_ids: list[str],
-    using_database: str = "default",
+    using_database: str = WRITE_DATABASE_FOR_PERSONS,
     person_id_to_distinct_id_mapping: Optional[dict[int, str]] = None,
 ) -> dict[str, str]:
     feature_flag_to_key_overrides = {}
@@ -1021,7 +1022,7 @@ def get_all_feature_flags_with_details(
     try:
         # when we're writing a hash_key_override, we query the main database, not the replica
         # this is because we need to make sure the write is successful before we read it
-        using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING
+        using_database = WRITE_DATABASE_FOR_PERSONS if writing_hash_key_override else READ_ONLY_DATABASE_FOR_PERSONS
         person_overrides = {}
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
             target_distinct_ids = [distinct_id]
