@@ -309,7 +309,7 @@ impl RawRequest {
         // do some basic hydrated event payload filtering here
         match result {
             Ok(mut events) => {
-                // silently filter event types we dont' want to ingest without erroring
+                // silently filter event types we don't want to ingest without erroring
                 events.retain(|event| event.event != "$performance_event");
                 Ok(events)
             }
