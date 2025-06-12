@@ -15,6 +15,7 @@ import type { logsLogicType } from './logsLogicType'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
+const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -31,6 +32,7 @@ export const logsLogic = kea<logsLogicType>([
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
+        setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
@@ -63,10 +65,17 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
         severityLevels: [
-            [] as LogsQuery['severityLevels'],
+            DEFAULT_SEVERITY_LEVELS,
             { persist: true },
             {
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
+            },
+        ],
+        serviceNames: [
+            DEFAULT_SERVICE_NAMES,
+            { persist: true },
+            {
+                setServiceNames: (_, { serviceNames }) => serviceNames,
             },
         ],
         filterGroup: [
@@ -149,6 +158,7 @@ export const logsLogic = kea<logsLogicType>([
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
+                            serviceNames: values.serviceNames,
                         },
                         signal,
                     })
@@ -178,6 +188,7 @@ export const logsLogic = kea<logsLogicType>([
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
+                            serviceNames: values.serviceNames,
                         },
                         signal,
                     })
@@ -232,6 +243,9 @@ export const logsLogic = kea<logsLogicType>([
             if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
                 actions.setSeverityLevels(params.severityLevels)
             }
+            if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
+                actions.setServiceNames(params.serviceNames)
+            }
         }
         return {
             '*': urlToAction,
@@ -252,6 +266,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
+                updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
                 actions.runQuery(300)
                 return params
             })
@@ -262,6 +277,7 @@ export const logsLogic = kea<logsLogicType>([
             setFilterGroup: () => buildURL(),
             setSearchTerm: () => buildURL(),
             setSeverityLevels: () => buildURL(),
+            setServiceNames: () => buildURL(),
         }
     }),
 ])

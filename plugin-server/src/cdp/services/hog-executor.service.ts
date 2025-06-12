@@ -415,6 +415,7 @@ export class HogExecutorService {
 
                 execRes = execHog(invocationInput, {
                     globals,
+                    timeout: this.config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec

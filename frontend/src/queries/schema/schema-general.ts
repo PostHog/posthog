@@ -2010,6 +2010,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     searchTerm?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
+    serviceNames: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
