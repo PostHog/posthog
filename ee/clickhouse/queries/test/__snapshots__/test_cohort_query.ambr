@@ -24,8 +24,8 @@
             WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto')
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto')
    UNION DISTINCT
      (SELECT source.id AS id
       FROM
@@ -49,61 +49,61 @@
             WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto')) INTERSECT (
-                                                              (SELECT source.id AS id
-                                                               FROM
-                                                                 (SELECT actor_id AS actor_id,
-                                                                         count() AS event_count,
-                                                                         groupUniqArray(distinct_id) AS event_distinct_ids,
-                                                                         actor_id AS id
-                                                                  FROM
-                                                                    (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
-                                                                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                                                                            argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
-                                                                            argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
-                                                                     FROM events AS e
-                                                                     LEFT OUTER JOIN
-                                                                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                                                               person_distinct_id_overrides.distinct_id AS distinct_id
-                                                                        FROM person_distinct_id_overrides
-                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                                                     WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
-                                                                     GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
-                                                                     HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
-                                                                                       and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
-                                                                                                                                         or isNotNull(fromUnixTimestamp(0)))))
-                                                                  GROUP BY actor_id) AS source
-                                                               ORDER BY source.id ASC
-                                                               LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                                                                  join_algorithm='auto') INTERSECT
-                                                              (SELECT persons.id AS id
-                                                               FROM
-                                                                 (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
-                                                                         person.id AS id
-                                                                  FROM person
-                                                                  WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                                                (SELECT where_optimization.id AS id
-                                                                                                                 FROM person AS where_optimization
-                                                                                                                 WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
-                                                                  GROUP BY person.id
-                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                                               WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
-                                                               ORDER BY persons.id ASC
-                                                               LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                                                                  join_algorithm='auto')) SETTINGS readonly=2,
-                                                                                                                   max_execution_time=60,
-                                                                                                                   allow_experimental_object_type=1,
-                                                                                                                   format_csv_allow_double_quotes=0,
-                                                                                                                   max_ast_elements=4000000,
-                                                                                                                   max_expanded_ast_elements=4000000,
-                                                                                                                   max_bytes_before_external_group_by=0,
-                                                                                                                   transform_null_in=1,
-                                                                                                                   optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                                                   allow_experimental_join_condition=1
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto')) INTERSECT (
+                                                                     (SELECT source.id AS id
+                                                                      FROM
+                                                                        (SELECT actor_id AS actor_id,
+                                                                                count() AS event_count,
+                                                                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                                                                                actor_id AS id
+                                                                         FROM
+                                                                           (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
+                                                                                   minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                                                                                   argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
+                                                                                   argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
+                                                                            FROM events AS e
+                                                                            LEFT OUTER JOIN
+                                                                              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                                                                      person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                               FROM person_distinct_id_overrides
+                                                                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                               GROUP BY person_distinct_id_overrides.distinct_id
+                                                                               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                            WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
+                                                                            GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
+                                                                            HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
+                                                                                              and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
+                                                                                                                                                or isNotNull(fromUnixTimestamp(0)))))
+                                                                         GROUP BY actor_id) AS source
+                                                                      ORDER BY source.id ASC
+                                                                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                                                join_algorithm='auto') INTERSECT
+                                                                     (SELECT persons.id AS id
+                                                                      FROM
+                                                                        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
+                                                                                person.id AS id
+                                                                         FROM person
+                                                                         WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                       (SELECT where_optimization.id AS id
+                                                                                                                        FROM person AS where_optimization
+                                                                                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                      WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
+                                                                      ORDER BY persons.id ASC
+                                                                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                                                join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                                                                 max_execution_time=600,
+                                                                                                                                 allow_experimental_object_type=1,
+                                                                                                                                 format_csv_allow_double_quotes=0,
+                                                                                                                                 max_ast_elements=4000000,
+                                                                                                                                 max_expanded_ast_elements=4000000,
+                                                                                                                                 max_bytes_before_external_group_by=0,
+                                                                                                                                 transform_null_in=1,
+                                                                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                                                                 allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_basic_query.1
@@ -178,7 +178,7 @@
         FROM cohortpeople
         WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
      WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 100) INTERSECT
+     LIMIT 1000000000) INTERSECT
     (SELECT source.id AS id
      FROM
        (SELECT aggregation_target AS actor_id,
@@ -235,17 +235,17 @@
                  [2])
         ORDER BY aggregation_target ASC) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.2
@@ -327,7 +327,7 @@
         FROM cohortpeople
         WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
      WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 100) INTERSECT
+     LIMIT 1000000000) INTERSECT
     (SELECT source.id AS id
      FROM
        (SELECT actor_id AS actor_id,
@@ -350,17 +350,17 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.2
@@ -431,8 +431,8 @@
                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                                 WHERE ifNull(equals(persons.properties___name, 'test'), 0)
                                 ORDER BY persons.id ASC
-                                LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                                   join_algorithm='auto'))
+                                LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                          join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -456,17 +456,17 @@
                            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
-                     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                        join_algorithm='auto')) SETTINGS readonly=2,
-                                                                         max_execution_time=60,
-                                                                         allow_experimental_object_type=1,
-                                                                         format_csv_allow_double_quotes=0,
-                                                                         max_ast_elements=4000000,
-                                                                         max_expanded_ast_elements=4000000,
-                                                                         max_bytes_before_external_group_by=0,
-                                                                         transform_null_in=1,
-                                                                         optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                         allow_experimental_join_condition=1
+                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                               join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                max_execution_time=600,
+                                                                                allow_experimental_object_type=1,
+                                                                                format_csv_allow_double_quotes=0,
+                                                                                max_ast_elements=4000000,
+                                                                                max_expanded_ast_elements=4000000,
+                                                                                max_bytes_before_external_group_by=0,
+                                                                                transform_null_in=1,
+                                                                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.5
@@ -533,17 +533,17 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_poe_override.1
@@ -633,17 +633,17 @@
                  [2])
         ORDER BY aggregation_target ASC) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence.1
@@ -749,8 +749,8 @@
                  [2])
         ORDER BY aggregation_target ASC) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto')
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto')
   UNION DISTINCT
     (SELECT person_id AS id
      FROM
@@ -768,16 +768,16 @@
         GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)
         HAVING ifNull(greaterOrEquals(count(), 1), 0)
         ORDER BY count() DESC)
-     LIMIT 100) SETTINGS readonly=2,
-                         max_execution_time=60,
-                         allow_experimental_object_type=1,
-                         format_csv_allow_double_quotes=0,
-                         max_ast_elements=4000000,
-                         max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0,
-                         transform_null_in=1,
-                         optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+     LIMIT 1000000000) SETTINGS readonly=2,
+                                max_execution_time=600,
+                                allow_experimental_object_type=1,
+                                format_csv_allow_double_quotes=0,
+                                max_ast_elements=4000000,
+                                max_expanded_ast_elements=4000000,
+                                max_bytes_before_external_group_by=0,
+                                transform_null_in=1,
+                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event.1
@@ -888,8 +888,8 @@
                  [2])
         ORDER BY aggregation_target ASC) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') INTERSECT
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') INTERSECT
     (SELECT person_id AS id
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -906,7 +906,7 @@
         GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)
         HAVING ifNull(greaterOrEquals(count(), 1), 0)
         ORDER BY count() DESC)
-     LIMIT 100) INTERSECT
+     LIMIT 1000000000) INTERSECT
     (SELECT persons.id AS id
      FROM
        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
@@ -920,17 +920,17 @@
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
      ORDER BY persons.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties.1
@@ -1022,17 +1022,17 @@
            WHERE and(equals(e.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$filter_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_with_event_filters_and_explicit_date.1
@@ -1088,8 +1088,8 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto')
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto')
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
@@ -1104,17 +1104,17 @@
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.`properties___$sample_field`, 'test@posthog.com'), 0)
      ORDER BY persons.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_person.1
@@ -1181,8 +1181,8 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto')
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto')
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
@@ -1197,17 +1197,17 @@
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.`properties___$sample_field`, 'test@posthog.com'), 0)
      ORDER BY persons.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_person_materialized.1
@@ -1274,8 +1274,8 @@
             WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto')
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto')
    UNION DISTINCT
      (SELECT source.id AS id
       FROM
@@ -1299,8 +1299,8 @@
             WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto')
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto')
    UNION DISTINCT
      (SELECT persons.id AS id
       FROM
@@ -1315,61 +1315,61 @@
          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___name, 'special'), 0)
       ORDER BY persons.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto')) INTERSECT (
-                                                              (SELECT source.id AS id
-                                                               FROM
-                                                                 (SELECT actor_id AS actor_id,
-                                                                         count() AS event_count,
-                                                                         groupUniqArray(distinct_id) AS event_distinct_ids,
-                                                                         actor_id AS id
-                                                                  FROM
-                                                                    (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
-                                                                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                                                                            argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
-                                                                            argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
-                                                                     FROM events AS e
-                                                                     LEFT OUTER JOIN
-                                                                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                                                               person_distinct_id_overrides.distinct_id AS distinct_id
-                                                                        FROM person_distinct_id_overrides
-                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                                                     WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
-                                                                     GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
-                                                                     HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
-                                                                                       and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
-                                                                                                                                         or isNotNull(fromUnixTimestamp(0)))))
-                                                                  GROUP BY actor_id) AS source
-                                                               ORDER BY source.id ASC
-                                                               LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                                                                  join_algorithm='auto') INTERSECT
-                                                              (SELECT persons.id AS id
-                                                               FROM
-                                                                 (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
-                                                                         person.id AS id
-                                                                  FROM person
-                                                                  WHERE and(equals(person.team_id, 99999), in(id,
-                                                                                                                (SELECT where_optimization.id AS id
-                                                                                                                 FROM person AS where_optimization
-                                                                                                                 WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
-                                                                  GROUP BY person.id
-                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-                                                               WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
-                                                               ORDER BY persons.id ASC
-                                                               LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                                                                  join_algorithm='auto')) SETTINGS readonly=2,
-                                                                                                                   max_execution_time=60,
-                                                                                                                   allow_experimental_object_type=1,
-                                                                                                                   format_csv_allow_double_quotes=0,
-                                                                                                                   max_ast_elements=4000000,
-                                                                                                                   max_expanded_ast_elements=4000000,
-                                                                                                                   max_bytes_before_external_group_by=0,
-                                                                                                                   transform_null_in=1,
-                                                                                                                   optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                                                   allow_experimental_join_condition=1
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto')) INTERSECT (
+                                                                     (SELECT source.id AS id
+                                                                      FROM
+                                                                        (SELECT actor_id AS actor_id,
+                                                                                count() AS event_count,
+                                                                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                                                                                actor_id AS id
+                                                                         FROM
+                                                                           (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
+                                                                                   minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                   if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
+                                                                                   argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
+                                                                                   argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
+                                                                            FROM events AS e
+                                                                            LEFT OUTER JOIN
+                                                                              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                                                                      person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                               FROM person_distinct_id_overrides
+                                                                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                               GROUP BY person_distinct_id_overrides.distinct_id
+                                                                               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                            WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
+                                                                            GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
+                                                                            HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
+                                                                                              and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
+                                                                                                                                                or isNotNull(fromUnixTimestamp(0)))))
+                                                                         GROUP BY actor_id) AS source
+                                                                      ORDER BY source.id ASC
+                                                                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                                                join_algorithm='auto') INTERSECT
+                                                                     (SELECT persons.id AS id
+                                                                      FROM
+                                                                        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
+                                                                                person.id AS id
+                                                                         FROM person
+                                                                         WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                       (SELECT where_optimization.id AS id
+                                                                                                                        FROM person AS where_optimization
+                                                                                                                        WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'test@posthog.com'), 0)))))
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                      WHERE ifNull(equals(persons.properties___email, 'test@posthog.com'), 0)
+                                                                      ORDER BY persons.id ASC
+                                                                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                                                join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                                                                 max_execution_time=600,
+                                                                                                                                 allow_experimental_object_type=1,
+                                                                                                                                 format_csv_allow_double_quotes=0,
+                                                                                                                                 max_ast_elements=4000000,
+                                                                                                                                 max_expanded_ast_elements=4000000,
+                                                                                                                                 max_bytes_before_external_group_by=0,
+                                                                                                                                 transform_null_in=1,
+                                                                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                                                                 allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns.1
@@ -1441,8 +1441,8 @@
          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___email, 'test1@posthog.com'), 0)
       ORDER BY persons.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto')
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto')
    UNION DISTINCT
      (SELECT persons.id AS id
       FROM
@@ -1457,8 +1457,8 @@
          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___email, 'test2@posthog.com'), 0)
       ORDER BY persons.id ASC
-      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                         join_algorithm='auto'))
+      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                join_algorithm='auto'))
   UNION DISTINCT (
                     (SELECT persons.id AS id
                      FROM
@@ -1473,8 +1473,8 @@
                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                      WHERE ifNull(equals(persons.properties___name, 'test3'), 0)
                      ORDER BY persons.id ASC
-                     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                        join_algorithm='auto') INTERSECT
+                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                               join_algorithm='auto') INTERSECT
                     (SELECT persons.id AS id
                      FROM
                        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
@@ -1488,17 +1488,17 @@
                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                      WHERE ifNull(equals(persons.properties___email, 'test3@posthog.com'), 0)
                      ORDER BY persons.id ASC
-                     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                        join_algorithm='auto')) SETTINGS readonly=2,
-                                                                         max_execution_time=60,
-                                                                         allow_experimental_object_type=1,
-                                                                         format_csv_allow_double_quotes=0,
-                                                                         max_ast_elements=4000000,
-                                                                         max_expanded_ast_elements=4000000,
-                                                                         max_bytes_before_external_group_by=0,
-                                                                         transform_null_in=1,
-                                                                         optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                         allow_experimental_join_condition=1
+                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                               join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                max_execution_time=600,
+                                                                                allow_experimental_object_type=1,
+                                                                                format_csv_allow_double_quotes=0,
+                                                                                max_ast_elements=4000000,
+                                                                                max_expanded_ast_elements=4000000,
+                                                                                max_bytes_before_external_group_by=0,
+                                                                                transform_null_in=1,
+                                                                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_person_props_only.1
@@ -1544,7 +1544,7 @@
         FROM cohortpeople
         WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
      WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 100)
+     LIMIT 1000000000)
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
@@ -1559,17 +1559,17 @@
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.properties___name, 'test2'), 0)
      ORDER BY persons.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
@@ -1583,7 +1583,7 @@
         FROM cohortpeople
         WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
      WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 100)
+     LIMIT 1000000000)
   UNION DISTINCT
     (SELECT persons.id AS id
      FROM
@@ -1598,17 +1598,17 @@
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
      WHERE ifNull(equals(persons.properties___name, 'test2'), 0)
      ORDER BY persons.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
@@ -1650,16 +1650,16 @@
     (SELECT person_static_cohort.person_id AS id
      FROM person_static_cohort
      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999), equals(person_static_cohort.team_id, 99999))
-     LIMIT 100) SETTINGS readonly=2,
-                         max_execution_time=60,
-                         allow_experimental_object_type=1,
-                         format_csv_allow_double_quotes=0,
-                         max_ast_elements=4000000,
-                         max_expanded_ast_elements=4000000,
-                         max_bytes_before_external_group_by=0,
-                         transform_null_in=1,
-                         optimize_min_equality_disjunction_chain_length=4294967295,
-                         allow_experimental_join_condition=1
+     LIMIT 1000000000) SETTINGS readonly=2,
+                                max_execution_time=600,
+                                allow_experimental_object_type=1,
+                                format_csv_allow_double_quotes=0,
+                                max_ast_elements=4000000,
+                                max_expanded_ast_elements=4000000,
+                                max_bytes_before_external_group_by=0,
+                                transform_null_in=1,
+                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter.2
@@ -1699,7 +1699,7 @@
     (SELECT person_static_cohort.person_id AS id
      FROM person_static_cohort
      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999), equals(person_static_cohort.team_id, 99999))
-     LIMIT 100) INTERSECT
+     LIMIT 1000000000) INTERSECT
     (SELECT source.id AS id
      FROM
        (SELECT actor_id AS actor_id,
@@ -1722,17 +1722,17 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.2
@@ -1783,7 +1783,7 @@
      (SELECT person_static_cohort.person_id AS id
       FROM person_static_cohort
       WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999), equals(person_static_cohort.team_id, 99999))
-      LIMIT 100))
+      LIMIT 1000000000))
   UNION DISTINCT (
                     (SELECT source.id AS id
                      FROM
@@ -1807,17 +1807,17 @@
                            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
-                     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                        join_algorithm='auto')) SETTINGS readonly=2,
-                                                                         max_execution_time=60,
-                                                                         allow_experimental_object_type=1,
-                                                                         format_csv_allow_double_quotes=0,
-                                                                         max_ast_elements=4000000,
-                                                                         max_expanded_ast_elements=4000000,
-                                                                         max_bytes_before_external_group_by=0,
-                                                                         transform_null_in=1,
-                                                                         optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                         allow_experimental_join_condition=1
+                     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                               join_algorithm='auto')) SETTINGS readonly=2,
+                                                                                max_execution_time=600,
+                                                                                allow_experimental_object_type=1,
+                                                                                format_csv_allow_double_quotes=0,
+                                                                                max_ast_elements=4000000,
+                                                                                max_expanded_ast_elements=4000000,
+                                                                                max_bytes_before_external_group_by=0,
+                                                                                transform_null_in=1,
+                                                                                optimize_min_equality_disjunction_chain_length=4294967295,
+                                                                                allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.4
@@ -1892,7 +1892,7 @@
         FROM cohortpeople
         WHERE and(equals(cohortpeople.team_id, 99999), in(tuple(cohortpeople.cohort_id, cohortpeople.version), [(99999, 0)]))) AS cohort_people
      WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))
-     LIMIT 100)
+     LIMIT 1000000000)
   UNION DISTINCT
     (SELECT source.id AS id
      FROM
@@ -1916,17 +1916,17 @@
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
-     LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                        join_algorithm='auto') SETTINGS readonly=2,
-                                                        max_execution_time=60,
-                                                        allow_experimental_object_type=1,
-                                                        format_csv_allow_double_quotes=0,
-                                                        max_ast_elements=4000000,
-                                                        max_expanded_ast_elements=4000000,
-                                                        max_bytes_before_external_group_by=0,
-                                                        transform_null_in=1,
-                                                        optimize_min_equality_disjunction_chain_length=4294967295,
-                                                        allow_experimental_join_condition=1
+     LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                               join_algorithm='auto') SETTINGS readonly=2,
+                                                               max_execution_time=600,
+                                                               allow_experimental_object_type=1,
+                                                               format_csv_allow_double_quotes=0,
+                                                               max_ast_elements=4000000,
+                                                               max_expanded_ast_elements=4000000,
+                                                               max_bytes_before_external_group_by=0,
+                                                               transform_null_in=1,
+                                                               optimize_min_equality_disjunction_chain_length=4294967295,
+                                                               allow_experimental_join_condition=1
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.3
