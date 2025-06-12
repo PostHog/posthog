@@ -29,7 +29,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog import schema
 from posthog.schema import QueryStatus
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -208,6 +208,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
+@extend_schema_serializer(exclude_fields=["filters", "saved"])
 class InsightBasicSerializer(
     TaggedItemSerializerMixin,
     UserPermissionsSerializerMixin,
@@ -273,6 +274,22 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "example": {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview", "version": 1}
+                ],
+                "version": 1,
+            },
+            "version": 1,
+        },
+    }
+)
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
         return self.parent._query_variables_mapping(value)  # type: ignore
@@ -779,7 +796,12 @@ Whether to refresh the retrieved insights, how aggresively, and if sync or async
 - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
 - `'force_async'` - kick off background calculation, even if fresh results are already cached
 Background calculation can be tracked using the `query_status` response field.""",
-            )
+            ),
+            OpenApiParameter(
+                name="basic",
+                type=OpenApiTypes.BOOL,
+                description="Return basic insight metadata only (no results, faster).",
+            ),
         ]
     ),
 )
@@ -1017,6 +1039,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(serialized_data)
 
+    @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         capture_legacy_api_call(request, self.team)
@@ -1110,6 +1133,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return {"result": result.results, "timezone": team.timezone}
 
+    @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         capture_legacy_api_call(request, self.team)
@@ -1218,6 +1242,7 @@ When set, the specified dashboard's filters and date range override will be appl
         cancel_query_on_cluster(team_id=self.team.pk, client_query_id=request.data["client_query_id"])
         return Response(status=status.HTTP_201_CREATED)
 
+    @extend_schema(exclude=True)  # internal endpoint, not for public use
     @action(methods=["POST"], detail=False)
     def timing(self, request: request.Request, **kwargs):
         from posthog.kafka_client.client import KafkaProducer
