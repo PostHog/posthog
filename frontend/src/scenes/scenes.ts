@@ -536,17 +536,17 @@ export const redirects: Record<
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),
     '/me/settings': urls.settings('user'),
-    '/pipeline': urls.dataPipelines(),
-    '/pipeline/:stage': ({ stage }) => urls.dataPipelines(stage as DataPipelinesSceneTab),
-    '/pipeline/:stage/:id': ({ stage, id }) => {
+    '/instance': urls.instanceStatus(),
+    '/data-management': urls.eventDefinitions(),
+    '/data-management/database': urls.dataPipelines('sources'),
+    '/pipeline': urls.dataPipelines('overview'),
+    '/pipelines': urls.dataPipelines('overview'),
+    '/pipeline/destinations/:id': ({ stage, id }) => {
         if (id.startsWith('hog-')) {
             return urls.hogFunction(id)
         }
         return urls.dataPipelines(stage as DataPipelinesSceneTab)
     },
-    '/instance': urls.instanceStatus(),
-    '/data-management': urls.eventDefinitions(),
-    '/data-management/database': urls.dataPipelines('sources'),
     '/pipeline/data-import': urls.dataPipelines('sources'),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.dataPipelines('destinations'),
@@ -554,7 +554,6 @@ export const redirects: Record<
     '/apps/:id': urls.dataPipelines('overview'),
     '/messaging': urls.messagingBroadcasts(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
-    '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
