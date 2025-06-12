@@ -191,6 +191,41 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert update_response.status_code == status.HTTP_200_OK, update_response.json()
         assert update_response.json()["inputs"]["url"]["value"] == "https://example.com/posthog-webhook-updated"
 
+    def test_internal_destinations_can_be_managed_without_addon(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "My custom function",
+                "hog": "fetch('https://example.com');",
+                "type": "internal_destination",
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        function_id = response.json()["id"]
+
+        # Update it
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"name": "New name"},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
+        self.assertEqual(update_response.json()["name"], "New name")
+
+        # Delete it
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"deleted": True},
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):

@@ -13012,14 +13012,17 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
                 "searchTerm": {
                     "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "severityLevels": {
                     "items": {
@@ -13032,7 +13035,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "serviceNames", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -19281,7 +19284,7 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "logs",
+                "log_attributes",
                 "replay",
                 "revenue_analytics_properties",
                 "resources"

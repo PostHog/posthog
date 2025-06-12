@@ -1,5 +1,6 @@
 import json
 from typing import Optional, cast
+from posthog.exceptions_capture import capture_exception
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -181,6 +182,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
+        if not template:
+            properties = {"team_id": team.id, "template_id": data.get("template_id")}
+            if instance and instance.id:
+                properties["hog_function_id"] = instance.id
+            capture_exception(
+                Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
+            )
 
         if data["type"] == "transformation":
             if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
@@ -196,7 +204,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                         {"template_id": "The Data Pipelines addon is required to create custom functions."}
                     )
 
-                if not template.free and not instance:
+                if not template.free and data["type"] != "internal_destination" and not instance:
                     raise serializers.ValidationError(
                         {"template_id": "The Data Pipelines addon is required for this template."}
                     )
