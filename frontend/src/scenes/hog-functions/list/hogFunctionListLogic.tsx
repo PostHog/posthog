@@ -12,7 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
+import { HogFunctionFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
@@ -23,15 +23,13 @@ export interface Fuse extends FuseClass<HogFunctionType> {}
 export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
-    filters?: Record<string, any>
 }
 
 export type HogFunctionListLogicProps = {
     logicKey?: string
     type: HogFunctionTypeType
     additionalTypes?: HogFunctionTypeType[]
-    defaultFilters?: HogFunctionListFilters
-    forceFilters?: HogFunctionListFilters
+    forceFilterGroups?: HogFunctionFiltersType[]
     syncFiltersWithUrl?: boolean
 }
 
@@ -47,7 +45,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
 
 export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => props.logicKey ?? (props.syncFiltersWithUrl ? 'scene' : 'default') + props.type),
+    key((props) => JSON.stringify(props)),
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
     connect(() => ({
         values: [
@@ -70,18 +68,15 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         setReorderModalOpen: (open: boolean) => ({ open }),
         saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         filters: [
-            { ...(props.defaultFilters || {}), ...(props.forceFilters || {}) } as HogFunctionListFilters,
+            {} as HogFunctionListFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
-                    ...(props.forceFilters || {}),
                 }),
-                resetFilters: () => ({
-                    ...(props.forceFilters || {}),
-                }),
+                resetFilters: () => ({}),
             },
         ],
         reorderModalOpen: [
@@ -98,7 +93,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 loadHogFunctions: async () => {
                     return (
                         await api.hogFunctions.list({
-                            filters: values.filters?.filters,
+                            filter_groups: props.forceFilterGroups,
                             types: [props.type, ...(props.additionalTypes || [])],
                         })
                     ).results
