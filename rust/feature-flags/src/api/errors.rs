@@ -220,15 +220,9 @@ impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
-            CustomRedisError::ParseError(e) => {
-                tracing::error!("failed to fetch data from redis: {}", e);
-                FlagError::RedisDataParsingError
-            }
+            CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
             CustomRedisError::Timeout => FlagError::TimeoutError,
-            CustomRedisError::Other(e) => {
-                tracing::error!("Unknown redis error: {}", e);
-                FlagError::RedisUnavailable
-            }
+            CustomRedisError::Other(_) => FlagError::RedisUnavailable,
         }
     }
 }
@@ -236,10 +230,7 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Other(_) => {
-                tracing::error!("failed to get connection: {}", e);
-                FlagError::DatabaseUnavailable
-            }
+            CustomDatabaseError::Other(_) => FlagError::DatabaseUnavailable,
             CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
         }
     }
@@ -248,14 +239,8 @@ impl From<CustomDatabaseError> for FlagError {
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
         match e {
-            sqlx::Error::RowNotFound => {
-                tracing::error!("Row not found in database query");
-                FlagError::RowNotFound
-            }
-            _ => {
-                tracing::error!("Database error occurred: {}", e);
-                FlagError::DatabaseError(e.to_string())
-            }
+            sqlx::Error::RowNotFound => FlagError::RowNotFound,
+            _ => FlagError::DatabaseError(e.to_string()),
         }
     }
 }

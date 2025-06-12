@@ -184,7 +184,7 @@ function IframeErrorOverlay(): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
     const { iframeBanner } = useValues(logic)
     return iframeBanner ? (
-        <div className="absolute mt-10 flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
+        <div className="absolute mt-10 flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none z-9999">
             <LemonBanner className="w-full" type={iframeBanner.level}>
                 {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
                 toolbar" above to visit your site and view the heatmap there.
@@ -195,7 +195,7 @@ function IframeErrorOverlay(): JSX.Element | null {
 
 function LoadingOverlay(): JSX.Element {
     return (
-        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
+        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none z-99999">
             <Spinner className="text-5xl" textColored={true} />
         </div>
     )
