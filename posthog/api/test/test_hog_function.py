@@ -192,7 +192,6 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert update_response.json()["inputs"]["url"]["value"] == "https://example.com/posthog-webhook-updated"
 
     def test_internal_destinations_can_be_managed_without_addon(self):
-        # Internal destinations are exempt from addon checks
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -202,6 +201,11 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "name": "My custom function",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())

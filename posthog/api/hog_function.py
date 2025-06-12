@@ -191,8 +191,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}
                     )
-        elif not has_addon and data["type"] != "internal_destination":
-            if not bypass_addon_check:
+        elif not has_addon:
+            if not bypass_addon_check and data["type"] != "internal_destination":
                 # If they don't have the addon, they can only use free templates and can't modify them
                 if not template:
                     raise serializers.ValidationError(
