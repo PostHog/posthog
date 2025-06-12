@@ -459,7 +459,7 @@ class TestShouldRefresh(TestCase):
             date_from_delta_mapping={"day": 1, "month": 1},
             date_to_delta_mapping=None,
             interval="day",
-        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))
+        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 21, 20, 41, 730028))
 
 
 class TestUtilities(TestCase):

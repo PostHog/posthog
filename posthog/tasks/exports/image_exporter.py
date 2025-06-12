@@ -5,6 +5,8 @@ import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
+
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from django.conf import settings
 from selenium import webdriver
@@ -20,7 +22,6 @@ from webdriver_manager.core.os_manager import ChromeType
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.exported_asset import (
     ExportedAsset,
@@ -258,7 +259,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
-                with conversion_to_query_based(exported_asset.insight):
+                with upgrade_query(exported_asset.insight):
                     process_query_dict(
                         exported_asset.team,
                         exported_asset.insight.query,

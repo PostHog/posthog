@@ -11,18 +11,16 @@ import structlog
 # PostHog OpenTelemetry Initialization
 from posthog.otel_instrumentation import initialize_otel
 
-initialize_otel()  # Initialize OpenTelemetry first
-
-
-# Get a structlog logger for asgi.py's own messages
-logger = structlog.get_logger(__name__)
-
-
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
 # Try to ensure SERVER_GATEWAY_INTERFACE is fresh for the child process
 if "SERVER_GATEWAY_INTERFACE" in os.environ:
     del os.environ["SERVER_GATEWAY_INTERFACE"]  # Delete if inherited
 os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"  # Set definitively
+
+initialize_otel()  # Initialize OpenTelemetry first
+
+# Get a structlog logger for asgi.py's own messages
+logger = structlog.get_logger(__name__)
 
 
 # Django doesn't support lifetime requests and raises an exception
