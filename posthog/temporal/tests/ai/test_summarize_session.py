@@ -19,7 +19,9 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     SingleSessionSummaryInputs,
     SummarizeSingleSessionWorkflow,
     _compress_llm_input_data,
+    _get_single_session_summary_llm_input_from_redis,
     execute_summarize_session,
+    fetch_session_data_activity,
     stream_llm_single_session_summary_activity,
 )
 from temporalio.client import WorkflowExecutionStatus
@@ -186,12 +188,53 @@ def redis_test_setup() -> Generator[RedisTestContext, None, None]:
 
 class TestFetchSessionDataActivity:
     @pytest.mark.asyncio
-    async def test_fetch_session_data_activity(
+    async def test_fetch_session_data_activity_standalone(
         self,
         mocker: MockerFixture,
-        mock_enriched_llm_json_response: dict[str, Any],
+        mock_single_session_summary_inputs: Callable,
+        mock_team: MagicMock,
+        mock_raw_metadata: dict[str, Any],
+        mock_raw_events_columns: list[str],
+        mock_raw_events: list[tuple[Any, ...]],
+        redis_test_setup: RedisTestContext,
     ):
-        pass
+        """Test that fetch_session_data_activity stores compressed data correctly in Redis."""
+        session_id = "test_fetch_session_id"
+        input_data = mock_single_session_summary_inputs(session_id)
+        # Set up a spy to track Redis operations
+        spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
+        # Add the input key to cleanup list
+        redis_test_setup.keys_to_cleanup.append(input_data.redis_input_key)
+        with (
+            patch("temporalio.activity.heartbeat") as mock_heartbeat,
+            # Mock DB calls
+            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                return_value=mock_raw_metadata,
+            ),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                return_value=(mock_raw_events_columns, mock_raw_events),
+            ),
+        ):
+            # Call the activity directly as a function
+            result = await fetch_session_data_activity(input_data)
+            # Verify the result is None (success case)
+            assert result is None
+            # Verify heartbeat was called
+            assert mock_heartbeat.call_count >= 1
+            # Verify Redis operations
+            assert spy_setex.call_count == 1  # Store compressed data
+            # Verify the data was stored correctly
+            stored_data = redis_test_setup.redis_client.get(input_data.redis_input_key)
+            assert stored_data is not None
+            # Verify we can decompress and parse the stored data
+            decompressed_data = _get_single_session_summary_llm_input_from_redis(
+                redis_test_setup.redis_client, input_data.redis_input_key
+            )
+            assert decompressed_data.session_id == session_id
+            assert decompressed_data.user_pk == input_data.user_pk
 
 
 class TestStreamLlmSummaryActivity:
