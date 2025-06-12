@@ -682,7 +682,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Trend results: 100 users"
+        mock_query_runner.run_and_format_query.return_value = ("Trend results: 100 users", None)
 
         insight = MaxInsightContext(
             id=123,
@@ -706,12 +706,12 @@ Results:
 Trend results: 100 users
 ```"""
         self.assertEqual(result, expected)
-        mock_query_runner.run_query_raw.assert_called_once()
+        mock_query_runner.run_and_format_query.assert_called_once()
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Funnel results: 50% conversion"
+        mock_query_runner.run_and_format_query.return_value = ("Funnel results: 50% conversion", None)
 
         insight = MaxInsightContext(
             id=456,
@@ -738,7 +738,7 @@ Funnel results: 50% conversion
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Retention: 30% Day 7"
+        mock_query_runner.run_and_format_query.return_value = ("Retention: 30% Day 7", None)
 
         insight = MaxInsightContext(
             id=789,
@@ -769,7 +769,7 @@ Retention: 30% Day 7
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Query results: 42 events"
+        mock_query_runner.run_and_format_query.return_value = ("Query results: 42 events", None)
 
         insight = MaxInsightContext(
             id=101,
@@ -803,12 +803,12 @@ Query results: 42 events
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
         self.assertEqual(result, "")
-        mock_query_runner.run_query_raw.assert_not_called()
+        mock_query_runner.run_and_format_query.assert_not_called()
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_exception_handling(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.side_effect = Exception("Query failed")
+        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
         insight = MaxInsightContext(
             id=123,
@@ -824,7 +824,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Dashboard insight results"
+        mock_query_runner.run_and_format_query.return_value = ("Dashboard insight results", None)
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -857,7 +857,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Standalone insight results"
+        mock_query_runner.run_and_format_query.return_value = ("Standalone insight results", None)
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -889,7 +889,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.return_value = "Insight execution results"
+        mock_query_runner.run_and_format_query.return_value = ("Insight execution results", None)
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -912,7 +912,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_query_raw.side_effect = Exception("Query failed")
+        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
         # Create mock insight that will fail
         insight = MaxInsightContext(

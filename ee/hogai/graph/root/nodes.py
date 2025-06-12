@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 import products
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -186,7 +186,7 @@ class RootNodeUIContextMixin(AssistantNode):
         """
         # Map query kinds to their respective full UI query classes
         # NOTE: Update this when adding new query types
-        query_class_map: dict[str, type[BaseModel]] = {
+        query_class_map: dict[str, type[SupportedQueryTypes]] = {
             "TrendsQuery": TrendsQuery,
             "FunnelsQuery": FunnelsQuery,
             "RetentionQuery": RetentionQuery,
@@ -194,16 +194,16 @@ class RootNodeUIContextMixin(AssistantNode):
         }
 
         try:
-            query_dict = insight.query.model_dump(mode="json")
-            query_kind = getattr(insight.query, "kind", None)
+            query_kind = cast(str | None, getattr(insight.query, "kind", None))
             serialized_query = insight.query.model_dump_json(exclude_none=True)
 
             if not query_kind or query_kind not in query_class_map:
                 return ""  # Skip unsupported query types
 
-            query_obj = insight.query
+            query_obj = cast(SupportedQueryTypes, insight.query)
 
             if dashboard_filters or filters_override or variables_override:
+                query_dict = insight.query.model_dump(mode="json")
                 if dashboard_filters:
                     query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
                 if filters_override:
@@ -214,7 +214,7 @@ class RootNodeUIContextMixin(AssistantNode):
                 query_class = query_class_map[query_kind]
                 query_obj = query_class.model_validate(query_dict)
 
-            raw_results = query_runner.run_query_raw(query_obj)
+            raw_results, _ = query_runner.run_and_format_query(query_obj)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")

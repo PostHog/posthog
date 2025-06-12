@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast
+from typing import Optional
 
 from ee.hogai.graph.query_executor.format import (
     FunnelResultsFormatter,
@@ -29,6 +29,17 @@ from time import sleep
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 
+SupportedQueryTypes = (
+    AssistantTrendsQuery
+    | TrendsQuery
+    | AssistantFunnelsQuery
+    | FunnelsQuery
+    | AssistantRetentionQuery
+    | RetentionQuery
+    | AssistantHogQLQuery
+    | HogQLQuery
+)
+
 
 class AssistantQueryExecutor:
     """
@@ -52,32 +63,9 @@ class AssistantQueryExecutor:
         self._team = team
         self._utc_now_datetime = utc_now_datetime
 
-    def run_query_raw(self, query, execution_mode=None) -> str:
-        """
-        Run a query and return raw formatted results without prompt headers.
-
-        Args:
-            query: The query object (AssistantTrendsQuery, AssistantFunnelsQuery, etc.)
-            execution_mode: Optional execution mode override
-
-        Returns:
-            Raw formatted results as string without example prompts or headers
-
-        Raises:
-            Exception: If query execution fails with descriptive error messages
-        """
-        response_dict = self._execute_query(query, execution_mode)
-
-        try:
-            # Get raw formatted results without prompt headers
-            return self._format_results_raw(query, response_dict)
-        except Exception as err:
-            if isinstance(err, NotImplementedError):
-                raise
-            # Fallback to JSON if formatting fails
-            return json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
-
-    def run_and_format_query(self, query, execution_mode=None) -> tuple[str, bool]:
+    def run_and_format_query(
+        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None
+    ) -> tuple[str, bool]:  # noqa: F821
         """
         Run a query and format the results with detailed fallback information.
 
@@ -109,7 +97,7 @@ class AssistantQueryExecutor:
             fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             return fallback_results, True  # Fallback was used
 
-    def _execute_query(self, query, execution_mode=None) -> dict:
+    def _execute_query(self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None) -> dict:
         """
         Execute a query and return the response dict.
 
@@ -187,55 +175,7 @@ class AssistantQueryExecutor:
 
         return response_dict
 
-    def _format_results_raw(self, query, response: dict) -> str:
-        """
-        Format query results without prompt headers or examples.
-
-        Args:
-            query: The query object to determine formatting approach
-            response: Raw query response dict containing results and metadata
-
-        Returns:
-            Raw formatted results as a string without example prompts
-
-        Raises:
-            NotImplementedError: If the query type is not supported
-        """
-        # Handle assistant-specific query types with direct formatting
-        if isinstance(query, AssistantTrendsQuery):
-            return TrendsResultsFormatter(query, response["results"]).format()
-        elif isinstance(query, AssistantFunnelsQuery):
-            return FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime).format()
-        elif isinstance(query, AssistantRetentionQuery):
-            return RetentionResultsFormatter(query, response["results"]).format()
-        elif isinstance(query, AssistantHogQLQuery):
-            return SQLResultsFormatter(query, response["results"], response["columns"]).format()
-
-        # Handle full queries by casting to assistant query types
-        # This allows reuse of assistant formatters for consistent output
-        elif isinstance(query, TrendsQuery):
-            # Cast to AssistantTrendsQuery for consistent formatting
-            assistant_trends_query = cast(AssistantTrendsQuery, query)
-            return TrendsResultsFormatter(assistant_trends_query, response["results"]).format()
-        elif isinstance(query, FunnelsQuery):
-            # Cast to AssistantFunnelsQuery for consistent formatting
-            assistant_funnels_query = cast(AssistantFunnelsQuery, query)
-            return FunnelResultsFormatter(
-                assistant_funnels_query, response["results"], self._team, self._utc_now_datetime
-            ).format()
-        elif isinstance(query, RetentionQuery):
-            # Cast to AssistantRetentionQuery for consistent formatting
-            assistant_retention_query = cast(AssistantRetentionQuery, query)
-            return RetentionResultsFormatter(assistant_retention_query, response["results"]).format()
-        elif isinstance(query, HogQLQuery):
-            # Cast to AssistantHogQLQuery for consistent formatting
-            assistant_hogql_query = cast(AssistantHogQLQuery, query)
-            return SQLResultsFormatter(assistant_hogql_query, response["results"], response["columns"]).format()
-
-        # Unsupported query type - should be implemented if new types are added
-        raise NotImplementedError(f"Unsupported query type: {type(query)}")
-
-    def _compress_results(self, query, response: dict) -> str:
+    def _compress_results(self, query: SupportedQueryTypes, response: dict) -> str:
         """
         Format query results using appropriate formatter based on query type.
 
@@ -250,35 +190,11 @@ class AssistantQueryExecutor:
             NotImplementedError: If the query type is not supported
         """
         # Handle assistant-specific query types with direct formatting
-        if isinstance(query, AssistantTrendsQuery):
+        if isinstance(query, AssistantTrendsQuery | TrendsQuery):
             return TrendsResultsFormatter(query, response["results"]).format()
-        elif isinstance(query, AssistantFunnelsQuery):
+        elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
             return FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime).format()
-        elif isinstance(query, AssistantRetentionQuery):
+        elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
             return RetentionResultsFormatter(query, response["results"]).format()
-        elif isinstance(query, AssistantHogQLQuery):
+        elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
             return SQLResultsFormatter(query, response["results"], response["columns"]).format()
-
-        # Handle full queries by casting to assistant query types
-        # This allows reuse of assistant formatters for consistent output
-        elif isinstance(query, TrendsQuery):
-            # Cast to AssistantTrendsQuery for consistent formatting
-            assistant_trends_query = cast(AssistantTrendsQuery, query)
-            return TrendsResultsFormatter(assistant_trends_query, response["results"]).format()
-        elif isinstance(query, FunnelsQuery):
-            # Cast to AssistantFunnelsQuery for consistent formatting
-            assistant_funnels_query = cast(AssistantFunnelsQuery, query)
-            return FunnelResultsFormatter(
-                assistant_funnels_query, response["results"], self._team, self._utc_now_datetime
-            ).format()
-        elif isinstance(query, RetentionQuery):
-            # Cast to AssistantRetentionQuery for consistent formatting
-            assistant_retention_query = cast(AssistantRetentionQuery, query)
-            return RetentionResultsFormatter(assistant_retention_query, response["results"]).format()
-        elif isinstance(query, HogQLQuery):
-            # Cast to AssistantHogQLQuery for consistent formatting
-            assistant_hogql_query = cast(AssistantHogQLQuery, query)
-            return SQLResultsFormatter(assistant_hogql_query, response["results"], response["columns"]).format()
-
-        # Unsupported query type - should be implemented if new types are added
-        raise NotImplementedError(f"Unsupported query type: {type(query)}")

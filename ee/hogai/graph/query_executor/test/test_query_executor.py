@@ -310,20 +310,6 @@ class TestAssistantQueryExecutor(BaseTest):
         result = self.query_runner._compress_results(hogql_query, response)
         self.assertIn("count\n100", result)
 
-    def test_compress_results_unsupported_query_type(self):
-        """Test _compress_results raises NotImplementedError for unsupported query types"""
-
-        class UnsupportedQuery:
-            pass
-
-        unsupported_query = UnsupportedQuery()
-        response = {"results": []}
-
-        with self.assertRaises(NotImplementedError) as context:
-            self.query_runner._compress_results(unsupported_query, response)
-
-        self.assertIn("Unsupported query type", str(context.exception))
-
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     def test_response_dict_handling(self, mock_process_query):
         """Test that response is handled correctly whether it's a dict or model"""
