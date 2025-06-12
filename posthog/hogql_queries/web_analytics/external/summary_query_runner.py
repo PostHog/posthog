@@ -35,7 +35,6 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
                     code="platform_access_required",
                     detail="Organization must have platform access to use external web analytics",
                 ),
-                dateRange=self.query.dateRange,
                 status="error",
             )
 
@@ -52,7 +51,6 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
                     "total_pageviews": results["total_pageviews"],
                     "bounce_rate": results["bounce_rate"],
                 },
-                dateRange=self.query.dateRange,
                 status="success",
             )
 
@@ -64,7 +62,6 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
                     code="query_execution_failed",
                     detail="Failed to execute query",
                 ),
-                dateRange=self.query.dateRange,
                 status="error",
             )
 

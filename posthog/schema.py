@@ -7759,7 +7759,6 @@ class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
         extra="forbid",
     )
     data: dict[str, Any]
-    dateRange: DateRange
     status: Literal["success", "error"]
     error: Optional[ExternalQueryError] = None
 
