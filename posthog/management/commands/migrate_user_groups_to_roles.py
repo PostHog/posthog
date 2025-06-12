@@ -38,4 +38,4 @@ class Command(BaseCommand):
 
                 # update references in error tracking models from user_group_id to role_id
                 for model in [ErrorTrackingIssueAssignment, ErrorTrackingAssignmentRule, ErrorTrackingGroupingRule]:
-                    model.objects.filter(user_group=user_group).update(role=role)
+                    model.objects.filter(user_group=user_group).update(role=role, user_group=None)

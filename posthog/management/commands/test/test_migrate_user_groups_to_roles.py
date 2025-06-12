@@ -6,6 +6,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
 )
 
 
@@ -15,8 +16,11 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         UserGroupMembership.objects.create(group=user_group, user=self.user)
 
         issue = ErrorTrackingIssue.objects.create(team=self.team)
-        ErrorTrackingIssueAssignment.objects.create(issue=issue, user_group=user_group)
-        ErrorTrackingAssignmentRule.objects.create(
+        issue_assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, user_group=user_group)
+        assignment_rule = ErrorTrackingAssignmentRule.objects.create(
+            team=self.team, user_group=user_group, order_key=0, bytecode={}, filters={}
+        )
+        grouping_rule = ErrorTrackingGroupingRule.objects.create(
             team=self.team, user_group=user_group, order_key=0, bytecode={}, filters={}
         )
 
@@ -41,3 +45,16 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         assert len(role.members.all()) == 1
         member = role.members.first()
         assert member == self.user
+
+        # update error tracking rules
+        issue_assignment.refresh_from_db()
+        assignment_rule.refresh_from_db()
+        grouping_rule.refresh_from_db()
+
+        assert issue_assignment.user_group is None
+        assert assignment_rule.user_group is None
+        assert grouping_rule.user_group is None
+
+        assert issue_assignment.role == role
+        assert assignment_rule.role == role
+        assert grouping_rule.role == role
