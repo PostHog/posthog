@@ -63,7 +63,7 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return Response([{"name": value} for value in values])
 
-    def _product_selects(self, revenue_selects: RevenueSelectOutput) -> list[ast.SelectQuery]:
+    def _product_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
         product_selects: list[ast.SelectQuery] = [
             cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
             for select in revenue_selects.values()
@@ -72,7 +72,7 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return ast.SelectSetQuery.create_from_queries(product_selects, set_operator="UNION ALL")
 
-    def _customer_selects(self, revenue_selects: RevenueSelectOutput) -> list[ast.SelectQuery]:
+    def _customer_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
         customer_selects: list[ast.SelectQuery] = [
             cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
             for select in revenue_selects.values()
