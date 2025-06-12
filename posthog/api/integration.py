@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -120,6 +121,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
         authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
@@ -145,19 +147,29 @@ class IntegrationViewSet(
             else:
                 return Response({"channels": []})
 
-        channels = [
-            {
-                "id": channel["id"],
-                "name": channel["name"],
-                "is_private": channel["is_private"],
-                "is_member": channel.get("is_member", True),
-                "is_ext_shared": channel["is_ext_shared"],
-                "is_private_without_access": channel.get("is_private_without_access", False),
-            }
-            for channel in slack.list_channels(should_include_private_channels, authed_user)
-        ]
+        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
+        data = cache.get(key)
 
-        return Response({"channels": channels})
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "channels": [
+                {
+                    "id": channel["id"],
+                    "name": channel["name"],
+                    "is_private": channel["is_private"],
+                    "is_member": channel.get("is_member", True),
+                    "is_ext_shared": channel["is_ext_shared"],
+                    "is_private_without_access": channel.get("is_private_without_access", False),
+                }
+                for channel in slack.list_channels(should_include_private_channels, authed_user)
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
 
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:

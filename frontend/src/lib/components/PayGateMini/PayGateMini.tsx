@@ -29,6 +29,10 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
      * Custom loading state to show while billing data is loading
      */
     loadingSkeleton?: JSX.Element
+    /**
+     * Actions
+     */
+    handleSubmit?: () => void
 }
 
 /** A sort of paywall for premium features.
@@ -46,6 +50,7 @@ export function PayGateMini({
     isGrandfathered,
     docsLink,
     loadingSkeleton,
+    handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
     const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
         payGateMiniLogic({ feature, currentUsage })
@@ -67,6 +72,9 @@ export function PayGateMini({
     }, [gateVariant])
 
     const handleCtaClick = (): void => {
+        if (handleSubmit) {
+            handleSubmit()
+        }
         hideUpgradeModal()
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,

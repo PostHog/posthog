@@ -2,7 +2,9 @@ import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-gene
 
 import { VIEW_BOX_WIDTH } from './constants'
 import { GridLines } from './GridLines'
+import { useTooltipHover } from './useTooltipHover'
 import { VariantBar } from './VariantBar'
+import { VariantTooltip } from './VariantTooltip'
 
 export function Chart({
     chartSvgRef,
@@ -21,6 +23,8 @@ export function Chart({
     tickValues: number[]
     isSecondary: boolean
 }): JSX.Element {
+    const { showTooltip, hideTooltip, showTooltipFromTooltip, isTooltipVisible } = useTooltipHover()
+
     return (
         <div className="relative w-full">
             <div className="flex justify-center">
@@ -34,19 +38,36 @@ export function Chart({
                         {/* Vertical grid lines */}
                         <GridLines tickValues={tickValues} chartRadius={chartRadius} chartHeight={chartHeight} />
                     </g>
-                    {/* Variant bars */}
-                    {variantResults.map((variant: any, index: number) => (
-                        <VariantBar
-                            key={variant.key}
-                            variant={variant}
-                            index={index}
-                            chartRadius={chartRadius}
-                            metricIndex={metricIndex}
-                            isSecondary={isSecondary}
-                        />
-                    ))}
+                    <g className="variant-bars-layer">
+                        {/* Variant bars */}
+                        {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
+                            <VariantBar
+                                key={`variant-bar-${variantResult.key}`}
+                                variantResult={variantResult}
+                                index={index}
+                                chartRadius={chartRadius}
+                                metricIndex={metricIndex}
+                                isSecondary={isSecondary}
+                                onMouseEnter={() => showTooltip(variantResult.key)}
+                                onMouseLeave={hideTooltip}
+                            />
+                        ))}
+                    </g>
                 </svg>
             </div>
+
+            {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
+                <VariantTooltip
+                    key={`tooltip-${variantResult.key}`}
+                    variantResult={variantResult}
+                    index={index}
+                    chartRadius={chartRadius}
+                    chartSvgRef={chartSvgRef}
+                    isVisible={isTooltipVisible(variantResult.key)}
+                    onMouseEnter={() => showTooltipFromTooltip(variantResult.key)}
+                    onMouseLeave={hideTooltip}
+                />
+            ))}
         </div>
     )
 }

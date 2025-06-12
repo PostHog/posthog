@@ -2,7 +2,6 @@ import { defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { replayActiveScreensTableLogicType } from './replayActiveScreensTableLogicType'
@@ -31,10 +30,7 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
                     order by c desc limit 10
                 `
 
-                const qResponse = await api.query<HogQLQuery>({
-                    kind: NodeKind.HogQLQuery,
-                    query: q,
-                })
+                const qResponse = await api.queryHogQL(q)
 
                 breakpoint()
 

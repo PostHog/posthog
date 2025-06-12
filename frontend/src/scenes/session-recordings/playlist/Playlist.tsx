@@ -243,7 +243,9 @@ export function Playlist({
                 )}
                 {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' &&
                     isFiltersExpanded &&
-                    filterContent && <div className="bg-white border rounded-md p-2 w-full">{filterContent}</div>}
+                    filterContent && (
+                        <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
+                    )}
             </div>
         </>
     )
