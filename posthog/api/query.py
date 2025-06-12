@@ -36,7 +36,6 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_variables,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
-from posthog.hogql_queries.web_analytics.external.summary_query_runner import WebAnalyticsExternalSummaryQueryRunner
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -51,8 +50,6 @@ from posthog.schema import (
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
-    WebAnalyticsExternalSummaryQuery,
-    DateRange,
 )
 from posthog.hogql.constants import LimitContext
 
@@ -96,7 +93,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "web_analytics"]
+    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
 
@@ -243,28 +240,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
-
-    @action(methods=["POST"], detail=False)
-    def web_analytics(self, request: Request, **kwargs) -> Response:
-        date_from = request.data.get("date_from")
-        date_to = request.data.get("date_to")
-
-        if not date_from or not date_to:
-            raise ValidationError({"date_range": ["date_from and date_to are required"]}, code="required")
-
-        query = WebAnalyticsExternalSummaryQuery(
-            kind="WebAnalyticsExternalSummaryQuery",
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=[],
-        )
-
-        query_runner = WebAnalyticsExternalSummaryQueryRunner(
-            query=query,
-            team=self.team,
-        )
-
-        result = query_runner.calculate()
-        return Response(result.model_dump())
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
