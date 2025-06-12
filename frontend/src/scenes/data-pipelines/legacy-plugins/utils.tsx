@@ -1,9 +1,8 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { LogEntryLevel, PluginType } from '~/types'
+import { PluginType } from '~/types'
 
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 
@@ -43,34 +42,4 @@ export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.
             </Tooltip>
         </div>
     )
-}
-
-export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
-    let color: string | undefined
-    switch (level) {
-        case 'DEBUG':
-            color = 'text-muted'
-            break
-        case 'LOG':
-            color = 'text-text-3000'
-            break
-        case 'INFO':
-            color = 'text-accent'
-            break
-        case 'WARNING':
-        case 'WARN':
-            color = 'text-warning'
-            break
-        case 'ERROR':
-            color = 'text-danger'
-            break
-        default:
-            break
-    }
-    return <span className={color}>{level}</span>
-}
-
-export async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
-    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
-    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
 }

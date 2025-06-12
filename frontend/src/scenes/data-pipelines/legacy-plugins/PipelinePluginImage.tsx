@@ -47,14 +47,14 @@ export function PluginImage({
 
     return pluginType === 'source' ? (
         <IconTerminal
-            className="plugin-image shrink-0 ml-0"
+            className="ml-0 plugin-image shrink-0"
             style={{
                 fontSize: pixelSize,
             }}
         />
     ) : (
         <div
-            className="plugin-image shrink-0 bg-contain bg-no-repeat"
+            className="bg-no-repeat bg-contain plugin-image shrink-0"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: pixelSize,

@@ -4,13 +4,37 @@ import { loaders } from 'kea-loaders'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import api from '~/lib/api'
 import { LogEntry, LogEntryLevel, LogEntryRequestParams, PipelineStage } from '~/types'
 
-import { teamLogic } from '../teamLogic'
 import type { pipelineNodeLogsLogicType } from './pipelineNodeLogsLogicType'
-import { LogLevelDisplay } from './utils'
+
+export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
+    let color: string | undefined
+    switch (level) {
+        case 'DEBUG':
+            color = 'text-muted'
+            break
+        case 'LOG':
+            color = 'text-text-3000'
+            break
+        case 'INFO':
+            color = 'text-accent'
+            break
+        case 'WARNING':
+        case 'WARN':
+            color = 'text-warning'
+            break
+        case 'ERROR':
+            color = 'text-danger'
+            break
+        default:
+            break
+    }
+    return <span className={color}>{level}</span>
+}
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
