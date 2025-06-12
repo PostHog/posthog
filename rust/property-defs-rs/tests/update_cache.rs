@@ -98,17 +98,17 @@ fn test_batch_cache_insertions() {
     let mut evt_props = vec![];
     let mut prop_defs = vec![];
 
-    for _ in 1..=100 {
+    for counter in 1..=100 {
         evt_defs.push(Update::Event(EventDefinition {
-            name: String::from("foobar"),
+            name: format!("event def {}", counter),
             team_id: 1,
             project_id: 1,
             last_seen_at: Utc::now(),
         }));
 
         evt_props.push(Update::EventProperty(EventProperty {
-            event: String::from("foo"),
-            property: String::from("bar"),
+            event: format!("event def {}", counter),
+            property: format!("event prop {}", counter),
             team_id: 1,
             project_id: 1,
         }));
@@ -116,7 +116,7 @@ fn test_batch_cache_insertions() {
         prop_defs.push(Update::Property(PropertyDefinition {
             team_id: 1,
             project_id: 1,
-            name: String::from("baz_count"),
+            name: format!("prop def {}", counter),
             is_numerical: true,
             property_type: Some(PropertyValueType::Numeric),
             event_type: PropertyParentType::Event,
@@ -142,17 +142,17 @@ fn test_batch_cache_removals() {
     let mut evt_props = vec![];
     let mut prop_defs = vec![];
 
-    for _ in 1..=100 {
+    for counter in 1..=100 {
         evt_defs.push(Update::Event(EventDefinition {
-            name: String::from("foobar"),
+            name: format!("event def {}", counter),
             team_id: 1,
             project_id: 1,
             last_seen_at: Utc::now(),
         }));
 
         evt_props.push(Update::EventProperty(EventProperty {
-            event: String::from("foo"),
-            property: String::from("bar"),
+            event: format!("event def {}", counter),
+            property: format!("event prop {}", counter),
             team_id: 1,
             project_id: 1,
         }));
@@ -160,7 +160,7 @@ fn test_batch_cache_removals() {
         prop_defs.push(Update::Property(PropertyDefinition {
             team_id: 1,
             project_id: 1,
-            name: String::from("baz_count"),
+            name: format!("prop def {}", counter),
             is_numerical: true,
             property_type: Some(PropertyValueType::Numeric),
             event_type: PropertyParentType::Event,
