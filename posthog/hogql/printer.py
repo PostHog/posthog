@@ -330,6 +330,12 @@ class _Printer(Visitor):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+        is_last_query_in_union = (
+            part_of_select_union
+            and isinstance(self.stack[0], ast.SelectSetQuery)
+            and len(self.stack[0].subsequent_select_queries) > 0
+            and self.stack[0].subsequent_select_queries[-1].select_query == node
+        )
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -462,7 +468,12 @@ class _Printer(Visitor):
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
 
-        if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
+        if (
+            self.context.output_format
+            and self.dialect == "clickhouse"
+            and is_top_level_query
+            and (not part_of_select_union or is_last_query_in_union)
+        ):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
         if node.settings is not None and self.dialect == "clickhouse":

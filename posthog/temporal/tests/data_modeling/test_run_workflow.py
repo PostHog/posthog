@@ -363,7 +363,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     expected_events = sorted(
         [
             {
-                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
+                k: dt.datetime.fromisoformat(v) if k == "timestamp" else v
                 for k, v in event.items()
                 if k in ("event", "distinct_id", "timestamp")
             }
@@ -427,7 +427,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
     expected_events = sorted(
         [
             {
-                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
+                k: dt.datetime.fromisoformat(v) if k == "timestamp" else v
                 for k, v in event.items()
                 if k in ("event", "distinct_id", "timestamp")
             }
@@ -695,7 +695,7 @@ async def test_run_workflow_with_minio_bucket(
     all_expected_events = sorted(
         [
             {
-                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
+                k: dt.datetime.fromisoformat(v) if k == "timestamp" else v
                 for k, v in event.items()
                 if k in ("event", "distinct_id", "timestamp")
             }

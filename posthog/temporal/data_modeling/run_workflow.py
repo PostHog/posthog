@@ -397,6 +397,7 @@ async def materialize_model(
             deltalake.write_deltalake(
                 table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode="overwrite"
             )
+
             row_count = row_count + batch.num_rows
 
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)

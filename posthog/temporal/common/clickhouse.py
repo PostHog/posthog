@@ -16,6 +16,7 @@ import requests
 import structlog
 from django.conf import settings
 
+from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_internal_logger
 
@@ -118,7 +119,9 @@ def parse_clickhouse_value(value: str, ch_type: str) -> typing.Any:
         if ch_type.startswith("Enum"):
             return value
 
-    except Exception:
+    except Exception as e:
+        capture_exception(e)
+
         return value
 
     return value
