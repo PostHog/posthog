@@ -481,3 +481,47 @@ class TestUserAPI(APIBaseTest):
                     )
                     self.assertEqual(response.status_code, status.HTTP_200_OK)
                 assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
+
+    @patch("posthog.rate_limit.report_user_action")
+    def test_ai_burst_rate_throttle_calls_report_user_action(self, mock_report_user_action):
+        """Test that AIBurstRateThrottle calls report_user_action when rate limit is exceeded"""
+        from posthog.rate_limit import AIBurstRateThrottle
+        from unittest.mock import Mock
+
+        throttle = AIBurstRateThrottle()
+
+        mock_request = Mock()
+        mock_request.user = self.user
+        mock_view = Mock()
+
+        # Mock the parent allow_request to return False (rate limited)
+        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            # Should return False (rate limited)
+            self.assertFalse(result)
+
+            # Should call report_user_action with correct parameters
+            mock_report_user_action.assert_called_once_with(self.user, "ai burst rate limited")
+
+    @patch("posthog.rate_limit.report_user_action")
+    def test_ai_sustained_rate_throttle_calls_report_user_action(self, mock_report_user_action):
+        """Test that AISustainedRateThrottle calls report_user_action when rate limit is exceeded"""
+        from posthog.rate_limit import AISustainedRateThrottle
+        from unittest.mock import Mock
+
+        throttle = AISustainedRateThrottle()
+
+        mock_request = Mock()
+        mock_request.user = self.user
+        mock_view = Mock()
+
+        # Mock the parent allow_request to return False (rate limited)
+        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            # Should return False (rate limited)
+            self.assertFalse(result)
+
+            # Should call report_user_action with correct parameters
+            mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
