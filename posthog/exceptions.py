@@ -65,7 +65,7 @@ class ExceptionContext(TypedDict):
 
 def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
     """
-    Determines which exceptions to report and sends them to Error tracking.
+    Determines which exceptions to report and sends them to error tracking.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
