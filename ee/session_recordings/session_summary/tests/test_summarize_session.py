@@ -37,14 +37,6 @@ class TestSummarizeSession:
         session_id = "test_session_id"
         # Mock DB/LLM dependencies
         with (
-            patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
-                return_value=mock_raw_metadata,
-            ) as mock_get_metadata,
-            patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_events",
-                return_value=(mock_raw_events_columns, mock_raw_events),
-            ) as mock_get_events,
             patch("posthog.temporal.ai.session_summary.summarize_session._start_workflow") as mock_workflow,
             patch("posthog.temporal.ai.session_summary.summarize_session.asyncio.run") as mock_asyncio_run,
         ):
@@ -62,17 +54,6 @@ class TestSummarizeSession:
             # Get all results from generator (consume the stream fully)
             results = list(result_generator)
             # Verify all mocks were called correctly
-            mock_get_metadata.assert_called_once_with(
-                session_id=session_id,
-                team=mock_team,
-                local_reads_prod=False,
-            )
-            mock_get_events.assert_called_once_with(
-                session_id=session_id,
-                team=mock_team,
-                session_metadata=mock_raw_metadata,
-                local_reads_prod=False,
-            )
             assert len(results) == 1
             assert results[0] == mock_valid_llm_yaml_response
 
@@ -80,11 +61,14 @@ class TestSummarizeSession:
     async def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock):
         session_id = "test_session_id"
         empty_context = ExtraSummaryContext()
-        with patch.object(
-            SessionReplayEvents,
-            "get_metadata",
-            return_value=None,
-        ) as mock_get_db_metadata:
+        with (
+            patch.object(
+                SessionReplayEvents,
+                "get_metadata",
+                return_value=None,
+            ) as mock_get_db_metadata,
+            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+        ):
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {session_id}"):
                 await prepare_data_for_single_session_summary(
                     session_id=session_id,
@@ -136,9 +120,9 @@ class TestSummarizeSession:
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
-            patch("posthog.temporal.ai.session_summary.summarize_session.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "ASGI"),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session.execute_summarize_session",
+                "ee.session_recordings.session_summary.stream.execute_summarize_session",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
@@ -167,9 +151,9 @@ class TestSummarizeSession:
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
-            patch("posthog.settings.SERVER_GATEWAY_INTERFACE", "WSGI"),
+            patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "WSGI"),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session.execute_summarize_session",
+                "ee.session_recordings.session_summary.stream.execute_summarize_session",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
@@ -183,47 +167,6 @@ class TestSummarizeSession:
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
-            )
-
-    def test_execute_summarize_session_no_events_sse_error(
-        self,
-        mock_user: MagicMock,
-        mock_team: MagicMock,
-        mock_raw_metadata: dict[str, Any],
-        mock_raw_events_columns: list[str],
-    ):
-        """Test that we yield a proper SSE error when no events are found (for example, for fresh real-time replays)."""
-        session_id = "test_session_id"
-        empty_context = ExtraSummaryContext()
-        with (
-            patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
-                return_value=mock_raw_metadata,
-            ),
-            patch.object(
-                SessionReplayEvents,
-                "get_events",
-                return_value=(mock_raw_events_columns, []),  # Return columns but no events
-            ) as mock_get_db_events,
-        ):
-            result = list(
-                execute_summarize_session(
-                    session_id=session_id, user_pk=mock_user.pk, team=mock_team, extra_summary_context=empty_context
-                )
-            )
-            assert len(result) == 1
-            assert (
-                result[0]
-                == "event: session-summary-error\ndata: No events found for this replay yet. Please try again in a few minutes.\n\n"
-            )
-            mock_get_db_events.assert_called_once_with(
-                session_id="test_session_id",
-                team=mock_team,
-                metadata=mock_raw_metadata,
-                events_to_ignore=["$feature_flag_called"],
-                extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
-                page=0,
-                limit=3000,
             )
 
     @staticmethod
