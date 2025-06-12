@@ -321,9 +321,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
         (
             "JSONExtract",
             native_func(err_to_null(|vm, args| {
-                assert_argc(&args, 2, "JSONExtract")?;
+                assert_argc(&args, 1, "JSONExtract")?;
                 let json = args[0].deref(&vm.heap)?.try_as::<str>()?;
-                let path = &args[1..];
+                // Technically JSONExtract can be used simply to parse a string as json
+                let path = if args.len() > 1 { &args[1..] } else { &[] };
                 let json: JsonValue = serde_json::from_str(json)
                     .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
                 let res = get_json_nested(&json, path, vm)?;
