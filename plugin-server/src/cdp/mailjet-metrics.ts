@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 export interface MailjetEvent {
     //Common fields
     event: string
@@ -45,3 +47,15 @@ export const eventTypeToCategory = {
     spam: 'email_spam',
     unsub: 'email_unsubscribed',
 }
+
+export const mailjetWebhookEvents = new Counter({
+    name: 'mailjet_webhook_events_total',
+    help: 'Total number of Mailjet webhook events received',
+    labelNames: ['event_type'],
+})
+
+export const mailjetWebhookErrors = new Counter({
+    name: 'mailjet_webhook_errors_total',
+    help: 'Total number of Mailjet webhook processing errors',
+    labelNames: ['error_type'],
+})

@@ -14,19 +14,7 @@ export interface AppMetricIdentifier {
     pluginConfigId: number
     jobId?: string
     // Keep in sync with posthog/queries/app_metrics/serializers.py
-    category:
-        | 'processEvent'
-        | 'onEvent'
-        | 'scheduledTask'
-        | 'webhook'
-        | 'composeWebhook'
-        | 'email_sent'
-        | 'email_opened'
-        | 'email_clicked'
-        | 'email_bounced'
-        | 'email_blocked'
-        | 'email_spam'
-        | 'email_unsubscribed'
+    category: 'processEvent' | 'onEvent' | 'scheduledTask' | 'webhook' | 'composeWebhook'
 }
 
 export interface AppMetric extends AppMetricIdentifier {
