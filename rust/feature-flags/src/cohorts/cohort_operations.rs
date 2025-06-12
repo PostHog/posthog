@@ -278,14 +278,12 @@ pub fn evaluate_dynamic_cohorts(
     cohorts: &[Cohort],
 ) -> Result<bool, FlagError> {
     // First check if this is a static cohort
-    let initial_cohort =
-        cohorts
-            .iter()
-            .find(|c| c.id == initial_cohort_id)
-            .ok_or(FlagError::DependencyNotFound(
-                DependencyType::Cohort,
-                initial_cohort_id.into(),
-            ))?;
+    let initial_cohort = cohorts
+        .iter()
+        .find(|c| c.id == initial_cohort_id)
+        .ok_or_else(|| {
+            FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
+        })?;
 
     // If it's static, we don't need to evaluate dependencies
     if initial_cohort.is_static {
