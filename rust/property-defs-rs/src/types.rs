@@ -161,6 +161,7 @@ impl Update {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
+    pub root_team_id: Option<i32>,
     pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
@@ -170,8 +171,14 @@ impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
         EventDefinition {
             name: sanitize_event_name(&event.event),
-            team_id: event.team_id,
-            project_id: event.project_id,
+            team_id: match event.root_team_id {
+                Some(root_team_id) => root_team_id,
+                _ => event.team_id,
+            },
+            project_id: match event.root_team_id {
+                Some(root_team_id) => root_team_id as i64,
+                _ => event.project_id,
+            },
             last_seen_at: get_floored_last_seen(),
         }
     }
@@ -271,6 +278,16 @@ impl Event {
         group_type: Option<GroupType>,
     ) {
         updates.reserve(set.len() * 2);
+
+        let team_id = match self.root_team_id {
+            Some(root_team_id) => root_team_id,
+            _ => self.team_id,
+        };
+        let project_id = match self.root_team_id {
+            Some(root_team_id) => root_team_id as i64,
+            _ => self.project_id,
+        };
+
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
@@ -286,8 +303,8 @@ impl Event {
             }
 
             updates.push(Update::EventProperty(EventProperty {
-                team_id: self.team_id,
-                project_id: self.project_id,
+                team_id,
+                project_id,
                 event: self.event.clone(),
                 property: key.clone(),
             }));
@@ -296,8 +313,8 @@ impl Event {
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
             updates.push(Update::Property(PropertyDefinition {
-                team_id: self.team_id,
-                project_id: self.project_id,
+                team_id,
+                project_id,
                 name: key.clone(),
                 is_numerical,
                 property_type,

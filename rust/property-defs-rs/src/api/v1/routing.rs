@@ -23,7 +23,7 @@ use std::sync::Arc;
 pub fn apply_routes(parent: Router, app_ctx: Arc<AppContext>) -> Router {
     let api_router = Router::new()
         .route(
-            "/projects/:project_id/property_definitions",
+            "/projects/:team_id/property_definitions",
             get(project_property_definitions_handler),
         )
         .with_state(app_ctx);
@@ -33,28 +33,25 @@ pub fn apply_routes(parent: Router, app_ctx: Arc<AppContext>) -> Router {
 
 async fn project_property_definitions_handler(
     State(app_ctx): State<Arc<AppContext>>,
-    Path(project_id): Path<i32>,
+    Path(team_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<PropertyDefinitionResponse>, ApiError> {
     // parse and validate request's query params
     let params = parse_request(params);
     params.valid()?;
-    debug!(
-        "Request for project_id({}) w/params: {:?}",
-        project_id, &params
-    );
+    debug!("Request for team_id({}) w/params: {:?}", team_id, &params);
 
     let qmgr: &Manager = &app_ctx.query_manager;
 
     // construct the count query
     let mut count_bldr = QueryBuilder::<Postgres>::new("");
-    let count_query = qmgr.count_query(&mut count_bldr, project_id, &params);
+    let count_query = qmgr.count_query(&mut count_bldr, team_id, &params);
     let count_dbg: String = count_query.sql().into();
     debug!("Count query: {:?}", &count_dbg);
 
     // construct the property definitions query
     let mut props_bldr = QueryBuilder::<Postgres>::new("");
-    let props_query = qmgr.property_definitions_query(&mut props_bldr, project_id, &params);
+    let props_query = qmgr.property_definitions_query(&mut props_bldr, team_id, &params);
     let props_dbg: String = props_query.sql().into();
     debug!("Prop defs query: {:?}", &props_dbg);
 

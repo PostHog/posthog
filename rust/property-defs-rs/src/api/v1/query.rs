@@ -32,7 +32,7 @@ impl Manager {
     pub fn count_query<'args, 'builder: 'args>(
         &self,
         qb: &'builder mut QueryBuilder<'args, Postgres>,
-        project_id: i32,
+        team_id: i32,
         params: &'args Params,
     ) -> Query<'args, Postgres, PgArguments> {
         /* The original Django query formulation we're duplicating
@@ -41,7 +41,7 @@ impl Manager {
         SELECT count(*) as full_count
         FROM {self.table}
         {self._join_on_event_property()}
-        WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
+        WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(team_id)s
             AND type = %(type)s
             AND coalesce(group_type_index, -1) = %(group_type_index)s
             {self.excluded_properties_filter}
@@ -63,13 +63,13 @@ impl Manager {
         self.gen_from_clause(qb, params.use_enterprise_taxonomy);
         self.conditionally_join_event_properties(
             qb,
-            project_id,
+            team_id,
             params.parent_type,
             &params.event_names,
         );
 
         // begin the WHERE clause
-        self.init_where_clause(qb, project_id);
+        self.init_where_clause(qb, team_id);
         self.where_property_type(qb, params.parent_type);
         qb.push(format!(
             "AND COALESCE({}.\"group_type_index\", -1) = ",
@@ -97,7 +97,7 @@ impl Manager {
 
         // NOTE: event_name_filter from orig Django query doesn't appear to be applied anywhere atm
 
-        // NOTE: count query is global per project_id, so no LIMIT/OFFSET handling is applied
+        // NOTE: count query is global per team_id, so no LIMIT/OFFSET handling is applied
 
         qb.build()
     }
@@ -105,7 +105,7 @@ impl Manager {
     pub fn property_definitions_query<'args, 'builder: 'args>(
         &self,
         qb: &'builder mut QueryBuilder<'args, Postgres>,
-        project_id: i32,
+        team_id: i32,
         params: &'args Params,
     ) -> Query<'args, Postgres, PgArguments> {
         /* The original Django query we're duplicating
@@ -114,7 +114,7 @@ impl Manager {
         SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
         FROM {self.table}
         {self._join_on_event_property()}
-        WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
+        WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(team_id)s
             AND type = %(type)s
             AND coalesce(group_type_index, -1) = %(group_type_index)s
             {self.excluded_properties_filter}
@@ -151,13 +151,13 @@ impl Manager {
         self.gen_from_clause(qb, params.use_enterprise_taxonomy);
         self.conditionally_join_event_properties(
             qb,
-            project_id,
+            team_id,
             params.parent_type,
             &params.event_names,
         );
 
         // begin the WHERE clause
-        self.init_where_clause(qb, project_id);
+        self.init_where_clause(qb, team_id);
         self.where_property_type(qb, params.parent_type);
         qb.push(format!(
             " AND COALESCE({}.\"group_type_index\", -1) = ",
@@ -245,7 +245,7 @@ impl Manager {
     fn conditionally_join_event_properties<'args>(
         &self,
         qb: &mut QueryBuilder<'args, Postgres>,
-        project_id: i32,
+        team_id: i32,
         parent_type: PropertyParentType,
         event_names: &'args [String],
     ) {
@@ -261,7 +261,7 @@ impl Manager {
                 " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
                 EVENT_PROPERTY_TABLE
             ));
-            qb.push_bind(project_id);
+            qb.push_bind(team_id);
             qb.push(" ");
 
             // conditionally apply filter if event_names list was supplied
@@ -279,12 +279,12 @@ impl Manager {
         }
     }
 
-    fn init_where_clause(&self, qb: &mut QueryBuilder<Postgres>, project_id: i32) {
+    fn init_where_clause(&self, qb: &mut QueryBuilder<Postgres>, team_id: i32) {
         qb.push(format!(
             "WHERE COALESCE({0}.\"project_id\", {0}.\"team_id\") = ",
             PROPERTY_DEFS_TABLE
         ));
-        qb.push_bind(project_id);
+        qb.push_bind(team_id);
         qb.push(" ");
     }
 
