@@ -529,8 +529,6 @@ export interface AssistantRetentionFilter {
      * @default Day
      */
     period?: RetentionFilterLegacy['period']
-    /** DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
-    showMean?: RetentionFilterLegacy['show_mean']
     /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /**

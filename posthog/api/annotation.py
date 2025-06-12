@@ -70,7 +70,7 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
 
 class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
-    Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
+    Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
     """
 
     scope_object = "annotation"

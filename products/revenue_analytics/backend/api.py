@@ -1,3 +1,4 @@
+from typing import cast
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -8,7 +9,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
-from products.revenue_analytics.backend.utils import revenue_selects_from_database
+from products.revenue_analytics.backend.utils import (
+    REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
+    REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    revenue_selects_from_database,
+)
 
 
 class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -21,10 +26,13 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         database = create_hogql_database(team=self.team)
 
         query = None
+        values = []
         if key == "product":  # All products available from revenue analytics
             revenue_selects = revenue_selects_from_database(database)
-            product_selects = [
-                select["product"] for select in revenue_selects.values() if select["product"] is not None
+            product_selects: list[ast.SelectQuery] = [
+                cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
+                for select in revenue_selects.values()
+                if select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
             ]
             product_selects_union = ast.SelectSetQuery.create_from_queries(product_selects, set_operator="UNION ALL")
 
@@ -36,8 +44,10 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         elif key == "cohort":  # All cohorts available from revenue analytics
             revenue_selects = revenue_selects_from_database(database)
-            customer_selects = [
-                select["customer"] for select in revenue_selects.values() if select["customer"] is not None
+            customer_selects: list[ast.SelectQuery] = [
+                cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
+                for select in revenue_selects.values()
+                if select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
             ]
             customer_selects_union = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
 
@@ -47,8 +57,10 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 select_from=ast.JoinExpr(table=customer_selects_union),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["cohort"]), order="ASC")],
             )
+        elif key == "source":  # All sources available from revenue analytics
+            revenue_selects = revenue_selects_from_database(database)
+            values = list(revenue_selects.keys())
 
-        values = []
         if query is not None:
             try:
                 result = execute_hogql_query(query, team=self.team)

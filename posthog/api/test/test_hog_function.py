@@ -1123,6 +1123,57 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
         assert len(response.json()["results"]) == 1
 
+    def test_list_with_filter_groups_filter(self, *args):
+        action1 = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        )
+        hog_function_id_1 = response.json()["id"]
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "actions": [{"id": f"{action1.id}", "name": "Test Action", "type": "actions", "order": 1}],
+                },
+            },
+        )
+        hog_function_id_2 = response.json()["id"]
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        filter_groups: Any = [{"events": [{"id": "$pageview", "type": "events"}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+        )
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == hog_function_id_1
+
+        filter_groups = [{"actions": [{"id": f"{action1.id}", "type": "actions"}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+        )
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == hog_function_id_2
+
+        filter_groups = [
+            {"actions": [{"id": f"{action1.id}", "type": "actions"}]},
+            {"events": [{"id": "$pageview", "type": "events"}]},
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+        )
+        assert len(response.json()["results"]) == 2
+
     def test_list_with_type_filter(self, *args):
         response_destination = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
