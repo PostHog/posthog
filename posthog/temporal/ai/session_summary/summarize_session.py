@@ -3,6 +3,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 import dataclasses
 from datetime import timedelta
+import gzip
 import json
 import time
 import uuid
@@ -59,8 +60,12 @@ def _get_input_data_from_redis(redis_client: Redis, redis_input_key: str) -> tup
             f"Input data not found in Redis for key {redis_input_key} when generating single session summary"
         )
     try:
-        # Expecting both bytes and string (based on the client's configuration)
-        redis_data_str = raw_redis_data.decode("utf-8") if isinstance(raw_redis_data, bytes) else raw_redis_data
+        # Decompress the data
+        if isinstance(raw_redis_data, bytes):
+            redis_data_str = gzip.decompress(raw_redis_data).decode("utf-8")
+        else:
+            # Fallback for uncompressed data (backwards compatibility)
+            redis_data_str = raw_redis_data
         redis_data = json.loads(redis_data_str)
     except Exception as e:
         raise ValueError(f"Failed to parse input data ({raw_redis_data}): {e}")
@@ -110,6 +115,7 @@ async def stream_llm_summary_activity(redis_input_key: str) -> str:
             continue
         last_summary_state = current_summary_state
         # Store the last summary state in Redis
+        # The size of the output is limited to <20kb, so compressing is excessive
         redis_client.setex(
             redis_output_key,
             900,  # 15 minutes TTL to keep alive for retries
@@ -241,15 +247,17 @@ def execute_summarize_session(
     redis_client = get_client()
     redis_input_key = f"session_summary:single:stream-input:{session_id}:{user_pk}:{uuid.uuid4()}"
     redis_output_key = f"session_summary:single:stream-output:{session_id}:{user_pk}:{uuid.uuid4()}"
+    # Compress the data before storing
+    json_data = json.dumps(
+        {
+            "input_data": dataclasses.asdict(input_data),
+            "output_key": redis_output_key,
+        }
+    )
     redis_client.setex(
         redis_input_key,
         900,  # 15 minutes TTL to keep alive for retries
-        json.dumps(
-            {
-                "input_data": dataclasses.asdict(input_data),
-                "output_key": redis_output_key,
-            }
-        ),
+        gzip.compress(json_data.encode("utf-8")),
     )
     # Connect to Temporal and start streaming the workflow
     workflow_id = f"session-summary:single:{session_id}:{user_pk}:{uuid.uuid4()}"
