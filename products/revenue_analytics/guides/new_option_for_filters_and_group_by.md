@@ -280,7 +280,7 @@ const GROUP_BY_OPTIONS: LemonSegmentedButtonOption<RevenueAnalyticsInsightsQuery
 ]
 ```
 
-### 10. Feature Flag Definition
+### 9. Feature Flag Definition
 
 **File**: `frontend/src/lib/constants.tsx`
 
@@ -314,7 +314,7 @@ When adding a new Revenue Analytics filter/breakdown option, you need to modify 
 1. **`frontend/src/queries/schema/schema-general.ts`** - Frontend schema type
 1. **`posthog/taxonomy/taxonomy.py`** - Filter metadata definition
 1. **`posthog/hogql/property.py`** - HogQL property mapping
-1. **`products/revenue_analytics/backend/hogql_queries/evenue_analytics_query_runner.py`** - Join requirements
+1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_query_runner.py`** - Join requirements
 1. **`products/revenue_analytics/backend/api.py`** - API values endpoint
 1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_insights_query_runner.py`** - GroupBy implementation
 1. **Database view files** (e.g., `revenue_analytics_customer_view.py`) - Ensure required fields exist
