@@ -815,17 +815,6 @@ export enum ActivityTab {
     LiveEvents = 'live',
 }
 
-export enum PipelineTab {
-    Overview = 'overview',
-    Transformations = 'transformations',
-    Destinations = 'destinations',
-    SiteApps = 'site-apps',
-    Sources = 'sources',
-    ImportApps = 'legacy-sources',
-    AppsManagement = 'apps-management',
-    History = 'history',
-}
-
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',

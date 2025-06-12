@@ -11,8 +11,6 @@ import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/sett
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
-
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 function Section({
@@ -74,21 +72,21 @@ export function DataPipelinesOverview(): JSX.Element {
             />
             <div className="deprecated-space-y-4">
                 <FlaggedFeature flag="cdp-hog-sources">
-                    <Section title="Event sources" to={urls.pipeline(PipelineTab.Sources)}>
+                    <Section title="Event sources" to={urls.dataPipelines('sources')}>
                         <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />
                     </Section>
                 </FlaggedFeature>
-                <Section title="Managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <Section title="Managed data warehouse sources" to={urls.dataPipelines('sources')}>
                     <DataWarehouseManagedSourcesTable />
                 </Section>
-                <Section title="Self-managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <Section title="Self-managed data warehouse sources" to={urls.dataPipelines('sources')}>
                     <DataWarehouseSelfManagedSourcesTable />
                 </Section>
-                <Section title="Transformations" to={urls.pipeline(PipelineTab.Transformations)}>
+                <Section title="Transformations" to={urls.dataPipelines('transformations')}>
                     <p>Modify and enrich your incoming data. Only active transformations are shown here.</p>
                     <HogFunctionList logicKey="transformation" type="transformation" hideFeedback={true} />
                 </Section>
-                <Section title="Destinations" to={urls.pipeline(PipelineTab.Destinations)}>
+                <Section title="Destinations" to={urls.dataPipelines('destinations')}>
                     <p>
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here.

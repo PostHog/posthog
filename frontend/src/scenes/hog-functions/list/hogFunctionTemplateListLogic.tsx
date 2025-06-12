@@ -180,9 +180,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
                     if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
-                        return (
-                            urls.dataWarehouseSourceNew() +
-                            '?kind=' +
+                        return urls.dataWarehouseSourceNew(
                             template.id.replace('self-managed-', '').replace('managed-', '')
                         )
                     }

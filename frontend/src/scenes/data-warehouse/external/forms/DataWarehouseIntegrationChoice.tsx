@@ -15,7 +15,7 @@ export function DataWarehouseIntegrationChoice({
         <IntegrationChoice
             {...props}
             integration={sourceConfig.name.toLowerCase()}
-            redirectUrl={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.name.toLowerCase()}
+            redirectUrl={urls.dataWarehouseSourceNew(sourceConfig.name.toLowerCase())}
         />
     )
 }

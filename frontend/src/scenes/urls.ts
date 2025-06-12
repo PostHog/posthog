@@ -4,18 +4,11 @@ import { CampaignTab } from 'products/messaging/frontend/Campaigns/campaignScene
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import {
-    ActivityTab,
-    AnnotationType,
-    ExternalDataSourceType,
-    PipelineNodeTab,
-    PipelineStage,
-    PipelineTab,
-    ProductKey,
-    SDKKey,
-} from '~/types'
+import { ActivityTab, AnnotationType, ProductKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
+import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { OnboardingStepKey } from './onboarding/onboardingLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -154,10 +147,11 @@ export const urls = {
     messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     messagingSenders: (): string => '/messaging/senders',
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
-    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
+    dataPipelines: (kind?: DataPipelinesSceneTab): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
-    dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
+    dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
+        `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,
     batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
     legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,

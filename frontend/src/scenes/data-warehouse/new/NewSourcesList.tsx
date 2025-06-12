@@ -94,7 +94,7 @@ export function NewSourcesList({ disableConnectedSources }: NewSourcesListProps)
                                     )}
                                     {!isConnected && !sourceConfig.unreleasedSource && (
                                         <LemonButton
-                                            to={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.name}
+                                            to={urls.dataWarehouseSourceNew(sourceConfig.name)}
                                             className="my-2"
                                             type="primary"
                                             disabledReason={
@@ -145,7 +145,7 @@ export function NewSourcesList({ disableConnectedSources }: NewSourcesListProps)
                         render: (_, sourceConfig) => (
                             <div className="flex flex-row justify-end p-1">
                                 <LemonButton
-                                    to={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.type}
+                                    to={urls.dataWarehouseSourceNew(sourceConfig.type)}
                                     className="my-2"
                                     type="primary"
                                 >

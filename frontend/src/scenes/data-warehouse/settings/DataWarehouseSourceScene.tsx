@@ -6,7 +6,7 @@ import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipeli
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineTab } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
 import { Schemas } from './source/Schemas'

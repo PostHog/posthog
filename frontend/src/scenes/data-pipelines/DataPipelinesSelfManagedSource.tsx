@@ -38,7 +38,7 @@ export function DataPipelinesSelfManagedSourceTable({ table, updateTable, editin
                         type="secondary"
                         onClick={() => {
                             editingTable(false)
-                            router.actions.push(urls.pipeline())
+                            router.actions.push(urls.dataPipelines('sources'))
                         }}
                     >
                         Cancel

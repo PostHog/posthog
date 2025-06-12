@@ -14,6 +14,7 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -535,7 +536,14 @@ export const redirects: Record<
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),
     '/me/settings': urls.settings('user'),
-    '/pipeline': urls.pipeline(),
+    '/pipeline': urls.dataPipelines(),
+    '/pipeline/:stage': ({ stage }) => urls.dataPipelines(stage as DataPipelinesSceneTab),
+    '/pipeline/:stage/:id': ({ stage, id }) => {
+        if (id.startsWith('hog-')) {
+            return urls.hogFunction(id)
+        }
+        return urls.dataPipelines(stage as DataPipelinesSceneTab)
+    },
     '/instance': urls.instanceStatus(),
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.dataPipelines('sources'),

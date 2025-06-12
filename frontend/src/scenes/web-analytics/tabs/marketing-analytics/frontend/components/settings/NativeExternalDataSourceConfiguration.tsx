@@ -7,7 +7,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['GoogleAds', 'MetaAds']
 const NEEDED_FIELDS_FOR_MARKETING_ANALYTICS: string[] = [
@@ -74,13 +74,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         title: 'Source',
                         render: (_, item: ExternalDataSource) => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${item.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
+                                <Link to={urls.dataWarehouseSource(`managed-${item.id}`)}>
                                     {item.prefix || item.source_type}
                                 </Link>
                             )
@@ -128,9 +122,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                             <LemonButton
                                                 key={source}
                                                 onClick={() => {
-                                                    router.actions.push(
-                                                        urls.dataWarehouseSourceNew() + '?kind=' + source
-                                                    )
+                                                    router.actions.push(urls.dataWarehouseSourceNew(source))
                                                 }}
                                                 fullWidth
                                                 size="small"

@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
@@ -20,7 +20,7 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
             VALID_MARKETING_SOURCES.includes(source.source_type as ExternalDataSource['source_type'])
         ) ?? null
     const handleSourceAdd = (source: ExternalDataSource['source_type']): void => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
+        router.actions.push(urls.dataWarehouseSourceNew(source))
     }
 
     return (

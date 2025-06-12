@@ -36,7 +36,7 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineTab } from '~/types'
+import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
@@ -252,21 +252,21 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         category: 'Pipeline',
         type: 'hog_function/source',
         iconType: 'plug',
-        href: urls.pipeline(PipelineTab.Sources),
+        href: urls.dataPipelines('sources'),
     } as FileSystemImport,
     {
         path: `Transformations`,
         category: 'Pipeline',
         type: 'hog_function/transformation',
         iconType: 'plug',
-        href: urls.pipeline(PipelineTab.Transformations),
+        href: urls.dataPipelines('transformations'),
     } as FileSystemImport,
     {
         path: `Destinations`,
         category: 'Pipeline',
         type: 'hog_function/destination',
         iconType: 'plug',
-        href: urls.pipeline(PipelineTab.Destinations),
+        href: urls.dataPipelines('destinations'),
     } as FileSystemImport,
 ]
 
@@ -290,7 +290,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             category: 'Tools',
             type: 'hog_function',
             iconType: 'plug',
-            href: urls.pipeline(),
+            href: urls.dataPipelines(),
         } as FileSystemImport,
         {
             path: `SQL editor`,

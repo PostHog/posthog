@@ -8,7 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, DataWarehouseTable, PipelineTab } from '~/types'
+import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSourceSceneLogic } from '../settings/DataWarehouseSourceScene'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
@@ -67,13 +67,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            router.actions.replace(urls.pipeline(PipelineTab.Sources))
+            router.actions.replace(urls.dataPipelines('sources'))
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
             actions.loadDatabase()
-            router.actions.replace(urls.pipeline(PipelineTab.Sources))
+            router.actions.replace(urls.dataPipelines('sources'))
         },
         loadTableSuccess: async ({ table }) => {
             if (props.id) {

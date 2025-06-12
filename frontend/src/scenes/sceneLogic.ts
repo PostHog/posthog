@@ -26,12 +26,11 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, PipelineTab, ProductKey } from '~/types'
+import { AccessControlLevel, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
+import { sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -44,7 +43,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
+    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.dataPipelines('sources')],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
     [ProductKey.ERROR_TRACKING]: [urls.errorTracking()],
 }
