@@ -34,6 +34,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from ee.session_recordings.session_summary.stream import stream_recording_summary
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
 from posthog.api.person import MinimalPersonSerializer
@@ -70,7 +71,6 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-from posthog.temporal.ai.session_summary.summarize_session import stream_recording_summary
 
 from ..models.product_intent.product_intent import ProductIntent
 
