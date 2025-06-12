@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
@@ -48,9 +48,8 @@ type GroupedLogEntryRequest = {
 }
 
 const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<GroupedLogEntry[]> => {
-    const query: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `SELECT
+    const query = hogql`
+        SELECT
             instance_id,
             max(timestamp) AS latest_timestamp,
             min(timestamp) AS earliest_timestamp,
@@ -58,29 +57,31 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
                 groupArray((timestamp, level, message))
             ) AS messages
         FROM log_entries
-        WHERE log_source = '${request.sourceType}'
-        AND log_source_id = '${request.sourceId}'
+        WHERE log_source = ${request.sourceType}
+        AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
         AND instance_id in (
             SELECT DISTINCT instance_id
             FROM log_entries
             WHERE log_source = 'hog_function'
-            AND log_source_id = '${request.sourceId}'
+            AND log_source_id = ${request.sourceId}
             AND timestamp > {filters.dateRange.from}
             AND timestamp < {filters.dateRange.to}
-            AND lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
-            AND message ILIKE '%${request.search}%'
-            ORDER BY timestamp ${request.order}
+            AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
+            AND message ILIKE '%${hogql.raw(request.search)}%'
+            ORDER BY timestamp ${hogql.raw(request.order)}
             LIMIT ${LOG_VIEWER_LIMIT}
         )
         GROUP BY instance_id
-        ORDER BY latest_timestamp DESC`,
-    }
+        ORDER BY latest_timestamp DESC`
 
-    const response = await api.query(query, undefined, undefined, 'force_blocking', {
-        date_from: request.date_from ?? '-7d',
-        date_to: request.date_to,
+    const response = await api.queryHogQL(query, {
+        refresh: 'force_blocking',
+        filtersOverride: {
+            date_from: request.date_from ?? '-7d',
+            date_to: request.date_to,
+        },
     })
 
     return response.results.map((result) => ({

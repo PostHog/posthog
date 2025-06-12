@@ -14,6 +14,7 @@ export type CampaignTab = (typeof CampaignTabs)[number]
 
 export interface CampaignSceneLogicProps {
     id?: string
+    tab?: CampaignTab
 }
 
 export const campaignSceneLogic = kea<campaignSceneLogicType>([
@@ -61,7 +62,7 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
         ],
     }),
     actionToUrl(({ values }) => ({
-        setCurrentTab: () => [urls.messagingCampaign(values.currentTab)],
+        setCurrentTab: () => [urls.messagingCampaign(values.campaign.id, values.currentTab)],
     })),
     urlToAction(({ actions, values }) => ({
         '/messaging/campaigns/:id/:tab': ({ tab }) => {

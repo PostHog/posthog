@@ -1,4 +1,4 @@
-"""Test that we capture exceptions in activities and workflows to both Sentry and PostHog."""
+"""Test that we capture exceptions in activities and workflows to PostHog."""
 
 import datetime as dt
 import uuid

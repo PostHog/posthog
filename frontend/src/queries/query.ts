@@ -16,6 +16,7 @@ import {
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
+    HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
@@ -104,14 +105,13 @@ async function executeQuery<N extends DataNode>(
             refreshParam = refresh || 'blocking'
         }
 
-        const response = await api.query(
-            queryNode,
-            methodOptions,
-            queryId,
-            refreshParam,
+        const response = await api.query(queryNode, {
+            requestOptions: methodOptions,
+            clientQueryId: queryId,
+            refresh: refreshParam,
             filtersOverride,
-            variablesOverride
-        )
+            variablesOverride,
+        })
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -203,7 +203,7 @@ export function getPersonsEndpoint(query: PersonsNode): string {
 }
 
 export async function hogqlQuery(
-    queryString: string,
+    queryString: HogQLQueryString,
     values?: Record<string, any>,
     refresh?: RefreshType
 ): Promise<HogQLQueryResponse> {

@@ -19,6 +19,7 @@ import { AttributeBreakdowns } from './AttributeBreakdowns'
 import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
+import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
 
@@ -217,6 +218,7 @@ const Filters = (): JSX.Element => {
             <div className="flex justify-between gap-y-2 flex-wrap-reverse">
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
+                    <ServiceFilter />
                     <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
