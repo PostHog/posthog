@@ -6,7 +6,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WEB_BOUNCES_SPECIFIC_FIELDS,
 )
 from django.conf import settings
-from ....settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
+from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
