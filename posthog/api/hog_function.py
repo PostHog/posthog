@@ -201,8 +201,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                         {"template_id": "The Data Pipelines addon is required for this template."}
                     )
 
-            # Without the addon you can't deviate from the template
-            if template:
+                # Without the addon you can't deviate from the template
                 data["hog"] = template.hog
                 data["inputs_schema"] = template.inputs_schema
         if is_create:
