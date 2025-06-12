@@ -8,11 +8,11 @@ from ee.session_recordings.session_summary.input_data import (
     add_context_and_filter_events,
     get_session_events,
     get_session_metadata,
+    get_team,
 )
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
-from posthog.models import Team
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.warehouse.util import database_sync_to_async
 
@@ -74,7 +74,7 @@ async def get_session_data_from_db(
     session_id: str, team_id: int, timer: ServerTimingsGathered, local_reads_prod: bool
 ) -> _SessionSummaryDBData:
     with timer("get_team"):
-        team = await database_sync_to_async(Team.objects.get)(id=team_id)
+        team = await database_sync_to_async(get_team)(team_id)
     with timer("get_metadata"):
         session_metadata = await database_sync_to_async(get_session_metadata)(
             session_id=session_id,
