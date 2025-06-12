@@ -16,6 +16,9 @@ function useTimingCapture(captureTime: boolean): void {
         const mountTime = mountTimeRef.current
         return () => {
             const visibleTimeMs = Date.now() - mountTime
+            if (visibleTimeMs < 100) {
+                return // Don't bother capturing really short loads
+            }
             posthog.capture('spinner_unloaded', {
                 visible_time_ms: visibleTimeMs,
             })
