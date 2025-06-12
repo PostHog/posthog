@@ -22,9 +22,12 @@ import {
     FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
+    HogQLQuery,
+    HogQLQueryResponse,
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NodeKind,
     PersistedFolder,
     QuerySchema,
     QueryStatusResponse,
@@ -32,6 +35,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
+import { HogQLQueryString } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -3435,11 +3439,13 @@ const api = {
 
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
-        options?: ApiMethodOptions,
-        queryId?: string,
-        refresh?: RefreshType,
-        filtersOverride?: DashboardFilter | null,
-        variablesOverride?: Record<string, HogQLVariable> | null
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+        }
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -3448,13 +3454,41 @@ const api = {
             : Record<string, any>
     > {
         return await new ApiRequest().query().create({
-            ...options,
+            ...queryOptions?.requestOptions,
             data: {
                 query,
-                client_query_id: queryId,
-                refresh,
-                filters_override: filtersOverride,
-                variables_override: variablesOverride,
+                client_query_id: queryOptions?.clientQueryId,
+                refresh: queryOptions?.refresh,
+                filters_override: queryOptions?.filtersOverride,
+                variables_override: queryOptions?.variablesOverride,
+            },
+        })
+    },
+
+    async queryHogQL<T = any[]>(
+        query: HogQLQueryString,
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+        }
+    ): Promise<HogQLQueryResponse<T>> {
+        const hogQLQuery: HogQLQuery = {
+            ...queryOptions?.queryParams,
+            kind: NodeKind.HogQLQuery,
+            query,
+        }
+        return await new ApiRequest().query().create({
+            ...queryOptions?.requestOptions,
+            data: {
+                query: hogQLQuery,
+                client_query_id: queryOptions?.clientQueryId,
+                refresh: queryOptions?.refresh,
+                filters_override: queryOptions?.filtersOverride,
+                variables_override: queryOptions?.variablesOverride,
             },
         })
     },
