@@ -13,11 +13,9 @@ from ee.session_recordings.session_summary.summarize_session import (
     prepare_data_for_single_session_summary,
     generate_prompt,
 )
+from ee.session_recordings.session_summary.stream import stream_recording_summary
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
-from posthog.temporal.ai.session_summary.summarize_session import (
-    execute_summarize_session,
-    stream_recording_summary,
-)
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
@@ -78,7 +76,8 @@ class TestSummarizeSession:
             assert len(results) == 1
             assert results[0] == mock_valid_llm_yaml_response
 
-    def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock):
+    @pytest.mark.asyncio
+    async def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock):
         session_id = "test_session_id"
         empty_context = ExtraSummaryContext()
         with patch.object(
@@ -87,8 +86,11 @@ class TestSummarizeSession:
             return_value=None,
         ) as mock_get_db_metadata:
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {session_id}"):
-                prepare_data_for_single_session_summary(
-                    session_id=session_id, user_pk=mock_user.pk, team=mock_team, extra_summary_context=empty_context
+                await prepare_data_for_single_session_summary(
+                    session_id=session_id,
+                    user_pk=mock_user.pk,
+                    team_id=mock_team.id,
+                    extra_summary_context=empty_context,
                 )
             mock_get_db_metadata.assert_called_once_with(
                 session_id=session_id,
