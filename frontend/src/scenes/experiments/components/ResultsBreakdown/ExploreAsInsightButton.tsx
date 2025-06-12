@@ -1,3 +1,4 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
@@ -12,6 +13,12 @@ type SafeResultBreakdownRenderProps = {
 }
 
 export function ExploreAsInsightButton({ query }: SafeResultBreakdownRenderProps): JSX.Element | null {
+    const isEnabled = useFeatureFlag('EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN')
+
+    if (!isEnabled) {
+        return null
+    }
+
     return (
         <LemonButton
             className="ml-auto -translate-y-2"

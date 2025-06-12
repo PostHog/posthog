@@ -1,3 +1,5 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { InsightShortId } from '~/types'
@@ -15,6 +17,12 @@ type SafeResultBreakdownRenderProps = {
  * shows a breakdown of the results for ExperimentFunnelsQueryResponse
  */
 export const ResultsQuery = ({ query, breakdownResults }: SafeResultBreakdownRenderProps): JSX.Element | null => {
+    const isEnabled = useFeatureFlag('EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN')
+
+    if (!isEnabled) {
+        return null
+    }
+
     /**
      * bail if the result is from a trends query.
      * trends queries are not supported yet.
