@@ -67,14 +67,19 @@ export class HogWatcherService {
     constructor(private hub: Hub, private redis: CdpRedis) {
         this.costsMapping = {
             hog: {
-                lowerBound: this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS,
-                upperBound: this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS,
-                cost: this.hub.CDP_WATCHER_COST_TIMING,
+                lowerBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                upperBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                cost: this.hub.CDP_WATCHER_HOG_COST_TIMING,
+            },
+            async_function: {
+                lowerBound: this.hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                upperBound: this.hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                cost: this.hub.CDP_WATCHER_ASYNC_COST_TIMING,
             },
         }
 
         for (const [kind, mapping] of Object.entries(this.costsMapping)) {
-            if (mapping.lowerBound >= this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS) {
+            if (mapping.lowerBound >= mapping.upperBound) {
                 throw new Error(
                     `Lower bound for kind ${kind} of ${mapping.lowerBound}ms must be lower than upper bound of ${mapping.upperBound}ms. This is a configuration error.`
                 )
@@ -191,31 +196,19 @@ export class HogWatcherService {
             functionTypes[result.invocation.functionId] = result.invocation.hogFunction.type
 
             if (result.finished) {
-                // Calculate cost based on individual timings, not the total
-                let costForTimings = 0
-
-                // Calculate cost for this individual timing
-
+                // Process each timing entry individually instead of totaling them
                 for (const timing of result.invocation.state.timings) {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 
-                    const costMapping = this.costsMapping[timing.kind]
-
-                    if (costMapping) {
+                    const costConfig = this.costsMapping[timing.kind]
+                    if (costConfig) {
                         const ratio =
-                            Math.max(timing.duration_ms - costMapping.lowerBound, 0) /
-                            (costMapping.upperBound - costMapping.lowerBound)
-                        // Add to the total cost for this result
-                        costForTimings += Math.round(costMapping.cost * ratio)
+                            Math.max(timing.duration_ms - costConfig.lowerBound, 0) /
+                            (costConfig.upperBound - costConfig.lowerBound)
+                        cost += Math.round(costConfig.cost * ratio)
                     }
                 }
-
-                cost += costForTimings
-            }
-
-            if (result.error) {
-                cost += this.hub.CDP_WATCHER_COST_ERROR
             }
 
             costs[result.invocation.hogFunction.id] = cost

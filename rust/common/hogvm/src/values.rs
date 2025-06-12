@@ -1,9 +1,12 @@
 use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
 
+use serde_json::Value as JsonValue;
+
 use crate::{
     context::Symbol,
     error::VmError,
     memory::{HeapReference, VmHeap},
+    vm::MAX_JSON_SERDE_DEPTH,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -612,5 +615,43 @@ impl Display for Callable {
 impl Display for Closure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "closure of {}", self.callable)
+    }
+}
+
+/// Construct a free-standing HogValue from a JSON value. This Value is NOT
+/// correctly laid out in VM-memory space, and pushing it directly onto the
+/// stack is undefined behavior. It's designed for use within native function
+/// extensions, where you don't have mutable access to a VM's heap, but still
+/// need to construct a HogValue from a JSON value.
+///
+/// `ExecutionContext::execute_native_function_call` correctly maps the return
+/// value of the native function call to the VM's memory space, making values
+/// constructed with this method safe to return from native extensions.
+pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
+    if depth > MAX_JSON_SERDE_DEPTH {
+        return Err(VmError::OutOfResource(
+            "json->hog deserialization depth".to_string(),
+        ));
+    }
+
+    match current {
+        JsonValue::Null => Ok(HogLiteral::Null.into()),
+        JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
+        JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
+        JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+        JsonValue::Array(arr) => {
+            let mut values = Vec::new();
+            for value in arr {
+                values.push(construct_free_standing(value, depth + 1)?);
+            }
+            Ok(HogLiteral::Array(values).into())
+        }
+        JsonValue::Object(obj) => {
+            let mut map = HashMap::new();
+            for (key, value) in obj {
+                map.insert(key, construct_free_standing(value, depth + 1)?);
+            }
+            Ok(HogLiteral::Object(map).into())
+        }
     }
 }

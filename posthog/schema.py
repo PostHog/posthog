@@ -127,6 +127,11 @@ class AssistantFunnelsBreakdownType(StrEnum):
     SESSION = "session"
 
 
+class FunnelAggregateByHogQL(Enum):
+    PROPERTIES__SESSION_ID = "properties.$session_id"
+    NONE_TYPE_NONE = None
+
+
 class AssistantFunnelsMath(StrEnum):
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
@@ -1976,7 +1981,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
-    LOGS = "logs"
+    LOG_ATTRIBUTES = "log_attributes"
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
@@ -2289,8 +2294,8 @@ class AssistantFunnelsFilter(BaseModel):
             " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
         ),
     )
-    funnelAggregateByHogQL: Literal["properties.$session_id"] = Field(
-        default="properties.$session_id",
+    funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
+        default=None,
         description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
     )
     funnelOrderType: Optional[StepOrderValue] = Field(
@@ -4099,8 +4104,8 @@ class AssistantFunnelsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(
         default=None,
         description=(
-            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
-            " provided."
+            "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT"
+            " users or sessions."
         ),
     )
     breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
@@ -10130,9 +10135,9 @@ class LogsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[OrderBy1] = None
-    resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
+    serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
