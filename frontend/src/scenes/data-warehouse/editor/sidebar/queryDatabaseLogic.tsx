@@ -79,6 +79,21 @@ const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
 const filesFuse = new Fuse<FileSystemEntry>([], FILE_FUSE_OPTIONS)
 
+// Helper function to sort tree children: folders first, then files, both alphabetically
+const sortTreeChildren = (items: TreeDataItem[]): TreeDataItem[] => {
+    return items.sort((a, b) => {
+        // Folders first (type 'folder'), then files (type 'view')
+        if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
+            return -1
+        }
+        if (a.record?.type !== 'folder' && b.record?.type === 'folder') {
+            return 1
+        }
+        // Within same type, sort alphabetically by name
+        return a.name.localeCompare(b.name)
+    })
+}
+
 // Factory functions for creating tree nodes
 const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearch = false): TreeDataItem => ({
     id: `${isSearch ? 'search-' : ''}col-${tableName}-${field.name}`,
@@ -269,6 +284,7 @@ const createFileNode = (
                 children = folderContents.map((item: FileSystemEntry) =>
                     createFileNode(item, null, isSearch, folderStates, folders, dataWarehouseSavedQueryMapById)
                 )
+                children = sortTreeChildren(children)
             }
         } else {
             // Not loaded yet - show loading indicator (will be triggered on expansion)
@@ -301,10 +317,10 @@ const createFileNode = (
     // For files, check if it's a saved query and add columns as children
     const fileChildren: TreeDataItem[] = []
 
+    const viewName = file.path.split('/').pop()
+
     // Try to find the saved query by matching the file name or path
-    const savedQuery = Object.values(dataWarehouseSavedQueryMapById).find(
-        (query) => file.path.includes(query.name) || fileName.includes(query.name)
-    )
+    const savedQuery = Object.values(dataWarehouseSavedQueryMapById).find((query) => viewName === query.name)
 
     if (savedQuery && savedQuery.columns) {
         Object.values(savedQuery.columns).forEach((column) => {
@@ -321,6 +337,7 @@ const createFileNode = (
             type: 'view',
             view: savedQuery,
             isSavedQuery: true,
+            file: file,
             ...(matches && { searchMatches: matches }),
         },
         children: fileChildren.length > 0 ? fileChildren : undefined,
@@ -359,7 +376,7 @@ const createFilesFolderNode = (
         })
     }
 
-    const filesFolderId = isSearch ? 'search-files' : 'views'
+    const filesFolderId = isSearch ? 'search-views' : 'views'
 
     return {
         id: filesFolderId,
@@ -368,8 +385,104 @@ const createFilesFolderNode = (
         record: {
             type: 'folder',
         },
-        children: filesChildren,
+        children: sortTreeChildren(filesChildren),
     }
+}
+
+// Helper function to build hierarchical folder structure for search results
+const buildHierarchicalSearchResults = (
+    matchedFiles: [FileSystemEntry, FuseSearchMatch[] | null][],
+    folderStates: any,
+    folders: any,
+    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
+): { children: TreeDataItem[]; expandedIds: string[] } => {
+    const folderMap = new Map<string, TreeDataItem>()
+    const rootChildren: TreeDataItem[] = []
+    const expandedIds: string[] = []
+
+    // Create a map to track which folders we need
+    const neededFolders = new Set<string>()
+
+    // First pass: identify all folder paths we need
+    matchedFiles.forEach(([file]) => {
+        const relativePath = file.path.replace(UNFILED_SAVED_QUERIES_PATH + '/', '')
+        const pathParts = relativePath.split('/')
+
+        // Add all parent folder paths
+        for (let i = 0; i < pathParts.length - 1; i++) {
+            const folderPath = pathParts.slice(0, i + 1).join('/')
+            neededFolders.add(folderPath)
+            expandedIds.push(`search-file-${folderPath}`)
+        }
+    })
+
+    // Second pass: create folder structure
+    const sortedFolders = Array.from(neededFolders).sort((a, b) => a.length - b.length)
+
+    sortedFolders.forEach((folderPath) => {
+        const fullPath = `${UNFILED_SAVED_QUERIES_PATH}/${folderPath}`
+        const pathParts = folderPath.split('/')
+        const folderName = pathParts[pathParts.length - 1]
+        const parentFolderPath = pathParts.slice(0, -1).join('/')
+
+        const folderNode: TreeDataItem = {
+            id: `search-file-${folderPath}`,
+            name: folderName,
+            type: 'node',
+            record: {
+                type: 'folder',
+                path: fullPath,
+            },
+            children: [],
+        }
+
+        folderMap.set(folderPath, folderNode)
+
+        if (parentFolderPath) {
+            // Add to parent folder
+            const parentFolder = folderMap.get(parentFolderPath)
+            if (parentFolder) {
+                parentFolder.children!.push(folderNode)
+            }
+        } else {
+            // Add to root
+            rootChildren.push(folderNode)
+        }
+    })
+
+    // Third pass: add matched files to their folders
+    matchedFiles.forEach(([file, matches]) => {
+        const relativePath = file.path.replace(UNFILED_SAVED_QUERIES_PATH + '/', '')
+        const pathParts = relativePath.split('/')
+        pathParts.pop() // Remove filename to get parent folder path
+        const folderPath = pathParts.join('/')
+
+        const fileNode = createFileNode(file, matches, true, folderStates, folders, dataWarehouseSavedQueryMapById)
+
+        if (folderPath) {
+            // Add to folder
+            const parentFolder = folderMap.get(folderPath)
+            if (parentFolder) {
+                parentFolder.children!.push(fileNode)
+            }
+        } else {
+            // Add to root
+            rootChildren.push(fileNode)
+        }
+    })
+
+    // Sort children in all folders to show folders first, then files
+    // Sort root children
+    const sortedRootChildren = sortTreeChildren(rootChildren)
+
+    // Sort children in all folders
+    folderMap.forEach((folder) => {
+        if (folder.children) {
+            folder.children = sortTreeChildren(folder.children)
+        }
+    })
+
+    return { children: sortedRootChildren, expandedIds }
 }
 
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
@@ -416,7 +529,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             dataWarehouseJoinsLogic,
             ['loadJoins'],
             dataWarehouseViewsLogic,
-            ['createDataWarehouseSavedQuerySuccess', 'updateDataWarehouseSavedQuerySuccess'],
+            ['createDataWarehouseSavedQuerySuccess'],
             projectTreeDataLogic,
             ['loadFolder', 'moveItem', 'queueAction', 'loadUnfiledItems', 'deleteItem'],
         ],
@@ -537,15 +650,35 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
             },
         ],
+        allUnfiledFiles: [
+            (s) => [s.viableItems],
+            (viableItems: FileSystemEntry[]): FileSystemEntry[] => {
+                // Filter all files from the "unfiled/saved queries" folder at any depth
+                const unfiledPath = UNFILED_SAVED_QUERIES_PATH + '/'
+                return viableItems.filter((item) => {
+                    return item.path.startsWith(unfiledPath) && item.type !== 'folder'
+                })
+            },
+        ],
+        unfiledFolders: [
+            (s) => [s.viableItems],
+            (viableItems: FileSystemEntry[]): FileSystemEntry[] => {
+                // Get all folders within the unfiled path (including nested ones)
+                const unfiledPath = UNFILED_SAVED_QUERIES_PATH + '/'
+                return viableItems.filter((item) => {
+                    return item.path.startsWith(unfiledPath) && item.type === 'folder'
+                })
+            },
+        ],
         relevantFiles: [
-            (s) => [s.unfiledSavedQueryFiles, s.searchTerm],
-            (unfiledFiles: FileSystemEntry[], searchTerm: string): [FileSystemEntry, FuseSearchMatch[] | null][] => {
+            (s) => [s.allUnfiledFiles, s.searchTerm],
+            (allUnfiledFiles: FileSystemEntry[], searchTerm: string): [FileSystemEntry, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
                     return filesFuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return unfiledFiles.map((file) => [file, null])
+                return allUnfiledFiles.map((file) => [file, null])
             },
         ],
         searchTreeData: [
@@ -613,14 +746,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     viewsChildren.push(createViewNode(view, matches, true))
                 })
 
-                // Create files children
-                const filesChildren: TreeDataItem[] = []
-                // Add files from unfiled/saved queries
-                relevantFiles.forEach(([file, matches]) => {
-                    filesChildren.push(
-                        createFileNode(file, matches, true, folderStates, folders, dataWarehouseSavedQueryMapById)
-                    )
-                })
+                // Create files children with hierarchical structure
+                const filesHierarchy = buildHierarchicalSearchResults(
+                    relevantFiles,
+                    folderStates,
+                    folders,
+                    dataWarehouseSavedQueryMapById
+                )
+                const filesChildren = filesHierarchy.children
+
+                // Add folder expansion IDs from hierarchy
+                expandedIds.push(...filesHierarchy.expandedIds)
 
                 const searchResults: TreeDataItem[] = []
 
@@ -629,24 +765,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('sources', sourcesChildren, true, <IconPlug />))
                 }
 
-                if (viewsChildren.length > 0) {
+                if (filesChildren.length > 0) {
                     expandedIds.push('search-views')
-                    searchResults.push(createTopLevelFolderNode('managed-views', viewsChildren, true))
+                    searchResults.push({
+                        id: 'search-views',
+                        name: 'Views',
+                        type: 'node',
+                        record: {
+                            type: 'folder',
+                        },
+                        children: filesChildren,
+                    })
                 }
 
-                if (filesChildren.length > 0) {
-                    expandedIds.push('search-files')
-                    searchResults.push(
-                        createFilesFolderNode(
-                            [],
-                            relevantFiles,
-                            true,
-                            false,
-                            folderStates,
-                            folders,
-                            dataWarehouseSavedQueryMapById
-                        )
-                    )
+                if (viewsChildren.length > 0) {
+                    expandedIds.push('search-managed-views')
+                    searchResults.push(createTopLevelFolderNode('managed-views', viewsChildren, true))
                 }
 
                 // Auto-expand only parent folders, not the matching nodes themselves
@@ -952,11 +1086,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadFolder(UNFILED_SAVED_QUERIES_PATH, true)
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
-            actions.loadFolder(UNFILED_SAVED_QUERIES_PATH, true)
-        },
     })),
-    subscriptions({
+    subscriptions(({ actions }) => ({
         posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
             posthogTablesFuse.setCollection(posthogTables)
         },
@@ -969,10 +1100,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         managedViews: (managedViews: DatabaseSchemaManagedViewTable[]) => {
             managedViewsFuse.setCollection(managedViews)
         },
-        unfiledSavedQueryFiles: (unfiledSavedQueryFiles: FileSystemEntry[]) => {
-            filesFuse.setCollection(unfiledSavedQueryFiles)
+        allUnfiledFiles: (allUnfiledFiles: FileSystemEntry[]) => {
+            filesFuse.setCollection(allUnfiledFiles)
         },
-    }),
+        unfiledFolders: (unfiledFolders: FileSystemEntry[]) => {
+            unfiledFolders.forEach((folder) => {
+                actions.loadFolder(folder.path)
+            })
+        },
+    })),
     afterMount(({ actions }) => {
         // Load the unfiled folder on mount to show files
         actions.loadFolder(UNFILED_SAVED_QUERIES_PATH)

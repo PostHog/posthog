@@ -63,8 +63,8 @@ const QueryDatabaseTreeView = (): JSX.Element => {
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
-    // Helper function to find any file in the unfiled tree by ID
-    const findFileById = (fileId: string): FileSystemEntry | undefined => {
+    // Helper function to find any file or folder in the unfiled tree by ID
+    const findItemById = (fileId: string): FileSystemEntry | undefined => {
         return viableItems.find(
             (item) =>
                 item.path.startsWith(UNFILED_SAVED_QUERIES_PATH) &&
@@ -127,11 +127,19 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                             return false
                         }
 
-                        // Find the dragged file
-                        const draggedFile = findFileById(oldId)
+                        // Find the dragged item (file or folder)
+                        const draggedItem = findItemById(oldId)
 
-                        if (!draggedFile) {
+                        if (!draggedItem) {
                             return false
+                        }
+
+                        // Prevent dropping a folder into itself or its children
+                        if (draggedItem.type === 'folder' && newId.startsWith('file-')) {
+                            const targetItem = findItemById(newId)
+                            if (targetItem && targetItem.path.startsWith(draggedItem.path + '/')) {
+                                return false // Can't move folder into its own child
+                            }
                         }
 
                         // Determine target folder
@@ -139,32 +147,34 @@ const QueryDatabaseTreeView = (): JSX.Element => {
 
                         if (newId.startsWith('file-') && newId !== oldId) {
                             // Find the target item
-                            const targetFile = findFileById(newId)
+                            const targetItem = findItemById(newId)
 
-                            if (targetFile?.type === 'folder') {
+                            if (targetItem?.type === 'folder') {
                                 // Dropping on a folder
-                                targetFolderPath = targetFile.path
-                            } else if (targetFile) {
+                                targetFolderPath = targetItem.path
+                            } else if (targetItem) {
                                 // Dropping on a file - move to same folder as target file
-                                const targetPathParts = targetFile.path.split('/')
-                                targetPathParts.pop() // Remove filename
+                                const targetPathParts = targetItem.path.split('/')
+                                targetPathParts.pop() // Remove filename/foldername
                                 targetFolderPath = targetPathParts.join('/')
                             }
                         }
 
-                        // Calculate new path for the dragged file
-                        const draggedFileNameParts = draggedFile.path.split('/')
-                        const fileName = draggedFileNameParts.pop() || 'untitled'
-                        const newPath = targetFolderPath ? `${targetFolderPath}/${fileName}` : fileName
+                        // Calculate new path for the dragged item
+                        const draggedItemNameParts = draggedItem.path.split('/')
+                        const itemName = draggedItemNameParts.pop() || 'untitled'
+                        const newPath = targetFolderPath ? `${targetFolderPath}/${itemName}` : itemName
 
-                        // Move the file using projectTreeDataLogic
-                        moveItem(draggedFile, newPath, false, 'query-database')
+                        // Move the item using projectTreeDataLogic
+                        moveItem(draggedItem, newPath, false, 'query-database')
 
                         return true
                     }}
                     isItemDraggable={(item) => {
-                        // Only files in the Files section are draggable (not folders)
-                        const draggable = item.id.startsWith('file-') && item.record?.type === 'view'
+                        // Files and folders in the Files section are draggable
+                        const draggable =
+                            item.id.startsWith('file-') &&
+                            (item.record?.type === 'view' || item.record?.type === 'folder')
                         return draggable
                     }}
                     isItemDroppable={(item) => {
@@ -227,11 +237,6 @@ const QueryDatabaseTreeView = (): JSX.Element => {
 
                         // Show menu for views
                         if (item.record?.type === 'view') {
-                            // Extract view ID from item.id (format: 'view-{id}' or 'search-view-{id}')
-                            const viewId = item.id.startsWith('search-view-')
-                                ? item.id.replace('search-view-', '')
-                                : item.id.replace('view-', '')
-
                             // Check if this is a saved query (has last_run_at) vs managed view
                             const isSavedQuery = item.record?.isSavedQuery || false
 
@@ -267,7 +272,12 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                                 asChild
                                                 onClick={(e) => {
                                                     e.stopPropagation()
-                                                    deleteDataWarehouseSavedQuery(viewId)
+                                                    if (item.record?.view) {
+                                                        deleteDataWarehouseSavedQuery(item.record.view.id)
+                                                        if (item.record?.file) {
+                                                            deleteItem(item.record.file, 'query-database')
+                                                        }
+                                                    }
                                                 }}
                                             >
                                                 <ButtonPrimitive menuItem>Delete</ButtonPrimitive>

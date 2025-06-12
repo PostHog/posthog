@@ -54,7 +54,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     actions({
         loadUnfiledItems: true,
 
-        loadFolder: (folder: string, force: boolean = false) => ({ folder, force }),
+        loadFolder: (folder: string, reset: boolean = false) => ({ folder, reset }),
         loadFolderIfNotLoaded: (folderId: string) => ({ folderId }),
         loadFolderStart: (folder: string) => ({ folder }),
         loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
@@ -354,6 +354,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folderLoadOffset: [
             {} as Record<string, number>,
             {
+                loadFolder: (state, { folder, reset }) => {
+                    return { ...state, [folder]: reset ? 0 : state[folder] ?? 0 }
+                },
                 loadFolderSuccess: (state, { folder, offsetIncrease }) => {
                     return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
                 },
@@ -708,15 +711,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadFolder: async ({ folder, force }) => {
+        loadFolder: async ({ folder, reset }) => {
             const currentState = values.folderStates[folder]
-            if (currentState === 'loading' || (currentState === 'loaded' && !force)) {
+            if (currentState === 'loading' || (currentState === 'loaded' && !reset)) {
                 return
             }
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
-                const offset = values.folderLoadOffset[folder] ?? 0
+                const offset = reset ? 0 : values.folderLoadOffset[folder] ?? 0
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
