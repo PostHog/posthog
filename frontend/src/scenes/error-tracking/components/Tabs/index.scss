@@ -1,0 +1,22 @@
+.tabs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+
+    .tabs-list {
+        .tabs-trigger {
+            padding: 0 0.2rem;
+            color: var(--text-secondary);
+        }
+
+        .tabs-trigger:hover,
+        .tabs-trigger[data-state='active'] {
+            color: var(--accent);
+        }
+
+        .tabs-trigger[data-state='active'] {
+            border-bottom: 2px solid var(--accent);
+        }
+    }
+}
