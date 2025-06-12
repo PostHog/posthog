@@ -56,21 +56,16 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
-    if (kind === 'transformation') {
-        return <HogFunctionTemplateList defaultFilters={{}} type="transformation" />
+    if (['transformation', 'destination', 'site_app'].includes(kind)) {
+        return <HogFunctionTemplateList type={kind} />
     }
-    if (kind === 'destination') {
-        return <HogFunctionTemplateList defaultFilters={{}} type="destination" />
-    }
-    if (kind === 'site_app') {
-        return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
-    }
+
     if (kind === 'source') {
         return (
             <>
                 <FlaggedFeature flag="cdp-hog-sources">
                     <h2>Event sources</h2>
-                    <HogFunctionTemplateList defaultFilters={{}} type="source_webhook" />
+                    <HogFunctionTemplateList type="source_webhook" />
                 </FlaggedFeature>
                 <NewSourceWizardScene />
             </>

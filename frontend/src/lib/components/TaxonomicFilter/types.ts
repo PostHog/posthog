@@ -140,7 +140,7 @@ export enum TaxonomicFilterGroupType {
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
     ErrorTrackingIssues = 'error_tracking_issues',
-    Logs = 'logs',
+    LogAttributes = 'log_attributes',
     // Misc
     Replay = 'replay',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',

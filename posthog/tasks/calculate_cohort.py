@@ -5,12 +5,12 @@ from django.conf import settings
 
 from posthog.models.team.team import Team
 import structlog
+import posthoganalytics
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
-from sentry_sdk import set_tag
 
 from datetime import timedelta
 
@@ -149,18 +149,20 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
-    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("feature", Feature.COHORT.value)
+        posthoganalytics.tag("cohort_id", cohort_id)
 
-    set_tag("feature", Feature.COHORT.value)
-    set_tag("cohort_id", cohort.id)
-    set_tag("team_id", cohort.team.id)
+        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-    staleness_hours = 0.0
-    if cohort.last_calculation is not None:
-        staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-    COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+        posthoganalytics.tag("team_id", cohort.team.id)
 
-    cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        staleness_hours = 0.0
+        if cohort.last_calculation is not None:
+            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+
+        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
