@@ -2136,8 +2136,7 @@ AND (empty ($session_id) OR isNull($session_id))
 AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
-LIMIT 1000000
-                    ",
+LIMIT 1000000",
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2157,8 +2156,7 @@ AND (empty ($session_id) OR isNull($session_id))
 AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
-LIMIT 1000000
-                    ",
+LIMIT 1000000",
         },
         "refresh": undefined,
         "variables_override": undefined,

@@ -4,7 +4,7 @@ import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSo
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable, SourceMap } from '~/queries/schema/schema-general'
-import { PipelineNodeTab, PipelineStage } from '~/types'
+import { DataWarehouseSettingsTab, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -19,7 +19,7 @@ export type ExternalTable = {
     columns: { name: string; type: string }[]
     url_pattern: string
     sourceUrl: string
-    external_type: 'datawarehouse' | 'selfmanaged'
+    external_type: DataWarehouseSettingsTab
     source_map: SourceMap | null
     schema_name: string
 }
@@ -31,7 +31,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             marketingAnalyticsSettingsLogic,
             ['sources_map'],
             dataWarehouseSettingsLogic,
-            ['dataWarehouseTables', 'dataWarehouseSourcesLoading'],
+            ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
         ],
     })),
     selectors({
@@ -62,18 +62,23 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         externalTables: [
-            (s) => [s.dataWarehouseTables, s.sources_map],
-            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[], sources_map) => {
+            (s) => [s.dataWarehouseTables, s.sources_map, s.dataWarehouseSources],
+            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[], sources_map, dataWarehouseSources) => {
                 const externalTables: ExternalTable[] = []
-
                 if (dataWarehouseTables?.length) {
                     dataWarehouseTables.forEach((table) => {
                         if (!table.fields) {
                             return
                         }
-
+                        const dataWarehouseSource = dataWarehouseSources?.results.find((source: any) =>
+                            source.schemas
+                                .map((schema: DatabaseSchemaDataWarehouseTable) => schema.id)
+                                .includes(table.schema?.id)
+                        )
                         const isDataWarehouse = !!table.schema
-                        const tableType = isDataWarehouse ? 'datawarehouse' : 'selfmanaged'
+                        const tableType = isDataWarehouse
+                            ? DataWarehouseSettingsTab.Managed
+                            : DataWarehouseSettingsTab.SelfManaged
                         const sourceMap = sources_map?.[table.schema?.id || ''] ?? sources_map?.[table.id] ?? null
 
                         externalTables.push({
@@ -88,7 +93,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             })),
                             sourceUrl: urls.pipelineNode(
                                 PipelineStage.Source,
-                                `${isDataWarehouse ? 'managed' : 'self-managed'}-${table.source?.id || table.id}`,
+                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`,
                                 isDataWarehouse ? PipelineNodeTab.Schemas : PipelineNodeTab.SourceConfiguration
                             ),
                             external_type: tableType,

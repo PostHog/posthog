@@ -27,7 +27,7 @@ impl Team {
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
-            tracing::error!("failed to parse data to team: {}", e);
+            tracing::error!("failed to parse data to team for token {}: {}", token, e);
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
@@ -51,7 +51,12 @@ impl Team {
         team: &Team,
     ) -> Result<(), FlagError> {
         let serialized_team = serde_json::to_string(&team).map_err(|e| {
-            tracing::error!("Failed to serialize team: {}", e);
+            tracing::error!(
+                "Failed to serialize team {} (token {}): {}",
+                team.id,
+                team.api_token,
+                e
+            );
             FlagError::RedisDataParsingError
         })?;
 
@@ -69,7 +74,12 @@ impl Team {
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update Redis cache: {}", e);
+                tracing::error!(
+                    "Failed to update Redis cache for team {} (token {}): {}",
+                    team.id,
+                    team.api_token,
+                    e
+                );
                 FlagError::CacheUpdateError
             })?;
 

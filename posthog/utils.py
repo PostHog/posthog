@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+import orjson
 import os
 import re
 import secrets
@@ -42,6 +43,7 @@ from django.utils import timezone
 from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -642,11 +644,17 @@ def get_compare_period_dates(
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
-        new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
-        new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
+        new_date_to = (new_date_from + diff).replace(
+            minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     elif interval != "minute":
-        # Align previous period time range to day boundaries
-        new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Align previous period time range to same boundaries as current period
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
         # Handle date_from = -7d, -14d etc. specially
         if (
             interval == "day"
@@ -664,7 +672,9 @@ def get_compare_period_dates(
             # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
             # of relative date ranges:
             new_date_from += datetime.timedelta(days=1)
-        new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
+        new_date_to = (new_date_from + diff).replace(
+            hour=date_to.hour, minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     return new_date_from, new_date_to
 
 
@@ -1573,3 +1583,11 @@ def is_relative_url(url: str | None) -> bool:
     return (
         parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
     )
+
+
+def to_json(obj: dict) -> bytes:
+    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
+    option = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
+
+    return json_string

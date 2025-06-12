@@ -20,8 +20,7 @@ import { keyForSource } from 'scenes/session-recordings/player/snapshot-processi
 import { teamLogic } from 'scenes/teamLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { hogql, HogQLQueryString } from '~/queries/utils'
 import {
     AnnotationScope,
     RecordingEventsFilters,
@@ -299,24 +298,20 @@ AND (empty ($session_id) OR isNull($session_id))
 AND properties.$lib != 'web'`
 
                     if (person?.uuid) {
-                        relatedEventsQuery += `
-AND person_id = '${person.uuid}'`
+                        relatedEventsQuery = (relatedEventsQuery +
+                            hogql`\nAND person_id = ${person.uuid}`) as HogQLQueryString
                     }
                     if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
-                        relatedEventsQuery += `
-AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`
+                        relatedEventsQuery = (relatedEventsQuery +
+                            hogql`\nAND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`) as HogQLQueryString
                     }
 
-                    relatedEventsQuery += `
-ORDER BY timestamp ASC
-LIMIT 1000000
-                    `
+                    relatedEventsQuery = (relatedEventsQuery +
+                        hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
+
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        api.query({
-                            kind: NodeKind.HogQLQuery,
-                            query: sessionEventsQuery,
-                        }),
+                        api.queryHogQL(sessionEventsQuery),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
@@ -324,10 +319,7 @@ LIMIT 1000000
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        api.query({
-                            kind: NodeKind.HogQLQuery,
-                            query: relatedEventsQuery,
-                        }),
+                        api.queryHogQL(relatedEventsQuery),
                     ])
 
                     return [...sessionEvents.results, ...relatedEvents.results].map(
@@ -385,23 +377,19 @@ LIMIT 1000000
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
                     try {
-                        const query: HogQLQuery = {
-                            kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT properties, uuid
-                                         FROM events
-                                         -- the timestamp range here is only to avoid querying too much of the events table
-                                         -- we don't really care about the absolute value,
-                                         -- but we do care about whether timezones have an odd impact
-                                         -- so, we extend the range by a day on each side so that timezones don't cause issues
-                                         WHERE timestamp
-                                             > ${dayjs(earliestTimestamp).subtract(1, 'day')}
-                                           AND timestamp
-                                             < ${dayjs(latestTimestamp).add(1, 'day')}
-                                           AND event in ${eventNames}
-                                           AND uuid in ${eventIds}`,
-                        }
+                        const query = hogql`
+                            SELECT properties, uuid
+                            FROM events
+                            -- the timestamp range here is only to avoid querying too much of the events table
+                            -- we don't really care about the absolute value,
+                            -- but we do care about whether timezones have an odd impact
+                            -- so, we extend the range by a day on each side so that timezones don't cause issues
+                            WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                            AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                            AND event in ${eventNames}
+                            AND uuid in ${eventIds}`
 
-                        const response = await api.query(query)
+                        const response = await api.queryHogQL(query)
                         if (response.error) {
                             throw new Error(response.error)
                         }
