@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="teammarketinganalyticsconfig",
             name="_conversion_goals",
-            field=models.JSONField(blank=True, db_column="conversion_goals", default=list),
+            field=models.JSONField(blank=True, db_column="conversion_goals", default=list, null=False),
         ),
     ]
