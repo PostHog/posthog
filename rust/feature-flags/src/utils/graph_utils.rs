@@ -133,10 +133,9 @@ where
         Ok(_) => Ok(graph),
         Err(e) => {
             // Use the node that started the cycle (from the toposort error)
-            let cycle_nodes = get_cycle_nodes(&graph, e.node_id());
-            let cycle_ids: Vec<i64> = cycle_nodes.iter().map(|&node| graph[node].into()).collect();
-
-            Err(FlagError::DependencyCycle(T::dependency_type(), cycle_ids).into())
+            let cycle_start_id = e.node_id();
+            let cohort_id = graph[cycle_start_id].into();
+            Err(FlagError::DependencyCycle(T::dependency_type(), cohort_id).into())
         }
     }
 }
