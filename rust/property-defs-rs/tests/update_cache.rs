@@ -92,7 +92,7 @@ fn test_cache_removals() {
 
 #[test]
 fn test_batch_cache_insertions() {
-    let cache = Cache::new(10, 10);
+    let cache = Cache::new(300, 10);
 
     let mut evt_defs = vec![];
     let mut evt_props = vec![];
@@ -108,7 +108,7 @@ fn test_batch_cache_insertions() {
 
         evt_props.push(Update::EventProperty(EventProperty {
             event: format!("event def {}", counter),
-            property: format!("event prop {}", counter),
+            property: format!("prop def {}", counter),
             team_id: 1,
             project_id: 1,
         }));
@@ -127,16 +127,21 @@ fn test_batch_cache_insertions() {
         }));
     }
 
+    assert!(cache.is_empty());
     cache.insert_batch(&evt_defs);
-    cache.insert_batch(&evt_props);
-    cache.insert_batch(&prop_defs);
+    assert!(!cache.is_empty());
+    assert!(cache.len() == 100);
 
+    cache.insert_batch(&evt_props);
+    assert!(cache.len() == 200);
+
+    cache.insert_batch(&prop_defs);
     assert!(cache.len() == 300);
 }
 
 #[test]
 fn test_batch_cache_removals() {
-    let cache = Cache::new(10, 10);
+    let cache = Cache::new(300, 10);
 
     let mut evt_defs = vec![];
     let mut evt_props = vec![];
