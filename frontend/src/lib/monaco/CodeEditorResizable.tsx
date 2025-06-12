@@ -1,3 +1,5 @@
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { useEffect, useRef, useState } from 'react'
@@ -9,6 +11,10 @@ export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'
     maxHeight?: string | number
     editorClassName?: string
     embedded?: boolean
+    showDiffActions?: boolean
+    onAcceptChanges?: () => void
+    onRejectChanges?: () => void
+    originalValue?: string
 }
 
 export function CodeEditorResizeable({
@@ -18,6 +24,10 @@ export function CodeEditorResizeable({
     className,
     editorClassName,
     embedded = false,
+    showDiffActions = false,
+    onAcceptChanges,
+    onRejectChanges,
+    originalValue,
     ...props
 }: CodeEditorResizableProps): JSX.Element {
     const [height, setHeight] = useState(defaultHeight)
@@ -27,9 +37,12 @@ export function CodeEditorResizeable({
 
     useEffect(() => {
         const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
-        const lineCount = (value?.split('\n').length ?? 1) + 1
-        const lineHeight = 18
-        setHeight(lineHeight * lineCount)
+        const lineCount = (value?.split('\n').length ?? 1) + 2
+        const lineHeight = 15
+        const calculatedHeight = value
+            ? Math.max(lineHeight * lineCount) // Add padding and minimum height when there's content
+            : lineHeight * lineCount // Just basic line height calculation when no content
+        setHeight(calculatedHeight)
     }, [props.value])
 
     return (
@@ -49,9 +62,33 @@ export function CodeEditorResizeable({
                         {...props}
                         className={editorClassName}
                         height={height - 2} // Account for border
+                        originalValue={originalValue}
                     />
                 )}
             </AutoSizer>
+
+            {showDiffActions && (
+                <div className="absolute top-2 right-2 z-20 flex gap-1 p-1 bg-white rounded-lg border shadow-sm">
+                    <LemonButton
+                        status="danger"
+                        icon={<IconX />}
+                        onClick={onRejectChanges}
+                        tooltipPlacement="top"
+                        size="small"
+                    >
+                        Reject
+                    </LemonButton>
+                    <LemonButton
+                        type="tertiary"
+                        icon={<IconCheck color="var(--success)" />}
+                        onClick={onAcceptChanges}
+                        tooltipPlacement="top"
+                        size="small"
+                    >
+                        Accept
+                    </LemonButton>
+                </div>
+            )}
 
             {/* Using a standard resize css means we need overflow-hidden which hides parts of the editor unnecessarily */}
             <div

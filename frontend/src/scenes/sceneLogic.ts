@@ -5,8 +5,16 @@ import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import posthog from 'posthog-js'
-import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import {
     LoadedScene,
     Params,
@@ -482,8 +490,11 @@ export const sceneLogic = kea<sceneLogicType>([
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params, searchParams, hashParams) => {
                 const redirect = redirects[path]
-                router.actions.replace(
+                const redirectUrl =
                     typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+
+                router.actions.replace(
+                    withForwardedSearchParams(redirectUrl, searchParams, forwardedRedirectQueryParams)
                 )
             }
         }
