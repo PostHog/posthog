@@ -80,7 +80,6 @@ def _compress_llm_input_data(llm_input_data: SingleSessionSummaryLlmInputs) -> b
 @temporalio.activity.defn
 async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
-    temporalio.activity.heartbeat()  # TODO Think if I need heartbeat activity here (as it's a one-shot-ish operation)
     summary_data = await prepare_data_for_single_session_summary(
         session_id=session_input.session_id,
         user_pk=session_input.user_pk,
@@ -110,13 +109,13 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
 
 @temporalio.activity.defn
 async def stream_llm_single_session_summary_activity(session_input: SingleSessionSummaryInputs) -> str:
-    temporalio.activity.heartbeat()
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
     redis_client = get_client()
     llm_input = _get_single_session_summary_llm_input_from_redis(
         redis_client=redis_client, redis_input_key=session_input.redis_input_key
     )
     last_summary_state = ""
+    temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
     # Stream SSE-formated summary data from LLM
     session_summary_generator = stream_llm_session_summary(
@@ -162,7 +161,6 @@ class SummarizeSingleSessionWorkflow:
             fetch_session_data_activity,
             session_input,
             start_to_close_timeout=timedelta(minutes=3),
-            heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         sse_summary = await temporalio.workflow.execute_activity(

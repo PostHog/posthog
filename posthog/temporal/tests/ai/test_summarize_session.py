@@ -204,7 +204,6 @@ class TestFetchSessionDataActivity:
         # Set up a spy to track Redis operations
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
-            patch("temporalio.activity.heartbeat") as mock_heartbeat,
             # Mock DB calls
             patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
             patch(
@@ -220,8 +219,6 @@ class TestFetchSessionDataActivity:
             result = await fetch_session_data_activity(input_data)
             # Verify the result is None (success case)
             assert result is None
-            # Verify heartbeat was called
-            assert mock_heartbeat.call_count >= 1
             # Verify Redis operations
             assert spy_setex.call_count == 1  # Store compressed data
             # Verify the data was stored correctly
@@ -246,7 +243,6 @@ class TestFetchSessionDataActivity:
         session_id = "test_session_no_events"
         input_data = mock_single_session_summary_inputs(session_id)
         with (
-            patch("temporalio.activity.heartbeat") as mock_heartbeat,
             # Mock DB calls - return columns but no events (empty list)
             patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
             patch(
@@ -264,8 +260,6 @@ class TestFetchSessionDataActivity:
             # Verify the error is retryable and contains the expected message
             assert not exc_info.value.non_retryable
             assert "No events found for this replay yet" in str(exc_info.value)
-            # Verify heartbeat was called
-            assert mock_heartbeat.call_count >= 1
 
 
 class TestStreamLlmSummaryActivity:
