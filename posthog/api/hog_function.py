@@ -192,14 +192,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                         {"template_id": "Transformation functions must be created from a template."}
                     )
         elif not has_addon:
-            if not bypass_addon_check and data["type"] != "internal_destination":
+            if not bypass_addon_check:
                 # If they don't have the addon, they can only use free templates and can't modify them
                 if not template:
                     raise serializers.ValidationError(
                         {"template_id": "The Data Pipelines addon is required to create custom functions."}
                     )
 
-                if not template.free and not instance:
+                if not template.free and data["type"] != "internal_destination" and not instance:
                     raise serializers.ValidationError(
                         {"template_id": "The Data Pipelines addon is required for this template."}
                     )
