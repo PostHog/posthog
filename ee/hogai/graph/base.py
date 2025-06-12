@@ -8,6 +8,7 @@ from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
@@ -110,15 +111,7 @@ class AssistantNode(ABC):
         """
         Extracts the UI context from the latest human message.
         """
-        if not state.messages:
-            return None
-
-        # Find the latest human message with UI context
-        for message in reversed(state.messages):
-            if hasattr(message, "type") and message.type == "human" and hasattr(message, "ui_context"):
-                return message.ui_context
-
-        return None
+        return find_last_ui_context(state.messages)
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """

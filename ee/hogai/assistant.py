@@ -30,7 +30,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import should_output_assistant_message
+from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -364,12 +364,7 @@ class Assistant:
                     content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
                 )
             case AssistantNodeName.ROOT:
-                # Find the latest human message with UI context
-                ui_context = None
-                for message in reversed(input.messages):
-                    if hasattr(message, "type") and message.type == "human" and hasattr(message, "ui_context"):
-                        ui_context = message.ui_context
-                        break
+                ui_context = find_last_ui_context(input.messages)
                 if ui_context and (ui_context.dashboards or ui_context.insights):
                     return ReasoningMessage(content="Calculating insights")
                 return None
