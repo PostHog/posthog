@@ -427,8 +427,9 @@ export interface AssistantFunnelsFilter {
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     /**
      * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
+     * @default null
      */
-    funnelAggregateByHogQL?: 'properties.$session_id'
+    funnelAggregateByHogQL?: 'properties.$session_id' | null
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
@@ -468,7 +469,7 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     breakdownFilter?: AssistantFunnelsBreakdownFilter
     /**
-     * Use this field to define the aggregation by a specific group from the group mapping that the user has provided.
+     * Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.
      */
     aggregation_group_type_index?: integer
 }

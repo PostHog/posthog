@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { HogFunctionFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
-import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
+import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -44,7 +44,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
     return true
 }
 
-export const hogFunctionsListLogic = kea<hogFunctionListLogicType>([
+export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     props({} as HogFunctionListLogicProps),
     key((props) =>
         JSON.stringify({

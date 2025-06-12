@@ -1,17 +1,20 @@
-from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
-from .conftest import MaxEval
+from datetime import datetime
+from textwrap import dedent
+
 import pytest
 from braintrust import EvalCase
-from datetime import datetime
 
+from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
 from posthog.schema import (
     AssistantFunnelsEventsNode,
+    AssistantFunnelsExclusionEventsNode,
+    AssistantFunnelsFilter,
     AssistantFunnelsQuery,
     NodeKind,
-    AssistantFunnelsFilter,
-    AssistantFunnelsExclusionEventsNode,
 )
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy, PlanAndQueryOutput
+
+from .conftest import MaxEval
+from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
@@ -597,6 +600,112 @@ Time period: this January
 """,
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            binCount=None,
+                            exclusions=[],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
+            # Should include the aggregation by session
+            EvalCase(
+                input="what is the conversion rate from a page view to a next page view in this January aggregated by session?",
+                expected=PlanAndQueryOutput(
+                    plan=dedent("""
+                        Sequence:
+                        1. $pageview
+                        2. $pageview
+
+                        Time period: this January
+                    """),
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            binCount=None,
+                            exclusions=[],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                            funnelAggregateByHogQL="properties.$session_id",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
+            # Should include the aggregation by user
+            EvalCase(
+                input="what is the conversion rate from a page view to a next page view in this January aggregated by user?",
+                expected=PlanAndQueryOutput(
+                    plan=dedent("""
+                        Sequence:
+                        1. $pageview
+                        2. $pageview
+
+                        Time period: this January
+                    """),
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            binCount=None,
+                            exclusions=[],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
+            # Should aggregate by unique accounts (group analytics)
+            EvalCase(
+                input="what is the conversion rate from a page view to a next page view in this January aggregated by unique accounts?",
+                expected=PlanAndQueryOutput(
+                    plan=dedent("""
+                        Sequence:
+                        1. $pageview
+                        2. $pageview
+
+                        Time period: this January
+                    """),
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=0,
                         breakdownFilter=None,
                         dateRange={
                             "date_from": f"{datetime.now().year}-01-01",
