@@ -13006,7 +13006,14 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": ["string", "number"]
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "insights": {
                     "items": {
@@ -13044,7 +13051,14 @@
                     "type": "string"
                 },
                 "id": {
-                    "type": ["string", "number"]
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
                 },
                 "name": {
                     "type": "string"

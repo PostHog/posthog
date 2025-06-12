@@ -16,15 +16,15 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     DashboardFilter,
-    MaxDashboardContext,
     EntityType,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    MaxInsightContext,
     LifecycleQuery,
     MaxContextShape,
+    MaxDashboardContext,
+    MaxInsightContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -691,13 +691,20 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        expected = """# Insight: User Trends
 
-        expected = """## User Trends: Daily active users
-Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'compareFilter': None, 'conversionGoal': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'interval': 'day', 'kind': 'TrendsQuery', 'modifiers': None, 'properties': [], 'response': None, 'samplingFactor': None, 'series': [{'custom_name': None, 'event': 'pageview', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}], 'trendsFilter': None}
+Description: Daily active users
+
+Query schema:
+```json
+{"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":[],"series":[{"event":"pageview","kind":"EventsNode"}]}
+```
 
 Results:
-Trend results: 100 users"""
+```
+Trend results: 100 users
+```"""
         self.assertEqual(result, expected)
         mock_query_runner.run_query_raw.assert_called_once()
 
@@ -713,13 +720,19 @@ Trend results: 100 users"""
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
 
-        expected = """## Conversion Funnel
-Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'funnelsFilter': None, 'interval': None, 'kind': 'FunnelsQuery', 'modifiers': None, 'properties': [], 'response': None, 'samplingFactor': None, 'series': [{'custom_name': None, 'event': 'sign_up', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}, {'custom_name': None, 'event': 'purchase', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}]}
+        expected = """# Insight: Conversion Funnel
+
+Query schema:
+```json
+{"filterTestAccounts":false,"kind":"FunnelsQuery","properties":[],"series":[{"event":"sign_up","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode"}]}
+```
 
 Results:
-Funnel results: 50% conversion"""
+```
+Funnel results: 50% conversion
+```"""
         self.assertEqual(result, expected)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -739,13 +752,18 @@ Funnel results: 50% conversion"""
             ),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        expected = """# Insight: ID 789
 
-        expected = """## Insight 789.0
-Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'kind': 'RetentionQuery', 'modifiers': None, 'properties': [], 'response': None, 'retentionFilter': {'cumulative': None, 'dashboardDisplay': None, 'display': None, 'meanRetentionCalculation': None, 'period': 'Day', 'retentionReference': None, 'retentionType': None, 'returningEntity': {'custom_name': None, 'id': '$pageview', 'kind': None, 'name': None, 'order': None, 'properties': None, 'type': 'events', 'uuid': None}, 'showMean': None, 'targetEntity': {'custom_name': None, 'id': '$pageview', 'kind': None, 'name': None, 'order': None, 'properties': None, 'type': 'events', 'uuid': None}, 'totalIntervals': 8}, 'samplingFactor': None}
+Query schema:
+```json
+{"filterTestAccounts":false,"kind":"RetentionQuery","properties":[],"retentionFilter":{"period":"Day","returningEntity":{"id":"$pageview","type":"events"},"targetEntity":{"id":"$pageview","type":"events"},"totalIntervals":8}}
+```
 
 Results:
-Retention: 30% Day 7"""
+```
+Retention: 30% Day 7
+```"""
         self.assertEqual(result, expected)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -760,13 +778,20 @@ Retention: 30% Day 7"""
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        expected = """# Insight: Custom Query
 
-        expected = """## Custom Query: HogQL analysis
-Query: {'explain': None, 'filters': None, 'kind': 'HogQLQuery', 'modifiers': None, 'name': None, 'query': 'SELECT count() FROM events', 'response': None, 'values': None, 'variables': None}
+Description: HogQL analysis
+
+Query schema:
+```json
+{"kind":"HogQLQuery","query":"SELECT count() FROM events"}
+```
 
 Results:
-Query results: 42 events"""
+```
+Query results: 42 events
+```"""
         self.assertEqual(result, expected)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -825,9 +850,9 @@ Query results: 42 events"""
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("Dashboard Insight: Test insight", result)
-        self.assertIn("Dashboard insight results", result)
-        self.assertNotIn("<standalone_insights_context>", result)
+        self.assertIn("Dashboard Insights", result)
+        self.assertIn("Insight: Dashboard Insight", result)
+        self.assertNotIn("# Insights", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
@@ -847,9 +872,9 @@ Query results: 42 events"""
 
         result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("Standalone Insight: Test standalone insight", result)
-        self.assertIn("Standalone insight results", result)
-        self.assertNotIn("<dashboards_context>", result)
+        self.assertIn("Insights", result)
+        self.assertIn("Insight: Standalone Insight", result)
+        self.assertNotIn("# Dashboards", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
@@ -879,10 +904,10 @@ Query results: 42 events"""
 
         result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("<standalone_insights_context>", result)
-        self.assertIn("Test Insight: Test description", result)
+        self.assertIn("# Insights", result)
+        self.assertIn("Test Insight", result)
+        self.assertIn("Test description", result)
         self.assertIn("Insight execution results", result)
-        self.assertIn("</standalone_insights_context>", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):

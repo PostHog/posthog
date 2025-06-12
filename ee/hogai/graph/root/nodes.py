@@ -38,6 +38,7 @@ from posthog.schema import (
     HogQLQuery,
     HumanMessage,
     MaxContextShape,
+    MaxInsightContext,
     RetentionQuery,
     TrendsQuery,
 )
@@ -166,7 +167,7 @@ class RootNodeUIContextMixin(AssistantNode):
 
     def _run_and_format_insight(
         self,
-        insight,
+        insight: MaxInsightContext,
         query_runner: AssistantQueryExecutor,
         dashboard_filters: Optional[dict] = None,
         filters_override: Optional[dict] = None,
@@ -236,13 +237,17 @@ class RootNodeUIContextMixin(AssistantNode):
             raw_results = query_runner.run_query_raw(query_obj)
 
             # Use the insight template
-            insight_template = PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
-            result = insight_template.format_prompt(
-                heading=heading or "",
-                name=insight.name or f"ID {insight.id}",
-                query_schema=serialized_query,
-                query=raw_results,
-            ).to_string()
+            result = (
+                PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
+                .format_prompt(
+                    heading=heading or "",
+                    name=insight.name or f"ID {insight.id}",
+                    description=insight.description,
+                    query_schema=serialized_query,
+                    query=raw_results,
+                )
+                .to_string()
+            )
             return result
 
         except Exception:

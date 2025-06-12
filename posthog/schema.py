@@ -11110,7 +11110,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: Optional[str] = None
     filters: DashboardFilter
-    id: Union[str, float]
+    id: Union[str, int]
     insights: list[MaxInsightContext]
     name: Optional[str] = None
 
@@ -11120,7 +11120,7 @@ class MaxInsightContext(BaseModel):
         extra="forbid",
     )
     description: Optional[str] = None
-    id: Union[str, float]
+    id: Union[str, int]
     name: Optional[str] = None
     query: Union[
         EventsNode,

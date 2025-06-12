@@ -1,7 +1,8 @@
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 
 export interface MaxInsightContext {
-    id: string | number
+    id: string | integer
     name?: string
     description?: string
 
@@ -9,7 +10,7 @@ export interface MaxInsightContext {
 }
 
 export interface MaxDashboardContext {
-    id: string | number
+    id: string | integer
     name?: string
     description?: string
     insights: MaxInsightContext[]
@@ -27,7 +28,7 @@ export interface MaxContextShape {
 // Taxonomic filter options
 export interface MaxContextOption {
     id: string
-    value: string | number
+    value: string | integer
     name: string
     icon: React.ReactNode
     type?: 'dashboard' | 'insight'
