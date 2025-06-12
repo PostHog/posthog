@@ -73,6 +73,10 @@ def _get_single_session_summary_llm_input_from_redis(
     return redis_data
 
 
+def _compress_llm_input_data(llm_input_data: SingleSessionSummaryLlmInputs) -> bytes:
+    return gzip.compress(json.dumps(dataclasses.asdict(llm_input_data)).encode("utf-8"))
+
+
 @temporalio.activity.defn
 async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
@@ -94,11 +98,11 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
     )
     # Connect to Redis and prepare the input
     redis_client = get_client()
-    json_data = json.dumps(dataclasses.asdict(input_data))
+    compressed_llm_input_data = _compress_llm_input_data(input_data)
     redis_client.setex(
         session_input.redis_input_key,
         900,  # 15 minutes TTL to keep alive for retries
-        gzip.compress(json_data.encode("utf-8")),
+        compressed_llm_input_data,
     )
     # Nothing to return if the fetch was successful, as the data is stored in Redis
     return None
