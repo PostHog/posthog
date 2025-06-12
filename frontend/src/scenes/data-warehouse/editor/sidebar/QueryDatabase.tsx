@@ -187,13 +187,9 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                         return droppable
                     }}
                     renderItem={(item) => {
-                        // Check if item has search matches for highlighting
-                        const matches = item.record?.searchMatches
-                        const hasMatches = matches && matches.length > 0
-
                         return (
                             <span className="truncate">
-                                {hasMatches && searchTerm ? (
+                                {searchTerm ? (
                                     <SearchHighlightMultiple
                                         string={item.name}
                                         substring={searchTerm}

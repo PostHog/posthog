@@ -107,7 +107,6 @@ const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearc
 
 const createTableNode = (
     table: DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable,
-    matches: FuseSearchMatch[] | null = null,
     isSearch = false
 ): TreeDataItem => {
     const tableChildren: TreeDataItem[] = []
@@ -130,26 +129,23 @@ const createTableNode = (
             type: 'table',
             table: table,
             row_count: table.row_count,
-            ...(matches && { searchMatches: matches }),
         },
         children: tableChildren,
     }
 }
 
-const createViewNode = (
+const createManagedViewNode = (
     view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
-    matches: FuseSearchMatch[] | null = null,
     isSearch = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
-    const isManagedView = 'type' in view && view.type === 'managed_view'
 
     // Add columns/fields
     if ('columns' in view && view.columns) {
         Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
             viewChildren.push(createColumnNode(view.name, column, isSearch))
         })
-    } else if ('fields' in view) {
+    } else if ('fields' in view && view.fields) {
         Object.values(view.fields).forEach((field: DatabaseSchemaField) => {
             viewChildren.push(createColumnNode(view.name, field, isSearch))
         })
@@ -161,12 +157,10 @@ const createViewNode = (
         id: viewId,
         name: view.name,
         type: 'node',
-        icon: isManagedView ? <IconDatabase /> : <IconDocument />,
+        icon: <IconDatabase />,
         record: {
             type: 'view',
             view: view,
-            isSavedQuery: !isManagedView,
-            ...(matches && { searchMatches: matches }),
         },
         children: viewChildren,
     }
@@ -174,45 +168,37 @@ const createViewNode = (
 
 const createSourceFolderNode = (
     sourceType: string,
-    tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable)[],
-    matches: [any, FuseSearchMatch[] | null][] = [],
+    tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaManagedViewTable)[],
     isSearch = false
 ): TreeDataItem => {
     const sourceChildren: TreeDataItem[] = []
 
-    if (isSearch && matches.length > 0) {
-        matches.forEach(([table, tableMatches]) => {
-            sourceChildren.push(createTableNode(table, tableMatches, true))
-        })
-    } else {
-        tables.forEach((table) => {
-            sourceChildren.push(createTableNode(table, null, false))
-        })
-    }
+    tables.forEach((table) => {
+        sourceChildren.push(createTableNode(table, isSearch))
+    })
 
     const sourceFolderId = isSearch
         ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
         : `source-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
 
-    return {
-        id: sourceFolderId,
-        name: sourceType,
-        type: 'node',
-        icon: (
+    const icon =
+        sourceType == 'Managed views' ? undefined : (
             <DataWarehouseSourceIcon
                 type={
-                    sourceType === 'Self-managed' && (tables.length > 0 || matches.length > 0)
-                        ? mapUrlToProvider(
-                              tables.length > 0
-                                  ? (tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern
-                                  : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern
-                          )
+                    sourceType === 'Self-managed' && tables.length > 0
+                        ? mapUrlToProvider((tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern)
                         : sourceType
                 }
                 size="xsmall"
                 disableTooltip
             />
-        ),
+        )
+
+    return {
+        id: sourceFolderId,
+        name: sourceType,
+        type: 'node',
+        icon,
         record: {
             type: 'source-folder',
             sourceType,
@@ -221,25 +207,19 @@ const createSourceFolderNode = (
     }
 }
 
-const createTopLevelFolderNode = (
-    type: 'sources' | 'managed-views',
-    children: TreeDataItem[],
-    isSearch = false,
-    icon?: JSX.Element
-): TreeDataItem => ({
-    id: isSearch ? `search-${type}` : type,
-    name: type === 'sources' ? 'Sources' : 'Managed views',
+const createSourcesFolderNode = (children: TreeDataItem[], isSearch = false, icon?: JSX.Element): TreeDataItem => ({
+    id: isSearch ? `search-sources` : 'sources',
+    name: 'Sources',
     type: 'node',
     icon: icon,
     record: {
-        type,
+        type: 'sources',
     },
     children,
 })
 
-const createFileNode = (
+const createViewNode = (
     file: FileSystemEntry,
-    matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     folderStates: any = {},
     folders: any = {},
@@ -282,7 +262,7 @@ const createFileNode = (
                 ]
             } else {
                 children = folderContents.map((item: FileSystemEntry) =>
-                    createFileNode(item, null, isSearch, folderStates, folders, dataWarehouseSavedQueryMapById)
+                    createViewNode(item, isSearch, folderStates, folders, dataWarehouseSavedQueryMapById)
                 )
                 children = sortTreeChildren(children)
             }
@@ -308,7 +288,6 @@ const createFileNode = (
                 type: 'folder',
                 path: folderPath,
                 file: file,
-                ...(matches && { searchMatches: matches }),
             },
             children,
         }
@@ -338,15 +317,13 @@ const createFileNode = (
             view: savedQuery,
             isSavedQuery: true,
             file: file,
-            ...(matches && { searchMatches: matches }),
         },
         children: fileChildren.length > 0 ? fileChildren : undefined,
     }
 }
 
-const createFilesFolderNode = (
+const createViewsFolderNode = (
     files: FileSystemEntry[],
-    matches: [FileSystemEntry, FuseSearchMatch[] | null][] = [],
     isSearch = false,
     isLoading = false,
     folderStates: any = {},
@@ -364,15 +341,9 @@ const createFilesFolderNode = (
             disableSelect: true,
             type: 'loading-indicator',
         })
-    } else if (isSearch && matches.length > 0) {
-        matches.forEach(([file, fileMatches]) => {
-            filesChildren.push(
-                createFileNode(file, fileMatches, true, folderStates, folders, dataWarehouseSavedQueryMapById)
-            )
-        })
     } else {
         files.forEach((file) => {
-            filesChildren.push(createFileNode(file, null, false, folderStates, folders, dataWarehouseSavedQueryMapById))
+            filesChildren.push(createViewNode(file, false, folderStates, folders, dataWarehouseSavedQueryMapById))
         })
     }
 
@@ -451,13 +422,13 @@ const buildHierarchicalSearchResults = (
     })
 
     // Third pass: add matched files to their folders
-    matchedFiles.forEach(([file, matches]) => {
+    matchedFiles.forEach(([file, _]) => {
         const relativePath = file.path.replace(UNFILED_SAVED_QUERIES_PATH + '/', '')
         const pathParts = relativePath.split('/')
         pathParts.pop() // Remove filename to get parent folder path
         const folderPath = pathParts.join('/')
 
-        const fileNode = createFileNode(file, matches, true, folderStates, folders, dataWarehouseSavedQueryMapById)
+        const fileNode = createViewNode(file, true, folderStates, folders, dataWarehouseSavedQueryMapById)
 
         if (folderPath) {
             // Add to folder
@@ -685,7 +656,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [
                 s.relevantPosthogTables,
                 s.relevantDataWarehouseTables,
-                s.relevantSavedQueries,
                 s.relevantManagedViews,
                 s.relevantFiles,
                 s.folderStates,
@@ -696,7 +666,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (
                 relevantPosthogTables,
                 relevantDataWarehouseTables,
-                relevantSavedQueries,
                 relevantManagedViews,
                 relevantFiles,
                 folderStates,
@@ -710,41 +679,38 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
+                const posthogTables = relevantPosthogTables.map(([table, _]) => table)
+                const managedViews = relevantManagedViews.map(([view, _]) => view)
 
                 // Add PostHog tables
                 if (relevantPosthogTables.length > 0) {
                     expandedIds.push('search-posthog')
-                    sourcesChildren.push(createSourceFolderNode('PostHog', [], relevantPosthogTables, true))
+                    sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables, true))
                 }
 
                 // Group data warehouse tables by source type
                 const tablesBySourceType = relevantDataWarehouseTables.reduce(
-                    (
-                        acc: Record<string, [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]>,
-                        [table, matches]
-                    ) => {
+                    (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, [table, _]) => {
                         const sourceType = table.source?.source_type || 'Self-managed'
                         if (!acc[sourceType]) {
                             acc[sourceType] = []
                         }
-                        acc[sourceType].push([table, matches])
+                        acc[sourceType].push(table)
                         return acc
                     },
                     {}
                 )
 
-                Object.entries(tablesBySourceType).forEach(([sourceType, tablesWithMatches]) => {
+                Object.entries(tablesBySourceType).forEach(([sourceType, dataWarehouseTables]) => {
                     expandedIds.push(`search-${sourceType}`)
-                    sourcesChildren.push(createSourceFolderNode(sourceType, [], tablesWithMatches, true))
+                    sourcesChildren.push(createSourceFolderNode(sourceType, dataWarehouseTables, true))
                 })
-
-                // Create views children
-                const viewsChildren: TreeDataItem[] = []
 
                 // Add managed views
-                relevantManagedViews.forEach(([view, matches]) => {
-                    viewsChildren.push(createViewNode(view, matches, true))
-                })
+                if (managedViews.length > 0) {
+                    expandedIds.push('search-Managed views')
+                    sourcesChildren.push(createSourceFolderNode('Managed views', managedViews, true))
+                }
 
                 // Create files children with hierarchical structure
                 const filesHierarchy = buildHierarchicalSearchResults(
@@ -762,7 +728,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (sourcesChildren.length > 0) {
                     expandedIds.push('search-sources')
-                    searchResults.push(createTopLevelFolderNode('sources', sourcesChildren, true, <IconPlug />))
+                    searchResults.push(createSourcesFolderNode(sourcesChildren, true, <IconPlug />))
                 }
 
                 if (filesChildren.length > 0) {
@@ -776,11 +742,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         },
                         children: filesChildren,
                     })
-                }
-
-                if (viewsChildren.length > 0) {
-                    expandedIds.push('search-managed-views')
-                    searchResults.push(createTopLevelFolderNode('managed-views', viewsChildren, true))
                 }
 
                 // Auto-expand only parent folders, not the matching nodes themselves
@@ -873,9 +834,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add managed views
                     managedViews.forEach((view) => {
-                        viewsChildren.push(createViewNode(view))
+                        viewsChildren.push(createManagedViewNode(view))
                     })
                 }
+
+                sourcesChildren.push(createSourceFolderNode('Managed views', managedViews))
 
                 // Check if the unfiled folder is loading
                 const unfiledFolderPath = UNFILED_SAVED_QUERIES_PATH
@@ -884,17 +847,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     (folderStates[unfiledFolderPath] !== 'loaded' && unfiledSavedQueryFiles.length === 0)
 
                 return [
-                    createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
-                    createFilesFolderNode(
+                    createSourcesFolderNode(sourcesChildren, false, <IconPlug />),
+                    createViewsFolderNode(
                         unfiledSavedQueryFiles,
-                        [],
                         false,
                         isFilesLoading,
                         folderStates,
                         folders,
                         dataWarehouseSavedQueryMapById
                     ),
-                    createTopLevelFolderNode('managed-views', viewsChildren),
                 ]
             },
         ],
