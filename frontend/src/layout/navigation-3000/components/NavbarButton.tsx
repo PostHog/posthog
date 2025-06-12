@@ -1,7 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
@@ -36,17 +34,13 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
         const { hideNavOnMobile } = useActions(navigation3000Logic)
         const { isNavCollapsed } = useValues(navigation3000Logic)
-        const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
         const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
         const here = activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
-        const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
+        const isNavCollapsedActually = isNavCollapsed
 
-        const buttonProps: LemonButtonProps = rest
-        if (!isUsingNewNav) {
-            buttonProps.active = here
-        }
+        const buttonProps: LemonButtonProps = { ...rest, active: here }
         let content: JSX.Element | string | undefined
         if (!isNavCollapsedActually) {
             content = shortTitle || title
@@ -89,7 +83,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     setHasBeenClicked(true)
                     onClick?.(e)
                 }}
-                className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+                className="NavbarButton"
                 fullWidth
                 type="secondary"
                 status="alt"

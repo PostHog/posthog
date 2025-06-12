@@ -1,9 +1,9 @@
-import json
 from typing import TypedDict
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
-from langchain_core.messages import AIMessage as LangchainAIMessage
 from autoevals.llm import LLMClassifier
+import json
+from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from braintrust import Score
 from posthog.schema import (
@@ -58,6 +58,26 @@ class ToolRelevance(ScorerWithPartial):
 class PlanAndQueryOutput(TypedDict):
     plan: str | None
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery | None
+
+
+class QueryKindSelection(ScorerWithPartial):
+    """Evaluate if the generated plan is of the correct type."""
+
+    _expected: NodeKind
+
+    def __init__(self, expected: NodeKind, **kwargs):
+        super().__init__(**kwargs)
+        self._expected = expected
+
+    def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+        if not output.get("query"):
+            return Score(name=self._name(), score=None, metadata={"reason": "No query present"})
+        score = 1 if output["query"].kind == self._expected else 0
+        return Score(
+            name=self._name(),
+            score=score,
+            metadata={"reason": f"Expected {self._expected}, got {output['query'].kind}"} if not score else {},
+        )
 
 
 class PlanCorrectness(LLMClassifier):

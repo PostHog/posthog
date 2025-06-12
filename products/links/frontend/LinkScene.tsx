@@ -161,7 +161,6 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                         )
                     ) : undefined
                 }
-                delimited
             />
 
             <div className="space-y-4">

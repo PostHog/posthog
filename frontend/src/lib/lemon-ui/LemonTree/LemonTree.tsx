@@ -367,6 +367,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <ContextMenuTrigger asChild>
                                 <Link
                                     data-id={item.id}
+                                    data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                                     // When dragging, don't allow links to be clicked,
                                     // without this drag end would fire this href causing a reload
                                     to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
@@ -520,7 +521,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <ButtonGroupPrimitive
                                         fullWidth
-                                        className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)]"
+                                        className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent"
                                     >
                                         <TreeNodeDisplayCheckbox
                                             item={item}
