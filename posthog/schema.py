@@ -7727,7 +7727,7 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_range: DateRange
+    dateRange: DateRange
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]] = Field(
         default_factory=list
@@ -7748,7 +7748,7 @@ class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
         extra="forbid",
     )
     data: dict[str, Any]
-    date_range: DateRange
+    dateRange: DateRange
     status: Literal["success", "error"]
     error: Optional[ExternalQueryError] = None
 

@@ -245,7 +245,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response({"sql": result})
 
     @action(methods=["POST"], detail=False)
-    def web_analytics(self, request: Request) -> Response:
+    def web_analytics(self, request: Request, **kwargs) -> Response:
         date_from = request.data.get("date_from")
         date_to = request.data.get("date_to")
 
@@ -254,7 +254,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         query = WebAnalyticsExternalSummaryQuery(
             kind="WebAnalyticsExternalSummaryQuery",
-            date_range=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
         )
 
