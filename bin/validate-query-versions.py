@@ -1,13 +1,17 @@
 import json
-import subprocess
 import logging
 import os
 import sys
+from clickhouse_driver import Client
 
 # Add the project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from posthog.schema_migrations import LATEST_VERSIONS
+# Import LATEST_VERSIONS from posthog if needed, or define your own if running standalone
+try:
+    from posthog.schema_migrations import LATEST_VERSIONS
+except ImportError:
+    LATEST_VERSIONS = {}
 
 # Configure logging to stdout
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -22,19 +26,20 @@ AND JSONExtractRaw(log_comment, 'query') != ''
 
 
 def run_clickhouse_query(query):
-    result = subprocess.run(["clickhouse-client", "--query", query], capture_output=True, text=True)
-    if result.returncode != 0:
-        logging.error(f"ERROR running ClickHouse query: {result.stderr}")
-        exit(1)
-    return result.stdout
+    host = os.environ.get("CLICKHOUSE_HOST", "localhost")
+    port = int(os.environ.get("CLICKHOUSE_PORT", 9000))
+    user = os.environ.get("CLICKHOUSE_USER", "default")
+    password = os.environ.get("CLICKHOUSE_PASSWORD", "")
+    database = os.environ.get("CLICKHOUSE_DATABASE", "default")
+    client = Client(host=host, port=port, user=user, password=password, database=database)
+    return client.execute(query)
 
 
 def validate_versions():
     output = run_clickhouse_query(CLICKHOUSE_QUERY)
-    for line in output.strip().split("\n"):
-        # Expecting tab-separated log_comment and query
+    for row in output:
         try:
-            log_comment, query_json = line.split("\t", 1)
+            log_comment, query_json = row
         except ValueError:
             continue
         try:
