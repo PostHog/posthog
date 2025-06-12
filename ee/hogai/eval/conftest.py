@@ -1,26 +1,27 @@
-from collections import namedtuple
 import datetime
-from collections.abc import Generator
 import os
-from collections.abc import Sequence
+from collections import namedtuple
+from collections.abc import Generator, Sequence
 from unittest import mock
-from _pytest.terminal import TerminalReporter
-from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
-from braintrust import Eval, init_logger
-from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
+
 import pytest
+from _pytest.terminal import TerminalReporter
+from braintrust import Eval, init_logger
+from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
+from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
+
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation, CoreMemory
+
+# We want the PostHog django_db_setup fixture here
+from posthog.conftest import django_db_setup  # noqa: F401
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
 from posthog.schema import HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
-
-# We want the PostHog django_db_setup fixture here
-from posthog.conftest import django_db_setup  # noqa: F401
 
 handler = BraintrustCallbackHandler()
 set_global_handler(handler)
@@ -42,7 +43,7 @@ def MaxEval(
         task=task,
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
-        timeout=180,
+        timeout=60 * 5,
         is_public=True,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":

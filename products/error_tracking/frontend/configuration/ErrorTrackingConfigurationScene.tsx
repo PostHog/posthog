@@ -88,7 +88,6 @@ export const scene: SceneExport = {
     paramsToProps: ({ searchParams: { tab } }): (typeof errorTrackingConfigurationSceneLogic)['props'] => ({
         initialTab: tab,
     }),
-    settingSectionId: 'environment-error-tracking',
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
