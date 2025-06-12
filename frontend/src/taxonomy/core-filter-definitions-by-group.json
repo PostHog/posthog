@@ -324,6 +324,11 @@
             "examples": ["free goodies"],
             "label": "Initial UTM term"
         },
+        "$config_defaults": {
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "label": "Config defaults",
+            "type": "String"
+        },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
@@ -1433,6 +1438,11 @@
             "description": "The timezone as reported by the device",
             "label": "Timezone"
         },
+        "$timezone_offset": {
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "label": "Timezone offset",
+            "type": "Numeric"
+        },
         "$touch_x": {
             "description": "The location of a Touch event on the X axis",
             "label": "Touch X"
@@ -2128,6 +2138,11 @@
             "description": "UTM term. (First-touch, session-scoped)",
             "examples": ["free goodies"],
             "label": "Initial UTM term"
+        },
+        "$config_defaults": {
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "label": "Config defaults",
+            "type": "String"
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
@@ -3530,6 +3545,11 @@
             "description": "The timezone as reported by the device",
             "label": "Timezone"
         },
+        "$timezone_offset": {
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "label": "Timezone offset",
+            "type": "Numeric"
+        },
         "$touch_x": {
             "description": "The location of a Touch event on the X axis",
             "label": "Touch X"
@@ -3822,9 +3842,19 @@
             "label": "Cohort",
             "type": "String"
         },
+        "country": {
+            "description": "The country of the customer connected to the revenue event.",
+            "label": "Country",
+            "type": "String"
+        },
         "product": {
             "description": "The product of the revenue event.",
             "label": "Product",
+            "type": "String"
+        },
+        "source": {
+            "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
+            "label": "Source",
             "type": "String"
         }
     },

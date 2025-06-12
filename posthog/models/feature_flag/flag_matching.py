@@ -13,7 +13,6 @@ from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from django.db import connections
-from sentry_sdk.api import start_span
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.metrics import LABEL_TEAM_ID
 
@@ -514,194 +513,183 @@ class FeatureFlagMatcher:
         try:
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
-            with start_span(op="query_conditions"):
-                all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_PERSONS).filter(
-                    team_id=self.team_id,
-                    persondistinctid__distinct_id=self.distinct_id,
-                    persondistinctid__team_id=self.team_id,
-                )
-                basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=self.team_id
-                )
-                group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
-                # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
-                # If no groups for a group type are passed in, we can skip querying for that group type,
-                # since the result will always be `false`.
-                for group_type, group_key in self.groups.items():
-                    group_type_index = self.cache.group_types_to_indexes.get(group_type)
-                    if group_type_index is not None:
-                        # a tuple of querySet and field names
-                        group_query_per_group_type_mapping[group_type_index] = (
-                            basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
-                            [],
-                        )
-
-                person_fields: list[str] = []
-
-                for existence_condition_key in self.has_pure_is_not_conditions:
-                    if existence_condition_key == PERSON_KEY:
-                        person_exists = person_query.exists()
-                        all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
-                    else:
-                        if existence_condition_key not in group_query_per_group_type_mapping:
-                            continue
-
-                        group_query, _ = group_query_per_group_type_mapping[
-                            cast(GroupTypeIndex, existence_condition_key)
-                        ]
-                        group_exists = group_query.exists()
-                        all_conditions[f"{ENTITY_EXISTS_PREFIX}{existence_condition_key}"] = group_exists
-
-                def condition_eval(key, condition):
-                    expr = None
-                    annotate_query = True
-                    nonlocal person_query
-
-                    property_list = Filter(data=condition).property_groups.flat
-                    properties_with_math_operators = get_all_properties_with_math_operators(
-                        property_list, self.cohorts_cache, self.project_id
+            all_conditions: dict = {}
+            person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_PERSONS).filter(
+                team_id=self.team_id,
+                persondistinctid__distinct_id=self.distinct_id,
+                persondistinctid__team_id=self.team_id,
+            )
+            basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                team_id=self.team_id
+            )
+            group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
+            # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
+            # If no groups for a group type are passed in, we can skip querying for that group type,
+            # since the result will always be `false`.
+            for group_type, group_key in self.groups.items():
+                group_type_index = self.cache.group_types_to_indexes.get(group_type)
+                if group_type_index is not None:
+                    # a tuple of querySet and field names
+                    group_query_per_group_type_mapping[group_type_index] = (
+                        basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
+                        [],
                     )
 
-                    if len(condition.get("properties", {})) > 0:
-                        # Feature Flags don't support OR filtering yet
-                        target_properties = self.property_value_overrides
-                        if feature_flag.aggregation_group_type_index is not None:
-                            if feature_flag.aggregation_group_type_index not in self.cache.group_type_index_to_name:
-                                target_properties = {}
-                            else:
-                                target_properties = self.group_property_value_overrides.get(
-                                    self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
-                                    {},
-                                )
+            person_fields: list[str] = []
 
-                        expr = properties_to_Q(
-                            self.project_id,
-                            property_list,
-                            override_property_values=target_properties,
-                            cohorts_cache=self.cohorts_cache,
-                            using_database=DATABASE_FOR_FLAG_MATCHING,
-                        )
+            for existence_condition_key in self.has_pure_is_not_conditions:
+                if existence_condition_key == PERSON_KEY:
+                    person_exists = person_query.exists()
+                    all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
+                else:
+                    if existence_condition_key not in group_query_per_group_type_mapping:
+                        continue
 
-                        # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
-                        # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
-                        # We can skip going to the database in explicit True|False conditions. This is important
-                        # as it allows resolving flags correctly for non-ingested persons.
-                        # However, this doesn't work for the multiple condition case (when expr has multiple Q objects),
-                        # but it's better than nothing.
-                        # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
-                        # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
-                        if expr == Q(pk__isnull=False):
-                            all_conditions[key] = True
-                            annotate_query = False
-                        elif expr == Q(pk__isnull=True):
-                            all_conditions[key] = False
-                            annotate_query = False
+                    group_query, _ = group_query_per_group_type_mapping[cast(GroupTypeIndex, existence_condition_key)]
+                    group_exists = group_query.exists()
+                    all_conditions[f"{ENTITY_EXISTS_PREFIX}{existence_condition_key}"] = group_exists
 
-                    if annotate_query:
-                        if feature_flag.aggregation_group_type_index is None:
-                            # :TRICKY: Flag matching depends on type of property when doing >, <, >=, <= comparisons.
-                            # This requires a generated field to query in Q objects, which sadly don't allow inlining fields,
-                            # hence we need to annotate the query here, even though these annotations are used much deeper,
-                            # in properties_to_q, in empty_or_null_with_value_q
-                            # These need to come in before the expr so they're available to use inside the expr.
-                            # Same holds for the group queries below.
-                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
-                            person_query = person_query.annotate(
-                                **type_property_annotations,
-                                **{
-                                    key: ExpressionWrapper(
-                                        cast(Expression, expr if expr else RawSQL("true", [])),
-                                        output_field=BooleanField(),
-                                    ),
-                                },
-                            )
-                            person_fields.append(key)
+            def condition_eval(key, condition):
+                expr = None
+                annotate_query = True
+                nonlocal person_query
+
+                property_list = Filter(data=condition).property_groups.flat
+                properties_with_math_operators = get_all_properties_with_math_operators(
+                    property_list, self.cohorts_cache, self.project_id
+                )
+
+                if len(condition.get("properties", {})) > 0:
+                    # Feature Flags don't support OR filtering yet
+                    target_properties = self.property_value_overrides
+                    if feature_flag.aggregation_group_type_index is not None:
+                        if feature_flag.aggregation_group_type_index not in self.cache.group_type_index_to_name:
+                            target_properties = {}
                         else:
-                            if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
-                                # ignore flags that didn't have the right groups passed in
-                                return
-                            (
-                                group_query,
-                                group_fields,
-                            ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
-                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
-                            group_query = group_query.annotate(
-                                **type_property_annotations,
-                                **{
-                                    key: ExpressionWrapper(
-                                        cast(Expression, expr if expr else RawSQL("true", [])),
-                                        output_field=BooleanField(),
-                                    ),
-                                },
-                            )
-                            group_fields.append(key)
-                            group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
-                                group_query,
-                                group_fields,
+                            target_properties = self.group_property_value_overrides.get(
+                                self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
+                                {},
                             )
 
-                # only fetch all cohorts if not passed in any cached cohorts
-                if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
-                    all_cohorts = {
-                        cohort.pk: cohort
-                        for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                            team__project_id=self.project_id, deleted=False
+                    expr = properties_to_Q(
+                        self.project_id,
+                        property_list,
+                        override_property_values=target_properties,
+                        cohorts_cache=self.cohorts_cache,
+                        using_database=DATABASE_FOR_FLAG_MATCHING,
+                    )
+
+                    # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
+                    # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
+                    # We can skip going to the database in explicit True|False conditions. This is important
+                    # as it allows resolving flags correctly for non-ingested persons.
+                    # However, this doesn't work for the multiple condition case (when expr has multiple Q objects),
+                    # but it's better than nothing.
+                    # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
+                    # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
+                    if expr == Q(pk__isnull=False):
+                        all_conditions[key] = True
+                        annotate_query = False
+                    elif expr == Q(pk__isnull=True):
+                        all_conditions[key] = False
+                        annotate_query = False
+
+                if annotate_query:
+                    if feature_flag.aggregation_group_type_index is None:
+                        # :TRICKY: Flag matching depends on type of property when doing >, <, >=, <= comparisons.
+                        # This requires a generated field to query in Q objects, which sadly don't allow inlining fields,
+                        # hence we need to annotate the query here, even though these annotations are used much deeper,
+                        # in properties_to_q, in empty_or_null_with_value_q
+                        # These need to come in before the expr so they're available to use inside the expr.
+                        # Same holds for the group queries below.
+                        type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
+                        person_query = person_query.annotate(
+                            **type_property_annotations,
+                            **{
+                                key: ExpressionWrapper(
+                                    cast(Expression, expr if expr else RawSQL("true", [])),
+                                    output_field=BooleanField(),
+                                ),
+                            },
                         )
-                    }
-                    self.cohorts_cache.update(all_cohorts)
-                # release conditions
-                for feature_flag in self.feature_flags:
-                    # super release conditions
-                    if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
-                        condition = feature_flag.super_conditions[0]
-                        prop_key = (condition.get("properties") or [{}])[0].get("key")
-                        if prop_key:
-                            key = f"flag_{feature_flag.pk}_super_condition"
-                            condition_eval(key, condition)
-
-                            is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
-                            is_set_condition = {
-                                "properties": [
-                                    {
-                                        "key": prop_key,
-                                        "operator": "is_set",
-                                    }
-                                ]
-                            }
-                            condition_eval(is_set_key, is_set_condition)
-
-                    with start_span(
-                        op="parse_feature_flag_conditions",
-                        description=f"feature_flag={feature_flag.pk} key={feature_flag.key}",
-                    ):
-                        for index, condition in enumerate(feature_flag.conditions):
-                            key = f"flag_{feature_flag.pk}_condition_{index}"
-                            condition_eval(key, condition)
-
-                if len(person_fields) > 0:
-                    with start_span(op="execute_person_query"):
-                        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_PERSONS):
-                            person_query = person_query.values(*person_fields)
-                            if len(person_query) > 0:
-                                all_conditions = {**all_conditions, **person_query[0]}
-
-                if len(group_query_per_group_type_mapping) > 0:
-                    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
-                        for (
+                        person_fields.append(key)
+                    else:
+                        if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
+                            # ignore flags that didn't have the right groups passed in
+                            return
+                        (
                             group_query,
                             group_fields,
-                        ) in group_query_per_group_type_mapping.values():
-                            # Only query the group if there's a field to query
-                            if len(group_fields) > 0:
-                                with start_span(op="execute_group_query"):
-                                    group_query = group_query.values(*group_fields)
-                                    if len(group_query) > 0:
-                                        assert (
-                                            len(group_query) == 1
-                                        ), f"Expected 1 group query result, got {len(group_query)}"
-                                        all_conditions = {**all_conditions, **group_query[0]}
-                return all_conditions
+                        ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
+                        type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
+                        group_query = group_query.annotate(
+                            **type_property_annotations,
+                            **{
+                                key: ExpressionWrapper(
+                                    cast(Expression, expr if expr else RawSQL("true", [])),
+                                    output_field=BooleanField(),
+                                ),
+                            },
+                        )
+                        group_fields.append(key)
+                        group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
+                            group_query,
+                            group_fields,
+                        )
+
+            # only fetch all cohorts if not passed in any cached cohorts
+            if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
+                all_cohorts = {
+                    cohort.pk: cohort
+                    for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                        team__project_id=self.project_id, deleted=False
+                    )
+                }
+                self.cohorts_cache.update(all_cohorts)
+            # release conditions
+            for feature_flag in self.feature_flags:
+                # super release conditions
+                if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
+                    condition = feature_flag.super_conditions[0]
+                    prop_key = (condition.get("properties") or [{}])[0].get("key")
+                    if prop_key:
+                        key = f"flag_{feature_flag.pk}_super_condition"
+                        condition_eval(key, condition)
+
+                        is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
+                        is_set_condition = {
+                            "properties": [
+                                {
+                                    "key": prop_key,
+                                    "operator": "is_set",
+                                }
+                            ]
+                        }
+                        condition_eval(is_set_key, is_set_condition)
+
+                for index, condition in enumerate(feature_flag.conditions):
+                    key = f"flag_{feature_flag.pk}_condition_{index}"
+                    condition_eval(key, condition)
+
+            if len(person_fields) > 0:
+                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_PERSONS):
+                    person_query = person_query.values(*person_fields)
+                    if len(person_query) > 0:
+                        all_conditions = {**all_conditions, **person_query[0]}
+
+            if len(group_query_per_group_type_mapping) > 0:
+                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
+                    for (
+                        group_query,
+                        group_fields,
+                    ) in group_query_per_group_type_mapping.values():
+                        # Only query the group if there's a field to query
+                        if len(group_fields) > 0:
+                            group_query = group_query.values(*group_fields)
+                            if len(group_query) > 0:
+                                assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
+                                all_conditions = {**all_conditions, **group_query[0]}
+            return all_conditions
         except DatabaseError as e:
             logger.exception("query_conditions database error", error=str(e), exc_info=True)
             self.failed_to_fetch_conditions = True
@@ -944,127 +932,124 @@ def get_all_feature_flags_with_details(
         feature_flag.ensure_experience_continuity for feature_flag in feature_flags_to_be_evaluated
     )
 
-    with start_span(op="without_experience_continuity"):
-        is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
-        if not is_database_alive or not flags_have_experience_continuity_enabled:
-            return _get_all_feature_flags(
-                feature_flags_to_be_evaluated,
-                team.id,
-                team.project_id,
-                distinct_id,
-                groups=groups,
-                property_value_overrides=property_value_overrides,
-                group_property_value_overrides=group_property_value_overrides,
-                skip_database_flags=not is_database_alive,
-            )
+    is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
+    if not is_database_alive or not flags_have_experience_continuity_enabled:
+        return _get_all_feature_flags(
+            feature_flags_to_be_evaluated,
+            team.id,
+            team.project_id,
+            distinct_id,
+            groups=groups,
+            property_value_overrides=property_value_overrides,
+            group_property_value_overrides=group_property_value_overrides,
+            skip_database_flags=not is_database_alive,
+        )
 
-    with start_span(op="with_experience_continuity_write_path"):
-        # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
-        # no matter what other distinct_ids the user has.
-        # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
-        should_write_hash_key_override = False
-        writing_hash_key_override = False
-        # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
-        # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
-        if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
-            # First, check if the hash_key_override is already in the database.
-            # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
-            # So, if an extra query check helps us avoid the write path, it's worth it.
+    # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
+    # no matter what other distinct_ids the user has.
+    # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
+    should_write_hash_key_override = False
+    writing_hash_key_override = False
+    # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
+    # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
+    if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
+        # First, check if the hash_key_override is already in the database.
+        # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
+        # So, if an extra query check helps us avoid the write path, it's worth it.
 
+        try:
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
+                distinct_ids = [distinct_id, str(hash_key_override)]
+                query = """
+                    WITH target_person_ids AS (
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        distinct_id = ANY(%(distinct_ids)s)
+                    ),
+                    existing_overrides AS (
+                        SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
+                        WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
+                    )
+                    SELECT key FROM posthog_featureflag flag
+                    JOIN posthog_team team ON flag.team_id = team.id
+                    WHERE team.project_id = %(project_id)s
+                        AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
+                        AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                """
+                cursor.execute(
+                    query,
+                    {"team_id": team.id, "project_id": team.project_id, "distinct_ids": distinct_ids},
+                )
+                flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
+                should_write_hash_key_override = len(flags_with_no_overrides) > 0
+        except Exception as e:
+            handle_feature_flag_exception(e, "[Feature Flags] Error figuring out hash key overrides")
+
+        if should_write_hash_key_override:
             try:
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
-                    distinct_ids = [distinct_id, str(hash_key_override)]
-                    query = """
-                        WITH target_person_ids AS (
-                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
-                            distinct_id = ANY(%(distinct_ids)s)
-                        ),
-                        existing_overrides AS (
-                            SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                            WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
-                        )
-                        SELECT key FROM posthog_featureflag flag
-                        JOIN posthog_team team ON flag.team_id = team.id
-                        WHERE team.project_id = %(project_id)s
-                            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-                            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-                    """
-                    cursor.execute(
-                        query,
-                        {"team_id": team.id, "project_id": team.project_id, "distinct_ids": distinct_ids},
-                    )
-                    flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
-                    should_write_hash_key_override = len(flags_with_no_overrides) > 0
+                hash_key_override = str(hash_key_override)
+
+                # :TRICKY: There are a few cases for write we need to handle:
+                # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
+                # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
+                # 3. Person being deleted via UI or API (this is rare)
+                #
+                # In all cases, we simply try to find all personIDs associated with the distinct_id
+                # and the hash_key_override, and add overrides for all these personIDs.
+                # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
+                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
+
+                writing_hash_key_override = set_feature_flag_hash_key_overrides(
+                    team, [distinct_id, hash_key_override], hash_key_override
+                )
+                team_id_label = label_for_team_id_to_track(team.id)
+                FLAG_HASH_KEY_WRITES_COUNTER.labels(
+                    team_id=team_id_label,
+                    successful_write=writing_hash_key_override,
+                ).inc()
             except Exception as e:
-                handle_feature_flag_exception(e, "[Feature Flags] Error figuring out hash key overrides")
+                # If the database is in read-only mode, we can't handle experience continuity flags,
+                # since the set_feature_flag_hash_key_overrides call will fail.
 
-            if should_write_hash_key_override:
-                try:
-                    hash_key_override = str(hash_key_override)
-
-                    # :TRICKY: There are a few cases for write we need to handle:
-                    # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
-                    # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
-                    # 3. Person being deleted via UI or API (this is rare)
-                    #
-                    # In all cases, we simply try to find all personIDs associated with the distinct_id
-                    # and the hash_key_override, and add overrides for all these personIDs.
-                    # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
-                    # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
-
-                    writing_hash_key_override = set_feature_flag_hash_key_overrides(
-                        team, [distinct_id, hash_key_override], hash_key_override
-                    )
-                    team_id_label = label_for_team_id_to_track(team.id)
-                    FLAG_HASH_KEY_WRITES_COUNTER.labels(
-                        team_id=team_id_label,
-                        successful_write=writing_hash_key_override,
-                    ).inc()
-                except Exception as e:
-                    # If the database is in read-only mode, we can't handle experience continuity flags,
-                    # since the set_feature_flag_hash_key_overrides call will fail.
-
-                    # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
-                    # At the same time, don't set db down, because the read-replica might still be up.
-                    handle_feature_flag_exception(
-                        e,
-                        "[Feature Flags] Error while setting feature flag hash key overrides",
-                        set_healthcheck=False,
-                    )
+                # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
+                # At the same time, don't set db down, because the read-replica might still be up.
+                handle_feature_flag_exception(
+                    e,
+                    "[Feature Flags] Error while setting feature flag hash key overrides",
+                    set_healthcheck=False,
+                )
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
-    with start_span(op="with_experience_continuity_read_path"):
-        using_database = None
-        try:
-            # when we're writing a hash_key_override, we query the main database, not the replica
-            # this is because we need to make sure the write is successful before we read it
-            using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING
-            person_overrides = {}
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
-                target_distinct_ids = [distinct_id]
-                if hash_key_override is not None:
-                    target_distinct_ids.append(str(hash_key_override))
-                person_overrides = get_feature_flag_hash_key_overrides(team.id, target_distinct_ids, using_database)
+    using_database = None
+    try:
+        # when we're writing a hash_key_override, we query the main database, not the replica
+        # this is because we need to make sure the write is successful before we read it
+        using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING
+        person_overrides = {}
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
+            target_distinct_ids = [distinct_id]
+            if hash_key_override is not None:
+                target_distinct_ids.append(str(hash_key_override))
+            person_overrides = get_feature_flag_hash_key_overrides(team.id, target_distinct_ids, using_database)
 
-        except Exception as e:
-            handle_feature_flag_exception(
-                e,
-                f"[Feature Flags] Error fetching hash key overrides from {using_database} db",
-                set_healthcheck=not writing_hash_key_override,
-            )
-            # database is down, we can't handle experience continuity flags at all.
-            # Treat this same as if there are no experience continuity flags.
-            # This automatically sets 'errorsWhileComputingFlags' to True.
-            return _get_all_feature_flags(
-                feature_flags_to_be_evaluated,
-                team.id,
-                team.project_id,
-                distinct_id,
-                groups=groups,
-                property_value_overrides=property_value_overrides,
-                group_property_value_overrides=group_property_value_overrides,
-                skip_database_flags=True,
-            )
+    except Exception as e:
+        handle_feature_flag_exception(
+            e,
+            f"[Feature Flags] Error fetching hash key overrides from {using_database} db",
+            set_healthcheck=not writing_hash_key_override,
+        )
+        # database is down, we can't handle experience continuity flags at all.
+        # Treat this same as if there are no experience continuity flags.
+        # This automatically sets 'errorsWhileComputingFlags' to True.
+        return _get_all_feature_flags(
+            feature_flags_to_be_evaluated,
+            team.id,
+            team.project_id,
+            distinct_id,
+            groups=groups,
+            property_value_overrides=property_value_overrides,
+            group_property_value_overrides=group_property_value_overrides,
+            skip_database_flags=True,
+        )
 
     return _get_all_feature_flags(
         feature_flags_to_be_evaluated,

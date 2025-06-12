@@ -86,16 +86,6 @@ SettingsOrganization.parameters = {
     testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
-export const SettingsWebVitals: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.settings('project-autocapture', 'web-vitals-autocapture'))
-    }, [])
-    return <App />
-}
-SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
 function TimeSensitiveSettings(props: {
     has_password?: boolean
     saml_available?: boolean

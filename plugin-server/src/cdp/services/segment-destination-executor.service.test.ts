@@ -8,6 +8,7 @@ import {
     amplitudeInputs,
     createExampleSegmentInvocation,
     createHogFunction,
+    gameballInputs,
     pipedriveResponse,
 } from '../_tests/fixtures'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
@@ -19,6 +20,9 @@ describe('SegmentDestinationExecutorService', () => {
 
     const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-amplitude']
     const amplitudeAction = amplitudePlugin.destination.actions['logEventV2']
+
+    const gameballPlugin = SEGMENT_DESTINATIONS_BY_ID['segment-gameball']
+    const gameballAction = gameballPlugin.destination.actions['trackEvent']
 
     const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-pipedrive']
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
@@ -277,6 +281,71 @@ describe('SegmentDestinationExecutorService', () => {
                 id: expect.any(String),
                 queue: 'segment',
                 queueMetadata: { tries: 3 },
+                queueParameters: undefined,
+                queuePriority: 0,
+                queueScheduledAt: undefined,
+                queueSource: undefined,
+                state: expect.any(Object),
+                teamId: 1,
+            })
+        })
+
+        it('should handle throwHttpErrors flag', async () => {
+            // This destination is setting the throwHttpErrors flag to false, so we should return the error to the function instead.
+            // https://github.com/segmentio/action-destinations/blob/main/packages/destination-actions/src/destinations/gameball/util.ts#L68
+            jest.spyOn(gameballAction as any, 'perform')
+
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-gameball',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, gameballInputs)
+
+            mockFetch.mockResolvedValue({
+                status: 403,
+                json: () => Promise.resolve({ error: 'Forbidden' }),
+                text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
+                headers: { 'retry-after': '60' },
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.finished).toBe(true)
+
+            result.logs.forEach((x) => {
+                if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
+                    x.message = 'Function completed in [REPLACED]'
+                }
+            })
+
+            expect(result.logs).toMatchSnapshot()
+
+            expect(gameballAction.perform).toHaveBeenCalledTimes(1)
+            expect(forSnapshot(jest.mocked(gameballAction.perform!).mock.calls[0][1])).toMatchSnapshot()
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(forSnapshot(mockFetch.mock.calls[0])).toMatchInlineSnapshot(`
+                [
+                  "https://api.gameball.co/api/v3.0/integrations/event",
+                  {
+                    "body": "{"events":{"$web_vitals":{"$geoip_city_name":"Aylesbury","$geoip_country_name":"United Kingdom","$geoip_country_code":"GB","$geoip_continent_name":"Europe","$geoip_continent_code":"EU","$geoip_postal_code":"HP21","$geoip_latitude":51.8053,"$geoip_longitude":-0.8086,"$geoip_accuracy_radius":500,"$geoip_time_zone":"Europe/London","$geoip_subdivision_1_code":"ENG","$geoip_subdivision_1_name":"England","$geoip_subdivision_2_code":"BKM","$geoip_subdivision_2_name":"Buckinghamshire"}},"playerUniqueId":"<REPLACED-UUID-0>"}",
+                    "headers": {
+                      "APIKey": "abc",
+                      "Content-Type": "application/json",
+                      "x-gb-agent": "GB/Segment",
+                    },
+                    "method": "POST",
+                  },
+                ]
+            `)
+
+            expect(result.invocation).toEqual({
+                hogFunction: expect.any(Object),
+                functionId: expect.any(String),
+                id: expect.any(String),
+                queue: 'segment',
+                queueMetadata: { tries: 1 },
                 queueParameters: undefined,
                 queuePriority: 0,
                 queueScheduledAt: undefined,

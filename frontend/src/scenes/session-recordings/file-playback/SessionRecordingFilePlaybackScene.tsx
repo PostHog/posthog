@@ -16,6 +16,7 @@ import { sessionRecordingFilePlaybackSceneLogic } from './sessionRecordingFilePl
 export const scene: SceneExport = {
     component: SessionRecordingFilePlaybackScene,
     logic: sessionRecordingFilePlaybackSceneLogic,
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingFilePlaybackScene(): JSX.Element {
