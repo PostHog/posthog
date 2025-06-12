@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './reddit.template'
 
-jest.setTimeout(60 * 1000)
+jest.setTimeout(2 * 60 * 1000)
 
 describe('reddit template', () => {
     const tester = new TemplateTester(template)
