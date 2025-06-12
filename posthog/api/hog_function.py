@@ -188,7 +188,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}
                     )
-        elif not has_addon:
+        elif not has_addon and data["type"] != "internal_destination":
             if not bypass_addon_check:
                 # If they don't have the addon, they can only use free templates and can't modify them
                 if not template:
@@ -202,8 +202,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     )
 
             # Without the addon you can't deviate from the template
-            data["hog"] = template.hog
-            data["inputs_schema"] = template.inputs_schema
+            if template:
+                data["hog"] = template.hog
+                data["inputs_schema"] = template.inputs_schema
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []
