@@ -44,6 +44,7 @@ from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
 from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from sentry_sdk import capture_exception
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -181,6 +182,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
+        if not template:
+            capture_exception(Exception(f"No template found for id '{data['template_id']}'"))
 
         if data["type"] == "transformation":
             if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
