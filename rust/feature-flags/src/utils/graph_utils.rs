@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use petgraph::{algo::toposort, graph::DiGraph, visit::EdgeRef};
+use petgraph::{algo::toposort, graph::DiGraph};
 
 use crate::api::errors::FlagError;
 
@@ -138,32 +138,4 @@ where
             Err(FlagError::DependencyCycle(T::dependency_type(), cohort_id).into())
         }
     }
-}
-
-/// Given a graph and a node that is part of a cycle, returns the nodes in that cycle.
-/// The cycle starts with the node that is pointed to by the given node and ends with that same node.
-/// This function assumes a cycle exists starting at the given node.
-pub fn get_cycle_nodes<N, E>(
-    graph: &DiGraph<N, E>,
-    start: petgraph::graph::NodeIndex,
-) -> Vec<petgraph::graph::NodeIndex> {
-    // Get the first node in the cycle (the one that start points to)
-    let first = graph
-        .edges(start)
-        .next()
-        .expect("Cycle should have at least one edge")
-        .target();
-
-    // Build the cycle by following edges until we get back to first
-    let mut visited = HashSet::new();
-    let cycle: Vec<_> = std::iter::successors(Some(first), |&current| {
-        if visited.contains(&current) {
-            None
-        } else {
-            visited.insert(current);
-            graph.edges(current).next().map(|edge| edge.target())
-        }
-    })
-    .collect();
-    cycle
 }
