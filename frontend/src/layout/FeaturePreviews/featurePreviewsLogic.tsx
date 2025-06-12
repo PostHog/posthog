@@ -23,7 +23,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [supportLogic, ['submitZendeskTicket']],
+        actions: [supportLogic, ['submitZendeskTicket'], featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
@@ -72,10 +72,22 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             beginEarlyAccessFeatureFeedback: (_, { flagKey }) => flagKey,
             cancelEarlyAccessFeatureFeedback: () => null,
         },
+        enrollmentUpdating: [
+            {} as Record<string, boolean>,
+            {
+                updateEarlyAccessFeatureEnrollment: (state, { flagKey }) => ({
+                    ...state,
+                    [flagKey]: true,
+                }),
+                setFeatureFlags: () => ({}), // Clear loading states when flags refresh
+            },
+        ],
     }),
     listeners(() => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
             posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
+            // Force a feature flag refresh to ensure the UI updates immediately
+            posthog.featureFlags.reloadFeatureFlags()
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(combineUrl('/', undefined, `panel=feature-previews%3A${flagKey}`).url))
