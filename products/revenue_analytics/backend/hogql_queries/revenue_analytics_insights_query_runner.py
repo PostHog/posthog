@@ -4,6 +4,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsInsightsQueryResponse,
     RevenueAnalyticsInsightsQueryResponse,
     RevenueAnalyticsInsightsQuery,
+    RevenueAnalyticsInsightsQueryGroupBy,
 )
 from posthog.utils import format_label_date
 
@@ -48,59 +49,10 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
     def _get_subquery(self) -> ast.SelectQuery | None:
-        if self.query.groupBy == "all":
-            return self._get_subquery_by_all()
-        elif self.query.groupBy == "product":
-            return self._get_subquery_by_product()
-        elif self.query.groupBy == "country":
-            return self._get_subquery_by_country()
-        elif self.query.groupBy == "cohort":
-            return self._get_subquery_by_cohort()
-
-        raise ValueError(f"Invalid group by: {self.query.groupBy}")
-
-    def _get_subquery_by_all(self) -> ast.SelectQuery | None:
         _, _, invoice_item_subquery, _ = self.revenue_subqueries
         if invoice_item_subquery is None:
             return None
 
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
-                ),
-                ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
-                ast.Alias(
-                    alias="day_start",
-                    expr=ast.Call(
-                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])],
-                    ),
-                ),
-            ],
-            select_from=self.append_joins(
-                ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=invoice_item_subquery,
-                ),
-                self.joins_for_properties,
-            ),
-            where=ast.And(
-                exprs=[
-                    self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
-                    ),
-                    *self.where_property_exprs,
-                ]
-            ),
-        )
-
-    def _get_subquery_by_product(self) -> ast.SelectQuery | None:
-        _, _, invoice_item_subquery, product_subquery = self.revenue_subqueries
-        if invoice_item_subquery is None:
-            return None
-
         query = ast.SelectQuery(
             select=[
                 ast.Alias(
@@ -133,93 +85,35 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             ),
         )
 
-        # Join with product to get access to the `product_name`
-        # and also change the `breakdown_by` to include that
-        if product_subquery is not None:
-            # This `if` is required to make mypy happy
-            if (
-                query.select
-                and query.select[0]
-                and isinstance(query.select[0], ast.Alias)
-                and query.select[0].alias == "breakdown_by"
-            ):
-                query.select[0].expr = ast.Call(
-                    name="concat",
-                    args=[
-                        ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
-                        ast.Constant(value=" - "),
-                        ast.Call(
-                            name="coalesce",
-                            args=[
-                                ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"]),
-                                ast.Constant(value=NO_BREAKDOWN_PLACEHOLDER),
-                            ],
-                        ),
-                    ],
-                )
-
-            # We wanna include a join with the product table to get the product name
-            # and also change the `breakdown_by` to include that
-            # However, because we're already likely joining with the product because
-            # we might be filtering on item, we need to be extra safe here and guarantee
-            # there's no join with the product table before adding this one
-            if query.select_from is not None:
-                has_product_join = False
-                current_join: ast.JoinExpr | None = query.select_from
-                while current_join is not None:
-                    if current_join.alias == RevenueAnalyticsProductView.get_generic_view_alias():
-                        has_product_join = True
-                        break
-                    current_join = current_join.next_join
-
-                if not has_product_join:
-                    query.select_from = self.append_joins(
-                        query.select_from,
-                        [self.create_product_join(product_subquery)],
-                    )
+        # Limit to 2 group bys at most for performance reasons
+        # This is also implemented in the frontend, but let's guarantee it here too
+        for group_by in self.query.groupBy[:2]:
+            query = self.append_group_by(query, group_by)
 
         return query
 
-    def _get_subquery_by_country(self) -> ast.SelectQuery | None:
-        _, customer_subquery, invoice_item_subquery, _ = self.revenue_subqueries
-        if invoice_item_subquery is None:
-            return None
+    def append_group_by(
+        self, query: ast.SelectQuery, group_by: RevenueAnalyticsInsightsQueryGroupBy
+    ) -> ast.SelectQuery:
+        _, customer_subquery, _, product_subquery = self.revenue_subqueries
+        if group_by == RevenueAnalyticsInsightsQueryGroupBy.PRODUCT:
+            subquery = product_subquery
+            join_to = RevenueAnalyticsProductView
+            field_name = "name"
+        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUNTRY:
+            subquery = customer_subquery
+            join_to = RevenueAnalyticsCustomerView
+            field_name = "country"
+        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COHORT:
+            subquery = customer_subquery
+            join_to = RevenueAnalyticsCustomerView
+            field_name = "cohort"
+        else:
+            raise ValueError(f"Invalid group by: {group_by}")
 
-        query = ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
-                ),
-                ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
-                ast.Alias(
-                    alias="day_start",
-                    expr=ast.Call(
-                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])],
-                    ),
-                ),
-            ],
-            select_from=self.append_joins(
-                ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=invoice_item_subquery,
-                ),
-                self.joins_for_properties,
-            ),
-            where=ast.And(
-                exprs=[
-                    self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
-                    ),
-                    *self.where_property_exprs,
-                ]
-            ),
-        )
-
-        # Join with customer to get access to the `country`
+        # Join with the subquery to get access to the coalesced field
         # and also change the `breakdown_by` to include that
-        if customer_subquery is not None:
+        if subquery is not None:
             # This `if` is required to make mypy happy
             if (
                 query.select
@@ -230,120 +124,36 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                 query.select[0].expr = ast.Call(
                     name="concat",
                     args=[
-                        ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
+                        query.select[0].expr,
                         ast.Constant(value=" - "),
                         ast.Call(
                             name="coalesce",
                             args=[
-                                ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"]),
+                                ast.Field(chain=[join_to.get_generic_view_alias(), field_name]),
                                 ast.Constant(value=NO_BREAKDOWN_PLACEHOLDER),
                             ],
                         ),
                     ],
                 )
 
-            # We wanna include a join with the customer table to get the country
+            # We wanna include a join with the subquery to get the coalesced field
             # and also change the `breakdown_by` to include that
-            # However, because we're already likely joining with the customer because
+            # However, because we're already likely joining with the subquery because
             # we might be filtering on item, we need to be extra safe here and guarantee
-            # there's no join with the customer table before adding this one
+            # there's no join with the subquery before adding this one
             if query.select_from is not None:
-                has_customer_join = False
+                has_subquery_join = False
                 current_join: ast.JoinExpr | None = query.select_from
                 while current_join is not None:
-                    if current_join.alias == RevenueAnalyticsCustomerView.get_generic_view_alias():
-                        has_customer_join = True
+                    if current_join.alias == join_to.get_generic_view_alias():
+                        has_subquery_join = True
                         break
                     current_join = current_join.next_join
 
-                if not has_customer_join:
+                if not has_subquery_join:
                     query.select_from = self.append_joins(
                         query.select_from,
-                        [self.create_customer_join(customer_subquery)],
-                    )
-
-        return query
-
-    def _get_subquery_by_cohort(self) -> ast.SelectQuery | None:
-        _, customer_subquery, invoice_item_subquery, _ = self.revenue_subqueries
-        if invoice_item_subquery is None:
-            return None
-
-        query = ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
-                ),
-                ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
-                ast.Alias(
-                    alias="day_start",
-                    expr=ast.Call(
-                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])],
-                    ),
-                ),
-            ],
-            select_from=self.append_joins(
-                ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=invoice_item_subquery,
-                ),
-                self.joins_for_properties,
-            ),
-            where=ast.And(
-                exprs=[
-                    self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
-                    ),
-                    *self.where_property_exprs,
-                ]
-            ),
-        )
-
-        # Join with product to get access to the `product_name`
-        # and also change the `breakdown_by` to include that
-        if customer_subquery is not None:
-            # This `if` is required to make mypy happy
-            if (
-                query.select
-                and query.select[0]
-                and isinstance(query.select[0], ast.Alias)
-                and query.select[0].alias == "breakdown_by"
-            ):
-                query.select[0].expr = ast.Call(
-                    name="concat",
-                    args=[
-                        ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"]),
-                        ast.Constant(value=" - "),
-                        ast.Call(
-                            name="coalesce",
-                            args=[
-                                ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"]),
-                                ast.Constant(value=NO_BREAKDOWN_PLACEHOLDER),
-                            ],
-                        ),
-                    ],
-                )
-
-            # We wanna include a join with the customer table to get the cohort
-            # and also change the `breakdown_by` to include that
-            # However, because we're already likely joining with the customer because
-            # we might be filtering on item, we need to be extra safe here and guarantee
-            # there's no join with the customer table before adding this one
-            if query.select_from is not None:
-                has_customer_join = False
-                current_join: ast.JoinExpr | None = query.select_from
-                while current_join is not None:
-                    if current_join.alias == RevenueAnalyticsCustomerView.get_generic_view_alias():
-                        has_customer_join = True
-                        break
-                    current_join = current_join.next_join
-
-                if not has_customer_join:
-                    query.select_from = self.append_joins(
-                        query.select_from,
-                        [self.create_customer_join(customer_subquery)],
+                        [self.create_subquery_join(join_to, subquery)],
                     )
 
         return query
