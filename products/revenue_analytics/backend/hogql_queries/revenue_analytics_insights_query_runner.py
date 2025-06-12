@@ -11,9 +11,12 @@ from posthog.utils import format_label_date
 from .revenue_analytics_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsBaseView,
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsProductView,
+    RevenueAnalyticsInvoiceItemView,
+)
 
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
 
@@ -96,6 +99,10 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         self, query: ast.SelectQuery, group_by: RevenueAnalyticsInsightsQueryGroupBy
     ) -> ast.SelectQuery:
         _, customer_subquery, _, product_subquery = self.revenue_subqueries
+
+        subquery: ast.SelectSetQuery | None = None
+        join_to: type[RevenueAnalyticsBaseView] | None = None
+        field_name: str | None = None
         if group_by == RevenueAnalyticsInsightsQueryGroupBy.PRODUCT:
             subquery = product_subquery
             join_to = RevenueAnalyticsProductView
@@ -113,7 +120,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
 
         # Join with the subquery to get access to the coalesced field
         # and also change the `breakdown_by` to include that
-        if subquery is not None:
+        if subquery is not None and join_to is not None and field_name is not None:
             # This `if` is required to make mypy happy
             if (
                 query.select
