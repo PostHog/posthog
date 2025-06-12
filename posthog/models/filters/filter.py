@@ -27,7 +27,6 @@ from .mixins.common import (
     UpdatedAfterMixin,
 )
 from .mixins.funnel import (
-    FunnelCorrelationActorsMixin,
     FunnelCorrelationMixin,
     FunnelFromToStepsMixin,
     FunnelLayoutMixin,
@@ -79,7 +78,6 @@ class Filter(
     HistogramMixin,
     GroupsAggregationMixin,
     FunnelCorrelationMixin,
-    FunnelCorrelationActorsMixin,
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
     SearchMixin,

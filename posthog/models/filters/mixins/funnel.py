@@ -1,11 +1,7 @@
 import datetime
 import json
-from typing import TYPE_CHECKING, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
-from posthog.models.property import Property
-
-if TYPE_CHECKING:
-    from posthog.models.entity import Entity
 
 from rest_framework.exceptions import ValidationError
 
@@ -19,11 +15,6 @@ from posthog.constants import (
     FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES,
     FUNNEL_CORRELATION_EXCLUDE_NAMES,
     FUNNEL_CORRELATION_NAMES,
-    FUNNEL_CORRELATION_PERSON_CONVERTED,
-    FUNNEL_CORRELATION_PERSON_ENTITY,
-    FUNNEL_CORRELATION_PERSON_LIMIT,
-    FUNNEL_CORRELATION_PERSON_OFFSET,
-    FUNNEL_CORRELATION_PROPERTY_VALUES,
     FUNNEL_CORRELATION_TYPE,
     FUNNEL_CUSTOM_STEPS,
     FUNNEL_FROM_STEP,
@@ -353,98 +344,3 @@ class FunnelCorrelationMixin(BaseParamMixin):
         if self.correlation_event_exclude_property_names:
             result_dict[FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES] = self.correlation_event_exclude_property_names
         return result_dict
-
-
-class FunnelCorrelationActorsMixin(BaseParamMixin):
-    @cached_property
-    def correlation_person_entity(self) -> Optional["Entity"]:
-        # Used for event & event_with_properties correlations persons
-        from posthog.models.entity import Entity
-
-        raw_event = self._data.get(FUNNEL_CORRELATION_PERSON_ENTITY)
-        if isinstance(raw_event, str):
-            event = json.loads(raw_event)
-        else:
-            event = raw_event
-
-        return Entity(event) if event else None
-
-    @cached_property
-    def correlation_property_values(self) -> Optional[list[Property]]:
-        # Used for property correlations persons
-
-        _props = self._data.get(FUNNEL_CORRELATION_PROPERTY_VALUES)
-
-        if not _props:
-            return None
-
-        if isinstance(_props, str):
-            try:
-                loaded_props = json.loads(_props)
-            except json.decoder.JSONDecodeError:
-                raise ValidationError("Properties are unparsable!")
-        else:
-            loaded_props = _props
-
-        if isinstance(loaded_props, list):
-            _properties = []
-            for prop_params in loaded_props:
-                if isinstance(prop_params, Property):
-                    _properties.append(prop_params)
-                else:
-                    try:
-                        new_prop = Property(**prop_params)
-                        _properties.append(new_prop)
-                    except:
-                        continue
-            return _properties
-        return None
-
-    @cached_property
-    def correlation_person_limit(self) -> int:
-        limit = self._data.get(FUNNEL_CORRELATION_PERSON_LIMIT)
-        return int(limit) if limit else 0
-
-    @cached_property
-    def correlation_person_offset(self) -> int:
-        offset = self._data.get(FUNNEL_CORRELATION_PERSON_OFFSET)
-        return int(offset) if offset else 0
-
-    @cached_property
-    def correlation_persons_converted(self) -> Optional[bool]:
-        converted = self._data.get(FUNNEL_CORRELATION_PERSON_CONVERTED)
-        if not converted:
-            return None
-        if converted.lower() == "true":
-            return True
-        return False
-
-    @include_dict
-    def funnel_correlation_persons_to_dict(self):
-        result_dict: dict = {}
-        if self.correlation_person_entity:
-            result_dict[FUNNEL_CORRELATION_PERSON_ENTITY] = self.correlation_person_entity.to_dict()
-        if self.correlation_property_values:
-            result_dict[FUNNEL_CORRELATION_PROPERTY_VALUES] = [
-                prop.to_dict() for prop in self.correlation_property_values
-            ]
-        if self.correlation_person_limit:
-            result_dict[FUNNEL_CORRELATION_PERSON_LIMIT] = self.correlation_person_limit
-        if self.correlation_person_offset:
-            result_dict[FUNNEL_CORRELATION_PERSON_OFFSET] = self.correlation_person_offset
-        if self.correlation_persons_converted is not None:
-            result_dict[FUNNEL_CORRELATION_PERSON_CONVERTED] = self.correlation_persons_converted
-        return result_dict
-
-    @cached_property
-    def include_final_matching_events(self) -> bool:
-        # If true, actor query will include the user's final event in the funnel for recordings
-        return self._data.get("include_final_matching_events", False)
-
-    @include_dict
-    def include_final_matching_events_to_dict(self):
-        return (
-            {"include_final_matching_events": self.include_final_matching_events}
-            if self.include_final_matching_events
-            else {}
-        )
