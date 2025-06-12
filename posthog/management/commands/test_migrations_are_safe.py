@@ -60,7 +60,12 @@ def validate_migration_sql(sql) -> bool:
                         or re.match(r"^-?\d+(\.\d+)?$", default_value)  # Number
                         or default_value.upper() in ["TRUE", "FALSE", "NULL"]  # Boolean/NULL
                         or default_value.upper()
-                        in ["NOW()", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"]  # Common constants
+                        in [
+                            "NOW()",
+                            "CURRENT_TIMESTAMP",
+                            "CURRENT_DATE",
+                            "CURRENT_TIME",
+                        ]  # Functions marked as stable in postgres
                     ):
                         # This is safe - adding a column with a constant default doesn't require table rewrite in PostgreSQL 11+
                         continue
