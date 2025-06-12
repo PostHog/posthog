@@ -235,9 +235,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                         ast.Call(
                             name="coalesce",
                             args=[
-                                ast.Field(
-                                    chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "address", "country"]
-                                ),
+                                ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"]),
                                 ast.Constant(value=NO_BREAKDOWN_PLACEHOLDER),
                             ],
                         ),

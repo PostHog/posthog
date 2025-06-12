@@ -61,8 +61,11 @@ FIELDS: dict[str, FieldOrTable] = {
     "name": StringDatabaseField(name="name"),
     "email": StringDatabaseField(name="email"),
     "phone": StringDatabaseField(name="phone"),
-    "address": StringJSONDatabaseField(name="address"),  # This was added
     "cohort": StringDatabaseField(name="cohort"),
+
+    # These two were added
+    "address": StringJSONDatabaseField(name="address"),
+    "country": StringDatabaseField(name="country"),
 }
 
 # Add to select fields in query generation
@@ -73,8 +76,11 @@ def get_query_for_source(cls, source: ExternalDataSource) -> ast.SelectQuery:
         ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
         ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
         ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
-        ast.Alias(alias="address", expr=ast.Field(chain=["address"])),  # This was added
         ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
+
+        # These two were added
+        ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
+        ast.Alias(alias="country", expr=ast.Call(name="JSONExtractString", args=[ast.Field(chain=["address"]), ast.Constant(value="country")])),
     ],
 ```
 
@@ -93,7 +99,7 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
     elif property.key == "product":
         return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
     elif property.key == "country":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "address", "country"])
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
     # ... other properties
 ```
 
@@ -197,7 +203,7 @@ def _get_subquery_by_country(self) -> ast.SelectQuery | None:
                     ast.Call(
                         name="coalesce",
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "address", "country"]),
+                            ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"]),
                             ast.Constant(value=NO_BREAKDOWN_PLACEHOLDER),
                         ],
                     ),
@@ -246,7 +252,7 @@ def values(self, request: Request, **kwargs):
     # ... existing cases ...
     elif key == "country":  # All countries available from revenue analytics
         query = ast.SelectQuery(
-            select=[ast.Alias(alias="country", expr=ast.Field(chain=["address", "country"]))],
+            select=[ast.Alias(alias="country", expr=ast.Field(chain=["country"]))],
             distinct=True,
             select_from=ast.JoinExpr(table=self._customer_selects(revenue_selects)),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["country"]), order="ASC")],

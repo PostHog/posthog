@@ -664,7 +664,7 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
     elif property.key == "product":
         return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
     elif property.key == "country":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "address", "country"])
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
     elif property.key == "source":

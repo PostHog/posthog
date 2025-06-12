@@ -28,6 +28,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "email": StringDatabaseField(name="email"),
     "phone": StringDatabaseField(name="phone"),
     "address": StringJSONDatabaseField(name="address"),
+    "country": StringDatabaseField(name="country"),
     "cohort": StringDatabaseField(name="cohort"),
 }
 
@@ -85,6 +86,12 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
                 ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
                 ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
+                ast.Alias(
+                    alias="country",
+                    expr=ast.Call(
+                        name="JSONExtractString", args=[ast.Field(chain=["address"]), ast.Constant(value="country")]
+                    ),
+                ),
                 ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
             ],
             select_from=ast.JoinExpr(alias="outer", table=ast.Field(chain=[table.name])),

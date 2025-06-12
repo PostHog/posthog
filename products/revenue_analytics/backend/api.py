@@ -45,7 +45,7 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         elif key == "country":  # All countries available from revenue analytics
             query = ast.SelectQuery(
-                select=[ast.Alias(alias="country", expr=ast.Field(chain=["address", "country"]))],
+                select=[ast.Field(chain=["country"])],
                 distinct=True,
                 select_from=ast.JoinExpr(table=self._customer_selects(revenue_selects)),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["country"]), order="ASC")],
