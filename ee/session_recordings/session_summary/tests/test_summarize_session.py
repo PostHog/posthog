@@ -64,7 +64,7 @@ class TestSummarizeSession:
         session_id = "test_session_id"
         empty_context = ExtraSummaryContext()
         with (
-            patch("ee.session_recordings.session_summary.summarize_session", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
             patch.object(
                 SessionReplayEvents,
                 "get_metadata",
