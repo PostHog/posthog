@@ -41,9 +41,9 @@ def forwards(apps, schema_editor):
 
 
 def backwards(apps, schema_editor):
-    HogFunction = apps.get_model("posthog", "HogFunction")
-    for old_id, new_id in TEMPLATE_MAPPING.items():
-        HogFunction.objects.filter(template_id=new_id).update(template_id=old_id)
+    # This migration cannot be reversed as multiple sub-templates map to the same parent template,
+    # and there's no way to determine which specific sub-template a function originally used.
+    pass
 
 
 class Migration(migrations.Migration):
