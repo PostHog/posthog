@@ -321,7 +321,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
         (
             "JSONExtract",
             native_func(err_to_null(|vm, args| {
-                assert(args.len() > 0, "JSONExtract requires at least one argument")?;
+                assert(
+                    !args.is_empty(),
+                    "JSONExtract requires at least one argument",
+                )?;
                 let json = args[0].deref(&vm.heap)?.try_as::<str>()?;
                 // Technically JSONExtract can be used simply to parse a string as json
                 let path = if args.len() > 1 { &args[1..] } else { &[] };
