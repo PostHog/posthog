@@ -60,6 +60,10 @@ pub fn parse_exception_for_prometheus_label(err: &FlagError) -> &'static str {
             DependencyType::Cohort => "dependency_not_found_cohort",
             DependencyType::Flag => "dependency_not_found_flag",
         },
+        FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
+            DependencyType::Cohort => "dependency_cycle_cohort",
+            DependencyType::Flag => "dependency_cycle_flag",
+        },
         _ => "unknown",
     }
 }
