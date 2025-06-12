@@ -296,11 +296,6 @@ describe('BatchWritingGroupStore', () => {
         it('should capture warning and stop retrying if message size too large', async () => {
             // we need to mock the kafka producer queueMessages method
             db.upsertGroupClickhouse = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
-            // mock captureIngestionWarning
-            jest.mock('../utils', () => ({
-                ...jest.requireActual('../utils'),
-                captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
-            }))
 
             const groupStoreForBatch = groupStore.forBatch()
 
