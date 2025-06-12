@@ -1,5 +1,5 @@
-import { IconCheck, IconPlus, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonDropdown, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -9,14 +9,18 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
+import { AddSourceDropdown } from './AddSourceDropdown'
+import { ListDisplay } from './ListDisplay'
+import { PaginationControls } from './PaginationControls'
+import { StatusIcon } from './StatusIcon'
+
+const MAX_SOURCES_TO_SHOW = 5
 const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['GoogleAds', 'MetaAds']
-const NEEDED_FIELDS_FOR_MARKETING_ANALYTICS: string[] = [
-    'ad',
-    'campaign',
-    'ad_group_ad',
-    'ad_group_criterion',
-    'customer',
-]
+const NEEDED_FIELDS_FOR_MARKETING_ANALYTICS: Record<'GoogleAds' | 'MetaAds', string[]> = {
+    GoogleAds: ['ad', 'campaign', 'ad_group_ad', 'ad_group_criterion', 'customer'],
+    MetaAds: [],
+}
 
 export function NativeExternalDataSourceConfiguration(): JSX.Element {
     const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
@@ -24,28 +28,80 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
     const marketingSources =
         dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
 
+    // Helper functions to reduce duplication
+    const getRequiredFields = (sourceType: string): string[] => {
+        return (
+            NEEDED_FIELDS_FOR_MARKETING_ANALYTICS[sourceType as keyof typeof NEEDED_FIELDS_FOR_MARKETING_ANALYTICS] ||
+            []
+        )
+    }
+
+    const isFieldSyncing = (source: ExternalDataSource, fieldName: string): boolean => {
+        if (!source.schemas) {
+            return false
+        }
+        const schema = source.schemas.find((schema) => schema.name === fieldName)
+        return schema?.should_sync ?? false
+    }
+
+    const getSourceSyncInfo = (
+        source: ExternalDataSource
+    ): { syncingTables: string[]; tablesToSync: string[]; totalRequired: number; syncingCount: number } => {
+        const requiredFields = getRequiredFields(source.source_type)
+        if (!requiredFields.length || !source.schemas) {
+            return { syncingTables: [], tablesToSync: [], totalRequired: 0, syncingCount: 0 }
+        }
+
+        const syncingTables = requiredFields.filter((field) => isFieldSyncing(source, field))
+        const tablesToSync = requiredFields.filter((field) => !isFieldSyncing(source, field))
+
+        return {
+            syncingTables,
+            tablesToSync,
+            totalRequired: requiredFields.length,
+            syncingCount: syncingTables.length,
+        }
+    }
+
+    const isSourceFullyConfigured = (source: ExternalDataSource): boolean => {
+        const { syncingCount, totalRequired } = getSourceSyncInfo(source)
+        return totalRequired > 0 && syncingCount === totalRequired
+    }
+
+    const {
+        displayedItems: displayedSources,
+        sortedItems: sourcesToUse,
+        hasMoreItems: hasMoreSources,
+        showAll,
+        setShowAll,
+    } = useSortedPaginatedList({
+        items: marketingSources,
+        maxItemsToShow: MAX_SOURCES_TO_SHOW,
+        getId: (source) => source.id,
+        isItemConfigured: isSourceFullyConfigured,
+    })
+
     const getSourceStatus = (source: ExternalDataSource): { isConfigured: boolean; message: string } => {
         if (!source.schemas || source.schemas.length === 0) {
             return { isConfigured: false, message: 'No schemas configured' }
         }
 
-        const neededFieldsWithSync = NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.filter((field) => {
-            const schema = source.schemas.find((schema) => schema.name === field)
-            return schema && schema.should_sync
-        })
+        const { syncingCount, totalRequired, tablesToSync } = getSourceSyncInfo(source)
 
-        if (neededFieldsWithSync.length === NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.length) {
+        if (totalRequired === 0) {
+            return { isConfigured: false, message: 'Unknown source type' }
+        }
+
+        if (syncingCount === totalRequired) {
             return { isConfigured: true, message: 'Ready to use! All required fields are syncing.' }
         }
 
-        const missingCount = NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.length - neededFieldsWithSync.length
+        const missingCount = totalRequired - syncingCount
         return {
             isConfigured: false,
-            message: `${missingCount} field${
-                missingCount > 1 ? 's' : ''
-            } need to be synced: ${NEEDED_FIELDS_FOR_MARKETING_ANALYTICS.filter(
-                (field) => !neededFieldsWithSync.includes(field)
-            ).join(', ')}`,
+            message: `${missingCount} field${missingCount > 1 ? 's' : ''} need to be synced: ${tablesToSync.join(
+                ', '
+            )}`,
         }
     }
 
@@ -53,26 +109,42 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
         <div>
             <h3 className="mb-2">Native Data Warehouse Sources Configuration</h3>
             <p className="mb-4">
-                PostHog can display marketing data in our Marketing Analytics product from the following data warehouse
-                sources.
+                Configure data warehouse sources to display marketing analytics in PostHog. You'll need to sync the
+                required tables for each source to enable the functionality.
             </p>
+            <PaginationControls
+                hasMoreItems={hasMoreSources}
+                showAll={showAll}
+                onToggleShowAll={() => setShowAll(!showAll)}
+                totalCount={sourcesToUse.length}
+                itemName="sources"
+                maxItemsToShow={MAX_SOURCES_TO_SHOW}
+                additionalControls={
+                    <AddSourceDropdown
+                        sources={VALID_MARKETING_SOURCES}
+                        onSourceAdd={(source) => {
+                            router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
+                        }}
+                    />
+                }
+            />
             <LemonTable
                 rowKey={(item) => item.id}
                 loading={dataWarehouseSources === null}
-                dataSource={marketingSources}
+                dataSource={displayedSources}
                 columns={[
                     {
                         key: 'source',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalDataSource) => {
+                        render: (_, item: ExternalDataSource): JSX.Element => {
                             return <DataWarehouseSourceIcon type={item.source_type} />
                         },
                     },
                     {
                         key: 'prefix',
                         title: 'Source',
-                        render: (_, item: ExternalDataSource) => {
+                        render: (_, item: ExternalDataSource): JSX.Element => {
                             return (
                                 <Link
                                     to={urls.pipelineNode(
@@ -87,70 +159,59 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         },
                     },
                     {
+                        key: 'syncing',
+                        title: 'Tables Syncing',
+                        width: 150,
+                        render: (_, item: ExternalDataSource): JSX.Element => {
+                            const { syncingTables } = getSourceSyncInfo(item)
+                            return <ListDisplay list={syncingTables} />
+                        },
+                    },
+                    {
+                        key: 'to_sync',
+                        title: 'Tables to Sync',
+                        width: 150,
+                        render: (_, item: ExternalDataSource): JSX.Element => {
+                            const { tablesToSync } = getSourceSyncInfo(item)
+                            return <ListDisplay list={tablesToSync} />
+                        },
+                    },
+                    {
                         key: 'status',
                         title: 'Status',
                         width: 80,
-                        render: (_, item: ExternalDataSource) => {
+                        render: (_, item: ExternalDataSource): JSX.Element => {
                             const { isConfigured, message } = getSourceStatus(item)
 
                             if (isConfigured) {
-                                return (
-                                    <Tooltip title={message}>
-                                        <div className="flex justify-center">
-                                            <IconCheck className="text-success text-lg" />
-                                        </div>
-                                    </Tooltip>
-                                )
+                                return <StatusIcon status="success" message={message} />
                             }
                             const hasAnySchemas = item.schemas && item.schemas.length > 0
-                            return (
-                                <Tooltip title={message}>
-                                    <div className="flex justify-center">
-                                        {hasAnySchemas ? (
-                                            <IconWarning className="text-warning text-lg" />
-                                        ) : (
-                                            <IconX className="text-muted text-lg" />
-                                        )}
-                                    </div>
-                                </Tooltip>
-                            )
+                            return <StatusIcon status={hasAnySchemas ? 'warning' : 'error'} message={message} />
                         },
                     },
                     {
                         key: 'actions',
-                        width: 0,
-                        title: (
-                            <LemonDropdown
-                                className="my-1"
-                                overlay={
-                                    <div className="p-1">
-                                        {VALID_MARKETING_SOURCES.map((source) => (
-                                            <LemonButton
-                                                key={source}
-                                                onClick={() => {
-                                                    router.actions.push(
-                                                        urls.pipelineNodeNew(PipelineStage.Source, { source })
-                                                    )
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <DataWarehouseSourceIcon type={source} />
-                                                    {source}
-                                                    <IconPlus className="text-muted" />
-                                                </div>
-                                            </LemonButton>
-                                        ))}
-                                    </div>
-                                }
-                            >
-                                <LemonButton type="primary" size="small">
-                                    Add new source
-                                </LemonButton>
-                            </LemonDropdown>
-                        ),
-                        render: () => null,
+                        title: 'Actions',
+                        width: 80,
+                        render: (_, item: ExternalDataSource): JSX.Element => {
+                            return (
+                                <LemonButton
+                                    icon={<IconGear />}
+                                    size="small"
+                                    onClick={() => {
+                                        router.actions.push(
+                                            urls.pipelineNode(
+                                                PipelineStage.Source,
+                                                `managed-${item.id}`,
+                                                PipelineNodeTab.Schemas
+                                            )
+                                        )
+                                    }}
+                                    tooltip="Configure source schemas"
+                                />
+                            )
+                        },
                     },
                 ]}
             />

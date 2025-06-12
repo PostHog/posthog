@@ -31,7 +31,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
     return (
         <SharedExternalDataSourceConfiguration
             title="Self-managed Data Warehouse Sources Configuration"
-            description="PostHog can display marketing data in our Marketing Analytics product from the following self-managed data warehouse sources."
+            description="Configure self-managed data warehouse sources to display marketing analytics in PostHog. You'll need to map the required columns for each table to enable the functionality."
             tables={tables}
             loading={loading}
             validSources={VALID_MANUAL_LINK_SOURCES}
