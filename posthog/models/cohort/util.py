@@ -330,7 +330,9 @@ def _recalculate_cohortpeople_for_team_hogql(
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-        cohort_query, hogql_context = HogQLCohortQuery(cohort=cohort).get_query_executor().generate_clickhouse_sql()
+        cohort_query, hogql_context = (
+            HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+        )
         cohort_params = hogql_context.values
 
         # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet

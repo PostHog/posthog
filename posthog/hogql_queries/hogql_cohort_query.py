@@ -89,10 +89,12 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 
 class HogQLCohortQuery:
-    def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
+    def __init__(
+        self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None, team: Optional[Team] = None
+    ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
-            self.team = cohort.team
+            self.team = team or cohort.team
             filter = FOSSCohortQuery.unwrap_cohort(
                 Filter(
                     data={"properties": cohort.properties},
@@ -105,7 +107,7 @@ class HogQLCohortQuery:
         elif cohort_query is not None:
             self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
             self.property_groups = cohort_query._filter.property_groups
-            self.team = cohort_query._team
+            self.team = team or cohort_query._team
         else:
             raise
 
