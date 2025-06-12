@@ -1,6 +1,7 @@
 from unittest.mock import patch
 from rest_framework import status
 from posthog.test.base import APIBaseTest
+import yaml
 
 
 class ExternalWebAnalyticsAPITest(APIBaseTest):
@@ -174,11 +175,6 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
 
         assert schema_response.status_code == 200
         assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
-
-        from unittest.mock import patch
-from rest_framework import status
-import yaml
-from posthog.test.base import APIBaseTest
 
         schema = yaml.safe_load(schema_response.content)
 
