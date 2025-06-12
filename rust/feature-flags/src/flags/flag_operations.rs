@@ -42,6 +42,14 @@ impl PropertyFilter {
     }
 }
 
+fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
+    if filter.is_feature_flag() {
+        filter.get_feature_flag_id()
+    } else {
+        None
+    }
+}
+
 impl FeatureFlag {
     pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
@@ -76,10 +84,8 @@ impl FeatureFlag {
         for group in &self.filters.groups {
             if let Some(properties) = &group.properties {
                 for filter in properties {
-                    if filter.is_feature_flag() {
-                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
-                            dependencies.insert(feature_flag_id);
-                        }
+                    if let Some(feature_flag_id) = extract_feature_flag_dependency(filter) {
+                        dependencies.insert(feature_flag_id);
                     }
                 }
             }
