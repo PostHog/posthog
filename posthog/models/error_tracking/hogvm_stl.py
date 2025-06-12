@@ -15,9 +15,10 @@ RUST_HOGVM_STL = [
     "indexOf",
     "notEmpty",
     "match",
-    "arrayExists",
+    "JSONExtract",
     "arrayFilter",
     "arrayMap",
     "arrayCount",
     "arrayReduce",
+    "arrayExists",
 ]
