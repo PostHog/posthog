@@ -19,6 +19,8 @@ from posthog.temporal.ai.session_summary.summarize_session import execute_summar
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
+pytestmark = pytest.mark.django_db
+
 
 class TestSummarizeSession:
     def test_execute_summarize_session_success(
