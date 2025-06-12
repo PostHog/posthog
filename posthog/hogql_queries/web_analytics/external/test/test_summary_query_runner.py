@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from posthog.hogql_queries.web_analytics.external.summary_query_runner import (
     WebAnalyticsExternalSummaryQueryRunner,
+    QueryResult,
 )
 from posthog.schema import (
     WebAnalyticsExternalSummaryQuery,
@@ -122,8 +123,8 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
     def test_process_query_results_with_string_conversion(self):
         runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
 
-        stats_result = type("Result", (), {"results": [["100", "50", "200"]]})()
-        bounces_result = type("Result", (), {"results": [["25", "50"]]})()
+        stats_result = QueryResult(rows=[("100", "50", "200")])
+        bounces_result = QueryResult(rows=[("25", "50")])
 
         results = runner._process_query_results(stats_result, bounces_result)
 
@@ -135,8 +136,8 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
     def test_process_query_results_with_empty_strings(self):
         runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
 
-        stats_result = type("Result", (), {"results": [["", "0", ""]]})()
-        bounces_result = type("Result", (), {"results": [["", "0"]]})()
+        stats_result = QueryResult(rows=[("", "0", "")])
+        bounces_result = QueryResult(rows=[("", "0")])
 
         results = runner._process_query_results(stats_result, bounces_result)
 

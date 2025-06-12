@@ -1,6 +1,7 @@
 from typing import Any
 import csv
 from io import StringIO
+from dataclasses import dataclass
 import structlog
 import chdb
 from posthog.hogql import ast
@@ -16,6 +17,28 @@ from posthog.schema import (
     WebAnalyticsExternalSummaryQuery,
     WebAnalyticsExternalSummaryQueryResponse,
 )
+
+
+@dataclass
+class QueryResult:
+    rows: list[tuple[str, ...]]
+
+    def first_row(self) -> tuple[str, ...]:
+        return self.rows[0] if self.rows else ()
+
+
+@dataclass
+class StatsData:
+    unique_visitors: int
+    total_sessions: int
+    total_pageviews: int
+
+
+@dataclass
+class BouncesData:
+    total_bounces: int
+    bounce_sessions: int
+
 
 logger = structlog.get_logger(__name__)
 
@@ -89,7 +112,7 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
             structure=web_bounces_table.structure,
         )
 
-    def _execute_stats_query(self) -> Any:
+    def _execute_stats_query(self) -> QueryResult:
         s3_table_func = self._build_s3_stats_table_func()
 
         query = f"""
@@ -105,11 +128,11 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
 
         chdb_result = chdb.query(query, output_format="CSV")
         reader = csv.reader(StringIO(str(chdb_result)))
-        results = [tuple(row) for row in reader]
+        rows = [tuple(row) for row in reader]
 
-        return type("Result", (), {"results": results})()
+        return QueryResult(rows=rows)
 
-    def _execute_bounces_query(self) -> Any:
+    def _execute_bounces_query(self) -> QueryResult:
         s3_table_func = self._build_s3_bounces_table_func()
 
         query = f"""
@@ -124,26 +147,40 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
 
         chdb_result = chdb.query(query, output_format="CSV")
         reader = csv.reader(StringIO(str(chdb_result)))
-        results = [tuple(row) for row in reader]
+        rows = [tuple(row) for row in reader]
 
-        return type("Result", (), {"results": results})()
+        return QueryResult(rows=rows)
 
-    def _process_query_results(self, stats_result, bounces_result) -> dict[str, Any]:
-        stats_data = stats_result.results[0] if stats_result.results else ["0", "0", "0"]
-        bounces_data = bounces_result.results[0] if bounces_result.results else ["0", "0"]
+    def _parse_stats_data(self, stats_result: QueryResult) -> StatsData:
+        row = stats_result.first_row()
+        if len(row) < 3:
+            return StatsData(unique_visitors=0, total_sessions=0, total_pageviews=0)
 
-        unique_visitors = int(stats_data[0]) if stats_data[0] else 0
-        total_sessions = int(stats_data[1]) if stats_data[1] else 0
-        total_pageviews = int(stats_data[2]) if stats_data[2] else 0
+        return StatsData(
+            unique_visitors=int(row[0]) if row[0] else 0,
+            total_sessions=int(row[1]) if row[1] else 0,
+            total_pageviews=int(row[2]) if row[2] else 0,
+        )
 
-        total_bounces = int(bounces_data[0]) if bounces_data[0] else 0
-        bounce_sessions = int(bounces_data[1]) if bounces_data[1] else 0
+    def _parse_bounces_data(self, bounces_result: QueryResult) -> BouncesData:
+        row = bounces_result.first_row()
+        if len(row) < 2:
+            return BouncesData(total_bounces=0, bounce_sessions=0)
 
-        bounce_rate = (total_bounces / bounce_sessions) if bounce_sessions > 0 else 0.0
+        return BouncesData(
+            total_bounces=int(row[0]) if row[0] else 0,
+            bounce_sessions=int(row[1]) if row[1] else 0,
+        )
+
+    def _process_query_results(self, stats_result: QueryResult, bounces_result: QueryResult) -> dict[str, Any]:
+        stats = self._parse_stats_data(stats_result)
+        bounces = self._parse_bounces_data(bounces_result)
+
+        bounce_rate = (bounces.total_bounces / bounces.bounce_sessions) if bounces.bounce_sessions > 0 else 0.0
 
         return {
-            "unique_visitors": unique_visitors,
-            "total_sessions": total_sessions,
-            "total_pageviews": total_pageviews,
+            "unique_visitors": stats.unique_visitors,
+            "total_sessions": stats.total_sessions,
+            "total_pageviews": stats.total_pageviews,
             "bounce_rate": round(bounce_rate, 3),
         }
