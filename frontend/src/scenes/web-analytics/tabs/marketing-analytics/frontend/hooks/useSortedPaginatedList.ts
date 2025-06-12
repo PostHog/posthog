@@ -39,6 +39,8 @@ export function useSortedPaginatedList<T>({
                 return 0
             })
             setItemOrder(sorted.map((item) => getId(item)))
+        } else if (items.length === 0) {
+            setItemOrder(null)
         }
     }, [items, itemOrder, getId, isItemConfigured])
 

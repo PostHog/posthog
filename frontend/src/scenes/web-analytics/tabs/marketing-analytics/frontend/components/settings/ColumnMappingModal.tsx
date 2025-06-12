@@ -81,7 +81,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
         )
     }
 
-    const getFieldStatus = (fieldName: string): 'complete' | 'partial' | 'empty' => {
+    const getFieldStatus = (fieldName: string): 'complete' | 'empty' => {
         const mapping = currentSourceMap[fieldName]
         if (!mapping || mapping.trim() === '') {
             return 'empty'

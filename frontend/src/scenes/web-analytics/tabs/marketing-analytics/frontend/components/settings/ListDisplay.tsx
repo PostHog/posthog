@@ -11,11 +11,11 @@ export const ListDisplay = ({ list }: ListDisplayProps): JSX.Element => {
         return <span className="text-muted">-</span>
     }
 
-    const joinedlist = list.join(', ')
+    const joinedList = list.join(', ')
 
     return (
-        <Tooltip title={joinedlist}>
-            <div className="text-muted text-sm leading-tight ListDisplay--truncated">{joinedlist}</div>
+        <Tooltip title={joinedList}>
+            <div className="text-muted text-sm leading-tight ListDisplay--truncated">{joinedList}</div>
         </Tooltip>
     )
 }
