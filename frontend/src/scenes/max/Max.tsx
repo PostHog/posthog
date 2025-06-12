@@ -41,6 +41,7 @@ import { Thread } from './Thread'
 export const scene: SceneExport = {
     component: Max,
     logic: maxGlobalLogic,
+    settingSectionId: 'environment-max',
 }
 
 export function Max(): JSX.Element {
@@ -185,7 +186,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     </div>
                 </SidePanelPaneHeader>
             )}
-            <PageHeader delimited buttons={headerButtons} />
+            <PageHeader buttons={headerButtons} />
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />

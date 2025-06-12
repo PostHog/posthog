@@ -299,12 +299,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             href: urls.sqlEditor(),
         } as FileSystemImport,
         {
-            path: 'Error tracking',
-            category: 'Behavior',
-            iconType: 'errorTracking',
-            href: urls.errorTracking(),
-        } as FileSystemImport,
-        {
             path: 'Heatmaps',
             category: 'Behavior',
             iconType: 'heatmap',

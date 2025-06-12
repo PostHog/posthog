@@ -72,21 +72,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
-        logger.info(
-            f"[EARLY ACCESS FEATURE] Updating early access feature stage for feature preview",
-            instance_id=instance.id,
-            instance_name=instance.name,
-            previous_stage=instance.stage,
-            new_stage=stage,
-        )
         if instance.stage != stage:
-            logger.info(
-                "[EARLY ACCESS FEATURE] Scheduling celery task to send events",
-                instance_id=instance.id,
-                previous_stage=instance.stage,
-                new_stage=stage,
-            )
-
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:

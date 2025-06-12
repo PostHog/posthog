@@ -30,7 +30,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/utils'
+import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
