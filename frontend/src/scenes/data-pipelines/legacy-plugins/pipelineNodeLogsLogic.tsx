@@ -4,25 +4,45 @@ import { loaders } from 'kea-loaders'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { pipelineNodeLogic, PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
 
 import api from '~/lib/api'
-import { LogEntry, LogEntryLevel, LogEntryRequestParams } from '~/types'
+import { LogEntry, LogEntryLevel, LogEntryRequestParams, PipelineStage } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineNodeLogsLogicType } from './pipelineNodeLogsLogicType'
-import { PipelineBackend } from './types'
 import { LogLevelDisplay } from './utils'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
+export enum PipelineBackend {
+    BatchExport = 'batch_export',
+    Plugin = 'plugin',
+}
+
+export interface PipelineNodeLogsLogicProps {
+    id: number | string
+    /** Might be null if a non-existent stage is set in th URL. */
+    stage: PipelineStage | null
+}
+
+type PluginNodeId = {
+    backend: PipelineBackend.Plugin
+    id: number
+}
+type BatchExportNodeId = {
+    backend: PipelineBackend.BatchExport
+    id: string
+}
+
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId
+
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
-    props({} as PipelineNodeLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
+    props({} as PipelineNodeLogsLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
-    connect((props: PipelineNodeLogicProps) => ({
-        values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['node']],
+    connect(() => ({
+        values: [teamLogic(), ['currentTeamId']],
     })),
     actions({
         setSelectedLogLevels: (levels: LogEntryLevel[]) => ({
@@ -152,6 +172,16 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        node: [
+            (_, p) => [p.id],
+            (id): PipelineNodeLimitedType => {
+                if (typeof id === 'string') {
+                    return { backend: PipelineBackend.BatchExport, id }
+                }
+
+                return { backend: PipelineBackend.Plugin, id }
+            },
+        ],
         leadingEntry: [
             (s) => [s.logs, s.backgroundLogs],
             (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {

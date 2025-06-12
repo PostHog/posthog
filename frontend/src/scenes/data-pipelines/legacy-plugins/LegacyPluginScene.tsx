@@ -2,15 +2,15 @@ import { actions, kea, key, path, props, reducers, selectors, useActions, useVal
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
-import { PipelinePluginConfiguration } from 'scenes/pipeline/PipelinePluginConfiguration'
+import { PipelinePluginConfiguration } from 'scenes/data-pipelines/legacy-plugins/PipelinePluginConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, Breadcrumb, PipelineStage } from '~/types'
 
 import type { legacyPluginSceneLogicType } from './LegacyPluginSceneType'
+import { PipelineNodeLogs } from './PipelineNodeLogs'
+import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 
 const LEGACY_PLUGIN_SCENE_TABS = ['configuration', 'metrics', 'logs', 'history'] as const
 export type LegacyPluginSceneTab = (typeof LEGACY_PLUGIN_SCENE_TABS)[number]

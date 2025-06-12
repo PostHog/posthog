@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
-import { LogLevelDisplay } from 'scenes/pipeline/utils'
+import { LogLevelDisplay } from 'scenes/data-pipelines/legacy-plugins/utils'
 
 import { ExternalDataJob, LogEntry } from '~/types'
 

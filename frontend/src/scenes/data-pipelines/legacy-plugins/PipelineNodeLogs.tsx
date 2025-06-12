@@ -4,10 +4,9 @@ import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { pluralize } from 'lib/utils'
 
-import { PipelineNodeLogicProps } from './pipelineNodeLogic'
-import { ALL_LOG_LEVELS, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
+import { ALL_LOG_LEVELS, pipelineNodeLogsLogic, PipelineNodeLogsLogicProps } from './pipelineNodeLogsLogic'
 
-export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Element {
+export function PipelineNodeLogs({ id, stage }: PipelineNodeLogsLogicProps): JSX.Element {
     const logic = pipelineNodeLogsLogic({ id, stage })
 
     const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels, instanceId } =

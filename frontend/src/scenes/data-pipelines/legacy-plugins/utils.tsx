@@ -2,19 +2,10 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import posthog from 'posthog-js'
 
-import { BatchExportConfiguration, LogEntryLevel, PluginType } from '~/types'
+import { LogEntryLevel, PluginType } from '~/types'
 
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
-
-export function captureBatchExportEvent(event: string, batchExport: BatchExportConfiguration): void {
-    posthog.capture(event, {
-        batch_export_id: batchExport.id,
-        batch_export_name: batchExport.name,
-        batch_export_destination_type: batchExport.destination.type,
-    })
-}
 
 type RenderAppProps = {
     /** If the plugin is null, a skeleton will be rendered. */
