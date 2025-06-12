@@ -1006,8 +1006,15 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id)
     }
 
-    public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    public integrationSlackChannels(
+        id: IntegrationType['id'],
+        forceRefresh: boolean,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('channels')
+            .withQueryString({ force_refresh: forceRefresh })
     }
 
     public integrationSlackChannelsById(
@@ -3276,8 +3283,11 @@ const api = {
         authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
-        async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
-            return await new ApiRequest().integrationSlackChannels(id).get()
+        async slackChannels(
+            id: IntegrationType['id'],
+            forceRefresh: boolean
+        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string }> {
+            return await new ApiRequest().integrationSlackChannels(id, forceRefresh).get()
         },
         async slackChannelsById(
             id: IntegrationType['id'],

@@ -47,6 +47,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackChannelByIdLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
+        getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
@@ -100,6 +101,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 mode="single"
                 data-attr="select-slack-channel"
                 placeholder="Select a channel..."
+                action={{
+                    children: <span className="Link">Refresh channels</span>,
+                    onClick: () => loadAllSlackChannels(true),
+                    disabledReason: getChannelRefreshButtonDisabledReason(),
+                }}
                 emptyStateComponent={
                     <p className="text-secondary italic p-1">
                         No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
@@ -132,7 +138,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                                 See the Docs for more information
                             </Link>
                         </span>
-                        <LemonButton type="secondary" onClick={loadAllSlackChannels} loading={allSlackChannelsLoading}>
+                        <LemonButton
+                            type="secondary"
+                            disabledReason={getChannelRefreshButtonDisabledReason()}
+                            onClick={() => loadAllSlackChannels(true)}
+                            loading={allSlackChannelsLoading}
+                        >
                             Check again
                         </LemonButton>
                     </div>
