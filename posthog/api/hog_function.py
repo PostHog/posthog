@@ -428,7 +428,7 @@ class HogFunctionViewSet(
             try:
                 filter_groups = json.loads(self.request.GET["filter_groups"])
                 if not isinstance(filter_groups, list):
-                    raise exceptions.ValidationError({"filter_groups": f"Invalid filter_groups"})
+                    raise ValueError("filter_groups must be a list")
 
                 for filter_group in filter_groups:
                     final_filter_groups.append(filter_group)
@@ -439,26 +439,20 @@ class HogFunctionViewSet(
         if self.request.GET.get("filters"):
             try:
                 filters = json.loads(self.request.GET["filters"])
-                if not isinstance(filters, dict):
-                    raise exceptions.ValidationError({"filters": f"Invalid filters"})
-
                 final_filter_groups.append(filters)
             except (ValueError, KeyError, TypeError):
                 raise exceptions.ValidationError({"filters": f"Invalid filters"})
 
         if final_filter_groups:
-            try:
-                from django.db.models import Q
+            from django.db.models import Q
 
-                combined_q = Q()
+            combined_q = Q()
 
-                for filter_group in final_filter_groups:
-                    if filter_group:
-                        combined_q |= Q(filters__contains=filter_group)
+            for filter_group in final_filter_groups:
+                if filter_group:
+                    combined_q |= Q(filters__contains=filter_group)
 
-                queryset = queryset.filter(combined_q)
-            except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"filter": f"Invalid filter"})
+            queryset = queryset.filter(combined_q)
 
         return queryset
 
