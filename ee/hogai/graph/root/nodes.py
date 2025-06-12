@@ -1,6 +1,5 @@
 import datetime
 import importlib
-import json
 import math
 import pkgutil
 from typing import Literal, Optional, TypeVar, cast
@@ -195,48 +194,28 @@ class RootNodeUIContextMixin(AssistantNode):
         }
 
         try:
-            # Handle both Pydantic model and dict cases
-            if isinstance(insight.query, BaseModel):
-                # Pydantic model - convert to dict with JSON serialization for enums
-                query_dict = insight.query.model_dump(mode="json")
-                query_kind = getattr(insight.query, "kind", None)
-                serialized_query = insight.query.model_dump_json(exclude_none=True)
-            else:
-                # Already a dict
-                query_dict = insight.query
-                query_kind = query_dict.get("kind")
-                serialized_query = json.dumps(serialized_query)
+            query_dict = insight.query.model_dump(mode="json")
+            query_kind = getattr(insight.query, "kind", None)
+            serialized_query = insight.query.model_dump_json(exclude_none=True)
 
             if not query_kind or query_kind not in query_class_map:
                 return ""  # Skip unsupported query types
 
-            # Apply dashboard filters if they exist
-            if dashboard_filters:
-                query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
-            # Apply filters override if they exist
-            if filters_override:
-                query_dict = apply_dashboard_filters_to_dict(query_dict, filters_override, self._team)
-            # Apply variables override if they exist
-            if variables_override:
-                query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
+            query_obj = insight.query
 
-            query_class = query_class_map[query_kind]
-            if (
-                isinstance(insight.query, BaseModel)
-                and not dashboard_filters
-                and not filters_override
-                and not variables_override
-            ):
-                # Use the original Pydantic model directly (only if no filters to apply)
-                query_obj = insight.query
-            else:
-                # Validate from dict (always when filters are applied)
+            if dashboard_filters or filters_override or variables_override:
+                if dashboard_filters:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
+                if filters_override:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, filters_override, self._team)
+                if variables_override:
+                    query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
+
+                query_class = query_class_map[query_kind]
                 query_obj = query_class.model_validate(query_dict)
 
-            # Run the query and get raw results
             raw_results = query_runner.run_query_raw(query_obj)
 
-            # Use the insight template
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
                 .format_prompt(
