@@ -116,46 +116,44 @@ export function ConversionGoalDropdown({
     }
 
     return (
-        <>
-            <TaxonomicPopover
-                fullWidth
-                groupType={filter.type as TaxonomicFilterGroupType}
-                value={getValue(filterValue, filter)}
-                filter={localFilter}
-                onChange={(changedValue, taxonomicGroupType, item) => {
-                    const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
+        <TaxonomicPopover
+            fullWidth
+            groupType={filter.type as TaxonomicFilterGroupType}
+            value={getValue(filterValue, filter)}
+            filter={localFilter}
+            onChange={(changedValue, taxonomicGroupType, item) => {
+                const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
 
-                    if (groupType) {
-                        const updatedFilter: ConversionGoalFilter = {
-                            ...filter,
-                            type: groupType,
-                            id: changedValue ? changedValue : null,
-                            name: item?.name ?? '',
-                            schema: {
-                                utm_campaign_name: 'utm_campaign',
-                                utm_source_name: 'utm_source',
-                            },
-                        }
-                        // If the group type is a data warehouse, we override the schema with the data warehouse schema
-                        if (groupType === EntityTypes.DATA_WAREHOUSE) {
-                            updatedFilter.schema = {
-                                utm_campaign_name: item[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
-                                utm_source_name: item[UTM_SOURCE_NAME_SCHEMA_FIELD],
-                            }
-                        }
-                        handleFilterChange(updatedFilter, localFilter.uuid)
+                if (groupType) {
+                    const updatedFilter: ConversionGoalFilter = {
+                        ...filter,
+                        type: groupType,
+                        id: changedValue ? changedValue : null,
+                        name: item?.name ?? '',
+                        schema: {
+                            utm_campaign_name: 'utm_campaign',
+                            utm_source_name: 'utm_source',
+                        },
                     }
-                }}
-                renderValue={() => (
-                    <span className="text-overflow max-w-full">
-                        <EntityFilterInfo filter={localFilter} />
-                    </span>
-                )}
-                groupTypes={groupTypes}
-                placeholder={placeholder}
-                dataWarehousePopoverFields={conversionGoalPopoverFields}
-                eventNames={name ? [name] : []}
-            />
-        </>
+                    // If the group type is a data warehouse, we override the schema with the data warehouse schema
+                    if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                        updatedFilter.schema = {
+                            utm_campaign_name: item[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
+                            utm_source_name: item[UTM_SOURCE_NAME_SCHEMA_FIELD],
+                        }
+                    }
+                    handleFilterChange(updatedFilter, localFilter.uuid)
+                }
+            }}
+            renderValue={() => (
+                <span className="text-overflow max-w-full">
+                    <EntityFilterInfo filter={localFilter} />
+                </span>
+            )}
+            groupTypes={groupTypes}
+            placeholder={placeholder}
+            dataWarehousePopoverFields={conversionGoalPopoverFields}
+            eventNames={name ? [name] : []}
+        />
     )
 }
