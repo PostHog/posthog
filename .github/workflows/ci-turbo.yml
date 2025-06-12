@@ -3,6 +3,20 @@ name: Turbo CI
 on:
     pull_request:
 
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+    REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    TEST: 1
+    CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
 jobs:
     turbo-affected-4:
         timeout-minutes: 30
@@ -36,6 +50,45 @@ jobs:
                     git fetch origin refs/heads/master:refs/heads/master --depth=1
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
                   fi
+
+            # Copies the fully versioned UDF xml file for use in CI testing
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+
+                  max_attempts=3
+                  attempt=1
+                  delay=5
+
+                  while [ $attempt -le $max_attempts ]; do
+                      echo "Attempt $attempt of $max_attempts to start stack..."
+                      
+                      if docker compose -f docker-compose.dev.yml down && \
+                         docker compose -f docker-compose.dev.yml up -d; then
+                          echo "Stack started successfully"
+                          exit 0
+                      fi
+                      
+                      echo "Failed to start stack on attempt $attempt"
+                      
+                      if [ $attempt -lt $max_attempts ]; then
+                          sleep_time=$((delay * 2 ** (attempt - 1)))
+                          echo "Waiting ${sleep_time} seconds before retry..."
+                          sleep $sleep_time
+                      fi
+                      
+                      attempt=$((attempt + 1))
+                  done
+
+                  echo "Failed to start stack after $max_attempts attempts"
+                  exit 1
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              shell: bash
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
