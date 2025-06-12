@@ -514,14 +514,12 @@ class FeatureFlagMatcher:
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
             all_conditions: dict = {}
-            person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_PERSONS).filter(
+            person_query: QuerySet = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
                 team_id=self.team_id,
                 persondistinctid__distinct_id=self.distinct_id,
                 persondistinctid__team_id=self.team_id,
             )
-            basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                team_id=self.team_id
-            )
+            basic_group_query: QuerySet = Group.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=self.team_id)
             group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
             # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
             # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -1238,7 +1236,9 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
     base_query: QuerySet = (
         Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team__project_id=project_id)
         if group_type_index is None
-        else Group.objects.filter(team__project_id=project_id, group_type_index=group_type_index)
+        else Group.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+            team__project_id=project_id, group_type_index=group_type_index
+        )
     )
     query_fields = []
 

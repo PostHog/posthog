@@ -16,6 +16,7 @@ class PersonDBRouter:
         "flatpersonoverride",  # Assuming app_label 'posthog'
         "featureflaghashkeyoverride",  # Assuming app_label 'posthog'
         "cohortpeople",  # Assuming app_label 'posthog'
+        "group",  # Assuming app_label 'posthog'
     }
     PERSONS_APP_LABEL = "posthog"  # Assuming all models are in the 'posthog' app
 
