@@ -1,7 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconRecording } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -31,12 +30,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                         ),
                         dataIndex: 'person',
                         align: 'left',
-                        render: (p) => (
-                            <div className="flex flex-row gap-2 items-center justify-between">
-                                <PersonDisplay person={p as PersonType} withIcon={true} noLink={true} />
-                                <IconRecording />
-                            </div>
-                        ),
+                        render: (p) => <PersonDisplay person={p as PersonType} withIcon={true} noLink={true} />,
                     },
                     { align: 'left', dataIndex: 'count', width: '10%' },
                 ]}
