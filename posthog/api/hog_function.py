@@ -1,5 +1,6 @@
 import json
 from typing import Optional, cast
+from posthog.exceptions_capture import capture_exception
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -44,7 +45,7 @@ from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
 from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import set_tag
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -183,11 +184,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
         if not template:
-            with push_scope() as scope:
-                scope.set_tag("team_id", getattr(team, "id", None))
-                scope.set_tag("template_id", data.get("template_id"))
-                scope.set_tag("function_id", instance.id if instance else None)
-                capture_exception(Exception(f"No template found for id '{data['template_id']}'"))
+            set_tag("team_id", getattr(team, "id", None))
+            set_tag("template_id", data.get("template_id"))
+            set_tag("function_id", instance.id if instance else None)
+            capture_exception(Exception(f"No template found for id '{data['template_id']}'"))
 
         if data["type"] == "transformation":
             if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
