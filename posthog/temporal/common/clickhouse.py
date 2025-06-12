@@ -581,7 +581,7 @@ class ClickHouseClient:
         Converts string results into native Python types based on ClickHouse column types.
 
         Arguments:
-            query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNames.
+            query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNamesAndTypes.
             query_parameters: Optional query parameters to interpolate.
             query_id: Optional ClickHouse query ID.
             batch_size: The number of rows per batch to yield.
