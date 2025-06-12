@@ -1,7 +1,7 @@
 import base64
 import json
 from datetime import timedelta
-from unittest.mock import ANY, call, patch
+from unittest.mock import ANY, call, patch, Mock
 from urllib.parse import quote
 
 from django.core.cache import cache
@@ -18,7 +18,7 @@ from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import HogQLQueryThrottle
+from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle
 from posthog.test.base import APIBaseTest
 
 
@@ -485,9 +485,6 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.report_user_action")
     def test_ai_burst_rate_throttle_calls_report_user_action(self, mock_report_user_action):
         """Test that AIBurstRateThrottle calls report_user_action when rate limit is exceeded"""
-        from posthog.rate_limit import AIBurstRateThrottle
-        from unittest.mock import Mock
-
         throttle = AIBurstRateThrottle()
 
         mock_request = Mock()
@@ -507,9 +504,6 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.report_user_action")
     def test_ai_sustained_rate_throttle_calls_report_user_action(self, mock_report_user_action):
         """Test that AISustainedRateThrottle calls report_user_action when rate limit is exceeded"""
-        from posthog.rate_limit import AISustainedRateThrottle
-        from unittest.mock import Mock
-
         throttle = AISustainedRateThrottle()
 
         mock_request = Mock()
