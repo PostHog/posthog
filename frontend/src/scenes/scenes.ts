@@ -682,7 +682,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
-    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
