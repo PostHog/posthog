@@ -17,12 +17,12 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function SaveToModal(): JSX.Element {
-    const { isOpen, form, selectedFolders } = useValues(saveToLogic)
+    const { isOpen, form, selectedFolders, defaultFolder } = useValues(saveToLogic)
     const [showChooseFolder, setShowChooseFolder] = useState(false)
     const [locallySelectedFolder, setLocallySelectedFolder] = useState<SelectedFolder | null>(
         selectedFolders.length > 0 ? selectedFolders[0] : form.folder
@@ -40,6 +40,12 @@ export function SaveToModal(): JSX.Element {
         setShowChooseFolder(false)
         submitForm()
     }
+
+    useEffect(() => {
+        if (form.folder) {
+            setLocallySelectedFolder(form.folder)
+        }
+    }, [form.folder])
 
     return (
         <LemonModal
@@ -71,13 +77,16 @@ export function SaveToModal(): JSX.Element {
                             <ButtonPrimitive fullWidth variant="outline">
                                 <IconFolder className="size-4 text-tertiary" />
                                 {locallySelectedFolder}
+                                {defaultFolder === locallySelectedFolder ? (
+                                    <span className="text-tertiary text-xxs pt-[2px]">(Default)</span>
+                                ) : null}
                             </ButtonPrimitive>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] max-w-[var(--radix-dropdown-menu-trigger-width)]">
                             <DropdownMenuRadioGroup>
-                                <DropdownMenuLabel>Recent folders</DropdownMenuLabel>
+                                <DropdownMenuLabel inset>Recent folders</DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-                                {selectedFolders.length > 0 &&
+                                {selectedFolders.length > 0 ? (
                                     selectedFolders.map((folder) => (
                                         <ButtonGroupPrimitive key={folder} menuItem fullWidth>
                                             <DropdownMenuItem asChild key={folder}>
@@ -105,7 +114,31 @@ export function SaveToModal(): JSX.Element {
                                                 <IconTrash />
                                             </ButtonPrimitive>
                                         </ButtonGroupPrimitive>
-                                    ))}
+                                    ))
+                                ) : (
+                                    <DropdownMenuItem disabled>
+                                        <ButtonPrimitive disabled menuItem fullWidth>
+                                            <IconBlank />
+                                            No recent folders
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                )}
+
+                                <DropdownMenuLabel inset>Default</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        hasSideActionRight
+                                        active={defaultFolder === locallySelectedFolder}
+                                        onClick={() => {
+                                            setLocallySelectedFolder(defaultFolder)
+                                        }}
+                                    >
+                                        {defaultFolder === locallySelectedFolder ? <IconCheck /> : <IconBlank />}
+                                        {defaultFolder}
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>

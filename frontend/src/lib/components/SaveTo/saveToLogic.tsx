@@ -37,6 +37,8 @@ export const saveToLogic = kea<saveToLogicType>([
         addSelectedFolder: (folder: SelectedFolder) => ({ folder }),
         removeSelectedFolder: (folderValue: string) => ({ folderValue }),
         clearSelectedFolders: true,
+        // Used for keeping track of the default folder set on openSaveToModal
+        setDefaultFolder: (defaultFolder: string | null) => ({ defaultFolder }),
     }),
     reducers({
         isOpen: [
@@ -75,6 +77,13 @@ export const saveToLogic = kea<saveToLogicType>([
                 clearSelectedFolders: () => [],
             },
         ],
+        defaultFolder: [
+            null as string | null,
+            {
+                openSaveToModal: (_, { defaultFolder }) => defaultFolder ?? null,
+                closedSaveToModal: () => null,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setLastNewFolder: ({ folder }) => {
@@ -83,10 +92,12 @@ export const saveToLogic = kea<saveToLogicType>([
         openSaveToModal: ({ folder, defaultFolder }) => {
             const realFolder = folder ?? values.lastNewFolder ?? defaultFolder ?? null
             actions.setFormValue('folder', realFolder)
+            actions.setDefaultFolder(defaultFolder ?? null)
         },
         closeSaveToModal: () => {
             values.cancelCallback?.()
             actions.closedSaveToModal()
+            actions.setDefaultFolder(null)
         },
     })),
     forms(({ actions, values }) => ({
