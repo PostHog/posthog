@@ -52,7 +52,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
     }, [treeRef, setTreeRef])
 
     return (
-        <div className="h-full">
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
             <div
                 className="p-1"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -60,7 +60,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
             >
                 <DatabaseSearchField placeholder="Search database" />
             </div>
-            <div className="h-full overflow-y-auto">
+            <div className="overflow-y-auto flex-1 min-h-0">
                 <LemonTree
                     ref={treeRef}
                     data={treeData}

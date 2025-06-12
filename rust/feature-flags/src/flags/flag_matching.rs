@@ -514,16 +514,15 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::CohortNotFound(_)) {
-                        error!(
-                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag.key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
-                        warn!(
-                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                        error!(
+                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
                         );
                     }
@@ -557,8 +556,10 @@ impl FeatureFlagMatcher {
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
                 for flag in flags_needing_db_properties {
-                    flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                    flag_details_map.insert(
+                        flag.key.clone(),
+                        FlagDetails::create_error(&flag, reason, None),
+                    );
                 }
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
@@ -609,16 +610,15 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::CohortNotFound(_)) {
-                        error!(
-                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag_key, self.distinct_id, e
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag_key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
-                        warn!(
-                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                        error!(
+                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag_key, self.distinct_id, e
                         );
                     }
@@ -628,7 +628,8 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
-                    flag_details_map.insert(flag_key, FlagDetails::create_error(flag, reason));
+                    flag_details_map
+                        .insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
         }
@@ -4875,9 +4876,9 @@ mod tests {
             .await
             .unwrap();
 
-        // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
+        // This should not throw DependencyNotFound because we skip dependency graph evaluation for static cohorts
         let result = matcher.get_match(&flag, None, None);
-        assert!(result.is_ok(), "Should not throw CohortNotFound error");
+        assert!(result.is_ok(), "Should not throw DependencyNotFound error");
 
         let match_result = result.unwrap();
         assert!(match_result.matches, "User should match the static cohort");

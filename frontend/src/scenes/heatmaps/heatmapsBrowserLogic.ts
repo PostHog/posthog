@@ -440,11 +440,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             cache.errorTimeout = setTimeout(() => {
                 actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
             }, 7500)
-
-            clearTimeout(cache.warnTimeout)
-            cache.warnTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
-            }, 3000)
         },
 
         stopTrackingLoading: () => {

@@ -277,7 +277,7 @@ async fn test_evaluate_feature_flags_with_errors() {
             enabled: false,
             variant: None,
             reason: FlagEvaluationReason {
-                code: "cohort_not_found".to_string(),
+                code: "dependency_not_found_cohort".to_string(),
                 condition_index: None,
                 description: None,
             },

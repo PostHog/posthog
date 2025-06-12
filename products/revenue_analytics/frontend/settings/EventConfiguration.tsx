@@ -7,12 +7,14 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
     const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueAnalyticsSettingsLogic)
     const {
         addEvent,
@@ -133,7 +135,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                     <TaxonomicPopover
                                         type="primary"
                                         groupType={TaxonomicFilterGroupType.CustomEvents}
-                                        onChange={addEvent}
+                                        onChange={(eventName) => addEvent(eventName as string, baseCurrency)}
                                         value={undefined}
                                         placeholder="Create revenue event"
                                         placeholderClass=""
