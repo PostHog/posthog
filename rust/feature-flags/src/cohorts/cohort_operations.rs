@@ -265,13 +265,43 @@ fn evaluate_cohort_values(
     }
 }
 
-/// Evaluates a dynamic cohort and its dependencies using topological sorting.
-///
-/// This function:
-/// 1. Checks if the cohort is static (returns early if it is)
-/// 2. Builds a dependency graph of all related cohorts
-/// 3. Sorts dependencies topologically to ensure proper evaluation order
-/// 4. Evaluates each cohort in the correct order, respecting dependencies
+/// Evaluates a single cohort against target properties and existing evaluation results.
+/// Returns true if the cohort matches, false otherwise.
+fn evaluate_single_cohort(
+    cohort: &Cohort,
+    target_properties: &HashMap<String, Value>,
+    evaluation_results: &HashMap<CohortId, bool>,
+) -> Result<bool, FlagError> {
+    let dependencies = cohort.extract_dependencies()?;
+
+    // Check if all dependencies have been met
+    let dependencies_met = dependencies
+        .iter()
+        .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
+
+    // If dependencies are not met, mark as not matched
+    if !dependencies_met {
+        return Ok(false);
+    }
+
+    // Get the filters for this cohort
+    let filters = match &cohort.filters {
+        Some(filters) => filters,
+        None => return Ok(false),
+    };
+
+    // Parse and evaluate using the hierarchical structure
+    let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
+        Ok(prop) => prop,
+        Err(_) => return Ok(false),
+    };
+
+    // Use our evaluation method that respects OR/AND structure
+    cohort_property
+        .properties
+        .evaluate(target_properties, evaluation_results)
+}
+
 pub fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
@@ -309,42 +339,7 @@ pub fn evaluate_dynamic_cohorts(
             FlagError::DependencyNotFound(DependencyType::Cohort, cohort_id.into())
         })?;
 
-        let dependencies = cohort.extract_dependencies()?;
-
-        // Check if all dependencies have been met
-        let dependencies_met = dependencies
-            .iter()
-            .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
-
-        // If dependencies are not met, mark as not matched and continue
-        if !dependencies_met {
-            evaluation_results.insert(cohort_id, false);
-            continue;
-        }
-
-        // Here's where we use our new hierarchical evaluation
-        let filters = match &cohort.filters {
-            Some(filters) => filters,
-            None => {
-                evaluation_results.insert(cohort_id, false);
-                continue;
-            }
-        };
-
-        // Parse and evaluate using the hierarchical structure
-        let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
-            Ok(prop) => prop,
-            Err(_) => {
-                evaluation_results.insert(cohort_id, false);
-                continue;
-            }
-        };
-
-        // Use our new evaluation method that respects OR/AND structure
-        let matches = cohort_property
-            .properties
-            .evaluate(target_properties, &evaluation_results)?;
-
+        let matches = evaluate_single_cohort(cohort, target_properties, &evaluation_results)?;
         evaluation_results.insert(cohort_id, matches);
     }
 
