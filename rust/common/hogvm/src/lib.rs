@@ -24,11 +24,13 @@ pub use vm::VmFailure;
 
 // STL - again, we expose a lot, because we want to make it easy to extend this
 pub use stl::hog_stl;
+pub use stl::native_func;
 pub use stl::stl;
 pub use stl::stl_map;
 pub use stl::NativeFunction;
 
 // Values - We expose almost everything here for the sake of native function extension authors
+pub use values::construct_free_standing;
 pub use values::Callable;
 pub use values::Closure;
 pub use values::FromHogLiteral;

@@ -53,6 +53,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
         id: id && id !== 'new' ? id : 'new',
     }),
+    settingSectionId: 'environment-feature-flags',
 }
 
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
@@ -236,7 +237,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         )
                     ) : undefined
                 }
-                delimited
             />
             <div className={clsx(isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
@@ -402,7 +402,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
                             type="destination"
-                            filters={destinationFilters}
+                            forceFilterGroups={[destinationFilters]}
                             subTemplateIds={['early-access-feature-enrollment']}
                         />
                     </>

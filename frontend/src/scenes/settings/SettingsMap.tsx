@@ -2,14 +2,14 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { ErrorTrackingAlerting } from 'products/error_tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/configuration/ExceptionAutocaptureSettings'
+import { ErrorTrackingAutoAssignment } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingCustomGrouping } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
+import { ErrorTrackingSymbolSets } from 'products/error_tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
-import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ExceptionAutocaptureSettings } from 'scenes/error-tracking/configuration/ExceptionAutocaptureSettings'
-import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
-import { ErrorTrackingCustomGrouping } from 'scenes/error-tracking/configuration/rules/ErrorTrackingCustomGrouping'
-import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -24,6 +24,7 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { Realm } from '~/types'
 
@@ -264,6 +265,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
                 flag: 'REVENUE_ANALYTICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        settings: [
+            {
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettings />,
             },
         ],
     },
@@ -725,6 +739,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-notifications',
+        title: 'Notifications',
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -732,11 +758,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
-            },
-            {
-                id: 'notifications',
-                title: 'Notifications',
-                component: <UpdateEmailPreferences />,
             },
             {
                 id: 'optout',

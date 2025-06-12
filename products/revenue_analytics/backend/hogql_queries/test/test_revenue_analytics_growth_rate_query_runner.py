@@ -10,7 +10,6 @@ from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_r
 from posthog.schema import (
     CurrencyCode,
     DateRange,
-    RevenueSources,
     HogQLQueryModifiers,
     PropertyOperator,
     RevenueAnalyticsGrowthRateQuery,
@@ -137,20 +136,15 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
     def _run_revenue_analytics_growth_rate_query(
         self,
         date_range: DateRange | None = None,
-        revenue_sources: RevenueSources | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range: DateRange = DateRange(date_from="all")
-        if revenue_sources is None:
-            revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
         if properties is None:
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsGrowthRateQuery(
-                dateRange=date_range, revenueSources=revenue_sources, properties=properties
-            )
+            query = RevenueAnalyticsGrowthRateQuery(dateRange=date_range, properties=properties)
             runner = RevenueAnalyticsGrowthRateQueryRunner(
                 team=self.team,
                 query=query,
@@ -171,7 +165,13 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
 
     def test_no_crash_when_no_source_is_selected(self):
         results = self._run_revenue_analytics_growth_rate_query(
-            revenue_sources=RevenueSources(events=[], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["non-existent-source"],
+                )
+            ],
         ).results
 
         self.assertEqual(results, [])
@@ -307,7 +307,13 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         )
 
         results = self._run_revenue_analytics_growth_rate_query(
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(
@@ -341,7 +347,13 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         )
 
         results = self._run_revenue_analytics_growth_rate_query(
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(

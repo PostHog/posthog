@@ -76,7 +76,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                                 constraint_type="ON",
                                 expr=ast.CompareOperation(
                                     op=CompareOperationOp.Eq,
-                                    left=ast.Field(chain=["events", "uuid"]),
+                                    left=ast.Call(name="toString", args=[ast.Field(chain=["events", "uuid"])]),
                                     right=ast.Field(chain=["view", "id"]),
                                 ),
                             ),

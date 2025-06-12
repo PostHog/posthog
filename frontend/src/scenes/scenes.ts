@@ -73,18 +73,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.ErrorTracking]: {
-        projectBased: true,
-        name: 'Error tracking',
-    },
-    [Scene.ErrorTrackingConfiguration]: {
-        projectBased: true,
-        name: 'Error tracking configuration',
-    },
-    [Scene.ErrorTrackingIssue]: {
-        projectBased: true,
-        name: 'Error tracking issue',
-    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -501,6 +489,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
+// NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
+export const forwardedRedirectQueryParams: string[] = ['invite_modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -601,6 +591,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
+    [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
@@ -641,9 +632,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
-    [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
-    [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
-    [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
@@ -701,12 +689,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
-    [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
+    [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
-    [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],
-    [urls.errorTrackingAlertNew(':templateId')]: [Scene.HogFunction, 'errorTrackingAlertNew'],
     ...productRoutes,
 }

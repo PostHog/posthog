@@ -108,6 +108,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
@@ -199,6 +200,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/file_system_shortcut/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/event_ingestion_restrictions/': [],
+        '/api/projects/:team_id/persisted_folder/': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
