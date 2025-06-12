@@ -46,7 +46,7 @@ export const legacyPluginSceneLogic = kea<legacyPluginSceneLogicType>([
                         path: urls.dataPipelines(),
                     },
                     {
-                        key: Scene.DataPipelines,
+                        key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
                     },

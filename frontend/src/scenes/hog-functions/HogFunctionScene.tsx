@@ -86,10 +86,6 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.HogFunction,
                             name: 'Loading...',
                         },
-                        {
-                            key: Scene.HogFunction,
-                            name: '',
-                        },
                     ]
                 }
 

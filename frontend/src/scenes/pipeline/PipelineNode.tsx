@@ -10,10 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
-import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
-import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
 import { BatchExportBackfills } from '../data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from '../data-pipelines/batch-exports/BatchExportRuns'
+import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
+import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
