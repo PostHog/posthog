@@ -8,10 +8,12 @@ Adding a new filter/breakdown option in Revenue Analytics requires changes acros
 
 1. **Frontend schema definitions** - Define the new property type
 1. **Taxonomy system** - Define filter metadata for the UI
-1. **Database views** - Ensure required fields are available
+1. **Database view updates** - Ensure required fields are available
 1. **HogQL property handling** - Map the property to database fields
+1. **Base query runner updates** - Handles making sure the revenue query runners handle new properties
+1. **Insights query runner update** - Handles making sure we know how to breakdown by new property
+    1. This will be updated soon to be much more simple and generic, similar to the point above
 1. **API endpoints** - Add value fetching for filter dropdowns
-1. **Query runners** - Implement groupBy logic for breakdowns
 1. **Frontend components** - Add UI controls and feature flags
 
 ## Step-by-Step Implementation
@@ -119,41 +121,7 @@ def joins_set_for_properties(self) -> set[str]:
 
 **Purpose**: Ensures that when the property is used in filters, the necessary table joins are automatically included.
 
-### 6. API Values Endpoint
-
-**File**: `products/revenue_analytics/backend/api.py`
-
-Add value fetching logic in the `values` action so that you return all possible values for that specific new field:
-
-```python
-@action(methods=["GET"], detail=False)
-def values(self, request: Request, **kwargs):
-    key = request.GET.get("key")
-    database = create_hogql_database(team=self.team)
-
-    query = None
-    values = []
-    # ... existing cases ...
-    elif key == "country":  # All countries available from revenue analytics
-        revenue_selects = revenue_selects_from_database(database)
-        customer_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
-            for select in revenue_selects.values()
-            if select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
-        ]
-        customer_selects_union = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
-
-        query = ast.SelectQuery(
-            select=[ast.Alias(alias="country", expr=ast.Field(chain=["address", "country"]))],
-            distinct=True,
-            select_from=ast.JoinExpr(table=customer_selects_union),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["country"]), order="ASC")],
-        )
-```
-
-**Purpose**: Provides the dropdown values for the filter UI by querying all unique values available in the database.
-
-### 7. GroupBy Implementation
+### 6. GroupBy Implementation
 
 **File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_insights_query_runner.py`
 
@@ -260,6 +228,34 @@ def _get_subquery_by_country(self) -> ast.SelectQuery | None:
 ```
 
 **Purpose**: Implements the actual groupBy logic for breakdowns, combining revenue data with the new dimension.
+
+### 7. API Values Endpoint
+
+**File**: `products/revenue_analytics/backend/api.py`
+
+Add value fetching logic in the `values` action so that you return all possible values for that specific new field:
+
+```python
+@action(methods=["GET"], detail=False)
+def values(self, request: Request, **kwargs):
+    key = request.GET.get("key")
+    database = create_hogql_database(team=self.team)
+
+    query = None
+    values = []
+    # ... existing cases ...
+    elif key == "country":  # All countries available from revenue analytics
+        query = ast.SelectQuery(
+            select=[ast.Alias(alias="country", expr=ast.Field(chain=["address", "country"]))],
+            distinct=True,
+            select_from=ast.JoinExpr(table=self._customer_selects(revenue_selects)),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["country"]), order="ASC")],
+        )
+```
+
+You might need to create a new equivalent to `self._customer_selects` that should use `revenue_selects` and filter from it.
+
+**Purpose**: Provides the dropdown values for the filter UI by querying all unique values available in the database.
 
 ### 8. Frontend Component Integration
 
