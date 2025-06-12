@@ -5,7 +5,6 @@ import dataclasses
 from datetime import timedelta
 import json
 import time
-import typing
 import uuid
 from redis import Redis
 import structlog
@@ -127,13 +126,6 @@ async def stream_llm_summary_activity(redis_input_key: str) -> str:
 class SummarizeSessionWorkflow:
     @temporalio.workflow.run
     async def run(self, redis_input_key: str) -> str:
-        if not typing.TYPE_CHECKING:  # Avoid mypy triggering
-            if not isinstance(redis_input_key, str):
-                error_msg = (
-                    f"Expected redis_input_key to be str, got {type(redis_input_key).__name__}: {redis_input_key}"
-                )
-                temporalio.workflow.logger.error(error_msg)
-                raise ValueError(error_msg)
         result = await temporalio.workflow.execute_activity(
             stream_llm_summary_activity,
             redis_input_key,
