@@ -86,12 +86,11 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             },
         ],
     })),
-    loaders(({ values, actions, props, key }) => ({
+    loaders(({ values, actions, props }) => ({
         hogFunctions: [
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    console.log('loadHogFunctions', key, props.logicKey)
                     return (
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,

@@ -48,10 +48,9 @@ export function LinkedHogFunctions({
 
     return showNewDestination ? (
         <HogFunctionTemplateList
-            defaultFilters={{}}
             type={templateType}
             subTemplateIds={subTemplateIds}
-            // forceFilters={{ filters }}
+            configurationOverrides={filterGroups.length ? { filters: filterGroups[0] } : undefined}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
