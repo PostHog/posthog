@@ -57,11 +57,11 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
-    #[error("Cohort not found")]
+    #[error("Dependency of type {0} with id {1} not found")]
     DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
-    #[error("Cohort dependency cycle")]
+    #[error("Dependency cycle of type {0}: {1}")]
     DependencyCycle(DependencyType, String),
     #[error("Person not found")]
     PersonNotFound,
