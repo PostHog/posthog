@@ -54,11 +54,11 @@ def get_s3_web_bounces_structure() -> str:
 
 
 WEB_STATS_S3_FIELDS: dict[str, FieldOrTable] = {
+    "pageviews_count_state": DatabaseField(name="pageviews_count_state"),
     "period_bucket": DateTimeDatabaseField(name="period_bucket"),
-    "team_id": IntegerDatabaseField(name="team_id"),
     "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
     "sessions_uniq_state": DatabaseField(name="sessions_uniq_state"),
-    "pageviews_count_state": DatabaseField(name="pageviews_count_state"),
+    "team_id": IntegerDatabaseField(name="team_id"),
 }
 
 WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
