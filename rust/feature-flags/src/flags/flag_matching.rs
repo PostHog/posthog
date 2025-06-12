@@ -912,7 +912,7 @@ impl FeatureFlagMatcher {
                 flag_property_filters
                     .iter()
                     .cloned()
-                    .partition(|prop| prop.is_feature_flag());
+                    .partition(|prop| prop.depends_on_feature_flag());
 
             if !flag_value_filters.is_empty()
                 && !all_flag_condition_properties_match(
