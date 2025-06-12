@@ -74,7 +74,7 @@ export async function startDownload(
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
 
         // Type assertion for dynamic property addition
-        ;(exportContext as any)['columns'] = columns
+        exportContext['columns'] = columns
     }
 
     exportCall({
