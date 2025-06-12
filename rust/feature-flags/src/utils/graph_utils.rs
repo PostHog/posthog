@@ -134,8 +134,8 @@ where
         Err(e) => {
             // Use the node that started the cycle (from the toposort error)
             let cycle_start_id = e.node_id();
-            let cohort_id = graph[cycle_start_id].into();
-            Err(FlagError::DependencyCycle(T::dependency_type(), cohort_id).into())
+            let dependency_id = graph[cycle_start_id].into();
+            Err(FlagError::DependencyCycle(T::dependency_type(), dependency_id).into())
         }
     }
 }
