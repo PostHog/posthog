@@ -335,7 +335,7 @@ class TestSummarizeSessionWorkflow:
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._prepare_single_session_summary_input",
+                "posthog.temporal.ai.session_summary.summarize_session.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(
