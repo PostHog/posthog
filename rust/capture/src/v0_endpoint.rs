@@ -208,6 +208,8 @@ async fn handle_legacy(
     };
     Span::current().record("batch_size", events.len());
 
+    events.retain(|event| event.event != "$performance_event");
+
     if events.is_empty() {
         warn!("rejected empty batch");
         let err = CaptureError::EmptyBatch;
