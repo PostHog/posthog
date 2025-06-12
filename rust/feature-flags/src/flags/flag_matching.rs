@@ -230,43 +230,12 @@ impl FeatureFlagMatcher {
             .any(|flag| flag.ensure_experience_continuity);
 
         // Process any hash key overrides
-        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        let (hash_key_overrides, flag_hash_key_override_error) =
-            if flags_have_experience_continuity_enabled {
-                match hash_key_override {
-                    Some(hash_key) => {
-                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                        self.process_hash_key_override(hash_key, target_distinct_ids)
-                            .await
-                    }
-                    // if a flag has experience continuity enabled but no hash key override is provided,
-                    // we don't need to write an override, we can just use the distinct_id
-                    None => (None, false),
-                }
-            } else {
-                // if experience continuity is not enabled, we don't need to worry about hash key overrides
-                (None, false)
-            };
-        hash_key_timer
-            .label(
-                "outcome",
-                if flag_hash_key_override_error {
-                    "error"
-                } else {
-                    "success"
-                },
+        let (hash_key_overrides, flag_hash_key_override_error) = self
+            .process_hash_key_override_if_needed(
+                flags_have_experience_continuity_enabled,
+                hash_key_override,
             )
-            .fin();
-
-        // If there was an initial error in processing hash key overrides, increment the error counter
-        if flag_hash_key_override_error {
-            let reason = "hash_key_override_error";
-            common_metrics::inc(
-                FLAG_EVALUATION_ERROR_COUNTER,
-                &[("reason".to_string(), reason.to_string())],
-                1,
-            );
-        }
+            .await;
 
         let flags_response = self
             .evaluate_flags_with_overrides(
@@ -1440,6 +1409,55 @@ impl FeatureFlagMatcher {
             // Return empty HashMap instead of error - no properties is a valid state
             Ok(HashMap::new())
         }
+    }
+
+    // If experience continuity is enabled, we need to process the hash key override if it's provided.
+    async fn process_hash_key_override_if_needed(
+        &self,
+        flags_have_experience_continuity_enabled: bool,
+        hash_key_override: Option<String>,
+    ) -> (Option<HashMap<String, String>>, bool) {
+        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
+        // If experience continuity is enabled, we need to process the hash key override if it's provided.
+        let (hash_key_overrides, flag_hash_key_override_error) =
+            if flags_have_experience_continuity_enabled {
+                match hash_key_override {
+                    Some(hash_key) => {
+                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                        self.process_hash_key_override(hash_key, target_distinct_ids)
+                            .await
+                    }
+                    // if a flag has experience continuity enabled but no hash key override is provided,
+                    // we don't need to write an override, we can just use the distinct_id
+                    None => (None, false),
+                }
+            } else {
+                // if experience continuity is not enabled, we don't need to worry about hash key overrides
+                (None, false)
+            };
+
+        // If there was an error in processing hash key overrides, increment the error counter
+        if flag_hash_key_override_error {
+            let reason = "hash_key_override_error";
+            common_metrics::inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
+        }
+
+        hash_key_timer
+            .label(
+                "outcome",
+                if flag_hash_key_override_error {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
+
+        (hash_key_overrides, flag_hash_key_override_error)
     }
 }
 
