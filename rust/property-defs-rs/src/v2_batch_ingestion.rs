@@ -245,8 +245,6 @@ pub async fn process_batch_v2(
     let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-    // TODO(eli): implement v1-style delay while cache is warming?
-
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
