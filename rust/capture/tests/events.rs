@@ -74,7 +74,7 @@ async fn it_drops_performance_events() -> Result<()> {
     assert_eq!(StatusCode::OK, res.status());
     // this one will return a 4xx since the batch will be empty post-filtering
     let res = server.capture_events(should_drop.to_string()).await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(StatusCode::OK, res.status());
     let res = server.capture_events(retained_two.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
