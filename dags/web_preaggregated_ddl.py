@@ -24,6 +24,78 @@ def execute_with_logging(client: Client, sql: str, context: dagster.AssetExecuti
     return client.execute(sql)
 
 
+def check_tables_exist(
+    like_patterns: list[str], expected_tables: list[str], test_queryable: bool = False
+) -> AssetCheckResult:
+    """
+    Shared utility to check if tables/views exist in ClickHouse.
+
+    Args:
+        like_patterns: List of LIKE patterns to search for (e.g., ['%bounces_daily%', '%stats_daily%'])
+        expected_tables: List of expected table/view names
+        test_queryable: Whether to test if tables/views are queryable
+    """
+    try:
+        from posthog.clickhouse.client import sync_execute
+
+        # Build WHERE clause with multiple LIKE patterns
+        like_conditions = " OR ".join([f"name LIKE '{pattern}'" for pattern in like_patterns])
+
+        # Check if tables exist using system tables for efficient filtering
+        tables_result = sync_execute(
+            f"""
+            SELECT name FROM system.tables
+            WHERE database = currentDatabase()
+            AND ({like_conditions})
+        """
+        )
+        table_names = [row[0] for row in tables_result]
+
+        missing_tables = [table for table in expected_tables if table not in table_names]
+
+        # Test queryability if requested
+        queryable_tables = []
+        if test_queryable:
+            for table in expected_tables:
+                if table in table_names:
+                    try:
+                        sync_execute(f"SELECT 1 FROM {table} LIMIT 1")
+                        queryable_tables.append(table)
+                    except Exception:
+                        pass
+
+        # Determine if check passed
+        if test_queryable:
+            passed = len(missing_tables) == 0 and len(queryable_tables) == len(expected_tables)
+            description = (
+                f"Found {len(queryable_tables)}/{len(expected_tables)} working tables/views"
+                if passed
+                else f"Issues with tables/views: {missing_tables}"
+            )
+        else:
+            passed = len(missing_tables) == 0
+            description = f"Found tables: {table_names}" if passed else f"Missing tables: {missing_tables}"
+
+        metadata = {
+            "found_tables": MetadataValue.json(table_names),
+            "expected_tables": MetadataValue.json(expected_tables),
+            "missing_tables": MetadataValue.json(missing_tables),
+        }
+
+        if test_queryable:
+            metadata["queryable_tables"] = MetadataValue.json(queryable_tables)
+
+        return AssetCheckResult(
+            passed=passed,
+            description=description,
+            metadata=metadata,
+        )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False, description=f"Error checking tables: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+        )
+
+
 @dagster.asset(
     name="web_analytics_preaggregated_hourly_tables",
     group_name="web_analytics",
@@ -132,37 +204,7 @@ def daily_tables_exist() -> AssetCheckResult:
     """
     Check if daily pre-aggregated tables exist and have proper structure.
     """
-    try:
-        from posthog.clickhouse.client import sync_execute
-
-        # Check if tables exist using system tables for efficient filtering
-        tables_result = sync_execute(
-            """
-            SELECT name FROM system.tables
-            WHERE database = currentDatabase()
-            AND (name LIKE '%bounces_daily%' OR name LIKE '%stats_daily%')
-        """
-        )
-        table_names = [row[0] for row in tables_result]
-
-        expected_tables = ["web_bounces_daily", "web_stats_daily"]
-        missing_tables = [table for table in expected_tables if table not in table_names]
-
-        passed = len(missing_tables) == 0
-
-        return AssetCheckResult(
-            passed=passed,
-            description=f"Found tables: {table_names}" if passed else f"Missing tables: {missing_tables}",
-            metadata={
-                "found_tables": MetadataValue.json(table_names),
-                "expected_tables": MetadataValue.json(expected_tables),
-                "missing_tables": MetadataValue.json(missing_tables),
-            },
-        )
-    except Exception as e:
-        return AssetCheckResult(
-            passed=False, description=f"Error checking tables: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
-        )
+    return check_tables_exist(["%bounces_daily%", "%stats_daily%"], ["web_bounces_daily", "web_stats_daily"])
 
 
 @asset_check(
@@ -174,42 +216,16 @@ def hourly_tables_exist() -> AssetCheckResult:
     """
     Check if hourly pre-aggregated tables exist and have proper structure.
     """
-    try:
-        from posthog.clickhouse.client import sync_execute
-
-        # Check if tables exist using system tables for efficient filtering
-        tables_result = sync_execute(
-            """
-            SELECT name FROM system.tables
-            WHERE database = currentDatabase()
-            AND (name LIKE '%bounces_hourly%' OR name LIKE '%stats_hourly%')
-        """
-        )
-        table_names = [row[0] for row in tables_result]
-
-        expected_tables = [
+    return check_tables_exist(
+        ["%bounces_hourly%", "%stats_hourly%"],
+        [
             "web_bounces_hourly",
             "web_stats_hourly",
             "web_bounces_hourly_staging",
             "web_stats_hourly_staging",
-        ]
-        missing_tables = [table for table in expected_tables if table not in table_names]
-
-        passed = len(missing_tables) == 0
-
-        return AssetCheckResult(
-            passed=passed,
-            description=f"Found {len(table_names)} tables" if passed else f"Missing {len(missing_tables)} tables",
-            metadata={
-                "found_tables": MetadataValue.json(table_names),
-                "expected_tables": MetadataValue.json(expected_tables),
-                "missing_tables": MetadataValue.json(missing_tables),
-            },
-        )
-    except Exception as e:
-        return AssetCheckResult(
-            passed=False, description=f"Error checking tables: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
-        )
+        ],
+        test_queryable=True,
+    )
 
 
 @asset_check(
@@ -221,49 +237,4 @@ def combined_views_exist() -> AssetCheckResult:
     """
     Check if combined views exist and are queryable.
     """
-    try:
-        from posthog.clickhouse.client import sync_execute
-
-        # Check if views exist using system tables for efficient filtering
-        views_result = sync_execute(
-            """
-            SELECT name FROM system.tables
-            WHERE database = currentDatabase()
-            AND name LIKE '%combined%'
-        """
-        )
-        view_names = [row[0] for row in views_result]
-
-        expected_views = ["web_bounces_combined", "web_stats_combined"]
-        missing_views = [view for view in expected_views if view not in view_names]
-
-        # Test if views are queryable
-        queryable_views = []
-        for view in expected_views:
-            if view in view_names:
-                try:
-                    sync_execute(f"SELECT 1 FROM {view} LIMIT 1")
-                    queryable_views.append(view)
-                except Exception:
-                    pass
-
-        passed = len(missing_views) == 0 and len(queryable_views) == len(expected_views)
-
-        return AssetCheckResult(
-            passed=passed,
-            description=(
-                f"Found {len(queryable_views)}/{len(expected_views)} working views"
-                if passed
-                else f"Issues with views: {missing_views}"
-            ),
-            metadata={
-                "found_views": MetadataValue.json(view_names),
-                "expected_views": MetadataValue.json(expected_views),
-                "queryable_views": MetadataValue.json(queryable_views),
-                "missing_views": MetadataValue.json(missing_views),
-            },
-        )
-    except Exception as e:
-        return AssetCheckResult(
-            passed=False, description=f"Error checking views: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
-        )
+    return check_tables_exist(["%combined%"], ["web_bounces_combined", "web_stats_combined"], test_queryable=True)
