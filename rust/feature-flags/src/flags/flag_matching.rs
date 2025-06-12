@@ -418,19 +418,52 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<HashMap<String, String>>,
         request_id: Uuid,
     ) -> FlagsResponse {
+        // Initialize group type mappings if needed
+        let mut errors_while_computing_flags = self
+            .initialize_group_type_mappings_if_needed(&feature_flags)
+            .await;
+
+        // Evaluate all flags in the current level
+        let (flag_details_map, level_errors) = self
+            .evaluate_flags_in_level(
+                &feature_flags.flags,
+                &person_property_overrides,
+                &group_property_overrides,
+                hash_key_overrides,
+            )
+            .await;
+        errors_while_computing_flags |= level_errors;
+
+        FlagsResponse {
+            errors_while_computing_flags,
+            flags: flag_details_map,
+            quota_limited: None,
+            request_id,
+            config: ConfigResponse::default(),
+        }
+    }
+
+    /// Evaluates a set of flags using a fallback strategy:
+    /// 1. First tries to evaluate with property overrides
+    /// 2. For flags that need DB properties, prepares evaluation state
+    /// 3. Evaluates remaining flags with cached properties
+    ///
+    /// This function is designed to be used as part of a level-based evaluation strategy
+    /// (e.g., Kahn's algorithm) for handling flag dependencies.
+    async fn evaluate_flags_in_level(
+        &mut self,
+        flags: &[FeatureFlag],
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
+    ) -> (HashMap<String, FlagDetails>, bool) {
         let mut errors_while_computing_flags = false;
         let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
-        // Initialize group type mappings if needed
-        errors_while_computing_flags |= self
-            .initialize_group_type_mappings_if_needed(&feature_flags)
-            .await;
-
         // Step 1: Evaluate flags with locally computable property overrides first
-        for flag in &feature_flags.flags {
-            // we shouldn't have any disabled or deleted flags (the query should filter them out),
-            // but just in case, we skip them here
+        for flag in flags {
+            // Skip disabled or deleted flags
             if !flag.active || flag.deleted {
                 continue;
             }
@@ -440,8 +473,8 @@ impl FeatureFlagMatcher {
 
             match self.match_flag_with_property_overrides(
                 flag,
-                &person_property_overrides,
-                &group_property_overrides,
+                person_property_overrides,
+                group_property_overrides,
                 hash_key_overrides.clone(),
             ) {
                 Ok(Some(flag_match)) => {
@@ -495,7 +528,7 @@ impl FeatureFlagMatcher {
                 .prepare_flag_evaluation_state(&flags_needing_db_properties)
                 .await
             {
-                // Handle database errors and return early
+                // Handle database errors
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
                 for flag in flags_needing_db_properties {
@@ -510,13 +543,7 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                return FlagsResponse {
-                    errors_while_computing_flags,
-                    flags: flag_details_map,
-                    quota_limited: None,
-                    request_id,
-                    config: ConfigResponse::default(),
-                };
+                return (flag_details_map, errors_while_computing_flags);
             }
         }
 
@@ -587,13 +614,7 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse {
-            errors_while_computing_flags,
-            flags: flag_details_map,
-            quota_limited: None,
-            request_id,
-            config: ConfigResponse::default(),
-        }
+        (flag_details_map, errors_while_computing_flags)
     }
 
     /// Matches a feature flag with property overrides.
