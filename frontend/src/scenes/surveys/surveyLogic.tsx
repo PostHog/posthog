@@ -24,7 +24,7 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import {} from '~/queries/utils'
+import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -688,7 +688,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                 ${values.partialResponsesFilter}
                             )
                         )
-                    GROUP BY event`
+                    GROUP BY event` as HogQLQueryString
 
                 const response = await api.queryHogQL(query, {
                     queryParams: {
@@ -735,7 +735,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY person_id
                         HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
-                    ) AS PersonsWithBothEvents`
+                    ) AS PersonsWithBothEvents` as HogQLQueryString
 
                 const response = await api.queryHogQL(query, {
                     queryParams: {
@@ -772,7 +772,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.answerFilterHogQLExpression}
                         AND {filters}
                         ${values.partialResponsesFilter}
-                    GROUP BY survey_response`
+                    GROUP BY survey_response` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -824,7 +824,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.answerFilterHogQLExpression}
                         ${values.partialResponsesFilter}
                         AND {filters}
-                    GROUP BY survey_response, survey_iteration`
+                    GROUP BY survey_response, survey_iteration` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -904,7 +904,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.partialResponsesFilter}
                         AND survey_response != null
                         AND {filters}
-                    GROUP BY survey_response`
+                    GROUP BY survey_response` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -951,7 +951,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND {filters}
                         ${values.partialResponsesFilter}
                     GROUP BY choice
-                    ORDER BY count() DESC`
+                    ORDER BY count() DESC` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -1016,7 +1016,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.answerFilterHogQLExpression}
                         AND {filters}
                         ${values.partialResponsesFilter}
-                    LIMIT 20`
+                    LIMIT 20` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -1076,7 +1076,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.partialResponsesFilter}
                         AND {filters}
                     ORDER BY events.timestamp DESC
-                    LIMIT ${limit}`
+                    LIMIT ${limit}` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
