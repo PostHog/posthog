@@ -62,6 +62,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                                         You can toggle the engine on or off directly from this interface if you want to
                                         compare results or prefer the previous method.
                                     </li>
+                                    <li>Results are currently tied to UTC timezone for query and display.</li>
                                 </ul>
                             </div>
 

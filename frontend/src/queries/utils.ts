@@ -59,6 +59,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
+import { LATEST_VERSIONS } from './latest-versions'
+
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
         isEventsNode(node) ||
@@ -576,6 +578,9 @@ export function isHogQlAggregation(hogQl: string): boolean {
     )
 }
 
+declare const __hogqlBrand: unique symbol
+export type HogQLQueryString = string & { readonly [__hogqlBrand]: void }
+
 export interface HogQLIdentifier {
     __hogql_identifier: true
     identifier: string
@@ -619,8 +624,11 @@ function formatHogQlValue(value: any): string {
  * Template tag for HogQL formatting. Handles formatting of values for you.
  * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
  */
-export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
-    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
+export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQueryString {
+    return strings.reduce(
+        (acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''),
+        ''
+    ) as unknown as HogQLQueryString
 }
 hogql.identifier = hogQlIdentifier
 
@@ -671,4 +679,35 @@ export function getMathTypeWarning(
     }
 
     return warning
+}
+
+/**
+ * **Needs to be used on all hardcoded queries.**
+ *
+ * Recursively adds the latest version for the respective kind to each node. This
+ * is necessary so that schema migrations don't run on hardcoded queries that
+ * are already the latest version. */
+export function getFreshQuery<T = any>(node: T): T {
+    if (node === null || typeof node !== 'object') {
+        return node
+    }
+
+    if (Array.isArray(node)) {
+        return (node as unknown as any[]).map(getFreshQuery) as unknown as T
+    }
+
+    const cloned: Record<string, any> = { ...(node as any) }
+
+    if ('kind' in cloned) {
+        const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
+        cloned.version = latest || 1
+    }
+
+    for (const [key, value] of Object.entries(cloned)) {
+        if (value !== null && typeof value === 'object') {
+            cloned[key] = getFreshQuery(value)
+        }
+    }
+
+    return cloned as T
 }

@@ -7,6 +7,7 @@ from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from stripe import ListObject, StripeClient
 
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.rest_source import (
     RESTAPIConfig,
@@ -357,6 +358,7 @@ def stripe_source_v2(
     endpoint: str,
     db_incremental_field_last_value: Optional[Any],
     db_incremental_field_earliest_value: Optional[Any],
+    logger: FilteringBoundLogger,
     is_incremental: bool = False,
 ):
     def get_rows():
@@ -377,15 +379,23 @@ def stripe_source_v2(
         if not resource:
             raise Exception(f"Stripe endpoint does not exist: {endpoint}")
 
+        logger.debug(f"Stripe: reading from resource {resource}")
+
         if not is_incremental or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
+            logger.debug(f"Stripe: iterating all objects from resource")
+
             stripe_objects = resource.method(params={**default_params, **resource.params})
             yield from stripe_objects.auto_paging_iter()
             return
 
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
+            logger.debug(
+                f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
+            )
+
             stripe_objects = resource.method(
                 params={**default_params, **resource.params, "created[lt]": db_incremental_field_earliest_value}
             )
@@ -393,6 +403,10 @@ def stripe_source_v2(
 
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
+            logger.debug(
+                f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}"
+            )
+
             stripe_objects = resource.method(
                 params={**default_params, **resource.params, "created[gt]": db_incremental_field_last_value}
             )

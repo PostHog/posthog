@@ -80,6 +80,7 @@ await buildInParallel(
                             '~/queries/nodes/InsightViz/InsightViz',
                             'lib/hog',
                             'scenes/activity/explore/EventDetails',
+                            'scenes/web-analytics/WebAnalyticsDashboard',
                         ]
 
                         // Patterns to match for denying imports
