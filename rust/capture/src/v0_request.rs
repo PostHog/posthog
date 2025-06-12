@@ -281,7 +281,7 @@ impl RawRequest {
     }
 
     pub fn events(self, path: &str) -> Result<Vec<RawEvent>, CaptureError> {
-        match self {
+        let events = match self {
             RawRequest::Array(events) => Ok(events),
             RawRequest::One(event) => Ok(vec![*event]),
             RawRequest::Batch(req) => Ok(req.batch),
@@ -304,7 +304,10 @@ impl RawRequest {
                     )))
                 }
             }
-        }
+        };
+        let mut events = events?;
+        events.retain(|e| e.event != "$performance_event");
+        Ok(events)
     }
 
     pub fn historical_migration(&self) -> bool {
