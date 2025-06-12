@@ -84,8 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
-    let cache = Cache::new(config.cache_capacity);
-
+    let cache = Cache::new(config.cache_capacity, config.cache_lock_chunk_size);
     let cache = Arc::new(cache);
 
     let mut handles = Vec::new();

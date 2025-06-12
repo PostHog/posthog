@@ -41,6 +41,11 @@ pub struct Config {
     #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
 
+    // chunk size for batch inserting or removing Update entries from the cache.
+    // the write lock is held during each chunk operation on the cache
+    #[envconfig(default = "100")]
+    pub cache_lock_chunk_size: usize,
+
     // Each worker maintains a small local batch of updates, which it
     // flushes to the main thread (updating/filtering by the
     // cross-thread cache while it does). This is that batch size.

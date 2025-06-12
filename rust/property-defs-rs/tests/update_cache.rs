@@ -9,7 +9,7 @@ use property_defs_rs::{
 
 #[test]
 fn test_cache_insertions() {
-    let cache = Cache::new(10);
+    let cache = Cache::new(10, 10);
 
     let evt_def = Update::Event(EventDefinition {
         name: String::from("foobar"),
@@ -48,7 +48,7 @@ fn test_cache_insertions() {
 
 #[test]
 fn test_cache_removals() {
-    let cache = Cache::new(10);
+    let cache = Cache::new(10, 10);
 
     let evt_def = Update::Event(EventDefinition {
         name: String::from("foobar"),
