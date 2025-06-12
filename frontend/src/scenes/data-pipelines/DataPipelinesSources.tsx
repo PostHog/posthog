@@ -12,11 +12,16 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-export function DataPipelinesSources(): JSX.Element {
+export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     const newButton = (
-        <LemonButton to={urls.dataPipelinesNew('source')} type="primary" icon={<IconPlusSmall />} size="small">
+        <LemonButton
+            to={newUrl ?? urls.dataPipelinesNew('source')}
+            type="primary"
+            icon={<IconPlusSmall />}
+            size="small"
+        >
             New source
         </LemonButton>
     )
