@@ -5,6 +5,8 @@ use common_database::CustomDatabaseError;
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
+use crate::utils::graph_utils::DependencyType;
+
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
     #[error("Invalid request: {0}")]
@@ -55,12 +57,12 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
-    #[error("Cohort not found")]
-    CohortNotFound(String),
+    #[error("Dependency of type {0} with id {1} not found")]
+    DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
-    #[error("Cohort dependency cycle")]
-    CohortDependencyCycle(String),
+    #[error("Dependency cycle of type {0}: {1}")]
+    DependencyCycle(DependencyType, String),
     #[error("Person not found")]
     PersonNotFound,
     #[error("Person properties not found")]
@@ -169,16 +171,16 @@ impl IntoResponse for FlagError {
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::CohortNotFound(msg) => {
-                tracing::error!("Cohort not found: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            FlagError::DependencyNotFound(dependency_type, dependency_id) => {
+                tracing::error!("Dependency of type {dependency_type} with id {dependency_id} not found");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency of type {dependency_type} with id {dependency_id} not found"))
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
-            FlagError::CohortDependencyCycle(msg) => {
-                tracing::error!("Cohort dependency cycle: {}", msg);
+            FlagError::DependencyCycle(dependency_type, msg) => {
+                tracing::error!("{} dependency cycle: {}", dependency_type, msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
             FlagError::PersonNotFound => {
@@ -220,15 +222,9 @@ impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
-            CustomRedisError::ParseError(e) => {
-                tracing::error!("failed to fetch data from redis: {}", e);
-                FlagError::RedisDataParsingError
-            }
+            CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
             CustomRedisError::Timeout => FlagError::TimeoutError,
-            CustomRedisError::Other(e) => {
-                tracing::error!("Unknown redis error: {}", e);
-                FlagError::RedisUnavailable
-            }
+            CustomRedisError::Other(_) => FlagError::RedisUnavailable,
         }
     }
 }
@@ -236,10 +232,7 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Other(_) => {
-                tracing::error!("failed to get connection: {}", e);
-                FlagError::DatabaseUnavailable
-            }
+            CustomDatabaseError::Other(_) => FlagError::DatabaseUnavailable,
             CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
         }
     }
@@ -248,14 +241,8 @@ impl From<CustomDatabaseError> for FlagError {
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
         match e {
-            sqlx::Error::RowNotFound => {
-                tracing::error!("Row not found in database query");
-                FlagError::RowNotFound
-            }
-            _ => {
-                tracing::error!("Database error occurred: {}", e);
-                FlagError::DatabaseError(e.to_string())
-            }
+            sqlx::Error::RowNotFound => FlagError::RowNotFound,
+            _ => FlagError::DatabaseError(e.to_string()),
         }
     }
 }

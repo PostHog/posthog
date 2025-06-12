@@ -18,6 +18,7 @@ import {
     groupCacheOperationsCounter,
     groupCacheSizeHistogram,
     groupDatabaseOperationsPerBatchHistogram,
+    groupFetchPromisesCacheOperationsCounter,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
 
@@ -445,6 +446,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
 
         let fetchPromise = this.fetchPromises.get(cacheKey)
         if (!fetchPromise) {
+            groupFetchPromisesCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchGroup')
@@ -468,6 +470,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                 }
             })()
             this.fetchPromises.set(cacheKey, fetchPromise)
+        } else {
+            groupFetchPromisesCacheOperationsCounter.inc({ operation: 'hit' })
         }
         return fetchPromise
     }

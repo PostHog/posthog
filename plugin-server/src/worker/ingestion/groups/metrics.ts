@@ -23,3 +23,9 @@ export const groupCacheSizeHistogram = new Histogram({
     help: 'Size of the group cache',
     buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, Infinity],
 })
+
+export const groupFetchPromisesCacheOperationsCounter = new Counter({
+    name: 'group_fetch_promises_cache_operations_total',
+    help: 'Number of operations on the fetchPromises cache',
+    labelNames: ['operation'],
+})

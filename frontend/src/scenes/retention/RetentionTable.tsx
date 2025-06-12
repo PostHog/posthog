@@ -58,7 +58,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                 </tr>
 
                 {Object.entries(tableRowsSplitByBreakdownValue).map(([breakdownValue, cohortRows], breakdownIndex) => {
-                    const keyForMeanData = breakdownValue === NO_BREAKDOWN_VALUE ? OVERALL_MEAN_KEY : breakdownValue
+                    const noBreakdown = breakdownValue === NO_BREAKDOWN_VALUE
+                    const keyForMeanData = noBreakdown ? OVERALL_MEAN_KEY : breakdownValue
                     const meanData = retentionMeans[keyForMeanData]
 
                     return (
@@ -79,7 +80,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             <IconChevronRight />
                                         )}
                                         <span>
-                                            {breakdownValue === NO_BREAKDOWN_VALUE
+                                            {noBreakdown
                                                 ? 'Mean'
                                                 : breakdownValue === null || breakdownValue === ''
                                                 ? RETENTION_EMPTY_BREAKDOWN_VALUE
@@ -88,7 +89,13 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                     </div>
                                 </td>
 
-                                {!hideSizeColumn && <td>{meanData?.totalCohortSize ?? 0}</td>}
+                                {!hideSizeColumn && (
+                                    <td>
+                                        {noBreakdown
+                                            ? ((meanData?.totalCohortSize ?? 0) / cohortRows.length).toFixed(1)
+                                            : meanData?.totalCohortSize ?? 0}
+                                    </td>
+                                )}
 
                                 {range(0, totalIntervals).map((interval) => (
                                     <td key={interval}>
