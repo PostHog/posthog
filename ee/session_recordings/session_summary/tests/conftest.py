@@ -18,6 +18,7 @@ def mock_user() -> MagicMock:
 @pytest.fixture
 def mock_team() -> MagicMock:
     team = MagicMock(spec=Team)
+    team.id = 321
     return team
 
 
