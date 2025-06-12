@@ -578,6 +578,9 @@ export function isHogQlAggregation(hogQl: string): boolean {
     )
 }
 
+declare const __hogqlBrand: unique symbol
+export type HogQLQueryString = string & { readonly [__hogqlBrand]: void }
+
 export interface HogQLIdentifier {
     __hogql_identifier: true
     identifier: string
@@ -621,8 +624,11 @@ function formatHogQlValue(value: any): string {
  * Template tag for HogQL formatting. Handles formatting of values for you.
  * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
  */
-export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
-    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
+export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQueryString {
+    return strings.reduce(
+        (acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''),
+        ''
+    ) as unknown as HogQLQueryString
 }
 hogql.identifier = hogQlIdentifier
 
