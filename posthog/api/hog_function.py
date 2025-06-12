@@ -422,23 +422,55 @@ class HogFunctionViewSet(
         if self.action == "list":
             queryset = queryset.order_by("execution_order", "-updated_at")
 
+        final_filter_groups = []
+
+        if self.request.GET.get("filter_groups"):
+            try:
+                filter_groups = json.loads(self.request.GET["filter_groups"])
+                if not isinstance(filter_groups, list):
+                    raise exceptions.ValidationError({"filter_groups": f"Invalid filter_groups"})
+
+                for filter_group in filter_groups:
+                    final_filter_groups.append(filter_group)
+
+            except (ValueError, KeyError, TypeError):
+                raise exceptions.ValidationError({"filter_groups": f"Invalid filter_groups"})
+
         if self.request.GET.get("filters"):
             try:
                 filters = json.loads(self.request.GET["filters"])
-                if "actions" in filters:
-                    action_ids = [str(action.get("id")) for action in filters.get("actions", []) if action.get("id")]
-                    del filters["actions"]
-                    query = """
-                        EXISTS (
-                            SELECT 1
-                            FROM jsonb_array_elements(filters->'actions') AS elem
-                            WHERE elem->>'id' = ANY(%s)
-                        )
-                    """
-                    queryset = queryset.extra(where=[query], params=[action_ids])
+                if not isinstance(filters, dict):
+                    raise exceptions.ValidationError({"filters": f"Invalid filters"})
 
-                if filters:
-                    queryset = queryset.filter(filters__contains=filters)
+                final_filter_groups.append(filters)
+            except (ValueError, KeyError, TypeError):
+                raise exceptions.ValidationError({"filters": f"Invalid filters"})
+
+        if final_filter_groups:
+            try:
+                from django.db.models import Q
+
+                combined_q = Q()
+
+                for filter_group in final_filter_groups:
+                    if "actions" in filter_group:
+                        action_ids = [
+                            str(action.get("id")) for action in filter_group.get("actions", []) if action.get("id")
+                        ]
+                        del filter_group["actions"]
+                        query = """
+                            EXISTS (
+                                SELECT 1
+                                FROM jsonb_array_elements(filters->'actions') AS elem
+                                WHERE elem->>'id' = ANY(%s)
+                            )
+                        """
+                        combined_q |= Q(extra__where=[query], extra__params=[action_ids])
+
+                    if filter_group:
+                        combined_q |= Q(filters__contains=filter_group)
+
+                queryset = queryset.filter(combined_q)
             except (ValueError, KeyError, TypeError):
                 raise exceptions.ValidationError({"filter": f"Invalid filter"})
 

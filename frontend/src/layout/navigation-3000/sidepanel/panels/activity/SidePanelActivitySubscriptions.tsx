@@ -8,14 +8,14 @@ export function SidePanelActivitySubscriptions(): JSX.Element {
             <LinkedHogFunctions
                 type="internal_destination"
                 subTemplateIds={['activity-log']}
-                filters={{
-                    events: [
-                        {
-                            id: `$activity_log_entry_created`,
-                            type: 'events',
-                        },
-                    ],
-                }}
+                // forceFilterGroups={[{
+                //     events: [
+                //         {
+                //             id: `$activity_log_entry_created`,
+                //             type: 'events',
+                //         },
+                //     ],
+                // }]}
             />
         </div>
     )

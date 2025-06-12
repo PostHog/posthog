@@ -282,14 +282,14 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
 
                     <LinkedHogFunctions
                         type="destination"
-                        filters={{
+                        forceFilterGroups={[{
                             events: [
                                 {
                                     id: `${definition.name}`,
                                     type: 'events',
                                 },
                             ],
-                        }}
+                        }]}
                     />
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
