@@ -19,17 +19,7 @@ from posthog.event_usage import report_organization_deleted, groups
 from posthog.models import (
     User,
     Team,
-    Project,
     Organization,
-    Insight,
-    Dashboard,
-    FeatureFlag,
-    Action,
-    Survey,
-    Experiment,
-    Cohort,
-    Annotation,
-    EarlyAccessFeature,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -53,7 +43,6 @@ from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_fla
 from posthog.exceptions_capture import capture_exception
 from drf_spectacular.utils import extend_schema
 from posthog.event_usage import report_organization_action
-from django.db import transaction
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -347,10 +336,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def environments_rollback(self, request: Request, **kwargs) -> Response:
         """
-        Migrate insights and configurations between environments.
+        Trigger environments rollback migration for users previously on multi-environment projects.
         The request data should be a mapping of source environment IDs to target environment IDs.
         Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
         """
+        from posthog.tasks.tasks import environments_rollback_migration
+
         organization = self.get_object()
         environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
         user = cast(User, request.user)
@@ -368,49 +359,23 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if missing_team_ids:
             raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
 
-        models_to_update = [
-            Insight,
-            Dashboard,
-            FeatureFlag,
-            Action,
-            Survey,
-            Experiment,
-            Cohort,
-            Annotation,
-            EarlyAccessFeature,
-        ]
+        # Trigger the async task to perform the migration
+        environments_rollback_migration.delay(
+            organization_id=organization.id,
+            environment_mappings=environment_mappings,
+            user_id=user.id,
+        )
 
-        with transaction.atomic():
-            # Update all models to point to their target teams
-            for source_id_str, target_id in environment_mappings.items():
-                source_id = int(source_id_str)
+        posthoganalytics.capture(
+            str(user.distinct_id),
+            "organization environments rollback started",
+            properties={
+                "environment_mappings": json.dumps(environment_mappings),
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "user_role": membership.level,
+            },
+            groups=groups(organization),
+        )
 
-                if source_id == target_id:
-                    continue  # Skip if source and target are the same
-
-                # Update all models from source to target
-                for model in models_to_update:
-                    model.objects.filter(team_id=source_id).update(team_id=target_id)  # type: ignore[attr-defined]
-
-                # Create a new project for the source team
-                source_team = teams.get(id=source_id)
-                if source_team.id != source_team.project_id:
-                    new_project = Project.objects.create(
-                        id=source_team.id, name=source_team.name, organization=organization
-                    )
-                    source_team.project = new_project
-                    source_team.save()
-
-            posthoganalytics.capture(
-                str(user.distinct_id),
-                "organization environments rollback triggered",
-                properties={
-                    "environment_mappings": json.dumps(environment_mappings),
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": membership.level,
-                },
-                groups=groups(organization),
-            )
-
-        return Response({"success": True}, status=200)
+        return Response({"success": True, "message": "Migration started"}, status=202)

@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature
+from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.constants import AvailableFeature
@@ -314,57 +314,33 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"members_can_invite": True})
         self.assertEqual(response.status_code, 403)
 
-    def test_environments_rollback_success(self):
-        # Create a project with two environments
-        project = Team.objects.create(organization=self.organization, name="Main Project")
-        env_1 = Team.objects.create(organization=self.organization, name="Production", project_id=project.id)
-        env_2 = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_success(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Create test data in the second environment (staging)
-        insight = Insight.objects.create(team=env_2, name="Test Insight")
-        dashboard = Dashboard.objects.create(team=env_2, name="Test Dashboard")
-        feature_flag = FeatureFlag.objects.create(team=env_2, name="Test Flag", key="test-flag")
-        annotation = Annotation.objects.create(team=env_2, content="Test Annotation")
-        early_access_feature = EarlyAccessFeature.objects.create(team=env_2, name="Test EAF")
-
-        # Migrate all models from env_2 (staging) to env_1 (production)
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/environments_rollback/",
             {
-                str(env_2.id): env_1.id,  # Migrate from staging to production
+                str(staging_env.id): production_env.id,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"success": True, "message": "Migration started"})
 
-        # Verify all data was migrated to the production environment
-        insight.refresh_from_db()
-        dashboard.refresh_from_db()
-        feature_flag.refresh_from_db()
-        annotation.refresh_from_db()
-        early_access_feature.refresh_from_db()
-
-        # All models should now be in env_1 (production)
-        self.assertEqual(insight.team_id, env_1.id)
-        self.assertEqual(dashboard.team_id, env_1.id)
-        self.assertEqual(feature_flag.team_id, env_1.id)
-        self.assertEqual(annotation.team_id, env_1.id)
-        self.assertEqual(early_access_feature.team_id, env_1.id)
-
-        # Verify env_2 got detached and has a new project
-        env_2.refresh_from_db()
-        self.assertNotEqual(env_2.project_id, project.id)  # Should no longer be attached to original project
-        self.assertEqual(env_2.project_id, env_2.id)  # Should have a new project with same ID as the environment
-
-        # Verify the new project exists
-        new_project = Team.objects.get(id=env_2.project_id)
-        self.assertEqual(new_project.name, env_2.name)  # New project should inherit environment's name
-        self.assertEqual(new_project.organization, self.organization)
+        mock_task_delay.assert_called_once_with(
+            organization_id=self.organization.id,
+            environment_mappings={str(staging_env.id): production_env.id},
+            user_id=self.user.id,
+        )
 
     def test_environments_rollback_empty_mappings(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -391,9 +367,11 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+        nonexistent_source_id = "999999"
+        nonexistent_target_id = 888888
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/environments_rollback/",
-            {"999999": 888888},  # Non-existent environments
+            {nonexistent_source_id: nonexistent_target_id},
             format="json",
         )
 
@@ -438,101 +416,139 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Not found.")
 
-    def test_environments_rollback_multiple_sources_to_one_target(self):
-        # Create a project with three environments
-        project = Team.objects.create(organization=self.organization, name="Main Project")
-        env_1 = Team.objects.create(organization=self.organization, name="Production", project_id=project.id)
-        env_2 = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
-        env_3 = Team.objects.create(organization=self.organization, name="Dev", project_id=project.id)
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_multiple_mappings(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+        dev_env = Team.objects.create(organization=self.organization, name="Dev", project_id=main_project.id)
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Create test data in both source environments
-        insight_2 = Insight.objects.create(team=env_2, name="Staging Insight")
-        insight_3 = Insight.objects.create(team=env_3, name="Dev Insight")
-        flag_2 = FeatureFlag.objects.create(team=env_2, name="Staging Flag", key="staging-flag")
-        flag_3 = FeatureFlag.objects.create(team=env_3, name="Dev Flag", key="dev-flag")
-
-        # Migrate both env_2 and env_3 to env_1
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/environments_rollback/",
             {
-                str(env_2.id): env_1.id,
-                str(env_3.id): env_1.id,
+                str(staging_env.id): production_env.id,
+                str(dev_env.id): production_env.id,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"success": True, "message": "Migration started"})
 
-        # Verify all data was migrated to the production environment
-        insight_2.refresh_from_db()
-        insight_3.refresh_from_db()
-        flag_2.refresh_from_db()
-        flag_3.refresh_from_db()
+        mock_task_delay.assert_called_once_with(
+            organization_id=self.organization.id,
+            environment_mappings={
+                str(staging_env.id): production_env.id,
+                str(dev_env.id): production_env.id,
+            },
+            user_id=self.user.id,
+        )
 
-        self.assertEqual(insight_2.team_id, env_1.id)
-        self.assertEqual(insight_3.team_id, env_1.id)
-        self.assertEqual(flag_2.team_id, env_1.id)
-        self.assertEqual(flag_3.team_id, env_1.id)
-
-        # Verify both source environments got detached and have new projects
-        env_2.refresh_from_db()
-        env_3.refresh_from_db()
-        self.assertNotEqual(env_2.project_id, project.id)
-        self.assertNotEqual(env_3.project_id, project.id)
-        self.assertEqual(env_2.project_id, env_2.id)
-        self.assertEqual(env_3.project_id, env_3.id)
-
-    def test_environments_rollback_multiple_sources_to_different_targets(self):
-        # Create two projects with environments
-        project_1 = Team.objects.create(organization=self.organization, name="Project 1")
-        project_2 = Team.objects.create(organization=self.organization, name="Project 2")
-
-        proj_1_prod = Team.objects.create(organization=self.organization, name="P1 Production", project_id=project_1.id)
-        proj_1_staging = Team.objects.create(organization=self.organization, name="P1 Staging", project_id=project_1.id)
-        proj_2_prod = Team.objects.create(organization=self.organization, name="P2 Production", project_id=project_2.id)
-        proj_2_staging = Team.objects.create(organization=self.organization, name="P2 Staging", project_id=project_2.id)
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_data_format_conversion(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Create test data in staging environments
-        insight_1 = Insight.objects.create(team=proj_1_staging, name="P1 Staging Insight")
-        insight_2 = Insight.objects.create(team=proj_2_staging, name="P2 Staging Insight")
-        flag_1 = FeatureFlag.objects.create(team=proj_1_staging, name="P1 Staging Flag", key="p1-staging-flag")
-        flag_2 = FeatureFlag.objects.create(team=proj_2_staging, name="P2 Staging Flag", key="p2-staging-flag")
-
-        # Migrate staging environments to their respective production environments
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/environments_rollback/",
             {
-                str(proj_1_staging.id): proj_1_prod.id,
-                str(proj_2_staging.id): proj_2_prod.id,
+                staging_env.id: str(production_env.id),
+                str(production_env.id): production_env.id,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"success": True, "message": "Migration started"})
 
-        # Verify data was migrated to the correct production environments
-        insight_1.refresh_from_db()
-        insight_2.refresh_from_db()
-        flag_1.refresh_from_db()
-        flag_2.refresh_from_db()
+        mock_task_delay.assert_called_once_with(
+            organization_id=self.organization.id,
+            environment_mappings={
+                str(staging_env.id): production_env.id,
+                str(production_env.id): production_env.id,
+            },
+            user_id=self.user.id,
+        )
 
-        self.assertEqual(insight_1.team_id, proj_1_prod.id)
-        self.assertEqual(insight_2.team_id, proj_2_prod.id)
-        self.assertEqual(flag_1.team_id, proj_1_prod.id)
-        self.assertEqual(flag_2.team_id, proj_2_prod.id)
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_validates_environments_exist(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
 
-        # Verify staging environments got detached and have new projects
-        proj_1_staging.refresh_from_db()
-        proj_2_staging.refresh_from_db()
-        self.assertNotEqual(proj_1_staging.project_id, project_1.id)
-        self.assertNotEqual(proj_2_staging.project_id, project_2.id)
-        self.assertEqual(proj_1_staging.project_id, proj_1_staging.id)
-        self.assertEqual(proj_2_staging.project_id, proj_2_staging.id)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        nonexistent_source_id = "99999"
+        nonexistent_target_id = "88888"
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                nonexistent_source_id: production_env.id,
+                str(production_env.id): nonexistent_target_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Environments not found", response.json()["detail"])
+        mock_task_delay.assert_not_called()
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_validates_environments_belong_to_organization(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        our_production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+
+        other_organization = Organization.objects.create(name="Other Organization")
+        other_project = Team.objects.create(organization=other_organization, name="Other Project")
+        other_env = Team.objects.create(organization=other_organization, name="Other Env", project_id=other_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(other_env.id): our_production_env.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Environments not found", response.json()["detail"])
+        mock_task_delay.assert_not_called()
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_requires_admin_permission(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {str(staging_env.id): production_env.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "You do not have admin access to this resource.")
+        mock_task_delay.assert_not_called()
