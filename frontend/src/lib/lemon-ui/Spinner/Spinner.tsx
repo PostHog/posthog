@@ -1,16 +1,44 @@
 import './Spinner.scss'
 
 import { IconPencil } from '@posthog/icons'
+import posthog from 'posthog-js'
+import { useEffect, useRef } from 'react'
 import { twJoin, twMerge } from 'tailwind-merge'
+
+function useTimingCapture(captureTime: boolean): void {
+    const mountTimeRef = useRef<number>(Date.now())
+
+    useEffect(() => {
+        if (!captureTime) {
+            return
+        }
+
+        const mountTime = mountTimeRef.current
+        return () => {
+            const visibleTimeMs = Date.now() - mountTime
+            posthog.capture('spinner_unloaded', {
+                visible_time_ms: visibleTimeMs,
+            })
+        }
+    }, [captureTime])
+}
 
 export interface SpinnerProps {
     textColored?: boolean
     className?: string
     speed?: `${number}s` // Seconds
+    captureTime?: boolean
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
-export function Spinner({ textColored = false, className, speed = '1s' }: SpinnerProps): JSX.Element {
+export function Spinner({
+    textColored = false,
+    className,
+    speed = '1s',
+    captureTime = true,
+}: SpinnerProps): JSX.Element {
+    useTimingCapture(captureTime)
+
     return (
         <svg
             // eslint-disable-next-line react/forbid-dom-props
@@ -34,6 +62,7 @@ export function SpinnerOverlay({
     visible = true,
     className,
     mode = 'spinning',
+    captureTime = true,
     ...spinnerProps
 }: SpinnerProps & {
     /** @default false */
@@ -48,7 +77,7 @@ export function SpinnerOverlay({
             {mode === 'editing' ? (
                 <IconPencil className="text-5xl text-accent z-10 drop-shadow-xl" />
             ) : (
-                <Spinner className={twMerge('text-5xl', className)} {...spinnerProps} />
+                <Spinner className={twMerge('text-5xl', className)} captureTime={captureTime} {...spinnerProps} />
             )}
         </div>
     )
