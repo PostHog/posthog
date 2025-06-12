@@ -34,7 +34,6 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.exceptions_capture import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client import sync_execute

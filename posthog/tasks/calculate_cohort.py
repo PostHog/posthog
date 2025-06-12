@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
 
