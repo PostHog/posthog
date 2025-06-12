@@ -1,3 +1,5 @@
+import './TabsTrigger.scss'
+
 import * as Tabs from '@radix-ui/react-tabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
