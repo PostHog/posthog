@@ -6,15 +6,15 @@
   FROM posthog_dashboarditem
   WHERE (query @? '$.** ? (
       @.kind == "EventsNode" &&
-      (!exists(@.v) || @.v == null || @.v <= 8)
+      (!exists(@.version) || @.version == null || @.version <= 8)
   )'
          OR query @? '$.** ? (
       @.kind == "InsightVizNode" &&
-      (!exists(@.v) || @.v == null || @.v <= 4)
+      (!exists(@.version) || @.version == null || @.version <= 4)
   )'
          OR query @? '$.** ? (
       @.kind == "TrendsQuery" &&
-      (!exists(@.v) || @.v == null || @.v <= 6)
+      (!exists(@.version) || @.version == null || @.version <= 6)
   )')
   ORDER BY id
   LIMIT 100;

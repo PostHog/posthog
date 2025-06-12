@@ -85,10 +85,10 @@ def setup_insights(team):
             "kind": "InsightVizNode",
             "source": {
                 "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "v": 8}],
-                "v": 6,
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": 6,
             },
-            "v": 4,
+            "version": 4,
         },
         team=team,
     )
@@ -99,10 +99,10 @@ def setup_insights(team):
             "kind": "InsightVizNode",
             "source": {
                 "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "v": 8}],
-                "v": 6,
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": 6,
             },
-            "v": 3,
+            "version": 3,
         },
         team=team,
     )
@@ -113,10 +113,10 @@ def setup_insights(team):
             "kind": "InsightVizNode",
             "source": {
                 "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "v": 8}],
-                "v": 5,
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": 5,
             },
-            "v": 4,
+            "version": 4,
         },
         team=team,
     )
@@ -127,10 +127,10 @@ def setup_insights(team):
             "kind": "InsightVizNode",
             "source": {
                 "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "v": 7}],
-                "v": 6,
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 7}],
+                "version": 6,
             },
-            "v": 4,
+            "version": 4,
         },
         team=team,
     )
@@ -152,8 +152,8 @@ def setup_insights(team):
             "kind": "InsightVizNode",
             "source": {
                 "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "v": 8}],
-                "v": 6,
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": 6,
             },
         },
         team=team,
@@ -165,10 +165,10 @@ def setup_insights(team):
             "kind": "InsightVizNode",
             "source": {
                 "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview", "v": 8}],
-                "v": 6,
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": 6,
             },
-            "v": None,
+            "version": None,
         },
         team=team,
     )
@@ -199,7 +199,7 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         activity_environment.run(migrate_insights_batch, inputs)
 
         i3.refresh_from_db()
-        assert i3.query["source"]["v"] == 6
+        assert i3.query["source"]["version"] == 6
         assert i3.query["source"]["interval"] == "day"
 
     @pytest.mark.asyncio
@@ -225,5 +225,5 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
                 )
 
         await sync_to_async(i3.refresh_from_db)()
-        assert i3.query["source"]["v"] == 6
+        assert i3.query["source"]["version"] == 6
         assert i3.query["source"]["interval"] == "day"
