@@ -29,7 +29,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog import schema
 from posthog.schema import QueryStatus
-from posthog.api.documentation import extend_schema, extend_schema_field
+from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -208,6 +208,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
+@extend_schema_serializer(exclude_fields=["filters", "saved"])
 class InsightBasicSerializer(
     TaggedItemSerializerMixin,
     UserPermissionsSerializerMixin,
@@ -220,8 +221,6 @@ class InsightBasicSerializer(
 
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
     created_by = UserBasicSerializer(read_only=True)
-    filters = serializers.HiddenField(default=dict)
-    saved = serializers.HiddenField(default=dict)
 
     class Meta:
         model = Insight
