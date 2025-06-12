@@ -809,6 +809,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     GoogleAds: {
         name: 'GoogleAds',
         label: 'Google Ads',
+        betaSource: true,
         caption: (
             <>
                 Ensure you have granted PostHog access to your Google Ads account as instructed in the
