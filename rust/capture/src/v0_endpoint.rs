@@ -199,19 +199,23 @@ async fn handle_legacy(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
-            // at the moment, the only way this can fail on RequestParsingError is
-            // when an unnamed event (no "event" attrib) is submitted to an
-            // endpoint other than /engage, or the whole payload is malformed
-            error!("event hydration from request failed: {}", e);
-            return Err(e);
+            match &e {
+                CaptureError::RequestHydrationError(rhe) => {
+                    // occurs when an unnamed event (no "event" attrib) is submitted to an
+                    // endpoint other than /engage, or the whole payload is malformed
+                    error!("event hydration from request failed: {}", rhe);
+                    return Err(e);
+                },
+                // if the hydrated event batch is empty we surface it here
+                _ => return Err(e),
+            }
         }
     };
     Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
         warn!("rejected empty batch");
-        let err = CaptureError::EmptyBatch;
-        return Err(err);
+        return Err(CaptureError::EmptyBatch);
     }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
@@ -352,11 +356,16 @@ async fn handle_common(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
-            // at the moment, the only way this can fail on RequestParsingError is
-            // when an unnamed event (no "event" attrib) is submitted to an
-            // endpoint other than /engage, or the whole payload is malformed
-            error!("event hydration from request failed: {}", e);
-            return Err(e);
+            match &e {
+                CaptureError::RequestHydrationError(rhe) => {
+                    // occurs when an unnamed event (no "event" attrib) is submitted to an
+                    // endpoint other than /engage, or the whole payload is malformed
+                    error!("event hydration from request failed: {}", rhe);
+                    return Err(e);
+                },
+                // if the hydrated event batch is empty we surface it here
+                _ => return Err(e),
+            }
         }
     };
     Span::current().record("batch_size", events.len());

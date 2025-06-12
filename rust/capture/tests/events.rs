@@ -47,6 +47,7 @@ async fn it_drops_performance_events() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
+    let dropped_id = random_string("id", 16);
 
     let main_topic = EphemeralTopic::new().await;
     let histo_topic = EphemeralTopic::new().await;
@@ -61,7 +62,7 @@ async fn it_drops_performance_events() -> Result<()> {
     let should_drop = json!({
         "token": token,
         "event": "$performance_event",
-        "distinct_id": distinct_id
+        "distinct_id": dropped_id
     });
     let retained_two = json!({
         "token": token,
@@ -71,8 +72,9 @@ async fn it_drops_performance_events() -> Result<()> {
 
     let res = server.capture_events(retained_one.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
+    // this one will return a 4xx since the batch will be empty post-filtering
     let res = server.capture_events(should_drop.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
     let res = server.capture_events(retained_two.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -81,19 +83,17 @@ async fn it_drops_performance_events() -> Result<()> {
         actual: got,
         expected: json!({
             "token": token,
-            "event": "some_event",
             "distinct_id": distinct_id
         })
     );
 
     // the next event in the topic should be retained_two
-    // since we filter out should_drop
+    // since we filtered out should_drop (w/dropped_id)
     let got = main_topic.next_event()?;
     assert_json_include!(
         actual: got,
         expected: json!({
             "token": token,
-            "event": "some_other_event",
             "distinct_id": distinct_id
         })
     );
