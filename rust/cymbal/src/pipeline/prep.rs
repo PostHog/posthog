@@ -104,7 +104,9 @@ fn transform_event(
     person_mode: PersonMode,
     team: &Team,
 ) -> ClickHouseEvent {
-    if !team.anonymize_ips {
+    if team.anonymize_ips {
+        raw_event.properties.remove("$ip");
+    } else {
         // Fold the ip the event was sent from into the event properties
         raw_event
             .properties
