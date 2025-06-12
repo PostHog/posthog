@@ -14,6 +14,7 @@ from ee.session_recordings.session_summary.utils import load_custom_template, se
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import Team
 from posthog.session_recordings.models.metadata import RecordingMetadata
+from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -53,18 +54,36 @@ class SingleSessionSummaryData:
     sse_error_msg: str | None = None
 
 
-def get_session_data_from_db(
-    session_id: str, team: Team, timer: ServerTimingsGathered, local_reads_prod: bool
+@dataclass(frozen=True, kw_only=True)
+class SingleSessionSummaryLlmInputs:
+    """Data required to LLM-generate a summary for a single session"""
+
+    session_id: str
+    user_pk: int
+    summary_prompt: str
+    system_prompt: str
+    simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
+    simplified_events_columns: list[str]
+    url_mapping_reversed: dict[str, str]
+    window_mapping_reversed: dict[str, str]
+    session_start_time_str: str
+    session_duration: int
+
+
+async def get_session_data_from_db(
+    session_id: str, team_id: int, timer: ServerTimingsGathered, local_reads_prod: bool
 ) -> _SessionSummaryDBData:
+    with timer("get_team"):
+        team = await database_sync_to_async(Team.objects.get)(id=team_id)
     with timer("get_metadata"):
-        session_metadata = get_session_metadata(
+        session_metadata = await database_sync_to_async(get_session_metadata)(
             session_id=session_id,
             team=team,
             local_reads_prod=local_reads_prod,
         )
     try:
         with timer("get_events"):
-            session_events_columns, session_events = get_session_events(
+            session_events_columns, session_events = await database_sync_to_async(get_session_events)(
                 team=team,
                 session_metadata=session_metadata,
                 session_id=session_id,
@@ -165,17 +184,17 @@ def generate_prompt(
     )
 
 
-def prepare_data_for_single_session_summary(
+async def prepare_data_for_single_session_summary(
     session_id: str,
     user_pk: int,
-    team: Team,
+    team_id: int,
     extra_summary_context: ExtraSummaryContext | None,
     local_reads_prod: bool = False,
 ) -> SingleSessionSummaryData:
     timer = ServerTimingsGathered()
-    db_data = get_session_data_from_db(
+    db_data = await get_session_data_from_db(
         session_id=session_id,
-        team=team,
+        team_id=team_id,
         timer=timer,
         local_reads_prod=local_reads_prod,
     )
@@ -207,3 +226,33 @@ def prepare_data_for_single_session_summary(
     # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
     # with timer("openai_completion"):
     # return {"content": session_summary.data, "timings_header": timer.to_header_string()}
+
+
+def prepare_single_session_summary_input(
+    session_id: str,
+    user_pk: int,
+    summary_data: SingleSessionSummaryData,
+) -> SingleSessionSummaryLlmInputs:
+    # Checking here instead of in the preparation function to keep mypy happy
+    if summary_data.prompt_data is None:
+        raise ValueError(f"Prompt data is missing for session_id {session_id}")
+    if summary_data.prompt_data.prompt_data.metadata.start_time is None:
+        raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
+    if summary_data.prompt_data.prompt_data.metadata.duration is None:
+        raise ValueError(f"Session duration is missing in the session metadata for session_id {session_id}")
+    if summary_data.prompt is None:
+        raise ValueError(f"Prompt is missing for session_id {session_id}")
+    # Prepare the input
+    input_data = SingleSessionSummaryLlmInputs(
+        session_id=session_id,
+        user_pk=user_pk,
+        summary_prompt=summary_data.prompt.summary_prompt,
+        system_prompt=summary_data.prompt.system_prompt,
+        simplified_events_mapping=summary_data.prompt_data.simplified_events_mapping,
+        simplified_events_columns=summary_data.prompt_data.prompt_data.columns,
+        url_mapping_reversed=summary_data.prompt_data.url_mapping_reversed,
+        window_mapping_reversed=summary_data.prompt_data.window_mapping_reversed,
+        session_start_time_str=summary_data.prompt_data.prompt_data.metadata.start_time.isoformat(),
+        session_duration=summary_data.prompt_data.prompt_data.metadata.duration,
+    )
+    return input_data
