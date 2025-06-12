@@ -1,20 +1,19 @@
 import { useValues } from 'kea'
 
-import type { InsightVizNode } from '~/queries/schema/schema-general'
-import type { FunnelStep, TrendResult } from '~/types'
-
 import { resultsBreakdownLogic } from './resultsBreakdownLogic'
+import type { ResultBreakdownRenderProps } from './types'
 
 export const ResultsBreakdownContent = ({
     children,
 }: {
-    children?: (query: InsightVizNode, breakdownResults: FunnelStep[] | FunnelStep[][] | TrendResult[]) => JSX.Element
+    children?: (props: ResultBreakdownRenderProps) => JSX.Element | null
 }): JSX.Element | null => {
     const { query, breakdownResults } = useValues(resultsBreakdownLogic)
 
-    if (!query || !breakdownResults) {
-        return null
-    }
-
-    return children && typeof children === 'function' ? children(query, breakdownResults) : null
+    /**
+     * if `children` is a function, we call it with the query and breakdown results,
+     * otherwise we return null.
+     * children can narrow the props type to omit or make it non-nullable.
+     */
+    return children && typeof children === 'function' ? children({ query, breakdownResults }) : null
 }

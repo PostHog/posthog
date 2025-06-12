@@ -68,11 +68,13 @@ export function ChartModal({
                 </>
             ) : (
                 <ResultsBreakdown result={result} experiment={experiment}>
-                    {(query, breakdownResults) => (
+                    {({ query, breakdownResults }) => (
                         <>
-                            <div className="flex justify-end">
-                                <ExploreAsInsightButton query={query} />
-                            </div>
+                            {query && (
+                                <div className="flex justify-end">
+                                    <ExploreAsInsightButton query={query} />
+                                </div>
+                            )}
                             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                                 <div className="items-center inline-flex flex-wrap">
                                     <WinningVariantText result={result} experimentId={experimentId} />
@@ -80,7 +82,9 @@ export function ChartModal({
                                 </div>
                             </LemonBanner>
                             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                            <ResultsQuery query={query} results={breakdownResults} />
+                            {query && breakdownResults && (
+                                <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                            )}
                         </>
                     )}
                 </ResultsBreakdown>

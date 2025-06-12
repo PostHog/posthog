@@ -2,13 +2,16 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
-import type { InsightVizNode } from '~/queries/schema/schema-general'
+import type { ResultBreakdownRenderProps } from './types'
 
-export function ExploreAsInsightButton({ query }: { query: InsightVizNode }): JSX.Element | null {
-    if (!query) {
-        return null
-    }
+/**
+ * make the props non-nullable
+ */
+type SafeResultBreakdownRenderProps = {
+    [K in keyof Pick<ResultBreakdownRenderProps, 'query'>]: NonNullable<ResultBreakdownRenderProps[K]>
+}
 
+export function ExploreAsInsightButton({ query }: SafeResultBreakdownRenderProps): JSX.Element | null {
     return (
         <LemonButton
             className="ml-auto -translate-y-2"

@@ -1,18 +1,25 @@
 import { Query } from '~/queries/Query/Query'
-import type { InsightVizNode } from '~/queries/schema/schema-general'
-import type { FunnelStep, InsightShortId, TrendResult } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import type { InsightShortId } from '~/types'
+
+import type { ResultBreakdownRenderProps } from './types'
+
+/**
+ * make the props non-nullable
+ */
+type SafeResultBreakdownRenderProps = {
+    [K in keyof ResultBreakdownRenderProps]: NonNullable<ResultBreakdownRenderProps[K]>
+}
 
 /**
  * shows a breakdown of the results for ExperimentFunnelsQueryResponse
  */
-export const ResultsQuery = ({
-    query,
-    results,
-}: {
-    query: InsightVizNode
-    results: FunnelStep[] | FunnelStep[][] | TrendResult[]
-}): JSX.Element | null => {
-    if (!query || !results) {
+export const ResultsQuery = ({ query, breakdownResults }: SafeResultBreakdownRenderProps): JSX.Element | null => {
+    /**
+     * bail if the result is from a trends query.
+     * trends queries are not supported yet.
+     */
+    if (query.source.kind === NodeKind.TrendsQuery) {
         return null
     }
 
@@ -27,7 +34,7 @@ export const ResultsQuery = ({
                     cachedInsight: {
                         short_id: fakeInsightId as InsightShortId,
                         query,
-                        result: results,
+                        result: breakdownResults,
                         disable_baseline: true,
                     },
                     doNotLoad: true,
