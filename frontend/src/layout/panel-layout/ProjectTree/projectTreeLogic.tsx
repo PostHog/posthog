@@ -7,6 +7,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { UNFILED_SAVED_QUERIES_PATH } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -436,8 +437,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         projectTree: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
+                // Saved queries is a special type used in queryDatabase
+                const viableFileteredItems = viableItems.filter(
+                    (item) => !item.path.includes(UNFILED_SAVED_QUERIES_PATH)
+                )
+
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: viableFileteredItems.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
