@@ -41,12 +41,12 @@ export const legacyPluginSceneLogic = kea<legacyPluginSceneLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
                     },
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
                     },

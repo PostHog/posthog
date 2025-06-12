@@ -12,8 +12,8 @@ import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/ty
 
 import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
 import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
-import { BatchExportBackfills } from './BatchExportBackfills'
-import { BatchExportRuns } from './BatchExportRuns'
+import { BatchExportBackfills } from '../data-pipelines/batch-exports/BatchExportBackfills'
+import { BatchExportRuns } from '../data-pipelines/batch-exports/BatchExportRuns'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'

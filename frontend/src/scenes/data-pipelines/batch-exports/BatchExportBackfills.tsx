@@ -11,7 +11,7 @@ import { BatchExportBackfill } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportBackfillsLogic, BatchExportBackfillsLogicProps } from './batchExportBackfillsLogic'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })

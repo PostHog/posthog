@@ -9,7 +9,7 @@ import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
-import { batchExportConfigurationLogic } from '../data-pipelines/batch-exports/batchExportConfigurationLogic'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 
 export interface BatchExportBackfillsLogicProps {
     id: string

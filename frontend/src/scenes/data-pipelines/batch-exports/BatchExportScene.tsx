@@ -1,8 +1,8 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { BatchExportBackfills } from 'scenes/pipeline/BatchExportBackfills'
-import { BatchExportRuns } from 'scenes/pipeline/BatchExportRuns'
+import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
+import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -39,12 +39,12 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
                     },
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
                     },

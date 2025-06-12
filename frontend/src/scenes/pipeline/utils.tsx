@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
-    BatchExportRun,
     LogEntryLevel,
     PipelineNodeTab,
     PipelineStage,
@@ -297,8 +296,4 @@ export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: b
         return false
     }
     return true
-}
-
-export function isRunInProgress(run: BatchExportRun): boolean {
-    return ['Running', 'Starting'].includes(run.status)
 }
