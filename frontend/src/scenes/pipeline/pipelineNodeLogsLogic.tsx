@@ -49,9 +49,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     if (values.node.backend === PipelineBackend.BatchExport) {
                         const res = await api.batchExports.logs(values.node.id, logParams)
                         results = res.results
-                    } else if (values.node.backend === PipelineBackend.HogFunction) {
-                        const res = await api.hogFunctions.logs(values.node.id, logParams)
-                        results = res.results
                     } else {
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                     }
@@ -73,9 +70,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     }
                     if (values.node.backend === PipelineBackend.BatchExport) {
                         const res = await api.batchExports.logs(values.node.id, logParams)
-                        results = res.results
-                    } else if (values.node.backend === PipelineBackend.HogFunction) {
-                        const res = await api.hogFunctions.logs(values.node.id, logParams)
                         results = res.results
                     } else {
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
@@ -114,9 +108,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
 
                     if (values.node.backend === PipelineBackend.BatchExport) {
                         const res = await api.batchExports.logs(values.node.id, logParams)
-                        results = res.results
-                    } else if (values.node.backend === PipelineBackend.HogFunction) {
-                        const res = await api.hogFunctions.logs(values.node.id, logParams)
                         results = res.results
                     } else {
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
@@ -199,12 +190,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     },
                     {
                         width: 0,
-                        title:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'Invocation'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'Run Id'
-                                : 'Source',
+                        title: node.backend == PipelineBackend.BatchExport ? 'Run Id' : 'Source',
                         dataIndex: 'instance_id',
                         key: 'instance_id',
                         render: (instanceId: string) => (

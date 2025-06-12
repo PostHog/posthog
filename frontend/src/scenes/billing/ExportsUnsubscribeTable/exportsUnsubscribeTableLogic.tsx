@@ -29,8 +29,8 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect(() => ({
         // TODO: BEN FIX THIS
-        values: [userLogic, ['user'], pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['paidHogFunctions']],
-        actions: [pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
+        values: [userLogic, ['user']],
+        // actions: [pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
     })),
 
     actions({

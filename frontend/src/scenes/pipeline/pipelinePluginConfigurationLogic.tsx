@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
+import { PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -16,7 +16,6 @@ import {
     getPluginConfigFormData,
 } from './configUtils'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
-import { pipelineTransformationsLogic } from './transformationsLogic'
 import { loadPluginsFromUrl } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
@@ -54,14 +53,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            pipelineTransformationsLogic,
-            ['plugins as transformationPlugins', 'nextAvailableOrder'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -113,17 +105,13 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
                     // it doesn't matter for other stages so we can use any value
-                    const orderFixed =
-                        enabled && values.pluginConfig && !values.pluginConfig.enabled
-                            ? values.nextAvailableOrder
-                            : order || 0
-                    formData.append('order', orderFixed)
+                    formData.append('order', '0')
                     if (props.pluginConfigId) {
                         return await api.pluginConfigs.update(props.pluginConfigId, formData)
                     }
                     formData.append('plugin', values.plugin.id.toString())
                     const res = await api.pluginConfigs.create(formData)
-                    router.actions.replace(urls.pipelineNode(props.stage, res.id, PipelineNodeTab.Configuration))
+                    router.actions.replace(urls.legacyPlugin(res.id.toString()))
                     return res
                 },
 
@@ -133,14 +121,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     }
                     const hogFunction = await api.pluginConfigs.migrate(props.pluginConfigId)
 
-                    router.actions.replace(urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`))
+                    router.actions.replace(urls.hogFunction(hogFunction.id))
 
                     return values.pluginConfig
                 },
             },
         ],
     })),
-    listeners(({ props, actions, values }) => ({
+    listeners(({ actions, values }) => ({
         updatePluginConfigSuccess: ({ pluginConfig }) => {
             if (!pluginConfig) {
                 return

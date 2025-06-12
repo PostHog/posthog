@@ -22,12 +22,8 @@ type BatchExportNodeId = {
     backend: PipelineBackend.BatchExport
     id: string
 }
-type HogFunctionNodeId = {
-    backend: PipelineBackend.HogFunction
-    id: string
-}
 
-export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -60,16 +56,12 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     })),
     selectors(() => ({
         breadcrumbs: [
-            (s, p) => [p.id, p.stage, s.breadcrumbTitle],
-            (id, stage, breadcrumbTitle): Breadcrumb[] => [
+            (s, p) => [p.id, s.breadcrumbTitle],
+            (id, breadcrumbTitle): Breadcrumb[] => [
                 {
                     key: Scene.DataPipelines,
                     name: 'Data pipeline',
                     path: urls.dataPipelines('overview'),
-                },
-                {
-                    key: stage || 'unknown',
-                    path: urls.dataPipelines('destinations'),
                 },
                 {
                     key: [Scene.LegacyPlugin, id],
