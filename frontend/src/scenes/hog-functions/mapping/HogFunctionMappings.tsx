@@ -140,6 +140,7 @@ export function HogFunctionMapping({
                         setConfigurationValue={(key, value) => {
                             onChange({ ...mapping, [key]: value })
                         }}
+                        showSource={showSource}
                     />
                 </Group>
                 {showSource ? (
