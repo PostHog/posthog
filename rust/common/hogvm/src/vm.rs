@@ -12,7 +12,7 @@ use crate::{
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
-const MAX_JSON_SERDE_DEPTH: usize = 64;
+pub const MAX_JSON_SERDE_DEPTH: usize = 64;
 
 /// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
