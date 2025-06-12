@@ -37,13 +37,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_target_entity
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import (
-    INSIGHT_FUNNELS,
-    INSIGHT_LIFECYCLE,
-    INSIGHT_STICKINESS,
-    INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
     PropertyOperatorType,
@@ -56,26 +51,19 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import (
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.queries.actor_base_query import (
-    ActorBaseQuery,
     get_serialized_people,
 )
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.stickiness import StickinessActors
-from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
-    insert_cohort_from_insight_filter,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_query,
 )
@@ -229,12 +217,9 @@ class CohortSerializer(serializers.ModelSerializer):
         elif validated_data.get("query"):
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
         else:
-            filter_data = request.GET.dict()
-            existing_cohort_id = context.get("from_cohort_id")
-            if existing_cohort_id:
-                filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
-            if filter_data:
-                insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
+            raise ValidationError(
+                "Missing required data to create a static cohort. Provide a CSV file, query, or feature flag key."
+            )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -744,65 +729,6 @@ def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
     context = HogQLContext(enable_select_queries=True, team_id=team.id)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
-
-
-def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: int):
-    from_existing_cohort_id = filter_data.get("from_cohort_id")
-    context: HogQLContext
-
-    if from_existing_cohort_id:
-        existing_cohort = Cohort.objects.get(pk=from_existing_cohort_id)
-        query = """
-            SELECT DISTINCT person_id as actor_id
-            FROM cohortpeople
-            WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
-            ORDER BY person_id
-        """
-        params = {
-            "team_id": team_id,
-            "from_cohort_id": existing_cohort.pk,
-            "version": existing_cohort.version,
-        }
-        context = Filter(data=filter_data, team=cohort.team).hogql_context
-    else:
-        insight_type = filter_data.get("insight")
-        query_builder: ActorBaseQuery
-
-        if insight_type == INSIGHT_TRENDS:
-            filter = Filter(data=filter_data, team=cohort.team)
-            entity = get_target_entity(filter)
-            query_builder = TrendsActors(cohort.team, entity, filter)
-            context = filter.hogql_context
-        elif insight_type == INSIGHT_STICKINESS:
-            stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
-            entity = get_target_entity(stickiness_filter)
-            query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
-            context = stickiness_filter.hogql_context
-        elif insight_type == INSIGHT_FUNNELS:
-            funnel_filter = Filter(data=filter_data, team=cohort.team)
-            funnel_actor_class = get_funnel_actor_class(funnel_filter)
-            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
-            context = funnel_filter.hogql_context
-        elif insight_type == INSIGHT_LIFECYCLE:
-            lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
-            query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
-            context = lifecycle_filter.hogql_context
-
-        else:
-            if settings.DEBUG:
-                raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
-            else:
-                capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
-
-        if query_builder.is_aggregating_by_groups:
-            if settings.DEBUG:
-                raise ValueError(f"Query type: Group based queries are not supported for cohort creation")
-            else:
-                capture_exception(Exception(f"Query type: Group based queries are not supported for cohort creation"))
-        else:
-            query, params = query_builder.actor_query(limit_actors=False)
-
-    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team_id)
 
 
 def insert_actors_into_cohort_by_query(
