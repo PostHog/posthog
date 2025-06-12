@@ -121,8 +121,16 @@ impl<'a> HogVM<'a> {
                     self.push_stack(val)?;
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
-                } else {
+                } else if let Some(_) = get_json_nested(&self.context.globals, &chain[..1], self)? {
+                    // If the first element of the chain is a global, push null onto the stack, e.g.
+                    // if a program is looking for "properties.blah", and "properties" exists, but
+                    // "blah" doesn't, push null onto the stack.
                     self.push_stack(HogLiteral::Null)?;
+                } else {
+                    // But if the first element in the chain didn't exist, this is an error (the mental model here
+                    // comes from SQL, where a missing column is an error, but a missing field in a column is, or
+                    // at least can be, treated as a null value).
+                    return Err(VmError::UnknownGlobal(format!("{:?}", chain)));
                 }
             }
             // We don't implement DeclareFn, because it's not used in the current compiler - it uses
