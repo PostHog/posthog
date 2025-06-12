@@ -196,7 +196,7 @@ async fn handle_legacy(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let events = match request.events(path.as_str()) {
+    let mut events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
             // at the moment, the only way this can fail on RequestParsingError is
