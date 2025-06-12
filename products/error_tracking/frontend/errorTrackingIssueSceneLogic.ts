@@ -120,9 +120,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         withAggregations: false,
                         withFirstEvent: true,
                     }),
-                    {},
-                    undefined,
-                    'blocking'
+                    { refresh: 'blocking' }
                 )
                 const issue = response.results[0]
                 if (!issue.first_event) {
@@ -154,9 +152,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         withAggregations: true,
                         withFirstEvent: false,
                     }),
-                    {},
-                    undefined,
-                    'blocking'
+                    { refresh: 'blocking' }
                 )
                 if (!response.results.length) {
                     return null

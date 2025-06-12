@@ -127,6 +127,11 @@ class AssistantFunnelsBreakdownType(StrEnum):
     SESSION = "session"
 
 
+class FunnelAggregateByHogQL(Enum):
+    PROPERTIES__SESSION_ID = "properties.$session_id"
+    NONE_TYPE_NONE = None
+
+
 class AssistantFunnelsMath(StrEnum):
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
@@ -1976,7 +1981,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
-    LOGS = "logs"
+    LOG_ATTRIBUTES = "log_attributes"
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
@@ -2289,8 +2294,8 @@ class AssistantFunnelsFilter(BaseModel):
             " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
         ),
     )
-    funnelAggregateByHogQL: Literal["properties.$session_id"] = Field(
-        default="properties.$session_id",
+    funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
+        default=None,
         description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
     )
     funnelOrderType: Optional[StepOrderValue] = Field(
@@ -3006,6 +3011,7 @@ class HogQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[HogQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DayItem(BaseModel):
@@ -3445,6 +3451,7 @@ class SavedInsightNode(BaseModel):
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     suppressSessionAnalysisWarning: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
@@ -3600,6 +3607,7 @@ class SuggestedQuestionsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[SuggestedQuestionsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TableSettings(BaseModel):
@@ -4052,6 +4060,7 @@ class AssistantFunnelsActionsNode(BaseModel):
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantFunnelsEventsNode(BaseModel):
@@ -4090,6 +4099,7 @@ class AssistantFunnelsEventsNode(BaseModel):
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantFunnelsQuery(BaseModel):
@@ -4099,8 +4109,8 @@ class AssistantFunnelsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(
         default=None,
         description=(
-            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
-            " provided."
+            "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT"
+            " users or sessions."
         ),
     )
     breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
@@ -4225,13 +4235,6 @@ class AssistantRetentionFilter(BaseModel):
     returningEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
         ..., description="Retention event (event marking the user coming back)."
     )
-    showMean: Optional[bool] = Field(
-        default=None,
-        description=(
-            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
-            " across cohorts."
-        ),
-    )
     targetEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
         ..., description="Activation event (event putting the actor into the initial cohort)."
     )
@@ -4321,6 +4324,7 @@ class AssistantTrendsActionsNode(BaseModel):
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantTrendsEventsNode(BaseModel):
@@ -4365,6 +4369,7 @@ class AssistantTrendsEventsNode(BaseModel):
             ]
         ]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantTrendsQuery(BaseModel):
@@ -6196,6 +6201,7 @@ class InsightActorsQueryBase(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ActorsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class LifecycleQueryResponse(BaseModel):
@@ -7373,6 +7379,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
@@ -7386,6 +7393,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -7399,6 +7407,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -7412,6 +7421,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsConfig(BaseModel):
@@ -7433,6 +7443,7 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsInsightsQuery(BaseModel):
@@ -7448,6 +7459,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsOverviewQuery(BaseModel):
@@ -7461,6 +7473,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -7475,6 +7488,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):
@@ -7488,6 +7502,7 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueExampleEventsQuery(BaseModel):
@@ -7501,6 +7516,7 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class Filters(BaseModel):
@@ -7524,6 +7540,7 @@ class SessionAttributionExplorerQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[SessionAttributionExplorerQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class SessionsTimelineQuery(BaseModel):
@@ -7542,6 +7559,7 @@ class SessionsTimelineQuery(BaseModel):
     )
     personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TeamTaxonomyQueryResponse(BaseModel):
@@ -7619,6 +7637,7 @@ class WebExternalClicksTableQuery(BaseModel):
     sampling: Optional[Sampling] = None
     stripQueryParams: Optional[bool] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebGoalsQuery(BaseModel):
@@ -7641,6 +7660,7 @@ class WebGoalsQuery(BaseModel):
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebOverviewQuery(BaseModel):
@@ -7662,6 +7682,7 @@ class WebOverviewQuery(BaseModel):
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebPageURLSearchQuery(BaseModel):
@@ -7686,6 +7707,7 @@ class WebPageURLSearchQuery(BaseModel):
     searchTerm: Optional[str] = None
     stripQueryParams: Optional[bool] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebStatsTableQuery(BaseModel):
@@ -7711,6 +7733,7 @@ class WebStatsTableQuery(BaseModel):
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsItem(BaseModel):
@@ -7776,6 +7799,7 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     )
     property: str
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AnyResponseType(
@@ -8174,6 +8198,7 @@ class DataWarehouseNode(BaseModel):
     response: Optional[dict[str, Any]] = None
     table_name: str
     timestamp_field: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class EntityNode(BaseModel):
@@ -8250,6 +8275,7 @@ class EntityNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class EventTaxonomyQuery(BaseModel):
@@ -8265,6 +8291,7 @@ class EventTaxonomyQuery(BaseModel):
     )
     properties: Optional[list[str]] = None
     response: Optional[EventTaxonomyQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class EventsNode(BaseModel):
@@ -8344,6 +8371,7 @@ class EventsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentDataWarehouseNode(BaseModel):
@@ -8424,6 +8452,7 @@ class ExperimentDataWarehouseNode(BaseModel):
     response: Optional[dict[str, Any]] = None
     table_name: str
     timestamp_field: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentEventExposureConfig(BaseModel):
@@ -8479,6 +8508,7 @@ class ExperimentExposureQuery(BaseModel):
     )
     response: Optional[ExperimentExposureQueryResponse] = None
     start_date: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -8558,6 +8588,7 @@ class FunnelExclusionActionsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelExclusionEventsNode(BaseModel):
@@ -8639,6 +8670,7 @@ class FunnelExclusionEventsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class GroupsQuery(BaseModel):
@@ -8657,6 +8689,7 @@ class GroupsQuery(BaseModel):
     response: Optional[GroupsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HeatMapQuerySource(RootModel[EventsNode]):
@@ -8713,6 +8746,7 @@ class HogQLQuery(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightActorsQueryOptionsResponse(BaseModel):
@@ -8799,6 +8833,7 @@ class PersonsNode(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
     search: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -8922,6 +8957,7 @@ class RecordingsQuery(BaseModel):
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
     user_modified_filters: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RetentionEntity(BaseModel):
@@ -8975,7 +9011,6 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
-    showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
@@ -9045,6 +9080,7 @@ class TeamTaxonomyQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[TeamTaxonomyQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TracesQuery(BaseModel):
@@ -9085,6 +9121,7 @@ class TracesQuery(BaseModel):
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
     traceId: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class VectorSearchQuery(BaseModel):
@@ -9098,6 +9135,7 @@ class VectorSearchQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[VectorSearchQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
@@ -9122,6 +9160,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     sampling: Optional[Sampling] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ActionFilter(BaseModel):
@@ -9240,6 +9279,7 @@ class ActionsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DataVisualizationNode(BaseModel):
@@ -9251,6 +9291,7 @@ class DataVisualizationNode(BaseModel):
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
     tableSettings: Optional[TableSettings] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DatabaseSchemaManagedViewTable(BaseModel):
@@ -9346,6 +9387,7 @@ class HogQLASTQuery(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightFilter(
@@ -9452,6 +9494,7 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class StickinessQuery(BaseModel):
@@ -9509,6 +9552,7 @@ class StickinessQuery(BaseModel):
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TrendsQuery(BaseModel):
@@ -9566,6 +9610,7 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class CachedExperimentTrendsQueryResponse(BaseModel):
@@ -9652,6 +9697,7 @@ class CalendarHeatmapQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class Response18(BaseModel):
@@ -9691,6 +9737,7 @@ class ErrorTrackingQuery(BaseModel):
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: Optional[bool] = None
     withFirstEvent: Optional[bool] = None
@@ -9829,6 +9876,7 @@ class FunnelsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
@@ -9873,6 +9921,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[CalendarHeatmapResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
@@ -9917,6 +9966,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[FunnelsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
@@ -9961,6 +10011,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBasePathsQueryResponse(BaseModel):
@@ -10005,6 +10056,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseRetentionQueryResponse(BaseModel):
@@ -10049,6 +10101,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightsQueryBaseTrendsQueryResponse(BaseModel):
@@ -10093,6 +10146,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class LegacyExperimentQueryResponse(BaseModel):
@@ -10163,6 +10217,7 @@ class LifecycleQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class LogsQuery(BaseModel):
@@ -10178,10 +10233,11 @@ class LogsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[OrderBy1] = None
-    resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
+    serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -10575,6 +10631,7 @@ class ExperimentQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentTrendsQuery(BaseModel):
@@ -10590,6 +10647,7 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelPathsFilter(BaseModel):
@@ -10637,6 +10695,7 @@ class FunnelsActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class PathsQuery(BaseModel):
@@ -10685,6 +10744,7 @@ class PathsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -10696,6 +10756,7 @@ class DatabaseSchemaQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[DatabaseSchemaQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentFunnelsQuery(BaseModel):
@@ -10710,6 +10771,7 @@ class ExperimentFunnelsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelCorrelationQuery(BaseModel):
@@ -10725,6 +10787,7 @@ class FunnelCorrelationQuery(BaseModel):
     kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightVizNode(BaseModel):
@@ -10749,6 +10812,7 @@ class InsightVizNode(BaseModel):
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
     suppressSessionAnalysisWarning: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
@@ -10774,6 +10838,7 @@ class StickinessActorsQuery(BaseModel):
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
     status: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsQuery(BaseModel):
@@ -10798,6 +10863,7 @@ class WebVitalsQuery(BaseModel):
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
     useSessionsTable: Optional[bool] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -10836,6 +10902,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightActorsQuery(BaseModel):
@@ -10859,6 +10926,7 @@ class InsightActorsQuery(BaseModel):
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
     status: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class InsightActorsQueryOptions(BaseModel):
@@ -10868,6 +10936,7 @@ class InsightActorsQueryOptions(BaseModel):
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
     source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ActorsQuery(BaseModel):
@@ -10908,6 +10977,7 @@ class ActorsQuery(BaseModel):
     source: Optional[
         Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, HogQLQuery]
     ] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class EventsQuery(BaseModel):
@@ -10983,6 +11053,7 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
@@ -11086,6 +11157,7 @@ class DataTableNode(BaseModel):
         ExperimentTrendsQuery,
         TracesQuery,
     ] = Field(..., description="Source of the events")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HogQLAutocomplete(BaseModel):
@@ -11142,6 +11214,7 @@ class HogQLAutocomplete(BaseModel):
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class HogQLMetadata(BaseModel):
@@ -11205,6 +11278,7 @@ class HogQLMetadata(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be subsituted into the query"
     )
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class QueryRequest(BaseModel):
