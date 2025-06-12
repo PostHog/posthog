@@ -184,8 +184,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
         if not template:
             with push_scope() as scope:
-                scope.set_extra("team_id", getattr(team, "id", None))
-                scope.set_extra("template_id", data.get("template_id"))
+                scope.set_tag("team_id", getattr(team, "id", None))
+                scope.set_tag("template_id", data.get("template_id"))
                 scope.set_tag("function_id", instance.id if instance else None)
                 capture_exception(Exception(f"No template found for id '{data['template_id']}'"))
 
