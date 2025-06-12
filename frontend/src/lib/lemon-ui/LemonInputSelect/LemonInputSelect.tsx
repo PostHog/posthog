@@ -9,7 +9,7 @@ import { MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonPropsBase, SideAction } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
@@ -23,6 +23,8 @@ export interface LemonInputSelectOption {
     /** @internal */
     __isInput?: boolean
 }
+
+export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
 export type LemonInputSelectProps = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
@@ -51,6 +53,7 @@ export type LemonInputSelectProps = Pick<
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
     bulkActions?: 'clear-all' | 'select-and-clear-all'
+    action?: LemonInputSelectAction
 }
 
 export function LemonInputSelect({
@@ -78,6 +81,7 @@ export function LemonInputSelect({
     fullWidth = false,
     displayMode = 'snacks',
     bulkActions,
+    action,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -443,6 +447,19 @@ export function LemonInputSelect({
                                 onClick={() => onChange?.([])}
                             >
                                 Clear all
+                            </LemonButton>
+                        </div>
+                    )}
+
+                    {action && (
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                            <LemonButton
+                                size="small"
+                                className="flex-1"
+                                disabledReason={action?.disabledReason}
+                                onClick={action?.onClick}
+                            >
+                                {action?.children}
                             </LemonButton>
                         </div>
                     )}
