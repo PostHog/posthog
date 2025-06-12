@@ -5,7 +5,7 @@ import EarlyAccessFeatureImage from 'public/early-access-feature-demo.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagType, PipelineStage, Region } from '~/types'
+import { FeatureFlagType } from '~/types'
 
 interface InstructionsModalProps {
     flag: FeatureFlagType['key']
@@ -28,9 +28,8 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
                         <div>
                             Give your users a{' '}
                             <Link
-                                to={urls.pipelineNodeNew(PipelineStage.SiteApp, {
-                                    id: preflight?.region === Region.EU ? 332 : 574,
-                                })}
+                                // TODO: Ben double check this is correct
+                                to={urls.hogFunctionNew('template-early-access-features')}
                             >
                                 prebuilt widget
                             </Link>{' '}

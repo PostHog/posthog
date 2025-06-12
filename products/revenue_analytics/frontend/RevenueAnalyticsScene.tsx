@@ -158,7 +158,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                             sideIcon={<IconDatabase />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                                router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                             }}
                             data-attr="create-revenue-source"
                         >
