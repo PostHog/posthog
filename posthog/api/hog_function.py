@@ -434,14 +434,14 @@ class HogFunctionViewSet(
                     final_filter_groups.append(filter_group)
 
             except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"filter_groups": f"Invalid filter_groups"})
+                raise exceptions.ValidationError({"filter_groups": "Invalid filter_groups"})
 
         if self.request.GET.get("filters"):
             try:
                 filters = json.loads(self.request.GET["filters"])
                 final_filter_groups.append(filters)
             except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"filters": f"Invalid filters"})
+                raise exceptions.ValidationError({"filters": "Invalid filters"})
 
         if final_filter_groups:
             from django.db.models import Q
