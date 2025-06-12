@@ -73,7 +73,9 @@ export function FolderSelect({
 
     useEffect(() => {
         if (inputRef.current) {
-            inputRef.current.focus()
+            setTimeout(() => {
+                inputRef.current?.focus()
+            }, 50)
         }
     }, [])
 
