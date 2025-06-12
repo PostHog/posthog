@@ -37,5 +37,6 @@ class Command(BaseCommand):
                 RoleMembership.objects.bulk_create(memberships)
 
                 # update references in error tracking models from user_group_id to role_id
-                for model in [ErrorTrackingIssueAssignment, ErrorTrackingAssignmentRule, ErrorTrackingGroupingRule]:
-                    model.objects.filter(user_group=user_group).update(role=role, user_group=None)
+                ErrorTrackingIssueAssignment.objects.filter(user_group=user_group).update(role=role, user_group=None)
+                ErrorTrackingAssignmentRule.objects.filter(user_group=user_group).update(role=role, user_group=None)
+                ErrorTrackingGroupingRule.objects.filter(user_group=user_group).update(role=role, user_group=None)

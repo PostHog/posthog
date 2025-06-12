@@ -34,16 +34,13 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         # creates role
         assert Role.objects.count() == 1
         role = Role.objects.first()
+        assert role is not None
         assert role.name == user_group.name
 
         # updates member
         assert len(role.members.all()) == 1
         member = role.members.first()
-        assert member == self.user
-
-        # updates member
-        assert len(role.members.all()) == 1
-        member = role.members.first()
+        assert member is not None
         assert member == self.user
 
         # update error tracking rules
