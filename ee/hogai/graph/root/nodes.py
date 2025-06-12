@@ -16,6 +16,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 import products
@@ -62,7 +63,19 @@ for module_info in pkgutil.iter_modules(products.__path__):
     except ModuleNotFoundError:
         pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
+
+# Map query kinds to their respective full UI query classes
+# NOTE: Update this when adding new query types
+MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery]] = {
+    "TrendsQuery": TrendsQuery,
+    "FunnelsQuery": FunnelsQuery,
+    "RetentionQuery": RetentionQuery,
+    "HogQLQuery": HogQLQuery,
+}
+
+
 RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding"]
+
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -172,7 +185,7 @@ class RootNodeUIContextMixin(AssistantNode):
         filters_override: Optional[dict] = None,
         variables_override: Optional[dict] = None,
         heading: Optional[str] = None,
-    ) -> str:
+    ) -> str | None:
         """
         Run and format a single insight for AI consumption.
 
@@ -184,22 +197,13 @@ class RootNodeUIContextMixin(AssistantNode):
         Returns:
             Formatted insight string or empty string if failed
         """
-        # Map query kinds to their respective full UI query classes
-        # NOTE: Update this when adding new query types
-        query_class_map: dict[str, type[BaseModel]] = {
-            "TrendsQuery": TrendsQuery,
-            "FunnelsQuery": FunnelsQuery,
-            "RetentionQuery": RetentionQuery,
-            "HogQLQuery": HogQLQuery,
-        }
-
         try:
             query_dict = insight.query.model_dump(mode="json")
             query_kind = getattr(insight.query, "kind", None)
             serialized_query = insight.query.model_dump_json(exclude_none=True)
 
-            if not query_kind or query_kind not in query_class_map:
-                return ""  # Skip unsupported query types
+            if not query_kind or query_kind not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+                return None  # Skip unsupported query types
 
             query_obj = insight.query
 
@@ -211,8 +215,8 @@ class RootNodeUIContextMixin(AssistantNode):
                 if variables_override:
                     query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
 
-                query_class = query_class_map[query_kind]
-                query_obj = query_class.model_validate(query_dict)
+                QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
+                query_obj = QueryModel.model_validate(query_dict)
 
             raw_results = query_runner.run_query_raw(query_obj)
 
@@ -231,7 +235,8 @@ class RootNodeUIContextMixin(AssistantNode):
 
         except Exception:
             # Skip insights that fail to run
-            return ""
+            capture_exception()
+            return None
 
     def _render_user_context_template(self, dashboard_context: str, insights_context: str) -> str:
         """Render the user context template with the provided context strings."""
