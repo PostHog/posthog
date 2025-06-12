@@ -57,19 +57,19 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
                 groupArray((timestamp, level, message))
             ) AS messages
         FROM log_entries
-        WHERE log_source = '${request.sourceType}'
-        AND log_source_id = '${request.sourceId}'
+        WHERE log_source = ${request.sourceType}
+        AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
         AND instance_id in (
             SELECT DISTINCT instance_id
             FROM log_entries
             WHERE log_source = 'hog_function'
-            AND log_source_id = '${request.sourceId}'
+            AND log_source_id = ${request.sourceId}
             AND timestamp > {filters.dateRange.from}
             AND timestamp < {filters.dateRange.to}
-            AND lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
-            AND message ILIKE '%${request.search}%'
+            AND lower(level) IN ${request.levels.map((level) => `${level.toLowerCase()}`)}
+            AND message ILIKE ${`%${request.search}%`}
             ORDER BY timestamp ${request.order}
             LIMIT ${LOG_VIEWER_LIMIT}
         )

@@ -602,7 +602,7 @@ function formatHogQlValue(value: any): string {
     const { teamLogic } = require('scenes/teamLogic')
 
     if (Array.isArray(value)) {
-        return `[${value.map(formatHogQlValue).join(', ')}]`
+        return `(${value.map(formatHogQlValue).join(', ')})`
     } else if (dayjs.isDayjs(value)) {
         return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
     } else if (isHogQlIdentifier(value)) {
