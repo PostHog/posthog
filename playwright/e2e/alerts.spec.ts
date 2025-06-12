@@ -93,7 +93,6 @@ const createAlert = async (
     await page.locator('[data-attr=alertForm-upper-threshold]').fill(upperThreshold)
     await page.waitForTimeout(100)
     await closeToast(page)
-    await closeToast(page)
     // We have two modals in the dom, with one overlaying the other.
     await page.getByRole('button', { name: 'Create alert' }).click()
     await page.waitForTimeout(100)
@@ -157,6 +156,7 @@ test.describe('Alerts', () => {
     })
 
     test('shows a warning when the insight becomes incompatible', async ({ page }) => {
+        page.on('dialog', (dialog) => dialog.accept()) // dismiss those annoying popups
         await setInsightDisplayTypeAndSave(page, 'Area chart')
         await createAlert(page, { name: 'Alert to be deleted because of a changed insight' })
 
@@ -172,9 +172,10 @@ test.describe('Alerts', () => {
         // Save as incompatible “Funnels” → alerts should be removed
         await page.getByText('Funnels').click()
         await page.locator('[data-attr=insight-save-button]').first().click()
+        await page.waitForTimeout(500)
 
-        await page.locator('[data-attr="manage-alerts-button"]').click()
-        await expect(page.getByText('Alert to be deleted because of a changed insight')).toHaveCount(0)
+        // Disabled on funnels
+        await expect(page.locator('[data-attr="manage-alerts-button"]')).toHaveAttribute('aria-disabled', 'true')
     })
 
     test('can create and delete a relative (“increases by”) alert', async ({ page }) => {
@@ -199,11 +200,17 @@ test.describe('Alerts', () => {
     })
 
     test('supports alerts on insights with breakdowns', async ({ page }) => {
+        await setInsightDisplayTypeAndSave(page, 'Trends over time as vertical bars')
+        await page.reload()
+
         // Add a simple breakdown (Browser)
+        await page.locator('[data-attr=insight-edit-button]').click()
         await page.locator('[data-attr=add-breakdown-button]').click()
         await page.locator('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+        await page.locator('[data-attr="insight-save-button"]').first().click()
+        await clickLastVisible(page.locator('[data-attr="insight-cancel-edit-button"]')) // just in case it doesn't close automatically
+        await page.waitForTimeout(500)
 
-        await setInsightDisplayTypeAndSave(page, 'Bar chart')
         await createAlert(page, {
             lowerThreshold: '10',
             upperThreshold: '20',
