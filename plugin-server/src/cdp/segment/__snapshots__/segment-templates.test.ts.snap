@@ -4574,7 +4574,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
   "description": "Send event data to Angler AI",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=angler.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=getangler.ai",
   "id": "segment-angler-ai",
   "inputs_schema": [
     {
@@ -8822,7 +8822,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
   "description": "Send event data to Canvas",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=canvas.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=supernova.ai",
   "id": "segment-canvas",
   "inputs_schema": [
     {
@@ -9593,7 +9593,7 @@ exports[`segment templates template segment-cloud-gwen matches expected result 1
   "description": "Send event data to GWEN",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=cloud.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gwenplatform.com",
   "id": "segment-cloud-gwen",
   "inputs_schema": [
     {
@@ -9964,7 +9964,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
   "description": "Send event data to Encharge",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=cloud.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=encharge.io",
   "id": "segment-encharge-cloud-actions",
   "inputs_schema": [
     {
@@ -10709,7 +10709,7 @@ exports[`segment templates template segment-equals matches expected result 1`] =
             "order": 0,
             "properties": [
               {
-                "key": "type = track or type = page or type = screen or type = identify or type = group",
+                "key": "event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify') or event = '$pageview' or event = '$screen' or event in ('$identify', '$set') or event = '$groupidentify'",
                 "type": "hogql",
                 "value": null,
               },
@@ -11179,7 +11179,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
   "description": "Send event data to Gameball",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gameball.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gameball.co",
   "id": "segment-gameball",
   "inputs_schema": [
     {
@@ -11771,7 +11771,7 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
   "description": "Send event data to Heap Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=heap.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=heap.io",
   "id": "segment-heap-cloud",
   "inputs_schema": [
     {
@@ -12394,7 +12394,7 @@ exports[`segment templates template segment-hyperengage matches expected result 
   "description": "Send event data to Hyperengage",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=hyperengage.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=hyperengage.io",
   "id": "segment-hyperengage",
   "inputs_schema": [
     {
@@ -13124,7 +13124,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
   "description": "Send event data to Inleads AI",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=ai.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=inleads.ai",
   "id": "segment-inleads-ai",
   "inputs_schema": [
     {
@@ -16640,7 +16640,7 @@ exports[`segment templates template segment-metronome-actions matches expected r
   "description": "Send event data to Metronome",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=actions.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=metronome.com",
   "id": "segment-metronome-actions",
   "inputs_schema": [
     {
@@ -20680,7 +20680,7 @@ exports[`segment templates template segment-movable-ink matches expected result 
   "description": "Send event data to Movable Ink",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=movable.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=movableink.com",
   "id": "segment-movable-ink",
   "inputs_schema": [
     {
@@ -21722,7 +21722,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
   "description": "Send event data to Outfunnel",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=undefined.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=outfunnel.com",
   "id": "segment-outfunnel",
   "inputs_schema": [
     {
@@ -24805,7 +24805,7 @@ exports[`segment templates template segment-playerzero-cloud matches expected re
   "description": "Send event data to PlayerZero Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=playerzero.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=playerzero.ai",
   "id": "segment-playerzero-cloud",
   "inputs_schema": [
     {
@@ -27219,7 +27219,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
   "description": "Send event data to RevX Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=revx.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=revx.io",
   "id": "segment-revx",
   "inputs_schema": [
     {
@@ -28038,7 +28038,7 @@ exports[`segment templates template segment-saleswings matches expected result 1
   "description": "Send event data to Saleswings",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=saleswings.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=saleswingsapp.com",
   "id": "segment-saleswings",
   "inputs_schema": [
     {
@@ -28547,7 +28547,7 @@ exports[`segment templates template segment-schematic matches expected result 1`
   "description": "Send event data to Schematic",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=schematic.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=schematichq.com",
   "id": "segment-schematic",
   "inputs_schema": [
     {
@@ -29222,256 +29222,6 @@ exports[`segment templates template segment-taboola-actions matches expected res
   ],
   "mapping_templates": [],
   "name": "Taboola",
-  "status": "hidden",
-  "type": "destination",
-}
-`;
-
-exports[`segment templates template segment-toplyne-cloud matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Toplyne Cloud Mode",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=toplyne.com",
-  "id": "segment-toplyne-cloud",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "Your Toplyne API Key",
-      "key": "apiKey",
-      "label": "API Key",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event in ('$identify', '$set')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.id}",
-          "description": "The ID of the user to send properties for. Required if anonymousId is not provided",
-          "key": "userId",
-          "label": "User ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.distinct_id}",
-          "description": "The anonymous ID of the user to send properties for. Required if userId is not provided",
-          "key": "anonymousId",
-          "label": "Anonymous ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "Toplyne calculates the creation time of the user using the timestamp of the first track or identify call",
-          "key": "creationTime",
-          "label": "Creation time",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties}",
-          "description": "The properties of the user",
-          "key": "userProperties",
-          "label": "User Properties",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "sendUserProfiles",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Send User Profiles",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event = '$groupidentify'",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{event.groupId}",
-          "description": "The ID of the account to send properties for",
-          "key": "accountId",
-          "label": "Account ID",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "Toplyne calculates the creation time using the timestamp of the first event or group call",
-          "key": "creationTime",
-          "label": "Creation time",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties}",
-          "description": "The properties of the account",
-          "key": "accountProperties",
-          "label": "Account Properties",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "sendAccountProfiles",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Send Account Profiles",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.id}",
-          "description": "The ID of the user to send events for. Required if anonymousId is not provided",
-          "key": "userId",
-          "label": "User ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.distinct_id}",
-          "description": "The anonymous ID of the user to send events for. Required if userId is not provided",
-          "key": "anonymousId",
-          "label": "Anonymous ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "",
-          "description": "The ID of the account to send events for",
-          "key": "accountId",
-          "label": "Account ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event}",
-          "description": "The name of the event to send",
-          "key": "eventName",
-          "label": "Event Name",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The timestamp of the event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.properties}",
-          "description": "The properties of the event",
-          "key": "eventProperties",
-          "label": "Event Properties",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "sendEvents",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Send Events",
-    },
-  ],
-  "name": "Toplyne Cloud Mode",
   "status": "hidden",
   "type": "destination",
 }
@@ -31306,7 +31056,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
   "description": "Send event data to Voucherify",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=actions.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voucherify.io",
   "id": "segment-voucherify-actions",
   "inputs_schema": [
     {
@@ -31853,7 +31603,7 @@ exports[`segment templates template segment-voyage matches expected result 1`] =
   "description": "Send event data to Voyage",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voyage.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voyagesms.com",
   "id": "segment-voyage",
   "inputs_schema": [
     {
