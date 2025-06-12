@@ -205,7 +205,7 @@ async fn handle_legacy(
                     // endpoint other than /engage, or the whole payload is malformed
                     error!("event hydration from request failed: {}", rhe);
                     return Err(e);
-                },
+                }
                 // if the hydrated event batch is empty we surface it here
                 _ => return Err(e),
             }
@@ -362,7 +362,7 @@ async fn handle_common(
                     // endpoint other than /engage, or the whole payload is malformed
                     error!("event hydration from request failed: {}", rhe);
                     return Err(e);
-                },
+                }
                 // if the hydrated event batch is empty we surface it here
                 _ => return Err(e),
             }
