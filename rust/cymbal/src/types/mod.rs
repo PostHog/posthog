@@ -93,7 +93,10 @@ pub struct OutputErrProps {
     // Metadata
     #[serde(rename = "$exception_handled")]
     pub handled: bool,
-    #[serde(rename = "$exception_releases")]
+    #[serde(
+        rename = "$exception_releases",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
     pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
     #[serde(rename = "$exception_types")]

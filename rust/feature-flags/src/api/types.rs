@@ -288,7 +288,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
-    fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self;
+    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
@@ -312,14 +312,14 @@ impl FromFeatureAndMatch for FlagDetails {
         }
     }
 
-    fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self {
+    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
             variant: None,
             reason: FlagEvaluationReason {
                 code: error_reason.to_string(),
-                condition_index: None,
+                condition_index,
                 description: None,
             },
             metadata: FlagDetailsMetadata {

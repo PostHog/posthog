@@ -44,6 +44,32 @@ def validate_migration_sql(sql) -> bool:
             # Ignore for brand-new tables
             and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
         ):
+            # Check if this is adding a column with a constant default (safe in PostgreSQL 11+)
+            if "ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql:
+                # Extract the default value to check if it's a constant
+                # Match DEFAULT followed by either a quoted string or unquoted value until NOT NULL or end of significant tokens
+                default_match = re.search(
+                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))\s+(?:NOT\s+NULL|;|$)", operation_sql, re.I
+                )
+                if default_match:
+                    default_value = default_match.group(1).strip()
+                    # Check if it's a constant (string literal, number, boolean, or simple constant like NOW())
+                    if (
+                        default_value.startswith("'")
+                        and default_value.endswith("'")  # String literal
+                        or re.match(r"^-?\d+(\.\d+)?$", default_value)  # Number
+                        or default_value.upper() in ["TRUE", "FALSE", "NULL"]  # Boolean/NULL
+                        or default_value.upper()
+                        in [
+                            "NOW()",
+                            "CURRENT_TIMESTAMP",
+                            "CURRENT_DATE",
+                            "CURRENT_TIME",
+                        ]  # Functions marked as stable in postgres
+                    ):
+                        # This is safe - adding a column with a constant default doesn't require table rewrite in PostgreSQL 11+
+                        continue
+
             print(
                 f"\n\n\033[91mFound a non-null field or default added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field.\nSource: `{operation_sql}`"
             )

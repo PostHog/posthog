@@ -32,7 +32,7 @@ export async function extractHeatmapDataStep(
         const team = await runner.hub.teamManager.getTeam(teamId)
 
         if (team?.heatmaps_opt_in !== false) {
-            const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
+            const heatmapEvents = (await extractScrollDepthHeatmapData(event, runner)) ?? []
 
             if (heatmapEvents.length > 0) {
                 acks.push(
@@ -74,7 +74,10 @@ function isValidNumber(n: unknown): n is number {
     return typeof n === 'number' && !isNaN(n)
 }
 
-function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseHeatmapEvent[] {
+async function extractScrollDepthHeatmapData(
+    event: PreIngestionEvent,
+    runner: EventPipelineRunner
+): Promise<RawClickhouseHeatmapEvent[]> {
     function drop(cause: string): RawClickhouseHeatmapEvent[] {
         eventDroppedCounter
             .labels({
@@ -135,8 +138,18 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
         return drop('invalid_viewport_dimensions')
     }
 
-    Object.entries(heatmapData).forEach(([url, items]) => {
+    const promises = Object.entries(heatmapData).map(async ([url, items]) => {
         if (!isValidString(url)) {
+            await captureIngestionWarning(
+                runner.hub.kafkaProducer,
+                teamId,
+                'rejecting_heatmap_data_with_invalid_url',
+                {
+                    heatmapUrl: url,
+                    session_id: $session_id,
+                },
+                { key: $session_id }
+            )
             return
         }
 
@@ -172,8 +185,21 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                     )
                     .filter((x): x is RawClickhouseHeatmapEvent => x !== null)
             )
+        } else {
+            await captureIngestionWarning(
+                runner.hub.kafkaProducer,
+                teamId,
+                'rejecting_heatmap_data_with_invalid_items',
+                {
+                    heatmapUrl: url,
+                    session_id: $session_id,
+                },
+                { key: $session_id }
+            )
         }
     })
+
+    await Promise.all(promises)
 
     return heatmapEvents
 }

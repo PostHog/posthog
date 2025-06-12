@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from '../configuration/hogFunctionConfigurationLogic'
@@ -217,7 +217,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     },
                 }
                 groupTypes.forEach((groupType) => {
-                    const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
+                    const name = escapePropertyAsHogQLIdentifier(groupType.group_type)
                     query.select.push(
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
