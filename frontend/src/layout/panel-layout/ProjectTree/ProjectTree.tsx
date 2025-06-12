@@ -32,6 +32,7 @@ import { RefObject, useEffect, useRef, useState } from 'react'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -175,6 +176,11 @@ export function ProjectTree({
             ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
                 <>
                     <SessionReplayMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
+            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
+                <>
+                    <DashboardsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
             ) : null

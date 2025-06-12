@@ -665,6 +665,8 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
         return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
+    elif property.key == "source":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"])
     else:
         raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 

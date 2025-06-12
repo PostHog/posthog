@@ -523,8 +523,10 @@ export const supportLogic = kea<supportLogicType>([
                 // Find the current plan
                 const currentPlan = platformAndSupportProduct?.plans?.find((plan) => plan.current_plan)
 
-                // Check for active addons
-                const activeAddons = platformAndSupportProduct?.addons?.filter((a) => a.subscribed) || []
+                // Check for active addons (must be subscribed and not just included with main product)
+                const activeAddons =
+                    platformAndSupportProduct?.addons?.filter((a) => a.subscribed && !a.included_with_main_product) ||
+                    []
                 const hasScaleAddon = activeAddons.some((a) => a.type === 'scale')
                 const hasTeamsAddon = activeAddons.some((a) => a.type === 'teams')
                 const hasBoostAddon = activeAddons.some((a) => a.type === 'boost')
@@ -540,22 +542,11 @@ export const supportLogic = kea<supportLogicType>([
                 const orgCreatedAt = currentOrganization?.created_at
                 const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
 
-                // Check for addon trials (when addon has trial object but isn't subscribed)
+                // Check for addon trials - only count billing-level trials, not addon trial eligibility
                 // Note: Using 'as any' because the trial target types are outdated - they can also be 'boost', 'scale' etc.
-                const hasBoostTrial =
-                    (billing.trial?.status === 'active' && (billing.trial?.target as any) === 'boost') ||
-                    platformAndSupportProduct?.addons?.some((a) => a.type === 'boost' && a.trial && !a.subscribed) ||
-                    false
-                const hasScaleTrial =
-                    (billing.trial?.status === 'active' && (billing.trial?.target as any) === 'scale') ||
-                    platformAndSupportProduct?.addons?.some((a) => a.type === 'scale' && a.trial && !a.subscribed) ||
-                    false
-                const hasEnterpriseTrial =
-                    (billing.trial?.status === 'active' && billing.trial?.target === 'enterprise') ||
-                    platformAndSupportProduct?.addons?.some(
-                        (a) => a.type === 'enterprise' && a.trial && !a.subscribed
-                    ) ||
-                    false
+                const hasBoostTrial = billing.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+                const hasScaleTrial = billing.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+                const hasEnterpriseTrial = billing.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
                 // Update the checks to include trials
                 const hasBoostAddonOrTrial = hasBoostAddon || hasBoostTrial
