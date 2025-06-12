@@ -137,7 +137,7 @@ class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.bytecode_error = None
         except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail. Instead of spamming
-            # Sentry with errors, ignore those cases for now.
+            # with errors, ignore those cases for now.
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)

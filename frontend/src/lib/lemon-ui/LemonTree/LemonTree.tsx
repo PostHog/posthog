@@ -518,7 +518,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <ButtonGroupPrimitive
                                         fullWidth
-                                        className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)]"
+                                        className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent"
                                     >
                                         <TreeNodeDisplayCheckbox
                                             item={item}

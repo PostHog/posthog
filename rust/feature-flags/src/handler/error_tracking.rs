@@ -23,7 +23,11 @@ pub async fn get_suppression_rules(
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch suppression rules: {}", e);
+            tracing::error!(
+                "Failed to fetch suppression rules for team {}: {}",
+                team.id,
+                e
+            );
             FlagError::DatabaseUnavailable
         })?;
 

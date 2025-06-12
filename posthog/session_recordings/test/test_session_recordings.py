@@ -1018,7 +1018,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         """
         includes regression test to allow utf16 surrogate pairs in realtime snapshots response
-        see: https://posthog.sentry.io/issues/4981128697/
         """
 
         expected_response = b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}'
