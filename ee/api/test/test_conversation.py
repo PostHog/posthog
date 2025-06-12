@@ -198,8 +198,8 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Generation has already been cancelled.")
+        # should be idempotent
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_cancel_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)

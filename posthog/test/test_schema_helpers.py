@@ -267,3 +267,13 @@ class TestSchemaHelpers(TestCase):
         query_with_existing_math = TrendsQuery(interval="day", series=[EventsNode(name="$pageview")])
         result = to_dict(query_with_existing_math)
         self.assertNotIn("math", result["series"][0])
+
+    def test_serializes_versions_equally(self):
+        """
+        Nodes with different versions should serialize to the same JSON. We only want the cache key to differ
+        if the actual query parameters differ, not the version.
+        """
+        q1 = TrendsQuery(series=[EventsNode(name="$pageview", version=1)], version=1)
+        q2 = TrendsQuery(series=[EventsNode(name="$pageview", version=2)], version=2)
+
+        self.assertEqual(to_dict(q1), to_dict(q2))

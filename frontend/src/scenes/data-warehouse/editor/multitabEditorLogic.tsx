@@ -798,7 +798,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         setQueryInput: ({ queryInput }) => {
             // if editing a view, track latest history id changes are based on
-            if (values.activeModelUri?.view) {
+            if (values.activeModelUri?.view && values.activeModelUri?.view.query?.query) {
                 if (queryInput === values.activeModelUri.view?.query.query) {
                     actions.deleteInProgressViewEdit(values.activeModelUri.view.id)
                 } else if (
@@ -1216,7 +1216,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         changesToSave: [
             (s) => [s.editingView, s.queryInput],
             (editingView, queryInput) => {
-                return editingView?.query.query !== queryInput
+                return editingView?.query?.query !== queryInput
             },
         ],
         exportContext: [
