@@ -21,7 +21,6 @@ from posthog.constants import (
     TEST_TASK_QUEUE,
 )
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-
 from posthog.temporal.batch_exports import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
