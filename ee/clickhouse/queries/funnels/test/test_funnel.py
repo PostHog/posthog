@@ -15,11 +15,11 @@ from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrict
 from posthog.queries.funnels.funnel_unordered_persons import (
     ClickhouseFunnelUnorderedActors,
 )
-from posthog.queries.funnels.test.test_funnel import _create_action
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_action,
     _create_person,
 )
 from posthog.test.test_journeys import journeys_for
