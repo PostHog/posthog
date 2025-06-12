@@ -254,6 +254,12 @@ describe('extractHeatmapDataStep()', () => {
             const response = await extractHeatmapDataStep(runner, event)
             expect(response).toEqual([event, []])
             expect(response[0].properties.$heatmap_data).toBeUndefined()
+
+            expect(runner.hub.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
+            // {"messages": [{"value": "{\"team_id\":1,\"type\":\"rejecting_heatmap_data_with_invalid_items\",\"source\":\"plugin-server\",\"details\":\"{\\\"heatmapUrl\\\":\\\"0\\\",\\\"session_id\\\":\\\"018eebf3-79cd-70da-895f-b6cf352bd688\\\"}\",\"timestamp\":}"}], "topic": "clickhouse_ingestion_warnings_test"})
+            expect(runner.hub.kafkaProducer.queueMessages).toHaveBeenCalledWith(
+                expect.objectContaining({ topic: 'clickhouse_ingestion_warnings_test' })
+            )
         })
 
         it.each([
