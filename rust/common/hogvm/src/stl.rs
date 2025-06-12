@@ -156,10 +156,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 match array {
                     HogLiteral::Array(arr) => {
                         let mut arr = arr.clone();
-                        // TODO - lol, lmao. This is silly, google the right function to actually use
-                        arr.reverse();
-                        arr.pop();
-                        arr.reverse();
+                        if !arr.is_empty() {
+                            arr.remove(0);
+                        }
                         Ok(HogLiteral::Array(arr).into())
                     }
                     _ => Err(VmError::NativeCallFailed(

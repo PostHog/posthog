@@ -121,7 +121,7 @@ impl<'a> HogVM<'a> {
                     self.push_stack(val)?;
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
-                } else if let Some(_) = get_json_nested(&self.context.globals, &chain[..1], self)? {
+                } else if get_json_nested(&self.context.globals, &chain[..1], self)?.is_some() {
                     // If the first element of the chain is a global, push null onto the stack, e.g.
                     // if a program is looking for "properties.blah", and "properties" exists, but
                     // "blah" doesn't, push null onto the stack.

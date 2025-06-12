@@ -186,8 +186,8 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
     let (literal, existing_location) = match value {
         HogValue::Lit(lit) => (lit, None),
         HogValue::Ref(ptr) => {
-            let val = vm.heap.get(ptr.clone())?.clone();
-            (val, Some(ptr.clone()))
+            let val = vm.heap.get(ptr)?.clone();
+            (val, Some(ptr))
         }
     };
 
@@ -199,11 +199,11 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
 
             if let Some(ptr) = existing_location {
                 // If this was already a heap-allocated array, replace it with the new one
-                *vm.heap.get_mut(ptr.clone())? = emplaced_arr;
-                return Ok(ptr.into());
+                *vm.heap.get_mut(ptr)? = emplaced_arr;
+                Ok(ptr.into())
             } else {
                 // Otherwise heap allocate it and return the pointer
-                return vm.heap.emplace(emplaced_arr).map(|ptr| ptr.into());
+                vm.heap.emplace(emplaced_arr).map(|ptr| ptr.into())
             }
         }
         HogLiteral::Object(obj) => {
@@ -215,11 +215,11 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
 
             if let Some(ptr) = existing_location {
                 // As above, if this was already heap allocated, replace it with the new one
-                *vm.heap.get_mut(ptr.clone())? = emplaced_obj;
-                return Ok(ptr.into());
+                *vm.heap.get_mut(ptr)? = emplaced_obj;
+                Ok(ptr.into())
             } else {
                 // Otherwise heap allocate it and return the pointer
-                return vm.heap.emplace(emplaced_obj).map(|ptr| ptr.into());
+                vm.heap.emplace(emplaced_obj).map(|ptr| ptr.into())
             }
         }
         // If we're looking at a non-indexable type, just return it, or the reference to it,
