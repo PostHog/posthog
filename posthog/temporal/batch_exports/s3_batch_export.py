@@ -976,7 +976,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             data_interval_end=data_interval_end,
             s3_inputs=inputs,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-            max_concurrent_uploads=5,
+            max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
         records_completed = await run_consumer_from_stage(
@@ -1006,7 +1006,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         data_interval_end: dt.datetime | str,
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
-        max_concurrent_uploads: int = 5,
+        max_concurrent_uploads: int = 10,
         # max_memory_buffer: int = 100 * 1024 * 1024,  # 100MB total buffer
     ):
         super().__init__(data_interval_start, data_interval_end)
@@ -1094,12 +1094,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         # Create upload task
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
+        upload_task.add_done_callback(lambda task, pn=part_number: self._on_upload_complete(task, pn))
 
         # Track the upload
         self.pending_uploads[part_number] = upload_task
-
-        # Clean up completed uploads to free memory
-        await self._cleanup_completed_uploads()
 
     async def _upload_part_with_cleanup(self, data: bytes, part_number: int):
         """Upload part and handle cleanup.
@@ -1144,7 +1142,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # self.memory_semaphore.release()
             # Explicitly delete data to free memory immediately
             del data
-            gc.collect()
 
     def _get_current_key(self) -> str:
         """Generate the key for the current file"""
@@ -1223,23 +1220,17 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                     pass  # Best effort cleanup
             raise
 
-    async def _cleanup_completed_uploads(self):
-        """Remove completed uploads from tracking"""
-        completed = []
-        for part_number, task in self.pending_uploads.items():
-            if task.done():
-                completed.append(part_number)
+    def _on_upload_complete(self, task: asyncio.Task, part_number: int):
+        """Callback called when an upload task completes (success or failure)"""
+        # Remove from pending uploads immediately
+        self.pending_uploads.pop(part_number, None)
 
-        for part_number in completed:
-            task = self.pending_uploads.pop(part_number)
-            try:
-                await task  # Ensure any exceptions are raised
-            except Exception:
-                # Handle upload failures
-                await self.logger.aexception(f"Upload failed for part {part_number}")
-                raise
-
-        await self.logger.adebug("%s concurrent uploads are currently in progress", len(self.pending_uploads))
+        # Handle any exceptions
+        if task.exception() is not None:
+            # TODO - check this is the case
+            # Log the error - the exception will be re-raised when the task is awaited
+            # in _finalize_current_file or _upload_final_part
+            self.logger.exception(f"Upload failed for part {part_number}")
 
     async def _initialize_multipart_upload(self):
         """Initialize multipart upload with optimizations for large files"""
@@ -1330,6 +1321,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # await self.memory_semaphore.acquire()
 
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
+        upload_task.add_done_callback(lambda task, pn=part_number: self._on_upload_complete(task, pn))
 
         self.pending_uploads[part_number] = upload_task
         self.current_buffer.clear()
