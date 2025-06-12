@@ -203,9 +203,8 @@ class ParquetStreamTransformer(StreamTransformer):
             self._parquet_writer.close()
             self._parquet_writer = None
 
-            # Get final data
-            self._parquet_buffer.seek(0)
-            final_data = self._parquet_buffer.read()
+            # Get final data without copying
+            final_data = self._parquet_buffer.getvalue()
             if final_data:
                 yield final_data
 
@@ -217,13 +216,12 @@ class ParquetStreamTransformer(StreamTransformer):
         """Write records to a temporary file as Parquet."""
 
         self.parquet_writer.write_batch(record_batch.select(self.parquet_writer.schema.names))
-        # Get current buffer content
-        self._parquet_buffer.seek(0)
-        data = self._parquet_buffer.read()
+        # Get current buffer content without copying
+        data = self._parquet_buffer.getvalue()
 
-        # Reset buffer
+        # Reset buffer efficiently
         self._parquet_buffer.seek(0)
-        self._parquet_buffer.truncate()
+        self._parquet_buffer.truncate(0)
 
         yield data
 
