@@ -30,7 +30,7 @@ from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
 from openai.types.completion_usage import CompletionUsage
 from posthog.redis import get_client
-from posthog.temporal.ai import WORKFLOWS, ACTIVITIES
+from posthog.temporal.ai import WORKFLOWS
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 from posthog import constants
 from unittest.mock import AsyncMock
@@ -322,7 +322,7 @@ class TestSummarizeSessionWorkflow:
                 activity_environment.client,
                 task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
                 workflows=WORKFLOWS,
-                activities=ACTIVITIES,
+                activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ) as worker:
                 with (
@@ -667,7 +667,8 @@ class TestSummarizeSessionWorkflow:
                 await asyncio.wait_for(
                     activity_environment.client.execute_workflow(
                         SummarizeSingleSessionWorkflow.run,
-                        invalid_arg,  # Wrong: passing incorrect type instead of string
+                        # Wrong: passing incorrect type instead of string
+                        invalid_arg,  # type: ignore[misc]
                         id=workflow_id,
                         task_queue=worker.task_queue,
                     ),
