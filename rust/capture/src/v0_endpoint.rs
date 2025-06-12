@@ -421,6 +421,15 @@ pub async fn event_legacy(
             })
         }
 
+        Err(CaptureError::EmptyPayloadFiltered) => {
+            // as per legacy behavior, for now we'll silently accept these submissions
+            // when invalid event type filtering has resulted in an empty event payload
+            Ok(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            })
+        }
+
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
             error!("event_legacy: request payload processing error: {:?}", err);
@@ -492,6 +501,16 @@ pub async fn event(
                 quota_limited: None,
             })
         }
+
+        Err(CaptureError::EmptyPayloadFiltered) => {
+            // as per legacy behavior, for now we'll silently accept these submissions
+            // when invalid event type filtering has resulted in an empty event payload
+            Ok(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            })
+        }
+
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
             Err(err)
