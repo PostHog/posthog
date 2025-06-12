@@ -36,7 +36,7 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
+import { FileSystemIconColor, PipelineTab } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
@@ -201,22 +201,22 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         {
             path: `Data/Source`,
             type: 'hog_function/source',
-            href: urls.pipelineNodeNew(PipelineStage.Source),
+            href: urls.dataPipelinesNew('source'),
         },
         {
             path: `Data/Destination`,
             type: 'hog_function/destination',
-            href: urls.pipelineNodeNew(PipelineStage.Destination),
+            href: urls.dataPipelinesNew('destination'),
         },
         {
             path: `Data/Transformation`,
             type: 'hog_function/transformation',
-            href: urls.pipelineNodeNew(PipelineStage.Transformation),
+            href: urls.dataPipelinesNew('transformation'),
         },
         {
             path: `Data/Site app`,
             type: 'hog_function/site_app',
-            href: urls.pipelineNodeNew(PipelineStage.SiteApp),
+            href: urls.dataPipelinesNew('site_app'),
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 

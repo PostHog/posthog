@@ -20,7 +20,6 @@ import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
@@ -39,9 +38,6 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
     switch (logItem?.scope) {
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
-        case ActivityScope.PLUGIN:
-        case ActivityScope.PLUGIN_CONFIG:
-            return pluginActivityDescriber
         case ActivityScope.HOG_FUNCTION:
             return hogFunctionActivityDescriber
         case ActivityScope.COHORT:

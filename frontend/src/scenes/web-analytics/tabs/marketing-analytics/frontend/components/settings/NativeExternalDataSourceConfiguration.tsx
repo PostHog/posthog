@@ -97,7 +97,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                 return (
                                     <Tooltip title={message}>
                                         <div className="flex justify-center">
-                                            <IconCheck className="text-success text-lg" />
+                                            <IconCheck className="text-lg text-success" />
                                         </div>
                                     </Tooltip>
                                 )
@@ -107,9 +107,9 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                 <Tooltip title={message}>
                                     <div className="flex justify-center">
                                         {hasAnySchemas ? (
-                                            <IconWarning className="text-warning text-lg" />
+                                            <IconWarning className="text-lg text-warning" />
                                         ) : (
-                                            <IconX className="text-muted text-lg" />
+                                            <IconX className="text-lg text-muted" />
                                         )}
                                     </div>
                                 </Tooltip>
@@ -129,13 +129,13 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                                 key={source}
                                                 onClick={() => {
                                                     router.actions.push(
-                                                        urls.pipelineNodeNew(PipelineStage.Source, { source })
+                                                        urls.dataWarehouseSourceNew() + '?kind=' + source
                                                     )
                                                 }}
                                                 fullWidth
                                                 size="small"
                                             >
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex gap-2 items-center">
                                                     <DataWarehouseSourceIcon type={source} />
                                                     {source}
                                                     <IconPlus className="text-muted" />

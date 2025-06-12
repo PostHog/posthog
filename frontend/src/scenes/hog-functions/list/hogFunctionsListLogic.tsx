@@ -16,6 +16,8 @@ import { HogFunctionFiltersType, HogFunctionType, HogFunctionTypeType, UserType 
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
+import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
+
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionType> {}
@@ -44,7 +46,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
     return true
 }
 
-export const hogFunctionsListLogic = kea<hogFunctionListLogicType>([
+export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     props({} as HogFunctionListLogicProps),
     key((props) =>
         JSON.stringify({

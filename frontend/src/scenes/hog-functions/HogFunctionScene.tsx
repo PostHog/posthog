@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { DataPipelinesSceneTab } from 'scenes/data-pipelines/DataPipelinesScene'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
     hogFunctionConfigurationLogic,
@@ -22,7 +23,6 @@ import {
     HogFunctionFilterPropertyFilter,
     HogFunctionType,
     HogFunctionTypeType,
-    PipelineTab,
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
@@ -31,12 +31,12 @@ import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
-const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, PipelineTab>> = {
-    transformation: PipelineTab.Transformations,
-    destination: PipelineTab.Destinations,
-    site_destination: PipelineTab.Destinations,
-    site_app: PipelineTab.SiteApps,
-    source_webhook: PipelineTab.Sources,
+const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelinesSceneTab>> = {
+    transformation: 'transformations',
+    destination: 'destinations',
+    site_destination: 'destinations',
+    site_app: 'site_apps',
+    source_webhook: 'sources',
 }
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
@@ -119,14 +119,14 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 if (pipelineTab) {
                     return [
                         {
-                            key: Scene.Pipeline,
+                            key: Scene.DataPipelines,
                             name: 'Data pipelines',
-                            path: urls.pipeline(PipelineTab.Overview),
+                            path: urls.dataPipelines('overview'),
                         },
                         {
                             key: Scene.HogFunction,
                             name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
-                            path: urls.pipeline(pipelineTab),
+                            path: urls.dataPipelines(pipelineTab),
                         },
                         finalCrumb,
                     ]

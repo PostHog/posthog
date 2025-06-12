@@ -49,14 +49,14 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             (breadcrumbName): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
                     },
                     {
                         key: Scene.DataWarehouseSource,

@@ -50,34 +50,6 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
-
-    pipelineNodeNew: (
-        stage: PipelineStage | ':stage',
-        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
-    ): string => {
-        let base = `/pipeline/new/${stage}`
-        if (id) {
-            base += `/${id}`
-        }
-
-        if (source) {
-            // we need to lowercase the source to match the kind in the sourceWizardLogic
-            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
-            return `${base}?kind=${kind}`
-        }
-
-        return base
-    },
-    pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
-    /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
-    pipelineNode: (
-        stage: PipelineStage | ':stage',
-        id: string | number,
-        nodeTab?: PipelineNodeTab | ':nodeTab'
-    ): string =>
-        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
-            nodeTab ? `/${nodeTab}` : ''
-        }`,
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
         if (query) {

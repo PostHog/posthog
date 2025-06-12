@@ -191,7 +191,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                               }))
                             : dataWarehouseTablesBySourceType,
                     onAdd: () => {
-                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                        router.actions.push(urls.dataWarehouseSourceNew())
                     },
                     emptyComponentLogic: (items) => {
                         // We will always show the posthog tables, so we wanna check for length == 1 instead of 0
@@ -200,15 +200,15 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     emptyComponent: (
                         <div
                             data-attr="sql-editor-source-empty-state"
-                            className="p-4 text-center flex flex-col justify-center items-center border-t"
+                            className="flex flex-col justify-center items-center p-4 text-center border-t"
                         >
-                            <div className="mb-4 flex justify-center gap-6">
+                            <div className="flex gap-6 justify-center mb-4">
                                 <DataWarehouseSourceIcon type="Postgres" size="small" />
                                 <DataWarehouseSourceIcon type="Stripe" size="small" />
                             </div>
                             <h4 className="mb-2">No data warehouse sources connected</h4>
                             {/* eslint-disable-next-line react/forbid-dom-props */}
-                            <p className="text-muted mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
+                            <p className="px-2 mb-4 text-xs break-words text-muted w" style={{ whiteSpace: 'normal' }}>
                                 Import data from external sources like Postgres, Stripe, or other databases to enrich
                                 your analytics.
                             </p>
@@ -219,7 +219,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                         product_type: ProductKey.DATA_WAREHOUSE,
                                         intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
                                     })
-                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                    router.actions.push(urls.dataWarehouseSourceNew())
                                 }}
                                 center
                                 size="small"

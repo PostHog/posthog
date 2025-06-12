@@ -18,7 +18,6 @@ import {
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     ManualLinkSourceType,
-    PipelineStage,
     PipelineTab,
     ProductKey,
     SourceConfig,
@@ -62,7 +61,7 @@ const StripeCaption = (): JSX.Element => (
 )
 
 export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { source: 'Hubspot' })}`
+    `${window.location.origin}${urls.dataWarehouseSourceNew()}?kind=hubspot`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -1124,14 +1123,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, manualLinkingProvider): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
                     },
                     {
                         key: Scene.DataWarehouseSource,

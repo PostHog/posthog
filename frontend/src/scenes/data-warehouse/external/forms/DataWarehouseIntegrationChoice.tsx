@@ -1,7 +1,7 @@
 import { IntegrationChoice, IntegrationConfigureProps } from 'scenes/hog-functions/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
 
-import { PipelineStage, SourceConfig } from '~/types'
+import { SourceConfig } from '~/types'
 
 export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
     sourceConfig: SourceConfig
@@ -15,7 +15,7 @@ export function DataWarehouseIntegrationChoice({
         <IntegrationChoice
             {...props}
             integration={sourceConfig.name.toLowerCase()}
-            redirectUrl={urls.pipelineNodeNew(PipelineStage.Source, { source: sourceConfig.name })}
+            redirectUrl={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.name.toLowerCase()}
         />
     )
 }

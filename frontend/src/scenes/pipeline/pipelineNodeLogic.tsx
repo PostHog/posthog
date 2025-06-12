@@ -1,6 +1,4 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,7 +6,6 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage, ProjectTreeRef } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
-import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
 import { PipelineBackend } from './types'
 
 export interface PipelineNodeLogicProps {
@@ -66,17 +63,16 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             (s, p) => [p.id, p.stage, s.breadcrumbTitle],
             (id, stage, breadcrumbTitle): Breadcrumb[] => [
                 {
-                    key: Scene.Pipeline,
+                    key: Scene.DataPipelines,
                     name: 'Data pipeline',
-                    path: urls.pipeline(),
+                    path: urls.dataPipelines('overview'),
                 },
                 {
                     key: stage || 'unknown',
-                    name: stage ? capitalizeFirstLetter(NODE_STAGE_TO_PIPELINE_TAB[stage] || '') : 'Unknown',
-                    path: urls.pipeline(stage ? NODE_STAGE_TO_PIPELINE_TAB[stage] : undefined),
+                    path: urls.dataPipelines('destinations'),
                 },
                 {
-                    key: [Scene.PipelineNode, id],
+                    key: [Scene.LegacyPlugin, id],
                     name: breadcrumbTitle,
                 },
             ],
@@ -129,38 +125,38 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         id: [(_, p) => [p.id], (id) => id],
         stage: [(_, p) => [p.stage], (stage) => stage],
     })),
-    actionToUrl(({ values, props }) => {
-        return {
-            setCurrentTab: () => [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)],
-        }
-    }),
-    urlToAction(({ props, actions, values }) => ({
-        [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
-            if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
-                actions.setCurrentTab(nodeTab as PipelineNodeTab)
-            }
+    // actionToUrl(({ values, props }) => {
+    //     return {
+    //         setCurrentTab: () => [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)],
+    //     }
+    // }),
+    // urlToAction(({ props, actions, values }) => ({
+    //     [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
+    //         if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
+    //             actions.setCurrentTab(nodeTab as PipelineNodeTab)
+    //         }
 
-            // Redirect managed sources to the new data warehouse source page
-            if (
-                typeof props.id === 'string' &&
-                (props.id.startsWith('managed-') || props.id.startsWith('self-managed-'))
-            ) {
-                router.actions.replace(urls.dataWarehouseSource(props.id.toString()))
-                return
-            }
+    //         // Redirect managed sources to the new data warehouse source page
+    //         if (
+    //             typeof props.id === 'string' &&
+    //             (props.id.startsWith('managed-') || props.id.startsWith('self-managed-'))
+    //         ) {
+    //             router.actions.replace(urls.dataWarehouseSource(props.id.toString()))
+    //             return
+    //         }
 
-            // Set the project tree ref from the URL
-            // Use the wildcard 'hog/' type format to match against all possible types without a mapping from the URL
-            const path = router.values.location.pathname
-            const match = path.match(/\/pipeline\/([^/]+)\/hog-([^/]+)\/?/)
-            if (match) {
-                const { projectTreeRef } = values
-                const type = 'hog_function/'
-                const ref = match[2]
-                if (!projectTreeRef || projectTreeRef.type !== type || projectTreeRef.ref !== ref) {
-                    actions.setProjectTreeRef({ type, ref })
-                }
-            }
-        },
-    })),
+    //         // Set the project tree ref from the URL
+    //         // Use the wildcard 'hog/' type format to match against all possible types without a mapping from the URL
+    //         const path = router.values.location.pathname
+    //         const match = path.match(/\/pipeline\/([^/]+)\/hog-([^/]+)\/?/)
+    //         if (match) {
+    //             const { projectTreeRef } = values
+    //             const type = 'hog_function/'
+    //             const ref = match[2]
+    //             if (!projectTreeRef || projectTreeRef.type !== type || projectTreeRef.ref !== ref) {
+    //                 actions.setProjectTreeRef({ type, ref })
+    //             }
+    //         }
+    //     },
+    // })),
 ])

@@ -330,24 +330,25 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
 
-                                if (
-                                    scene === Scene.PipelineNodeNew &&
-                                    params.searchParams.kind == 'hubspot' &&
-                                    params.searchParams.code
-                                ) {
-                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                    actions.handleRedirect(params.searchParams.kind, {
-                                        code: params.searchParams.code,
-                                    })
-                                    actions.setStep(2)
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
-                                    )
-                                } else {
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                }
+                                // TODO: BEN - FIx this
+                                // if (
+                                //     scene === Scene.PipelineNodeNew &&
+                                //     params.searchParams.kind == 'hubspot' &&
+                                //     params.searchParams.code
+                                // ) {
+                                //     actions.selectConnector(SOURCE_DETAILS['Hubspot'])
+                                //     actions.handleRedirect(params.searchParams.kind, {
+                                //         code: params.searchParams.code,
+                                //     })
+                                //     actions.setStep(2)
+                                //     router.actions.replace(
+                                //         urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
+                                //     )
+                                // } else {
+                                //     router.actions.replace(
+                                //         urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                //     )
+                                // }
                                 return
                             }
                         }
