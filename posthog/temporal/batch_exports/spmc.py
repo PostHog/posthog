@@ -1327,66 +1327,36 @@ async def run_consumer_from_stage(
     max_file_size_bytes: int = 0,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> int:
-    """
+    """Run a consumer that takes record batches from a queue and writes them to a destination.
 
-    TODO
+    This uses a newer version of the consumer that works with the internal S3 stage activities.
+
+    Arguments:
+        queue: The queue to consume record batches from.
+        consumer: The consumer to run.
+        producer_task: The task that produces record batches.
+        schema: The schema of the record batches.
+        file_format: The format of the file to write to.
+        compression: The compression to use for the file.
+        include_inserted_at: Whether to include the inserted_at column in the file.
+        max_file_size_bytes: The maximum size of the file to write to (if 0, no file splitting is done)
+        json_columns: The columns which contain JSON data.
 
     Returns:
-        Number of records exported. Not the number of record batches, but the
-        number of records in all record batches.
-
-    Raises:
-        RecordBatchConsumerRetryableExceptionGroup: When at least one consumer task
-            fails with a retryable error.
-        RecordBatchConsumerNonRetryableExceptionGroup: When all consumer tasks fail
-            with non-retryable errors.
+        Number of records exported. Not the number of record batches, but the number of records in all record batches.
     """
-    consumer_tasks_pending: set[asyncio.Task] = set()
-    consumer_tasks_done = set()
-    records_completed = 0
-
-    def consumer_done_callback(task: asyncio.Task):
-        nonlocal records_completed
-        nonlocal consumer_tasks_done
-        nonlocal consumer_tasks_pending
-
-        if task.cancelled():
-            consumer.logger.debug("Record batch consumer task cancelled")
-
-        try:
-            records_completed += task.result()
-        except:
-            pass
-
-        consumer_tasks_pending.remove(task)
-        consumer_tasks_done.add(task)
-
     await consumer.logger.adebug("Starting record batch consumer")
 
-    # We use a TaskGroup to ensure that if the activity is cancelled, this is propagated to all pending tasks.
-    try:
-        async with asyncio.TaskGroup() as tg:
-            consumer_task = tg.create_task(
-                consumer.start(
-                    queue=queue,
-                    producer_task=producer_task,
-                    schema=schema,
-                    file_format=file_format,
-                    compression=compression,
-                    include_inserted_at=include_inserted_at,
-                    max_file_size_bytes=max_file_size_bytes,
-                    json_columns=json_columns,
-                ),
-                name="record_batch_consumer",
-            )
-            consumer_task.add_done_callback(consumer_done_callback)
-            consumer_tasks_pending.add(consumer_task)
-    except Exception:
-        if consumer_task.done():
-            consumer_task_exception = consumer_task.exception()
-
-            if consumer_task_exception is not None:
-                raise consumer_task_exception
+    records_completed = await consumer.start(
+        queue=queue,
+        producer_task=producer_task,
+        schema=schema,
+        file_format=file_format,
+        compression=compression,
+        include_inserted_at=include_inserted_at,
+        max_file_size_bytes=max_file_size_bytes,
+        json_columns=json_columns,
+    )
 
     await raise_on_task_failure(producer_task)
     await consumer.logger.adebug("Successfully finished record batch consumer")
