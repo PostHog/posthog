@@ -2,6 +2,7 @@ from typing import Any
 import csv
 from io import StringIO
 from dataclasses import dataclass
+from datetime import datetime
 import structlog
 import chdb
 from posthog.hogql import ast
@@ -10,7 +11,8 @@ from posthog.hogql.database.schema.web_analytics_s3 import (
     create_s3_web_stats_table,
     create_s3_web_bounces_table,
 )
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ExternalQueryError,
@@ -43,7 +45,7 @@ class BouncesData:
 logger = structlog.get_logger(__name__)
 
 
-class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
+class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
     query: WebAnalyticsExternalSummaryQuery
     response: WebAnalyticsExternalSummaryQueryResponse
 
@@ -90,7 +92,16 @@ class WebAnalyticsExternalSummaryQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def can_use_s3_tables(self) -> bool:
-        return self.team.organization.is_platform
+        return bool(self.team.organization.is_platform)
+
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
 
     def _build_s3_stats_table_func(self) -> str:
         web_stats_table = create_s3_web_stats_table(self.team.pk)

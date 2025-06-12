@@ -1,14 +1,13 @@
-from posthog.hogql.database.models import (
-    DatabaseField,
-    IntegerDatabaseField,
-    DateTimeDatabaseField,
-    FieldOrTable,
-)
+from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    web_preaggregated_base_fields,
+    web_preaggregated_base_aggregation_fields,
+    WEB_BOUNCES_SPECIFIC_FIELDS,
+)
 from django.conf import settings
+from ....settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
@@ -21,14 +20,10 @@ def get_s3_url(team_id: int, table_name: str) -> str:
         bucket = "posthog"
         key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
         return f"{s3_endpoint}/{bucket}/{key}"
-    else:
-        if OBJECT_STORAGE_ENDPOINT:
-            endpoint = OBJECT_STORAGE_ENDPOINT.replace("localhost:19000", "objectstorage:19000")
-            base_url = f"{endpoint}/{OBJECT_STORAGE_BUCKET}"
-        else:
-            base_url = f"https://{OBJECT_STORAGE_BUCKET}.s3.amazonaws.com"
 
-        return f"{base_url}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
+    base_url = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com"
+
+    return f"{base_url}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
 
 
 def get_s3_web_stats_structure() -> str:
@@ -53,22 +48,23 @@ def get_s3_web_bounces_structure() -> str:
     """
 
 
+# For S3 export, we only need the core fields that are actually exported
 WEB_STATS_S3_FIELDS: dict[str, FieldOrTable] = {
-    "pageviews_count_state": DatabaseField(name="pageviews_count_state"),
-    "period_bucket": DateTimeDatabaseField(name="period_bucket"),
-    "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
-    "sessions_uniq_state": DatabaseField(name="sessions_uniq_state"),
-    "team_id": IntegerDatabaseField(name="team_id"),
+    "period_bucket": web_preaggregated_base_fields["period_bucket"],
+    "team_id": web_preaggregated_base_fields["team_id"],
+    "persons_uniq_state": web_preaggregated_base_aggregation_fields["persons_uniq_state"],
+    "sessions_uniq_state": web_preaggregated_base_aggregation_fields["sessions_uniq_state"],
+    "pageviews_count_state": web_preaggregated_base_aggregation_fields["pageviews_count_state"],
 }
 
 WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
-    "period_bucket": DateTimeDatabaseField(name="period_bucket"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "persons_uniq_state": DatabaseField(name="persons_uniq_state"),
-    "sessions_uniq_state": DatabaseField(name="sessions_uniq_state"),
-    "pageviews_count_state": DatabaseField(name="pageviews_count_state"),
-    "bounces_count_state": DatabaseField(name="bounces_count_state"),
-    "total_session_duration_state": DatabaseField(name="total_session_duration_state"),
+    "period_bucket": web_preaggregated_base_fields["period_bucket"],
+    "team_id": web_preaggregated_base_fields["team_id"],
+    "persons_uniq_state": web_preaggregated_base_aggregation_fields["persons_uniq_state"],
+    "sessions_uniq_state": web_preaggregated_base_aggregation_fields["sessions_uniq_state"],
+    "pageviews_count_state": web_preaggregated_base_aggregation_fields["pageviews_count_state"],
+    "bounces_count_state": WEB_BOUNCES_SPECIFIC_FIELDS["bounces_count_state"],
+    "total_session_duration_state": WEB_BOUNCES_SPECIFIC_FIELDS["total_session_duration_state"],
 }
 
 

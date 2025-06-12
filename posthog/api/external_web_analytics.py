@@ -16,6 +16,12 @@ from posthog.schema import (
 
 
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    """
+    This viewset is used to get an overview of web analytics data for a project.
+
+    It is for external purposes only, and *NOT* used by the internal web analytics product.
+    """
+
     scope_object = "query"
     scope_object_read_actions = ["summary"]
     scope_object_write_actions: list[str] = []
