@@ -59,27 +59,18 @@ export function DataPipelinesNewScene(): JSX.Element {
         useValues(nonHogFunctionTemplatesLogic)
 
     if (kind === 'transformation') {
-        return <HogFunctionTemplateList defaultFilters={{}} type="transformation" />
+        return <HogFunctionTemplateList type="transformation" />
     }
     if (kind === 'destination') {
-        return (
-            <HogFunctionTemplateList
-                defaultFilters={{}}
-                type="destination"
-                manualTemplates={hogFunctionTemplatesBatchExports}
-            />
-        )
+        return <HogFunctionTemplateList type="destination" manualTemplates={hogFunctionTemplatesBatchExports} />
     }
     if (kind === 'site_app') {
-        return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
+        return <HogFunctionTemplateList type="site_app" />
     }
+
     if (kind === 'source') {
         return (
-            <HogFunctionTemplateList
-                defaultFilters={{}}
-                type="source_webhook"
-                manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-            />
+            <HogFunctionTemplateList type="source_webhook" manualTemplates={hogFunctionTemplatesDataWarehouseSources} />
         )
     }
 

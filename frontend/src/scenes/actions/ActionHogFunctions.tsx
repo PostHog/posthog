@@ -4,8 +4,6 @@ import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
-import { HogFunctionFiltersType } from '~/types'
-
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
@@ -13,16 +11,6 @@ export function ActionHogFunctions(): JSX.Element | null {
     )
     if (!action) {
         return null
-    }
-
-    const filters: HogFunctionFiltersType = {
-        actions: [
-            {
-                id: `${action?.id}`,
-                name: action?.name,
-                type: 'actions',
-            },
-        ],
     }
 
     return (
@@ -36,7 +24,17 @@ export function ActionHogFunctions(): JSX.Element | null {
 
             <LinkedHogFunctions
                 type="destination"
-                filters={filters}
+                forceFilterGroups={[
+                    {
+                        actions: [
+                            {
+                                id: `${action.id}`,
+                                name: action.name,
+                                type: 'actions',
+                            },
+                        ],
+                    },
+                ]}
                 newDisabledReason={
                     hasCohortFilters
                         ? "Action with cohort filters can't be used in realtime destinations"
