@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentFunnelsQuery } from '~/queries/schema/schema-general'
@@ -35,6 +35,7 @@ export function MetricRow({
 }): JSX.Element {
     const { experiment, secondaryMetricResultsLoading, metricResultsLoading, hasMinimumExposureForResults } =
         useValues(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
 
     const variantResults = result?.variant_results || []
@@ -62,7 +63,8 @@ export function MetricRow({
                             metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             onDuplicateMetricClick={() => {
-                                // grab from utils
+                                duplicateMetric({ metricIndex, isSecondary })
+                                updateExperimentMetrics()
                             }}
                         />
                     </div>
