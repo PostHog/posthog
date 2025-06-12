@@ -268,6 +268,7 @@ export const createAdDestinationPayload = (
                 ttclid: 'tiktok-id',
                 gclid: 'google-id',
                 sccid: 'snapchat-id',
+                rdt_cid: 'reddit-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',
