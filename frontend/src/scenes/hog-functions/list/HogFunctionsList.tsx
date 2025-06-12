@@ -39,7 +39,6 @@ export function HogFunctionList({
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
-    const canChangeShowPaused = typeof props.forceFilters?.showPaused !== 'boolean'
 
     useEffect(() => loadHogFunctions(), [])
 
@@ -153,29 +152,25 @@ export function HogFunctionList({
     return (
         <>
             <div className="flex gap-2 items-center mb-2">
-                {!props.forceFilters?.search && (
-                    <LemonInput
-                        type="search"
-                        placeholder="Search..."
-                        value={filters.search ?? ''}
-                        onChange={(e) => setFilters({ search: e })}
-                    />
-                )}
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={filters.search ?? ''}
+                    onChange={(e) => setFilters({ search: e })}
+                />
                 {!hideFeedback ? (
                     <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
                         Can't find what you're looking for?
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                {canChangeShowPaused && (
-                    <LemonCheckbox
-                        label="Show paused"
-                        bordered
-                        size="small"
-                        checked={filters.showPaused}
-                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                    />
-                )}
+                <LemonCheckbox
+                    label="Show paused"
+                    bordered
+                    size="small"
+                    checked={filters.showPaused}
+                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                />
                 {extraControls}
             </div>
 
@@ -202,9 +197,7 @@ export function HogFunctionList({
                                 <Link
                                     onClick={() => {
                                         resetFilters()
-                                        if (canChangeShowPaused) {
-                                            setFilters({ showPaused: true })
-                                        }
+                                        setFilters({ showPaused: true })
                                     }}
                                 >
                                     Show all

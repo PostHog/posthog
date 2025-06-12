@@ -22,7 +22,11 @@ where
     let redis_client = match RedisClient::new(config.redis_url.clone()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
-            tracing::error!("Failed to create Redis client: {}", e);
+            tracing::error!(
+                "Failed to create Redis client for URL {}: {}",
+                config.redis_url,
+                e
+            );
             return;
         }
     };
@@ -67,7 +71,11 @@ where
     let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
         Err(e) => {
-            tracing::error!("Failed to create GeoIP service: {}", e);
+            tracing::error!(
+                "Failed to create GeoIP service with DB path {}: {}",
+                config.get_maxmind_db_path().display(),
+                e
+            );
             return;
         }
     };

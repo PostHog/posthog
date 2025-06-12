@@ -12,4 +12,5 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchema
     impressions: { type: ['integer', 'number', 'float'], required: false },
     date: { type: ['datetime', 'date', 'string'], required: true }, // self managed sources dates are not converted to date type
     source_name: { type: ['string'], required: false },
+    currency: { type: ['string'], required: false },
 }

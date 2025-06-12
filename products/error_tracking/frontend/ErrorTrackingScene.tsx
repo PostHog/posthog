@@ -35,7 +35,6 @@ import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
     logic: errorTrackingSceneLogic,
-    settingSectionId: 'environment-error-tracking',
 }
 
 export function ErrorTrackingScene(): JSX.Element {

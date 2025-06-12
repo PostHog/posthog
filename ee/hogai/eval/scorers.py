@@ -1,19 +1,20 @@
+import json
 from typing import TypedDict
+
+from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
-from autoevals.llm import LLMClassifier
-import json
+from braintrust import Score
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
-from braintrust import Score
 from posthog.schema import (
+    AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
-    AssistantToolCall,
-    NodeKind,
-    AssistantTrendsQuery,
-    AssistantFunnelsQuery,
     AssistantRetentionQuery,
+    AssistantToolCall,
+    AssistantTrendsQuery,
+    NodeKind,
 )
 
 
@@ -57,7 +58,16 @@ class ToolRelevance(ScorerWithPartial):
 
 class PlanAndQueryOutput(TypedDict):
     plan: str | None
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery | None
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+
+
+def serialize_output(output: PlanAndQueryOutput | dict | None) -> PlanAndQueryOutput | None:
+    if output:
+        return {
+            **output,
+            "query": output.get("query").model_dump(exclude_none=True),
+        }
+    return None
 
 
 class QueryKindSelection(ScorerWithPartial):
@@ -90,7 +100,7 @@ class PlanCorrectness(LLMClassifier):
             plan=output.get("plan"),
             query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
         )
-        return await super()._run_eval_async(output, expected, **kwargs)
+        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
         if not output.get("plan"):
@@ -99,7 +109,7 @@ class PlanCorrectness(LLMClassifier):
             plan=output.get("plan"),
             query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
         )
-        return super()._run_eval_sync(output, expected, **kwargs)
+        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, evaluation_criteria: str, **kwargs):
         super().__init__(
@@ -161,7 +171,7 @@ Details matter greatly here - including math types or property types - so be har
 class QueryAndPlanAlignment(LLMClassifier):
     """Evaluate if the generated SQL query aligns with the plan generated in the previous step."""
 
-    async def _run_eval_async(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+    async def _run_eval_async(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         if not output.get("plan"):
             return Score(
                 name=self._name(),
@@ -174,9 +184,9 @@ class QueryAndPlanAlignment(LLMClassifier):
             plan=output.get("plan"),
             query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
         )
-        return await super()._run_eval_async(output, expected, **kwargs)
+        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
 
-    def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+    def _run_eval_sync(self, output: PlanAndQueryOutput, expected: PlanAndQueryOutput | None = None, **kwargs):
         if not output.get("plan"):
             return Score(
                 name=self._name(),
@@ -189,7 +199,7 @@ class QueryAndPlanAlignment(LLMClassifier):
             plan=output.get("plan"),
             query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
         )
-        return super()._run_eval_sync(output, expected, **kwargs)
+        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):
         json_schema_str = json.dumps(json_schema)
@@ -257,6 +267,7 @@ Details matter greatly here - including math types or property types - so be har
             query_kind=query_kind,
             json_schema=json_schema_str,
             evaluation_criteria=evaluation_criteria,
+            max_tokens=1024,
             **kwargs,
         )
 
@@ -267,12 +278,12 @@ class TimeRangeRelevancy(LLMClassifier):
     async def _run_eval_async(self, output, expected=None, **kwargs):
         if not output.get("query"):
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return await super()._run_eval_async(output, expected, **kwargs)
+        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         if not output.get("query"):
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check"})
-        return super()._run_eval_sync(output, expected, **kwargs)
+        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
 
     def __init__(self, query_kind: NodeKind, **kwargs):
         super().__init__(

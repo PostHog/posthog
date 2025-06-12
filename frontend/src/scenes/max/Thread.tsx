@@ -208,8 +208,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
+                                    <span>{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage

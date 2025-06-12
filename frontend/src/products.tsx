@@ -19,7 +19,7 @@ import {
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER, PRODUCT_VISUAL_ORDER } from 'lib/constants'
-import { isEmptyObject, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -86,8 +86,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/playground': ['LLMObservability', 'llmObservabilityPlayground'],
     '/logs': ['Logs', 'logs'],
     '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
-    '/messaging/campaigns/:id': ['MessagingCampaign', 'messagingCampaign'],
-    '/messaging/campaigns/new': ['MessagingCampaign', 'messagingCampaignNew'],
     '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
     '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
@@ -109,7 +107,7 @@ export const productRoutes: Record<string, [string, string]> = {
 export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
-> = { '/messaging': '/messaging/broadcasts', '/messaging/campaigns/new': '/messaging/campaigns/new/trigger' }
+> = { '/messaging': '/messaging/broadcasts', '/messaging/campaigns/new': '/messaging/campaigns/new/overview' }
 
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
@@ -249,7 +247,7 @@ export const productUrls = {
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
     messagingCampaignTab: (id?: string, tab?: string): string => `/messaging/campaigns/${id}/${tab}`,
-    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
@@ -299,9 +297,7 @@ export const productUrls = {
     ): string => {
         const params = [
             { param: 'dashboard', value: dashboardId },
-            ...(variablesOverride && !isEmptyObject(variablesOverride)
-                ? [{ param: 'variables_override', value: variablesOverride }]
-                : []),
+            { param: 'variables_override', value: variablesOverride },
         ]
             .filter((n) => Boolean(n.value))
             .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
@@ -520,7 +516,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         category: 'Tools',
         tags: ['alpha'],
-        flag: FEATURE_FLAGS.MESSAGING,
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
     { path: 'Product analytics', category: 'Analytics', type: 'insight', href: urls.insights() },
     {
