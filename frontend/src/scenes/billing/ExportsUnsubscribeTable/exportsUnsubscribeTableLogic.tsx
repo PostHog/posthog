@@ -4,9 +4,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
-import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
-import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { FunctionDestination, PipelineBackend } from 'scenes/pipeline/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -31,14 +28,8 @@ export interface ItemToDisable {
 export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType>([
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect(() => ({
-        values: [
-            pipelineAccessLogic,
-            ['canConfigurePlugins'],
-            userLogic,
-            ['user'],
-            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-            ['paidHogFunctions'],
-        ],
+        // TODO: BEN FIX THIS
+        values: [userLogic, ['user'], pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['paidHogFunctions']],
         actions: [pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
     })),
 
@@ -58,9 +49,6 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 disablePlugin: async ({ id }) => {
-                    if (!values.canConfigurePlugins) {
-                        return values.pluginConfigsToDisable
-                    }
                     const response = await api.update(`api/plugin_config/${id}`, { enabled: false, deleted: true })
                     return { ...values.pluginConfigsToDisable, [id]: response }
                 },

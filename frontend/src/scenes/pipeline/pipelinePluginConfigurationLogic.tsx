@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -16,7 +15,6 @@ import {
     determineRequiredFields,
     getPluginConfigFormData,
 } from './configUtils'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { loadPluginsFromUrl } from './utils'
@@ -63,8 +61,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             ['plugins as transformationPlugins', 'nextAvailableOrder'],
             featureFlagLogic,
             ['featureFlags'],
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
         ],
     })),
     loaders(({ props, values }) => ({
@@ -102,14 +98,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 updatePluginConfig: async (formdata: Record<string, any>) => {
                     if (!values.plugin || !props.stage) {
                         return null
-                    }
-                    if (
-                        (!values.pluginConfig || (!values.pluginConfig.enabled && formdata.enabled)) &&
-                        props.stage === PipelineStage.Destination &&
-                        !values.canEnableNewDestinations
-                    ) {
-                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                        return values.pluginConfig
                     }
                     const { enabled, order, name, description, ...config } = formdata
 

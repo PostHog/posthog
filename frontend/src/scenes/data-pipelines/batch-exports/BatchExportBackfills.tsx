@@ -6,10 +6,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportBackfill } from '~/types'
+import { AvailableFeature, BatchExportBackfill } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportBackfillsLogic, BatchExportBackfillsLogicProps } from './batchExportBackfillsLogic'
 
@@ -59,7 +59,9 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
     const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
     // this permission acts as a proxy for the user's ability to cancel backfills
-    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const canStartBackfill = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -184,7 +186,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, backfill) {
-                            if (canEnableNewDestinations && backfillIsCancelable(backfill.status)) {
+                            if (canStartBackfill && backfillIsCancelable(backfill.status)) {
                                 return (
                                     <div className="flex gap-1">
                                         <BackfillCancelButton backfill={backfill} cancelBackfill={cancelBackfill} />
@@ -197,7 +199,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                 emptyState={
                     <div className="deprecated-space-y-2">
                         <div>No backfills in this time range.</div>
-                        {canEnableNewDestinations && (
+                        {canStartBackfill && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
                                 Start backfill
                             </LemonButton>
