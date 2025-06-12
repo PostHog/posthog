@@ -198,25 +198,9 @@ async fn handle_legacy(
     // consumes the parent request, so it's no longer in scope to extract metadata from
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
-        Err(e) => {
-            match &e {
-                CaptureError::RequestHydrationError(rhe) => {
-                    // occurs when an unnamed event (no "event" attrib) is submitted to an
-                    // endpoint other than /engage, or the whole payload is malformed
-                    error!("event hydration from request failed: {}", rhe);
-                    return Err(e);
-                }
-                // if the hydrated event batch is empty we surface it here
-                _ => return Err(e),
-            }
-        }
+        Err(e) => return Err(e),
     };
     Span::current().record("batch_size", events.len());
-
-    if events.is_empty() {
-        warn!("rejected empty batch");
-        return Err(CaptureError::EmptyBatch);
-    }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
@@ -355,25 +339,9 @@ async fn handle_common(
     // consumes the parent request, so it's no longer in scope to extract metadata from
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
-        Err(e) => {
-            match &e {
-                CaptureError::RequestHydrationError(rhe) => {
-                    // occurs when an unnamed event (no "event" attrib) is submitted to an
-                    // endpoint other than /engage, or the whole payload is malformed
-                    error!("event hydration from request failed: {}", rhe);
-                    return Err(e);
-                }
-                // if the hydrated event batch is empty we surface it here
-                _ => return Err(e),
-            }
-        }
+        Err(e) => return Err(e),
     };
     Span::current().record("batch_size", events.len());
-
-    if events.is_empty() {
-        warn!("rejected empty batch");
-        return Err(CaptureError::EmptyBatch);
-    }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,

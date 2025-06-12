@@ -299,9 +299,9 @@ impl RawRequest {
                         properties: engage_event.properties,
                     }])
                 } else {
-                    Err(CaptureError::RequestHydrationError(String::from(
-                        "non-engage request missing event name attribute",
-                    )))
+                    let err_msg = String::from("non-engage request missing event name attribute");
+                    error!("event hydration from request failed: {}", &err_msg);
+                    Err(CaptureError::RequestHydrationError(err_msg))
                 }
             }
         };
@@ -309,11 +309,21 @@ impl RawRequest {
         // do some basic hydrated event payload filtering here
         match result {
             Ok(mut events) => {
-                // silently filter event types we don't want to ingest without erroring
+                if events.is_empty() {
+                    warn!("rejected empty batch");
+                    return Err(CaptureError::EmptyBatch);
+                }
+
+                // filter event types we don't want to ingest; return a sentinel
+                // error response if this results in an empty payload
                 events.retain(|event| event.event != "$performance_event");
+                if events.is_empty() {
+                    return Err(CaptureError::EmptyPayloadFiltered);
+                }
                 Ok(events)
             }
 
+            // pass along payload hydration and other error types
             _ => result,
         }
     }
