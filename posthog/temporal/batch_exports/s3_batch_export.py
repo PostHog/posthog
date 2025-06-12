@@ -1017,6 +1017,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
 
         self._session = aioboto3.Session()
+        self._s3_client = None  # Shared S3 client
+        self._s3_client_ctx = None  # Context manager for cleanup
 
         # File splitting management
         self.current_file_index = 0
@@ -1035,32 +1037,35 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # self.memory_semaphore = asyncio.Semaphore(max_memory_buffer // part_size)
         self._finalized = False
 
-    @contextlib.asynccontextmanager
-    async def s3_client(self):
-        """Asynchronously yield an S3 client."""
-        if self.s3_inputs.use_virtual_style_addressing:
-            config = {"s3": {"addressing_style": "virtual"}}
-        else:
-            config = None
-        if config:
-            boto_config = AioConfig(**config)
-        else:
-            boto_config = None
+    async def _get_s3_client(self):
+        """Get or create the shared S3 client."""
+        if self._s3_client is None:
+            if self.s3_inputs.use_virtual_style_addressing:
+                config = {"s3": {"addressing_style": "virtual"}}
+            else:
+                config = None
+            if config:
+                boto_config = AioConfig(**config)
+            else:
+                boto_config = None
 
-        try:
-            async with self._session.client(
-                "s3",
-                region_name=self.s3_inputs.region,
-                aws_access_key_id=self.s3_inputs.aws_access_key_id,
-                aws_secret_access_key=self.s3_inputs.aws_secret_access_key,
-                endpoint_url=self.s3_inputs.endpoint_url,
-                config=boto_config,
-            ) as client:
-                yield client
-        except ValueError as err:
-            if "Invalid endpoint" in str(err):
-                raise InvalidS3EndpointError(str(err)) from err
-            raise
+            try:
+                client_ctx = self._session.client(
+                    "s3",
+                    region_name=self.s3_inputs.region,
+                    aws_access_key_id=self.s3_inputs.aws_access_key_id,
+                    aws_secret_access_key=self.s3_inputs.aws_secret_access_key,
+                    endpoint_url=self.s3_inputs.endpoint_url,
+                    config=boto_config,
+                )
+                self._s3_client = await client_ctx.__aenter__()
+                # Store the context manager for proper cleanup
+                self._s3_client_ctx = client_ctx
+            except ValueError as err:
+                if "Invalid endpoint" in str(err):
+                    raise InvalidS3EndpointError(str(err)) from err
+                raise
+        return self._s3_client
 
     async def finalize_file(self):
         await self._finalize_current_file()
@@ -1119,14 +1124,14 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                     self.upload_id,
                 )
                 current_key = self._get_current_key()
-                async with self.s3_client() as client:
-                    response = await client.upload_part(
-                        Bucket=self.s3_inputs.bucket_name,
-                        Key=current_key,
-                        PartNumber=part_number,
-                        UploadId=self.upload_id,
-                        Body=data,
-                    )
+                client = await self._get_s3_client()
+                response = await client.upload_part(
+                    Bucket=self.s3_inputs.bucket_name,
+                    Key=current_key,
+                    PartNumber=part_number,
+                    UploadId=self.upload_id,
+                    Body=data,
+                )
 
                 part_info = {"ETag": response["ETag"], "PartNumber": part_number}
 
@@ -1212,10 +1217,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # Cleanup on error
             if self.upload_id:
                 try:
-                    async with self.s3_client() as client:
-                        await client.abort_multipart_upload(
-                            Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
-                        )
+                    client = await self._get_s3_client()
+                    await client.abort_multipart_upload(
+                        Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
+                    )
                 except:
                     pass  # Best effort cleanup
             raise
@@ -1244,12 +1249,12 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             optional_kwargs["SSEKMSKeyId"] = self.s3_inputs.kms_key_id
 
         current_key = self._get_current_key()
-        async with self.s3_client() as client:
-            response = await client.create_multipart_upload(
-                Bucket=self.s3_inputs.bucket_name,
-                Key=current_key,
-                **optional_kwargs,
-            )
+        client = await self._get_s3_client()
+        response = await client.create_multipart_upload(
+            Bucket=self.s3_inputs.bucket_name,
+            Key=current_key,
+            **optional_kwargs,
+        )
         self.upload_id = response["UploadId"]
         await self.logger.adebug(
             "Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id
@@ -1273,10 +1278,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # Cleanup on error
             if self.upload_id:
                 try:
-                    async with self.s3_client() as client:
-                        await client.abort_multipart_upload(
-                            Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
-                        )
+                    client = await self._get_s3_client()
+                    await client.abort_multipart_upload(
+                        Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
+                    )
                 except:
                     pass  # Best effort cleanup
             raise
@@ -1284,6 +1289,11 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             self._finalized = True
             # Final cleanup
             self.current_buffer.clear()
+            # Close the shared S3 client
+            if self._s3_client is not None and self._s3_client_ctx is not None:
+                await self._s3_client_ctx.__aexit__(None, None, None)
+                self._s3_client = None
+                self._s3_client_ctx = None
             gc.collect()
 
         # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
@@ -1329,8 +1339,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
     async def _single_file_upload(self):
         """Handle small files that don't need multipart"""
         data = bytes(self.current_buffer)
-        async with self.s3_client() as client:
-            await client.put_object(Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), Body=data)
+        client = await self._get_s3_client()
+        await client.put_object(Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), Body=data)
         self.current_buffer.clear()
 
     async def _complete_multipart_upload(self):
@@ -1342,13 +1352,13 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         sorted_parts = [self.completed_parts[part_num] for part_num in sorted(self.completed_parts.keys())]
 
         current_key = self._get_current_key()
-        async with self.s3_client() as client:
-            await client.complete_multipart_upload(
-                Bucket=self.s3_inputs.bucket_name,
-                Key=current_key,
-                UploadId=self.upload_id,
-                MultipartUpload={"Parts": sorted_parts},
-            )
+        client = await self._get_s3_client()
+        await client.complete_multipart_upload(
+            Bucket=self.s3_inputs.bucket_name,
+            Key=current_key,
+            UploadId=self.upload_id,
+            MultipartUpload={"Parts": sorted_parts},
+        )
 
     # def get_progress_info(self):
     #     """Get upload progress information"""
