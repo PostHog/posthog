@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use petgraph::{algo::is_cyclic_directed, graph::DiGraph};
+use petgraph::{algo::toposort, graph::DiGraph, visit::EdgeRef};
 
 use crate::api::errors::FlagError;
 
@@ -128,17 +128,43 @@ where
         }
     }
 
-    if is_cyclic_directed(&graph) {
-        return Err(FlagError::DependencyCycle(
-            T::dependency_type(),
-            format!(
-                "Cyclic dependency detected starting at {} {}",
-                std::any::type_name::<T>(),
-                initial_id
-            ),
-        )
-        .into());
-    }
+    // Use toposort to detect cycles and get the cycle starting point
+    match toposort(&graph, None) {
+        Ok(_) => Ok(graph),
+        Err(e) => {
+            // Use the node that started the cycle (from the toposort error)
+            let cycle_nodes = get_cycle_nodes(&graph, e.node_id());
+            let cycle_ids: Vec<i64> = cycle_nodes.iter().map(|&node| graph[node].into()).collect();
 
-    Ok(graph)
+            Err(FlagError::DependencyCycle(T::dependency_type(), cycle_ids).into())
+        }
+    }
+}
+
+/// Given a graph and a node that is part of a cycle, returns the nodes in that cycle.
+/// The cycle starts with the node that is pointed to by the given node and ends with that same node.
+/// This function assumes a cycle exists starting at the given node.
+pub fn get_cycle_nodes<N, E>(
+    graph: &DiGraph<N, E>,
+    start: petgraph::graph::NodeIndex,
+) -> Vec<petgraph::graph::NodeIndex> {
+    // Get the first node in the cycle (the one that start points to)
+    let first = graph
+        .edges(start)
+        .next()
+        .expect("Cycle should have at least one edge")
+        .target();
+
+    // Build the cycle by following edges until we get back to first
+    let mut visited = HashSet::new();
+    let cycle: Vec<_> = std::iter::successors(Some(first), |&current| {
+        if visited.contains(&current) {
+            None
+        } else {
+            visited.insert(current);
+            graph.edges(current).next().map(|edge| edge.target())
+        }
+    })
+    .collect();
+    cycle
 }
