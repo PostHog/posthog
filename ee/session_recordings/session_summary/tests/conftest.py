@@ -1,7 +1,7 @@
 from typing import Any
 from unittest.mock import MagicMock
 import pytest
-from datetime import datetime
+from datetime import datetime, UTC
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
 from posthog.models import Team, User
 from ee.session_recordings.session_summary.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
@@ -201,7 +201,7 @@ def mock_enriched_llm_json_response() -> dict[str, Any]:
                         "confusion": False,
                         "exception": None,
                         "event_id": "abcd1234",
-                        "timestamp": "2025-03-31T18:40:39.302000Z",
+                        "timestamp": "2025-03-31T18:40:39.302000+00:00",
                         "milliseconds_since_start": 7000,
                         "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
                         "current_url": "http://localhost:8010/login",
@@ -215,7 +215,7 @@ def mock_enriched_llm_json_response() -> dict[str, Any]:
                         "confusion": False,
                         "exception": None,
                         "event_id": "defg4567",
-                        "timestamp": "2025-03-31T18:40:43.645000Z",
+                        "timestamp": "2025-03-31T18:40:43.645000+00:00",
                         "milliseconds_since_start": 11343,
                         "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
                         "current_url": "http://localhost:8010/login",
@@ -234,7 +234,7 @@ def mock_enriched_llm_json_response() -> dict[str, Any]:
                         "confusion": False,
                         "exception": None,
                         "event_id": "ghij7890",
-                        "timestamp": "2025-03-31T18:41:05.459000Z",
+                        "timestamp": "2025-03-31T18:41:05.459000+00:00",
                         "milliseconds_since_start": 33157,
                         "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
                         "current_url": "http://localhost:8010/signup",
@@ -248,7 +248,7 @@ def mock_enriched_llm_json_response() -> dict[str, Any]:
                         "confusion": True,
                         "exception": "blocking",
                         "event_id": "mnop3456",
-                        "timestamp": "2025-03-31T18:41:10.123000Z",
+                        "timestamp": "2025-03-31T18:41:10.123000+00:00",
                         "milliseconds_since_start": 37821,
                         "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
                         "current_url": "http://localhost:8010/signup/error",
@@ -262,7 +262,7 @@ def mock_enriched_llm_json_response() -> dict[str, Any]:
                         "confusion": False,
                         "exception": None,
                         "event_id": "stuv9012",
-                        "timestamp": "2025-03-31T18:41:15.789000Z",
+                        "timestamp": "2025-03-31T18:41:15.789000+00:00",
                         "milliseconds_since_start": 43487,
                         "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
                         "current_url": "http://localhost:8010/signup/error",
@@ -398,7 +398,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         # First segment events
         (
             "$autocapture",  # abcd1234 - start of segment 0
-            datetime(2025, 3, 31, 18, 40, 39, 302000),
+            datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC),
             "",
             ["Log in"],
             ["button"],
@@ -415,7 +415,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         ),
         (
             "$autocapture",  # defg4567
-            datetime(2025, 3, 31, 18, 40, 43, 645000),
+            datetime(2025, 3, 31, 18, 40, 43, 645000, tzinfo=UTC),
             "",
             ["Submit"],
             ["form"],
@@ -432,7 +432,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         ),
         (
             "$pageview",  # vbgs1287 - end of segment 0
-            datetime(2025, 3, 31, 18, 40, 45, 251000),
+            datetime(2025, 3, 31, 18, 40, 45, 251000, tzinfo=UTC),
             "",
             [],
             [],
@@ -450,7 +450,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         # Second segment events
         (
             "$autocapture",  # gfgz6242 - start of segment 1
-            datetime(2025, 3, 31, 18, 40, 58, 699000),
+            datetime(2025, 3, 31, 18, 40, 58, 699000, tzinfo=UTC),
             "",
             ["Create"],
             ["button"],
@@ -467,7 +467,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         ),
         (
             "$autocapture",  # ghij7890
-            datetime(2025, 3, 31, 18, 41, 5, 459000),
+            datetime(2025, 3, 31, 18, 41, 5, 459000, tzinfo=UTC),
             "",
             ["Continue"],
             ["button"],
@@ -484,7 +484,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         ),
         (
             "$autocapture",  # mnop3456
-            datetime(2025, 3, 31, 18, 41, 10, 123000),
+            datetime(2025, 3, 31, 18, 41, 10, 123000, tzinfo=UTC),
             "",
             ["Submit"],
             ["form"],
@@ -501,7 +501,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         ),
         (
             "$autocapture",  # stuv9012 - end of segment 1
-            datetime(2025, 3, 31, 18, 41, 15, 789000),
+            datetime(2025, 3, 31, 18, 41, 15, 789000, tzinfo=UTC),
             "",
             ["Try Again"],
             ["button"],
@@ -561,7 +561,7 @@ def mock_events_mapping(
         # Some columns don't go into the mapping, as they are filtered out to avoid sending too much data to the LLM
         events_mapping[event_id] = [
             event_type,
-            timestamp.isoformat() + "Z",
+            timestamp.isoformat(),
             href,
             texts,
             elements,

@@ -92,12 +92,12 @@ session_outcome:
 @pytest.mark.parametrize(
     "event_time,start_time,expected",
     [
-        ("2024-03-01T12:00:02Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),  # 2 seconds after
-        ("2024-03-01T12:00:00Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # same time
-        ("2024-03-01T11:59:59Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # 1 second before (clamped to 0)
+        ("2024-03-01T12:00:02+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),  # 2 seconds after
+        ("2024-03-01T12:00:00+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # same time
+        ("2024-03-01T11:59:59+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # 1 second before (clamped to 0)
         (None, datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), None),  # no event time
-        ("2024-03-01T12:00:02Z", None, None),  # no start time
-        ("2024-03-01T13:00:00Z", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 3600000),  # 1 hour after
+        ("2024-03-01T12:00:02+00:00", None, None),  # no start time
+        ("2024-03-01T13:00:00+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 3600000),  # 1 hour after
     ],
 )
 def test_calculate_time_since_start(event_time: str, start_time: datetime, expected: int) -> None:
@@ -154,7 +154,7 @@ class TestEnrichRawSessionSummary:
         assert len(first_segment_actions) == 2
         first_event = first_segment_actions[0]
         assert first_event["event"] == "$autocapture"
-        assert first_event["timestamp"] == "2025-03-31T18:40:39.302000Z"
+        assert first_event["timestamp"] == "2025-03-31T18:40:39.302000+00:00"
         assert first_event["window_id"] == "0195ed81-7519-7595-9221-8bb8ddb1fdcc"
         assert first_event["current_url"] == "http://localhost:8010/login"
         assert first_event["event_type"] == "click"
@@ -321,8 +321,8 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         # Modify events to have different timestamps
-        mock_events_mapping["abcd1234"][1] = "2025-03-31T18:40:39.302000Z"  # Later timestamp
-        mock_events_mapping["defg4567"][1] = "2025-03-31T18:40:38.302000Z"  # Earlier timestamp
+        mock_events_mapping["abcd1234"][1] = "2025-03-31T18:40:39.302000+00:00"  # Later timestamp
+        mock_events_mapping["defg4567"][1] = "2025-03-31T18:40:38.302000+00:00"  # Earlier timestamp
         session_id = "test_session"
         assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
