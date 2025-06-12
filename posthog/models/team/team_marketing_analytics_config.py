@@ -73,7 +73,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
     _sources_map = models.JSONField(default=dict, db_column="sources_map", null=False, blank=True)
-    _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=False, blank=True)
+    _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
 
     @property
     def sources_map(self) -> dict:
