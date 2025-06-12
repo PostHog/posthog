@@ -1,6 +1,5 @@
 import builtins
 import json
-from collections.abc import Callable
 from datetime import datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
@@ -28,7 +27,7 @@ from posthog.api.utils import (
     get_pk_or_uuid,
     get_target_entity,
 )
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
+from posthog.constants import LIMIT, OFFSET
 from posthog.decorators import cached_by_filters
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.logging.timing import timed
@@ -51,12 +50,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.util import delete_person
-from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
-from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.funnel_unordered_persons import (
-    ClickhouseFunnelUnorderedActors,
-)
+from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -70,7 +64,6 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
-from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     convert_property_value,
@@ -189,33 +182,6 @@ class MinimalPersonSerializer(PersonSerializer):
 
     def get_distinct_ids(self, person):
         return person.distinct_ids[:10]
-
-
-def get_funnel_actor_class(filter: Filter) -> Callable:
-    funnel_actor_class: type[ActorBaseQuery]
-
-    if filter.correlation_person_entity and EE_AVAILABLE:
-        if EE_AVAILABLE:
-            from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-                FunnelCorrelationActors,
-            )
-
-            funnel_actor_class = FunnelCorrelationActors
-        else:
-            raise ValueError(
-                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
-            )
-    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
-        funnel_actor_class = ClickhouseFunnelTrendsActors
-    else:
-        if filter.funnel_order_type == "unordered":
-            funnel_actor_class = ClickhouseFunnelUnorderedActors
-        elif filter.funnel_order_type == "strict":
-            funnel_actor_class = ClickhouseFunnelStrictActors
-        else:
-            funnel_actor_class = ClickhouseFunnelActors
-
-    return funnel_actor_class
 
 
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -700,35 +666,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "last_refresh": results_package.get("last_refresh"),
             }
         )
-
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_funnel_persons(request))
-
-    @cached_by_filters
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-        funnel_actor_class = get_funnel_actor_class(filter)
-
-        actors, serialized_actors, raw_count = funnel_actor_class(filter, self.team).get_actors()
-        initial_url = format_query_params_absolute_url(request, 0)
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

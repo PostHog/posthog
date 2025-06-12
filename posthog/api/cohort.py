@@ -34,13 +34,11 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.exceptions_capture import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import (
-    INSIGHT_FUNNELS,
     INSIGHT_LIFECYCLE,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
@@ -778,11 +776,6 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: 
             entity = get_target_entity(stickiness_filter)
             query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
             context = stickiness_filter.hogql_context
-        elif insight_type == INSIGHT_FUNNELS:
-            funnel_filter = Filter(data=filter_data, team=cohort.team)
-            funnel_actor_class = get_funnel_actor_class(funnel_filter)
-            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
-            context = funnel_filter.hogql_context
         elif insight_type == INSIGHT_LIFECYCLE:
             lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
             query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
