@@ -203,7 +203,7 @@ jobs:
             - name: Playwright run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              run: pnpm --filter=@posthog/playwright test
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
