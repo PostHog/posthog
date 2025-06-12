@@ -107,11 +107,6 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                             execution_order: undefined,
                             hog: '',
                             icon_url: iconUrl,
-                            status: {
-                                state: 1,
-                                rating: 1,
-                                tokens: 0,
-                            },
                         })
                     }
 

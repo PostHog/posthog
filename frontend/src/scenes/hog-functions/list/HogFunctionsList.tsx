@@ -22,9 +22,9 @@ import { HogFunctionType } from '~/types'
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
-import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
+import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
@@ -42,9 +42,9 @@ export function HogFunctionList({
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction, hiddenHogFunctions } =
-        useValues(hogFunctionListLogic(props))
+        useValues(hogFunctionsListLogic(props))
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
-        useActions(hogFunctionListLogic(props))
+        useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
@@ -204,7 +204,7 @@ export function HogFunctionList({
                 {extraControls}
             </div>
 
-            <BindLogic logic={hogFunctionListLogic} props={props}>
+            <BindLogic logic={hogFunctionsListLogic} props={props}>
                 <LemonTable
                     dataSource={filteredHogFunctions}
                     size="small"

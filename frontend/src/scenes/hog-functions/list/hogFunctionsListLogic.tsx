@@ -44,10 +44,15 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
     return true
 }
 
-export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
+export const hogFunctionsListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => JSON.stringify(props)),
-    path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
+    key((props) =>
+        JSON.stringify({
+            ...props,
+            manualFunctions: null, // We don't care about these
+        })
+    ),
+    path((id) => ['scenes', 'pipeline', 'hogFunctionsListLogic', id]),
     connect(() => ({
         values: [
             projectLogic,

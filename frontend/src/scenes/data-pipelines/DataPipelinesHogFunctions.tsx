@@ -5,8 +5,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useEffect } from 'react'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
-import { hogFunctionListLogic } from 'scenes/hog-functions/list/hogFunctionListLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
+import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { urls } from 'scenes/urls'
 
@@ -40,7 +40,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
     const { hogFunctions, loading } = useValues(
-        hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
+        hogFunctionsListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
     )
 
     const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
