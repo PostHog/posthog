@@ -56,15 +56,10 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
-    if (kind === 'transformation') {
-        return <HogFunctionTemplateList type="transformation" />
+    if (['transformation', 'destination', 'site_app'].includes(kind)) {
+        return <HogFunctionTemplateList type={kind} />
     }
-    if (kind === 'destination') {
-        return <HogFunctionTemplateList type="destination" />
-    }
-    if (kind === 'site_app') {
-        return <HogFunctionTemplateList type="site_app" />
-    }
+
     if (kind === 'source') {
         return (
             <>
