@@ -5,6 +5,7 @@ Pydantic schemas for survey creation LLM output.
 from typing import Optional, Literal
 from pydantic import BaseModel, Field
 from enum import Enum
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 
 
 class SurveyTypeEnum(str, Enum):
@@ -24,35 +25,6 @@ class QuestionTypeEnum(str, Enum):
 class RatingDisplayEnum(str, Enum):
     NUMBER = "number"
     EMOJI = "emoji"
-
-
-# Default appearance values matching frontend constants
-DEFAULT_SURVEY_APPEARANCE = {
-    "backgroundColor": "#eeeded",
-    "submitButtonColor": "black",
-    "submitButtonTextColor": "white",
-    "ratingButtonColor": "white",
-    "ratingButtonActiveColor": "black",
-    "borderColor": "#c9c6c6",
-    "placeholder": "Start typing...",
-    "whiteLabel": False,
-    "displayThankYouMessage": True,
-    "thankYouMessageHeader": "Thank you for your feedback!",
-    "position": "bottom-right",
-    "widgetType": "tab",
-    "widgetLabel": "Feedback",
-    "widgetColor": "black",
-    "zIndex": "2147482647",
-    "disabledButtonOpacity": "0.6",
-    "maxWidth": "300px",
-    "textSubtleColor": "#939393",
-    "inputBackground": "white",
-    "boxPadding": "20px 24px",
-    "boxShadow": "0 4px 12px rgba(0, 0, 0, 0.15)",
-    "borderRadius": "10px",
-    "shuffleQuestions": False,
-    "surveyPopupDelaySeconds": None,
-}
 
 
 class SurveyQuestionSchema(BaseModel):
