@@ -45,7 +45,7 @@ const ResultsTab = (): JSX.Element => {
         statsMethod,
     } = useValues(experimentLogic)
     /**
-     * we still use the legacy metric results here. Frequentist results are loaded
+     * we still use the legacy metric results here. Results on the new format are loaded
      * in the metricResults state key. We'll eventually move into using the new state.
      */
     const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)

@@ -37,7 +37,7 @@ export type ResultBreakdownLogicProps = {
 }
 
 /**
- * This logic only works with modern engines, like bayesian and frequentist.
+ * This logic only works with the new query runner.
  * Legacy Funnels and Trends engine are resolved backend side.
  */
 export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
