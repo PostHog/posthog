@@ -3,7 +3,7 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,7 +16,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { getUpgradeProductLink, summarizeUsage } from './billing-utils'
+import { summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -44,7 +44,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -56,18 +56,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isSessionReplayWithAddons,
         visibleAddons,
     } = useValues(billingProductLogic({ product }))
-    const {
-        setShowTierBreakdown,
-        toggleIsPricingModalOpen,
-        reportSurveyShown,
-        setSurveyResponse,
-        setBillingProductLoading,
-    } = useActions(billingProductLogic({ product, productRef }))
+    const { setShowTierBreakdown, toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
+        billingProductLogic({ product, productRef })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
 
-    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
+    const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -375,33 +371,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div>
                                             Add-ons are only available on paid plans. Upgrade to access these features.
                                         </div>
-                                        {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
-                                            <BillingUpgradeCTA
-                                                type="primary"
-                                                status="alt"
-                                                data-attr="billing-page-addon-cta-upgrade-cta"
-                                                disableClientSideRouting
-                                                loading={!!billingProductLoading}
-                                                onClick={() => showPaymentEntryModal()}
-                                            >
-                                                Upgrade now
-                                            </BillingUpgradeCTA>
-                                        ) : (
-                                            <BillingUpgradeCTA
-                                                to={getUpgradeProductLink({
-                                                    product,
-                                                    redirectPath,
-                                                })}
-                                                type="primary"
-                                                status="alt"
-                                                data-attr="billing-page-addon-cta-upgrade-cta"
-                                                disableClientSideRouting
-                                                loading={!!billingProductLoading}
-                                                onClick={() => setBillingProductLoading(product.type)}
-                                            >
-                                                Upgrade now
-                                            </BillingUpgradeCTA>
-                                        )}
+                                        <BillingUpgradeCTA
+                                            type="primary"
+                                            status="alt"
+                                            data-attr="billing-page-addon-cta-upgrade-cta"
+                                            disableClientSideRouting
+                                            loading={!!billingProductLoading}
+                                            onClick={() => startPaymentEntryFlow(product)}
+                                        >
+                                            Upgrade now
+                                        </BillingUpgradeCTA>
                                     </div>
                                 </LemonBanner>
                             )}
