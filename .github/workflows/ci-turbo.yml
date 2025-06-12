@@ -211,4 +211,4 @@ jobs:
 
             - name: Tach Test
               run: |
-                  tach test --base=${BASE_BRANCH}
+                  tach test --base=${BASE_BRANCH} -- products common
