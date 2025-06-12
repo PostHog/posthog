@@ -4,7 +4,11 @@ import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { BillingProductV2Type } from '~/types'
+
+import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
@@ -28,7 +32,11 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
         initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
-        showPaymentEntryModal: (redirectPath?: string | null) => ({ redirectPath }),
+        startPaymentEntryFlow: (product?: BillingProductV2Type | null, redirectPath?: string | null) => ({
+            product,
+            redirectPath,
+        }),
+        showPaymentEntryModal: true,
         hidePaymentEntryModal: true,
         setRedirectPath: (redirectPath: string | null) => ({ redirectPath }),
     },
@@ -69,12 +77,33 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             null as string | null,
             {
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
-                showPaymentEntryModal: (state, { redirectPath }) => redirectPath ?? state,
             },
         ],
     },
 
     listeners: ({ actions, values }) => ({
+        startPaymentEntryFlow: ({ product, redirectPath }) => {
+            const { billing } = billingLogic.values
+
+            // TODO(@zach): we should also check that they have a valid default payment method
+            if (billing?.customer_id) {
+                // If customer_id exists, redirect to the upgrade product link
+                // because they already have an active stripe customer
+                if (product) {
+                    const { setBillingProductLoading } = billingProductLogic({ product }).actions
+                    setBillingProductLoading(product.type)
+                }
+                window.location.href = getUpgradeProductLink({
+                    product: product || undefined,
+                    redirectPath: redirectPath || undefined,
+                })
+                return
+            }
+
+            // Otherwise, proceed with showing the modal
+            actions.setRedirectPath(redirectPath || null)
+            actions.showPaymentEntryModal()
+        },
         initiateAuthorization: async () => {
             actions.setLoading(true)
             actions.setError(null)
@@ -87,7 +116,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             }
         },
 
-        pollAuthorizationStatus: async ({ paymentIntentId }) => {
+        pollAuthorizationStatus: async ({ paymentIntentId }, breakpoint) => {
             const pollInterval = 2000 // Poll every 2 seconds
             const maxAttempts = 30 // Max 1 minute of polling (30 * 2 seconds)
             let attempts = 0
@@ -100,6 +129,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         payment_intent_id: paymentIntentId || searchPaymentIntentId,
                     })
                     const status = response.status
+                    const errorMessage = response.error || 'Payment failed. Please try again.'
 
                     actions.setAuthorizationStatus(status)
 
@@ -108,6 +138,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                             window.location.pathname = values.redirectPath
                         } else {
                             // Push success to the url
+                            await breakpoint(1000)
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 success: true,
@@ -119,7 +150,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         }
                         return
                     } else if (status === 'failed') {
-                        actions.setError('Payment failed')
+                        actions.setError(errorMessage)
                         return
                     }
 
