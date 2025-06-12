@@ -21,6 +21,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { uuid } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -58,27 +60,28 @@ export type HogFunctionInputWithSchemaProps = {
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 function JsonConfigField(props: {
-    onChange?: (value: string) => void
+    input: HogFunctionInputType
+    onChange?: (input: HogFunctionInputType) => void
     className?: string
     autoFocus?: boolean
-    value?: string
     templating?: boolean
 }): JSX.Element {
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
-    const key = useMemo(() => `json_field_${Math.random().toString(36).substring(2, 11)}`, [])
+    const key = useMemo(() => `json_field_${uuid()}`, [])
+    const templatingKind = props.input.templating ?? 'hog'
 
     // Set up validation logic for this JSON field
     const logic = hogFunctionInputLogic({
         fieldKey: key,
-        initialValue: props.value,
-        onChange: props.onChange,
+        initialValue: props.input.value,
+        onChange: (value) => props.onChange?.({ ...props.input, value }),
     })
 
-    const { error } = useValues(logic)
+    const { error, jsonValue } = useValues(logic)
     const { setJsonValue } = useActions(logic)
 
     // Format initial value for display
-    const formattedValue = useMemo(() => formatJsonValue(props.value), [props.value])
+    const formattedValue = useMemo(() => formatJsonValue(props.input.value), [props.input.value])
 
     const panels = [
         {
@@ -86,22 +89,37 @@ function JsonConfigField(props: {
             header: 'Click to edit',
             content: (
                 <LemonField.Pure error={error}>
-                    <CodeEditorResizeable
-                        language={props.templating ? 'hogJson' : 'json'}
-                        value={formattedValue}
-                        onChange={(value) => setJsonValue(value || '{}')}
-                        options={{
-                            lineNumbers: 'off',
-                            minimap: {
-                                enabled: false,
-                            },
-                            scrollbar: {
-                                vertical: 'hidden',
-                                verticalScrollbarSize: 0,
-                            },
-                        }}
-                        globals={props.templating ? sampleGlobalsWithInputs : undefined}
-                    />
+                    <span className={clsx('group relative', props.className)}>
+                        <CodeEditorResizeable
+                            language={props.templating ? (templatingKind === 'hog' ? 'hogJson' : 'liquid') : 'json'}
+                            value={formattedValue}
+                            embedded={true}
+                            onChange={(value) => setJsonValue(value || '{}')}
+                            options={{
+                                lineNumbers: 'off',
+                                minimap: {
+                                    enabled: false,
+                                },
+                                scrollbar: {
+                                    vertical: 'hidden',
+                                    verticalScrollbarSize: 0,
+                                },
+                            }}
+                            globals={props.templating ? sampleGlobalsWithInputs : undefined}
+                        />
+                        {props.templating ? (
+                            <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                                <HogFunctionTemplateSuggestionsButton
+                                    templating={templatingKind}
+                                    value={jsonValue}
+                                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                                    onOptionSelect={(option) => {
+                                        void copyToClipboard(`{${option.example}}`, 'template code')
+                                    }}
+                                />
+                            </span>
+                        ) : null}
+                    </span>
                 </LemonField.Pure>
             ),
             className: 'p-0',
@@ -159,8 +177,6 @@ function HogFunctionTemplateInput(props: {
                     value={props.input.value}
                     setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
-                        // TODO: Improve this - we shouldn't just append but rather be clever and wrap the last selected text in the template
-                        // etc.
                         props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
                     }}
                 />
@@ -219,6 +235,9 @@ function DictionaryField({
                         onChange={(val) => {
                             const newEntries = [...entries]
                             newEntries[index] = [newEntries[index][0], val.value ?? '']
+                            if (val.templating) {
+                                onChange?.({ ...input, templating: val.templating })
+                            }
                             setEntries(newEntries)
                         }}
                         templating={templating}
@@ -265,12 +284,7 @@ export function HogFunctionInputRenderer({ onChange, schema, disabled, input }: 
             )
         case 'json':
             return (
-                <JsonConfigField
-                    value={input.value}
-                    onChange={onValueChange}
-                    className="ph-no-capture"
-                    templating={templating}
-                />
+                <JsonConfigField input={input} onChange={onChange} className="ph-no-capture" templating={templating} />
             )
         case 'choice':
             return (
@@ -470,13 +484,10 @@ export function HogFunctionInputWithSchema({
         }
     }, [showSource])
 
-    const supportsTemplating =
-        ['string', 'json', 'dictionary', 'email'].includes(schema.type) && schema.templating !== false
     const supportsSecrets = 'type' in configuration // no secrets for mapping inputs
 
     return (
         <div
-            className="group"
             ref={setNodeRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

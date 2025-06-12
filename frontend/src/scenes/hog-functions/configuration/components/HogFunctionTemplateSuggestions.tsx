@@ -1,14 +1,10 @@
-import { STL as HOG_STL } from '@posthog/hogvm'
-import { IconCode } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { IconCode, IconExternal } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useState } from 'react'
 
-export type HogFunctionTemplateOption = {
-    key: string
-    description: string
-    example: string
-}
+import { HogFunctionTemplateOption, hogFunctionTemplateSuggestionsLogic } from './hogFunctionTemplateSuggestionsLogic'
 
 export type HogFunctionTemplateSuggestionsProps = {
     templating: 'hog' | 'liquid'
@@ -16,25 +12,6 @@ export type HogFunctionTemplateSuggestionsProps = {
     value: string
     onOptionSelect: (option: HogFunctionTemplateOption) => void
 }
-
-const HOG_USAGE_EXAMPLES: HogFunctionTemplateOption[] = [
-    {
-        key: 'ternary',
-        example: `$1 = true ? 'Yes' : 'No'`,
-        description: 'Ternary operation (if this then that else other)',
-    },
-    {
-        key: 'default',
-        example: `$1 ?? 'Default value'`,
-        description: 'Default value (if this is null or undefined, use this)',
-    },
-]
-
-const HOG_STL_EXAMPLES: HogFunctionTemplateOption[] = Object.entries(HOG_STL).map(([key, value]) => ({
-    key,
-    example: value.example,
-    description: value.description,
-}))
 
 function HogFunctionTemplateSuggestionsItem({
     option,
@@ -56,10 +33,11 @@ function HogFunctionTemplateSuggestionsItem({
 export function HogFunctionTemplateSuggestions({
     templating,
     setTemplating,
-    value,
     onOptionSelect,
 }: HogFunctionTemplateSuggestionsProps): JSX.Element {
-    const [search, setSearch] = useState('')
+    const logic = hogFunctionTemplateSuggestionsLogic({ templating: templating ?? 'hog' })
+    const { search, optionsFiltered } = useValues(logic)
+    const { setSearch } = useActions(logic)
 
     // TODO
     // * Add a logic
@@ -95,25 +73,31 @@ export function HogFunctionTemplateSuggestions({
                     ) : null}
                 </div>
                 <div className="text-xs text-secondary">
-                    Below are a list of available functions for templating your inputs using <b>{templating}</b>.
+                    Below are a list of available functions for templating your inputs using <b>{templating}</b>.{' '}
                     <Link to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload">
                         Learn more
                     </Link>
                 </div>
             </div>
             <ul className="flex overflow-y-auto flex-col flex-1 gap-px p-2 border-t max-w-100">
-                {HOG_USAGE_EXAMPLES.map((value) => (
+                {optionsFiltered.map((value) => (
                     <li key={value.key}>
                         <HogFunctionTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />
                     </li>
                 ))}
 
-                <LemonDivider />
-                {HOG_STL_EXAMPLES.map((value) => (
-                    <li key={value.key}>
-                        <HogFunctionTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />
+                {templating === 'liquid' ? (
+                    <li>
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconExternal />}
+                            to="https://liquidjs.com/filters/overview.html"
+                            targetBlank
+                        >
+                            Liquid documentation
+                        </LemonButton>
                     </li>
-                ))}
+                ) : null}
             </ul>
         </div>
     )

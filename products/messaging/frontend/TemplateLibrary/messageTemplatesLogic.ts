@@ -8,7 +8,6 @@ import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplat
 import { UserBasicType } from '~/types'
 
 import type { messageTemplatesLogicType } from './messageTemplatesLogicType'
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 export interface MessageTemplate {
     id: string
