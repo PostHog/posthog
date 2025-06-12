@@ -498,13 +498,10 @@ if EE_AVAILABLE:
     )
     register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
     projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
-else:
-    environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
-        r"insights", InsightViewSet, "environment_insights", ["team_id"]
-    )
-    register_grandfathered_environment_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
-    router.register(r"person", LegacyPersonViewSet, "persons")
 
+
+register_grandfathered_environment_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
+router.register(r"person", LegacyPersonViewSet, "persons")
 
 environment_dashboards_router.register(
     r"sharing",
@@ -517,6 +514,10 @@ legacy_project_dashboards_router.register(
     sharing.SharingConfigurationViewSet,
     "project_dashboard_sharing",
     ["team_id", "dashboard_id"],
+)
+
+environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
+    r"insights", InsightViewSet, "environment_insights", ["team_id"]
 )
 
 environment_insights_router.register(
