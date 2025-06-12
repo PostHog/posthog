@@ -13,7 +13,7 @@ export const ServiceFilter = (): JSX.Element => {
     const { setServiceNames } = useActions(logsLogic)
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
-        key: 'service_name',
+        key: 'service.name',
         dateRange,
     }).url
 
