@@ -311,14 +311,9 @@ pub fn evaluate_dynamic_cohorts(
     // Iterate through the sorted nodes in reverse order
     for node in sorted_cohort_ids_as_graph_nodes.into_iter().rev() {
         let cohort_id = cohort_dependency_graph[node];
-        let cohort =
-            cohorts
-                .iter()
-                .find(|c| c.id == cohort_id)
-                .ok_or(FlagError::DependencyNotFound(
-                    DependencyType::Cohort,
-                    cohort_id.into(),
-                ))?;
+        let cohort = cohorts.iter().find(|c| c.id == cohort_id).ok_or_else(|| {
+            FlagError::DependencyNotFound(DependencyType::Cohort, cohort_id.into())
+        })?;
 
         let dependencies = cohort.extract_dependencies()?;
 
