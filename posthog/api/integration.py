@@ -145,6 +145,12 @@ class IntegrationViewSet(
             else:
                 return Response({"channels": []})
 
+        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
+        data = cache.get(key)
+
+        if data is not None:
+            return Response({"channels": data})
+
         channels = [
             {
                 "id": channel["id"],
@@ -157,6 +163,7 @@ class IntegrationViewSet(
             for channel in slack.list_channels(should_include_private_channels, authed_user)
         ]
 
+        cache.set(key, channels, 60 * 5)
         return Response({"channels": channels})
 
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
