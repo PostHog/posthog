@@ -82,6 +82,7 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
+    HogFunctionFiltersType,
     HogFunctionIconResponse,
     HogFunctionKind,
     HogFunctionStatus,
@@ -2310,12 +2311,12 @@ const api = {
     },
     hogFunctions: {
         async list({
-            filters,
+            filter_groups,
             types,
             kinds,
             excludeKinds,
         }: {
-            filters?: any
+            filter_groups?: HogFunctionFiltersType[]
             types?: HogFunctionTypeType[]
             kinds?: HogFunctionKind[]
             excludeKinds?: HogFunctionKind[]
@@ -2323,7 +2324,7 @@ const api = {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters,
+                    filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
                     ...(kinds ? { kind: kinds.join(',') } : {}),
