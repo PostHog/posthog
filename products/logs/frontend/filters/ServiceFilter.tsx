@@ -28,7 +28,7 @@ export const ServiceFilter = (): JSX.Element => {
                 value={serviceNames}
                 onSet={setServiceNames}
                 placeholder="Service name"
-                initialLoad
+                preloadValues
             />
         </span>
     )

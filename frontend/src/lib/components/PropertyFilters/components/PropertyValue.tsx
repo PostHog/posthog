@@ -39,7 +39,7 @@ export interface PropertyValueProps {
     groupTypeIndex?: GroupTypeIndex
     size?: LemonButtonProps['size']
     editable?: boolean
-    initialLoad?: boolean
+    preloadValues?: boolean
 }
 
 export function PropertyValue({
@@ -58,7 +58,7 @@ export function PropertyValue({
     additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
     editable = true,
-    initialLoad = false,
+    preloadValues = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -87,7 +87,7 @@ export function PropertyValue({
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        if (initialLoad) {
+        if (preloadValues) {
             load('')
         }
     }, [])
