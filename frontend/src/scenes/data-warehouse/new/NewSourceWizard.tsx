@@ -170,6 +170,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                             <div className="flex flex-col">
                                 <span className="gap-1 text-sm font-semibold">
                                     {sourceConfig.label ?? sourceConfig.name}
+                                    {sourceConfig.betaSource && <LemonTag type="warning">BETA</LemonTag>}
                                 </span>
                                 {sourceConfig.unreleasedSource && (
                                     <span>Get notified when {sourceConfig.label} is available to connect</span>

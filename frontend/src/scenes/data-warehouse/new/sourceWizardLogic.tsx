@@ -1,4 +1,4 @@
-import { LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
+import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
@@ -808,11 +808,8 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
     GoogleAds: {
         name: 'GoogleAds',
-        label: (
-            <>
-                Google Ads <LemonTag type="warning">BETA</LemonTag>
-            </>
-        ),
+        label: 'Google Ads',
+        betaSource: true,
         caption: (
             <>
                 Ensure you have granted PostHog access to your Google Ads account as instructed in the
