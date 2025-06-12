@@ -3,6 +3,7 @@ from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
 from typing import Optional
 
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from celery import shared_task
 from celery.canvas import chain
@@ -16,7 +17,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_cache import QueryCacheManager
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
 from posthog.tasks.utils import CeleryQueue
@@ -209,7 +209,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:

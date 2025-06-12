@@ -12,29 +12,24 @@ import { CampaignWorkflow } from './CampaignWorkflow'
 export const scene: SceneExport = {
     component: CampaignScene,
     logic: campaignSceneLogic,
-    paramsToProps: ({ params: { id } }): CampaignSceneLogicProps => ({ id: id || 'new' }),
+    paramsToProps: ({ params: { id, tab } }): CampaignSceneLogicProps => ({ id: id || 'new', tab: tab || 'overview' }),
 }
 
 export function CampaignScene({ id }: { id?: string } = {}): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
-    const isNewCampaign = id === 'new'
-
     const tabs = [
+        {
+            label: 'Overview',
+            key: 'overview',
+            content: <CampaignOverview />,
+        },
         {
             label: 'Workflow',
             key: 'workflow',
             content: <CampaignWorkflow />,
         },
     ]
-
-    if (!isNewCampaign) {
-        tabs.unshift({
-            label: 'Overview',
-            key: 'overview',
-            content: <CampaignOverview />,
-        })
-    }
 
     return (
         <div className="flex flex-col space-y-4">

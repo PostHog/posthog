@@ -29,6 +29,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
+    CurrencyCode,
     CustomEventConversionGoal,
     DatabaseSchemaDataWarehouseTable,
     DataTableNode,
@@ -51,6 +52,7 @@ import {
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
     BaseMathType,
@@ -419,7 +421,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'baseCurrency'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
@@ -763,8 +765,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     selectors(({ actions, values }) => ({
         // Helper functions for dynamic marketing analytics
         createMarketingDataWarehouseNodes: [
-            (s) => [s.validExternalTables],
-            (validExternalTables: ExternalTable[]): DataWarehouseNode[] => {
+            (s) => [s.validExternalTables, s.baseCurrency],
+            (validExternalTables: ExternalTable[], baseCurrency: string): DataWarehouseNode[] => {
                 if (!validExternalTables || validExternalTables.length === 0) {
                     return []
                 }
@@ -786,6 +788,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             table_name: table.name,
                             math: PropertyMathType.Sum,
                             math_property: table.source_map.total_cost,
+                            math_property_revenue_currency: {
+                                static: (table.source_map.currency || baseCurrency) as CurrencyCode,
+                            },
                         }
                         return returning
                     })
@@ -796,8 +801,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
 
         createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables],
-            (validExternalTables: ExternalTable[]): string | null => {
+            (s) => [s.validExternalTables, s.baseCurrency],
+            (validExternalTables: ExternalTable[], baseCurrency: string): string | null => {
                 if (!validExternalTables || validExternalTables.length === 0) {
                     return null
                 }
@@ -815,11 +820,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             return null
                         }
 
+                        const costSelect = table.source_map.currency
+                            ? `toFloat(convertCurrency('${table.source_map.currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0))))`
+                            : `toFloat(coalesce(${table.source_map.total_cost}, 0))`
+
                         // TODO: we should replicate this logic for the area charts once we build the query runner
                         return `
                         SELECT 
                             ${table.source_map.campaign_name} as campaignname,
-                            toFloat(coalesce(${table.source_map.total_cost}, 0)) as cost,
+                            ${costSelect} as cost,
                             toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
                             toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
                             ${table.source_map.source_name || `'${schemaName}'`} as source_name
@@ -2955,7 +2964,7 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     // check if we have any conversion events from the last week without sessions ids
 
     const response = await hogqlQuery(
-        `select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
+        hogql`select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
         { event: customEventName }
     )
     breakpoint?.()
