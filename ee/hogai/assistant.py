@@ -231,9 +231,12 @@ class Assistant:
                 self._graph.update_state(config, PartialAssistantState.get_reset_state())
 
                 if not isinstance(e, GenerationCanceled):
-                    logger.exception("Error in assistant stream", error=e)
                     # This is an unhandled error, so we just stop further generation at this point
-                    yield self._serialize_message(FailureMessage())
+                    logger.exception("Error in assistant stream", error=e)
+                    state_snapshot = validate_state_update(self._graph.get_state(config).values)
+                    # Some nodes might have already sent a failure message, so we don't want to send another one.
+                    if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
+                        yield self._serialize_message(FailureMessage())
                     raise  # Re-raise, so that the error is printed or goes into error tracking
 
     @property

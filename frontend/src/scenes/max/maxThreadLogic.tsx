@@ -147,7 +147,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
+                resetThread: (state) => filterOutReasoningMessages(state),
+                completeThreadGeneration: (state) => filterOutReasoningMessages(state),
                 setThread: (_, { thread }) => thread,
             },
         ],
@@ -313,7 +314,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
-                // Exclude AbortController exceptions
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
 
@@ -333,6 +333,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             relevantErrorMessage.content =
                                 'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
                         }
+                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
+                        relevantErrorMessage.content =
+                            'Oops! You appear to be offline. Please check your internet connection.'
                     } else {
                         posthog.captureException(e)
                         console.error(e)
@@ -465,6 +468,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         threadGrouped.push([thinkingMessage])
                     }
                 }
+
                 return threadGrouped
             },
         ],
@@ -557,4 +561,13 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
+}
+
+/**
+ * Filter out reasoning messages from the thread.
+ * @param thread
+ * @returns
+ */
+function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
+    return thread.filter((message) => !isReasoningMessage(message))
 }
