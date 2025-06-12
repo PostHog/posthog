@@ -14,7 +14,10 @@ from posthog.test.base import APIBaseTest
 class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.query = WebAnalyticsExternalSummaryQuery(dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"))
+        self.query = WebAnalyticsExternalSummaryQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            properties=[],
+        )
 
     @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
     def test_calculate_success(self, mock_chdb):
