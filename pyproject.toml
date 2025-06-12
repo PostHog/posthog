@@ -17,7 +17,7 @@ dependencies = [
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
     "conditional-cache==1.2",
-    "cryptography==39.0.2",
+    "cryptography==44.0.1",
     "dagster==1.10.18",
     "dagster-aws==0.26.18",
     "dagster-celery==0.26.18",
