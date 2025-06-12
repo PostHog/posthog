@@ -181,7 +181,7 @@ impl IntoResponse for FlagError {
             }
             FlagError::DependencyCycle(dependency_type, cycle_ids) => {
                 tracing::error!("{} dependency cycle: {:?}", dependency_type, cycle_ids);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("{} (Cycle: {:?})", dependency_type, cycle_ids))
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency cycle detected. {} ids in the cycle: {:?}", dependency_type, cycle_ids))
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
