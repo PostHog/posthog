@@ -65,7 +65,6 @@ export function SpinnerOverlay({
     visible = true,
     className,
     mode = 'spinning',
-    captureTime = true,
     ...spinnerProps
 }: SpinnerProps & {
     /** @default false */
@@ -80,7 +79,7 @@ export function SpinnerOverlay({
             {mode === 'editing' ? (
                 <IconPencil className="text-5xl text-accent z-10 drop-shadow-xl" />
             ) : (
-                <Spinner className={twMerge('text-5xl', className)} captureTime={captureTime} {...spinnerProps} />
+                <Spinner className={twMerge('text-5xl', className)} {...spinnerProps} />
             )}
         </div>
     )
