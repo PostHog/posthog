@@ -479,26 +479,6 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
 async def hogql_table(query: str, team: Team):
     """A HogQL table given by a HogQL query."""
 
-    # settings = HogQLGlobalSettings(
-    #     max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
-    # )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
-
-    # # Pass the query_type parameter to influence tags in a thread safe way
-    # response = await asyncio.to_thread(
-    #     execute_hogql_query,
-    #     query,
-    #     team,
-    #     settings=settings,
-    #     limit_context=LimitContext.SAVED_QUERY,
-    #     workload=Workload.OFFLINE,
-    #     query_type="materialization",
-    # )
-
-    # if not response.columns:
-    #     raise EmptyHogQLResponseColumnsError()
-
-    # columns: list[str] = response.columns
-
     query_node = parse_select(query)
 
     context = HogQLContext(
