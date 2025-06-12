@@ -40,7 +40,7 @@ export async function startDownload(
 
     let exportSource = query.source
 
-    // Optimize the source query for better export performance if needed
+    // Remove person column from the source otherwise export fails when there's 1000+ records
     if (shouldOptimize && isEventsQuery(query.source)) {
         exportSource = transformQuerySourceForExport(query.source)
     }
@@ -73,7 +73,6 @@ export async function startDownload(
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
 
-        // Type assertion for dynamic property addition
         exportContext['columns'] = columns
     }
 

@@ -2,27 +2,25 @@ import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
+const PERSON_COLUMN = 'person'
+const PERSON_EMAIL_COLUMN = 'person.properties.email'
+
 /**
- * Transform columns to optimize for export performance.
- * This replaces heavy columns (like full person objects) with lighter alternatives.
+ * Replaces the person column with the email column for performance reasons
  */
 export function transformColumnsForExport(columns: string[]): string[] {
     return columns.map((column) => {
         const cleanColumn = removeExpressionComment(column)
 
         // Replace 'person' with 'person.properties.email' for performance
-        if (cleanColumn === 'person') {
-            return column.replace(/\bperson\b/, 'person.properties.email')
+        if (cleanColumn === PERSON_COLUMN) {
+            return column.replace(/\bperson\b/, PERSON_EMAIL_COLUMN)
         }
 
         return column
     })
 }
 
-/**
- * Transform a query source to optimize for export performance.
- * This creates a new query object with optimized select columns.
- */
 export function transformQuerySourceForExport(source: EventsQuery): EventsQuery {
     if (!isEventsQuery(source)) {
         return source
@@ -45,5 +43,5 @@ export function shouldOptimizeForExport(query: DataTableNode): boolean {
 
     const allColumns = [...(query.source.select || []), ...(query.columns || [])]
 
-    return allColumns.some((col) => removeExpressionComment(col) === 'person')
+    return allColumns.some((col) => removeExpressionComment(col) === PERSON_COLUMN)
 }
