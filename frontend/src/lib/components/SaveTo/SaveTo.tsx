@@ -89,7 +89,7 @@ export function SaveToModal(): JSX.Element {
                                 {selectedFolders.length > 0 ? (
                                     selectedFolders.map((folder) => (
                                         <ButtonGroupPrimitive key={folder} menuItem fullWidth>
-                                            <DropdownMenuItem asChild key={folder}>
+                                            <DropdownMenuItem asChild>
                                                 <ButtonPrimitive
                                                     menuItem
                                                     hasSideActionRight
