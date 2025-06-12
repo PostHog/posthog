@@ -62,12 +62,12 @@ class TestSummarizeSession:
         session_id = "test_session_id"
         empty_context = ExtraSummaryContext()
         with (
+            patch("ee.session_recordings.session_summary.summarize_session", return_value=mock_team),
             patch.object(
                 SessionReplayEvents,
                 "get_metadata",
                 return_value=None,
             ) as mock_get_db_metadata,
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
         ):
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {session_id}"):
                 await prepare_data_for_single_session_summary(

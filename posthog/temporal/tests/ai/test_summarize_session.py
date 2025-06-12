@@ -37,6 +37,8 @@ from unittest.mock import AsyncMock
 from temporalio.exceptions import ApplicationError
 from temporalio.client import WorkflowFailureError
 
+pytestmark = pytest.mark.django_db
+
 
 def _create_chunk(content: str) -> ChatCompletionChunk:
     return ChatCompletionChunk(
@@ -142,48 +144,6 @@ def redis_test_setup() -> Generator[RedisTestContext, None, None]:
         yield context
     finally:
         context.cleanup()
-
-    # def test_execute_summarize_session_no_events_sse_error(
-    #     self,
-    #     mock_user: MagicMock,
-    #     mock_team: MagicMock,
-    #     mock_raw_metadata: dict[str, Any],
-    #     mock_raw_events_columns: list[str],
-    # ):
-    #     """Test that we yield a proper SSE error when no events are found (for example, for fresh real-time replays)."""
-    #     session_id = "test_session_id"
-    #     empty_context = ExtraSummaryContext()
-    #     with (
-    #         patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
-    #         patch(
-    #             "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
-    #             return_value=mock_raw_metadata,
-    #         ),
-    #         patch.object(
-    #             SessionReplayEvents,
-    #             "get_events",
-    #             return_value=(mock_raw_events_columns, []),  # Return columns but no events
-    #         ) as mock_get_db_events,
-    #     ):
-    #         result = list(
-    #             execute_summarize_session(
-    #                 session_id=session_id, user_pk=mock_user.pk, team=mock_team, extra_summary_context=empty_context
-    #             )
-    #         )
-    #         assert len(result) == 1
-    #         assert (
-    #             result[0]
-    #             == "event: session-summary-error\ndata: No events found for this replay yet. Please try again in a few minutes.\n\n"
-    #         )
-    #         mock_get_db_events.assert_called_once_with(
-    #             session_id="test_session_id",
-    #             team=mock_team,
-    #             metadata=mock_raw_metadata,
-    #             events_to_ignore=["$feature_flag_called"],
-    #             extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
-    #             page=0,
-    #             limit=3000,
-    #         )
 
 
 class TestFetchSessionDataActivity:
