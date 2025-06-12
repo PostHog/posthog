@@ -5067,6 +5067,7 @@ export interface SourceConfig {
     oauthPayload?: string[]
     existingSource?: boolean
     unreleasedSource?: boolean
+    betaSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
