@@ -611,7 +611,7 @@ mod tests {
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
         assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert!(!response.config.autocapture_opt_out.unwrap()); // this should be Some(false), not None
+        assert!(!response.config.autocapture_opt_out.unwrap());
         assert!(response.config.capture_dead_clicks.is_none());
     }
 
