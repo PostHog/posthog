@@ -41,8 +41,6 @@ export const manifest: ProductManifest = {
     routes: {
         // URL: [Scene, SceneKey]
         '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
-        '/messaging/campaigns/:id': ['MessagingCampaign', 'messagingCampaign'],
-        '/messaging/campaigns/new': ['MessagingCampaign', 'messagingCampaignNew'],
         '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
         '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
@@ -58,13 +56,13 @@ export const manifest: ProductManifest = {
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
-        '/messaging/campaigns/new': '/messaging/campaigns/new/trigger',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
     },
     urls: {
         messagingCampaigns: (): string => '/messaging/campaigns',
         messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
         messagingCampaignTab: (id?: string, tab?: string): string => `/messaging/campaigns/${id}/${tab}`,
-        messagingCampaignNew: (): string => '/messaging/campaigns/new',
+        messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
         messagingBroadcasts: (): string => '/messaging/broadcasts',
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
@@ -92,7 +90,11 @@ export const manifest: ProductManifest = {
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             category: 'Tools',
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING,
+            /**
+             * We'll keep early-access flag (FEATURE_FLAGS.MESSAGING) enabled but use this
+             * automation flag for sidebar visibility to enable internal dogfooding
+             */
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
 }

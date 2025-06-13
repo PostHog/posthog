@@ -1,6 +1,10 @@
 import { IconCheck, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSelect, LemonSelectSection, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import {
+    OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED,
+    OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED,
+} from 'lib/components/BaseCurrency/utils'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -58,22 +62,25 @@ export function SharedExternalDataSourceConfiguration({
         const currentValue = table.source_map?.[fieldName]
         const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
         const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
-        const columnOptions: LemonSelectSection<string | null>[] = [
-            {
-                options: [
-                    {
-                        label: 'None',
-                        value: null,
-                    },
-                ],
-            },
-            {
-                options: compatibleColumns.map((col) => ({
-                    label: `${col.name} (${col.type})`,
-                    value: col.name,
-                })),
-            },
-        ]
+
+        let columnOptions: LemonSelectSection<string | null>[]
+        if (fieldName === 'currency') {
+            columnOptions = [
+                { options: [{ label: 'None', value: null }] },
+                { options: OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED, title: 'Most Popular' },
+                { options: OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED, title: 'Other currencies' },
+            ]
+        } else {
+            columnOptions = [
+                { options: [{ label: 'None', value: null }] },
+                {
+                    options: compatibleColumns.map((col) => ({
+                        label: `${col.name} (${col.type})`,
+                        value: col.name,
+                    })),
+                },
+            ]
+        }
 
         return (
             <LemonSelect

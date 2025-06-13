@@ -203,7 +203,7 @@ jobs:
             - name: Playwright run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              run: pnpm --filter=@posthog/playwright test
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
@@ -216,6 +216,14 @@ jobs:
                   path: playwright/playwright-report/
                   retention-days: 30
               if: ${{ failure() }}
+
+            - name: Archive screenshots
+              if: always()
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: playwright-screenshots
+                  path: playwright/test-results
+                  retention-days: 30
 
     capture-run-time:
         name: Capture run time

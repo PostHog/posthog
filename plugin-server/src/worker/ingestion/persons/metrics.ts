@@ -47,6 +47,12 @@ export const personOperationLatencyByVersionSummary = new Summary({
     labelNames: ['operation', 'version_bucket'],
 })
 
+export const personPropertyKeyUpdateCounter = new Counter({
+    name: 'person_property_key_update_total',
+    help: 'Number of person updates triggered by this property value changing.',
+    labelNames: ['key'],
+})
+
 export function getVersionBucketLabel(version: number): string {
     if (version === 0) {
         return 'v0'

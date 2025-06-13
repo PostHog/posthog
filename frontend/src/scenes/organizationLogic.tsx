@@ -24,6 +24,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'enforce_2fa'
         | 'members_can_invite'
         | 'is_ai_data_processing_approved'
+        | 'default_experiment_stats_method'
     >
 >
 

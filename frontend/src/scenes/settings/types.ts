@@ -109,6 +109,7 @@ export type SettingId =
     | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
+    | 'organization-experiment-stats-method'
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
