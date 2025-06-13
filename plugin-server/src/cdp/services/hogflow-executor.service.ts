@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow, HogFlowAction } from '../../schema/hogflow'
-import { Person, PluginsServerConfig } from '../../types'
+import { HogFlow } from '../../schema/hogflow'
+import { Hub, Person } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {
@@ -15,8 +15,7 @@ import {
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { HOG_FLOW_ACTION_RUNNERS } from './hogflows/actions'
-import { HogFlowActionRunnerResult } from './hogflows/actions/types'
+import { HogFlowActionRunner } from './hogflows/actions'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -40,7 +39,11 @@ export function createHogFlowInvocation(
 }
 
 export class HogFlowExecutorService {
-    constructor(private config: PluginsServerConfig) {}
+    private hogFlowActionRunner: HogFlowActionRunner
+
+    constructor(private hub: Hub) {
+        this.hogFlowActionRunner = new HogFlowActionRunner(this.hub)
+    }
 
     buildHogFlowInvocations(
         hogFlows: HogFlow[],
@@ -87,48 +90,6 @@ export class HogFlowExecutorService {
         }
     }
 
-    protected async getPerson(personId: string): Promise<Person | null> {
-        return null
-    }
-
-    private getCurrentAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction {
-        const currentAction = invocation.state.currentAction
-        if (!currentAction) {
-            const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
-            if (!triggerAction) {
-                throw new Error('No trigger action found')
-            }
-            return triggerAction
-        }
-
-        return this.getActionById(invocation, currentAction.id)
-    }
-
-    private getActionById(invocation: CyclotronJobInvocationHogFlow, actionId: string): HogFlowAction {
-        const action = invocation.hogFlow.actions.find((action) => action.id === actionId)
-        if (!action) {
-            throw new Error(`Action ${actionId} not found`)
-        }
-
-        return action
-    }
-
-    private async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
-        const action = this.getCurrentAction(invocation)
-        // Find the appropriate action from our registry
-        const actionRunner = HOG_FLOW_ACTION_RUNNERS[action.type]
-        if (!actionRunner) {
-            throw new Error(`No action runner found for action type ${action.type}`)
-        }
-
-        // Validate the types are correct before calling
-
-        // Call the action runner
-        const result = await actionRunner.run(invocation, action)
-
-        return Promise.resolve(result)
-    }
-
     async execute(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
@@ -152,10 +113,13 @@ export class HogFlowExecutorService {
 
         result.invocation.state.actionStepCount = invocation.state.actionStepCount ?? 0
 
+        // TODO: Add early exit for exit conditions being met
+        // Also load the person info for that and cache it on the invocation in a way that won't get serialized
+
         // TODO: Also derive max action step count from the hog flow
         try {
             while (!result.finished && result.invocation.state.actionStepCount < MAX_ACTION_STEPS_HARD_LIMIT) {
-                const actionResult = await this.runCurrentAction(result.invocation)
+                const actionResult = await this.hogFlowActionRunner.runCurrentAction(result.invocation)
 
                 if (!actionResult.finished) {
                     // If the result isn't finished we _require_ that there is a `scheduledAt` param in order to delay the result
@@ -189,8 +153,8 @@ export class HogFlowExecutorService {
                 break
             }
 
-            // * Save the iteration count in the state so we never get stuck in infinite loops
-            // * Figure out how to invoke other hog functions...
+            // NOTE: Purposefully wait for the next tick to ensure we don't block up the event loop
+            await new Promise((resolve) => process.nextTick(resolve))
         } catch (err) {
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message

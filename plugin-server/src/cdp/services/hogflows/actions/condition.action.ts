@@ -6,18 +6,14 @@ import { filterFunctionInstrumented } from '~/src/cdp/utils/hog-function-filteri
 import { HogFlowAction } from '~/src/schema/hogflow'
 import { logger } from '~/src/utils/logger'
 
-import { HogFlowActionRunnerResult, HogFlowActionRunnerType } from './types'
-
-// Can I somehow get the concrete type for this action from HogFlowAction?
+import { HogFlowActionRunnerResult } from './types'
 
 const DEFAULT_WAIT_DURATION_MINUTES = 10
 
-type ConditionalBranchAction = Extract<HogFlowAction, { type: 'conditional_branch' }>
-
-export class HogFlowActionRunnerCondition implements HogFlowActionRunnerType<ConditionalBranchAction> {
+export class HogFlowActionRunnerCondition {
     run(
         invocation: CyclotronJobInvocationHogFlow,
-        action: ConditionalBranchAction
+        action: Extract<HogFlowAction, { type: 'conditional_branch' }>
     ): Promise<HogFlowActionRunnerResult> {
         logger.info('🦔', `[HogFlowActionRunnerCondition] Running condition action`, {
             action,
