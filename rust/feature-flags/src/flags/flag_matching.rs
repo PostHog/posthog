@@ -5,7 +5,6 @@ use crate::api::types::{
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
-use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::all_flag_condition_properties_match;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
@@ -25,6 +24,7 @@ use common_metrics::inc;
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
+use sqlx::FromRow;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -42,6 +42,13 @@ use super::flag_matching_utils::{
 
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
+pub type GroupTypeIndex = i32;
+
+#[derive(Debug, FromRow)]
+pub struct GroupTypeMapping {
+    pub group_type: String,
+    pub group_type_index: GroupTypeIndex,
+}
 
 #[derive(Debug)]
 struct SuperConditionEvaluation {
@@ -88,6 +95,8 @@ pub struct FlagEvaluationState {
     static_cohort_matches: Option<HashMap<CohortId, bool>>,
     /// Cache of flag evaluation results to avoid repeated DB lookups
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
+    /// Group type mappings fetched from database (group_type_index -> group_type_name)
+    group_type_mappings: HashMap<GroupTypeIndex, String>,
 }
 
 impl FlagEvaluationState {
@@ -134,6 +143,14 @@ impl FlagEvaluationState {
     pub fn add_flag_evaluation_result(&mut self, flag_id: FeatureFlagId, flag_value: FlagValue) {
         self.flag_evaluation_results.insert(flag_id, flag_value);
     }
+
+    pub fn set_group_type_mappings(&mut self, mappings: HashMap<GroupTypeIndex, String>) {
+        self.group_type_mappings = mappings;
+    }
+
+    pub fn get_group_type_mappings(&self) -> &HashMap<GroupTypeIndex, String> {
+        &self.group_type_mappings
+    }
 }
 
 /// Represents the group-related data needed for feature flag evaluation
@@ -169,12 +186,12 @@ pub struct FeatureFlagMatcher {
     pub writer: PostgresWriter,
     /// Cache manager for cohort definitions and memberships
     pub cohort_cache: Arc<CohortCacheManager>,
-    /// Cache for mapping between group types and their indices
-    group_type_mapping_cache: GroupTypeMappingCache,
     /// State maintained during flag evaluation, including cached DB lookups
     flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
     groups: HashMap<String, Value>,
+    /// Whether the evaluation state has been prepared
+    evaluation_state_prepared: bool,
 }
 
 impl FeatureFlagMatcher {
@@ -186,7 +203,6 @@ impl FeatureFlagMatcher {
         reader: PostgresReader,
         writer: PostgresWriter,
         cohort_cache: Arc<CohortCacheManager>,
-        group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
     ) -> Self {
         FeatureFlagMatcher {
@@ -196,10 +212,9 @@ impl FeatureFlagMatcher {
             reader: reader.clone(),
             writer: writer.clone(),
             cohort_cache,
-            group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
+            evaluation_state_prepared: false,
         }
     }
 
@@ -453,19 +468,19 @@ impl FeatureFlagMatcher {
         let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
-        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
-        let has_type_indexes = feature_flags
+        // Check if we need to prepare evaluation state early – we have flags that use group properties (have group type indices)
+        // This is needed for group overrides evaluation
+        let has_group_flags = feature_flags
             .flags
             .iter()
             .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
 
-        if has_type_indexes {
+        if has_group_flags && !self.evaluation_state_prepared {
             let group_type_mapping_timer =
                 common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
 
             if self
-                .group_type_mapping_cache
-                .init(self.reader.clone())
+                .prepare_flag_evaluation_state(&feature_flags.flags)
                 .await
                 .is_err()
             {
@@ -546,10 +561,10 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        // Step 2: Prepare evaluation data for remaining flags
+        // Step 2: Prepare evaluation data for remaining flags (if not already prepared)
         if !flags_needing_db_properties.is_empty() {
             if let Err(e) = self
-                .prepare_flag_evaluation_state(&flags_needing_db_properties)
+                .prepare_flag_evaluation_state_if_needed(&flags_needing_db_properties)
                 .await
             {
                 // Handle database errors and return early
@@ -710,17 +725,10 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<Option<HashMap<String, Value>>, FlagError> {
-        // If we can't get the mapping, just return None instead of propagating the error
-        let index_to_type_map = match self
-            .group_type_mapping_cache
-            .get_group_type_index_to_type_map()
-        {
-            Ok(map) => map,
-            Err(FlagError::NoGroupTypeMappings) => return Ok(None),
-            Err(e) => return Err(e),
-        };
+        // Get group type mapping from evaluation state
+        let group_type_mappings = self.flag_evaluation_state.get_group_type_mappings();
 
-        if let Some(group_type) = index_to_type_map.get(&group_type_index) {
+        if let Some(group_type) = group_type_mappings.get(&group_type_index) {
             if let Some(group_overrides) = group_property_overrides {
                 if let Some(group_overrides_by_type) = group_overrides.get(group_type) {
                     return Ok(locally_computable_property_overrides(
@@ -1168,10 +1176,10 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
-            // Group-based flag
+            // Group-based flag - use mappings from evaluation state
             let group_key = self
-                .group_type_mapping_cache
-                .get_group_type_index_to_type_map()?
+                .flag_evaluation_state
+                .get_group_type_mappings()
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
                 .and_then(|group_key_value| group_key_value.as_str())
@@ -1284,6 +1292,25 @@ impl FeatureFlagMatcher {
     ///
     /// The data is cached in FlagEvaluationState to avoid repeated DB lookups
     /// during subsequent flag evaluations.
+    /// Prepare flag evaluation state if not already prepared
+    pub async fn prepare_flag_evaluation_state_if_needed(
+        &mut self,
+        flags: &[FeatureFlag],
+    ) -> Result<(), FlagError> {
+        if !self.evaluation_state_prepared {
+            self.prepare_flag_evaluation_state(flags).await?;
+        }
+        Ok(())
+    }
+
+    /// Prepares all database-sourced data needed for flag evaluation.
+    /// This includes:
+    /// - Static cohort memberships
+    /// - Group type mappings
+    /// - Person and group properties
+    ///
+    /// The data is cached in FlagEvaluationState to avoid repeated DB lookups
+    /// during subsequent flag evaluations.
     pub async fn prepare_flag_evaluation_state(
         &mut self,
         flags: &[FeatureFlag],
@@ -1298,6 +1325,13 @@ impl FeatureFlagMatcher {
             .filter(|c| c.is_static)
             .map(|c| c.id)
             .collect();
+
+        // Fetch group type mappings from database (gracefully handle missing mappings)
+        let group_mappings = fetch_group_type_mappings(self.reader.clone(), self.project_id)
+            .await
+            .unwrap_or_else(|_| HashMap::new()); // we should error here actually.  Or I guess we can error elsewhere?
+        self.flag_evaluation_state
+            .set_group_type_mappings(group_mappings);
 
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
@@ -1321,6 +1355,7 @@ impl FeatureFlagMatcher {
             Ok(_) => {
                 inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
                 db_fetch_timer.label("outcome", "success").fin();
+                self.evaluation_state_prepared = true;
                 Ok(())
             }
             Err(e) => {
@@ -1348,18 +1383,18 @@ impl FeatureFlagMatcher {
             .filter_map(|flag| flag.get_group_type_index())
             .collect();
 
-        // Map group names to group_type_index and group_keys
+        // Map group names to group_type_index and group_keys using fetched mappings
+        let group_mappings = self.flag_evaluation_state.get_group_type_mappings();
         let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
             .groups
             .iter()
-            .filter_map(|(group_type, group_key_value)| {
+            .filter_map(|(group_type_name, group_key_value)| {
                 let group_key = group_key_value.as_str()?.to_string();
-                self.group_type_mapping_cache
-                    .get_group_types_to_indexes()
-                    .ok()?
-                    .get(group_type)
-                    .cloned()
-                    .map(|group_type_index| (group_type_index, group_key))
+                // Find the group_type_index for this group_type_name
+                group_mappings
+                    .iter()
+                    .find(|(_, name)| name == &group_type_name)
+                    .map(|(group_type_index, _)| (*group_type_index, group_key))
             })
             .collect();
 
@@ -1433,6 +1468,30 @@ impl FeatureFlagMatcher {
     }
 }
 
+/// Fetch group type mappings directly from the database
+async fn fetch_group_type_mappings(
+    reader: PostgresReader,
+    project_id: ProjectId,
+) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
+    let mut conn = reader.as_ref().get_connection().await?;
+
+    let query = r#"
+        SELECT group_type, group_type_index 
+        FROM posthog_grouptypemapping 
+        WHERE project_id = $1
+    "#;
+
+    let rows = sqlx::query_as::<_, GroupTypeMapping>(query)
+        .bind(project_id)
+        .fetch_all(&mut *conn)
+        .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.group_type_index, row.group_type))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1440,10 +1499,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        flags::{
-            flag_group_type_mapping::GroupTypeMappingCache,
-            flag_models::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
-        },
+        flags::flag_models::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
         properties::property_models::{OperatorType, PropertyType},
         utils::test_utils::{
             add_person_to_cohort, create_test_flag, get_person_id_by_distinct_id,
@@ -1509,7 +1565,7 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
+            // None,
             None,
         );
 
@@ -1530,7 +1586,7 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
+            // None,
             None,
         );
 
@@ -1551,7 +1607,7 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
+            // None,
             None,
         );
 
@@ -1612,7 +1668,6 @@ mod tests {
             writer,
             cohort_cache,
             None,
-            None,
         );
 
         let flags = FeatureFlagList {
@@ -1664,13 +1719,6 @@ mod tests {
             None,
         );
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(reader.clone()).await.unwrap();
-
-        let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
-
         let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
 
         let group_overrides = HashMap::from([(
@@ -1688,7 +1736,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
             Some(groups),
         );
 
@@ -1713,10 +1760,6 @@ mod tests {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(1);
-        let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "group_type_1".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
 
         let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
 
@@ -1727,7 +1770,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
             Some(groups),
         );
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
@@ -1747,9 +1789,6 @@ mod tests {
 
         let flag = create_test_flag_with_variants(team.id);
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(reader.clone()).await.unwrap();
-
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
@@ -1757,7 +1796,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
             None,
         );
 
@@ -1806,7 +1844,6 @@ mod tests {
             reader,
             writer,
             cohort_cache,
-            None,
             None,
         );
         let (is_match, reason) = matcher
@@ -1863,7 +1900,6 @@ mod tests {
             reader,
             writer,
             cohort_cache,
-            None,
             None,
         );
         matcher
@@ -1966,7 +2002,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let result = matcher
@@ -2034,7 +2069,6 @@ mod tests {
                     reader_clone,
                     writer_clone,
                     cohort_cache_clone,
-                    None,
                     None,
                 );
                 matcher.get_match(&flag_clone, None, None).unwrap()
@@ -2114,7 +2148,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -2154,16 +2187,8 @@ mod tests {
             None,
         );
 
-        let matcher = FeatureFlagMatcher::new(
-            "".to_string(),
-            1,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
+        let matcher =
+            FeatureFlagMatcher::new("".to_string(), 1, 1, reader, writer, cohort_cache, None);
 
         let result = matcher.get_match(&flag, None, None).unwrap();
 
@@ -2204,7 +2229,6 @@ mod tests {
             reader,
             writer,
             cohort_cache,
-            None,
             None,
         );
 
@@ -2256,7 +2280,6 @@ mod tests {
             reader,
             writer,
             cohort_cache,
-            None,
             None,
         );
 
@@ -2332,7 +2355,6 @@ mod tests {
             writer.clone(),
             cohort_cache,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -2394,7 +2416,6 @@ mod tests {
             writer.clone(),
             cohort_cache,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -2437,7 +2458,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache,
-            None,
             None,
         );
 
@@ -2515,7 +2535,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache,
-            None,
             None,
         );
 
@@ -2746,7 +2765,6 @@ mod tests {
                 writer.clone(),
                 cohort_cache.clone(),
                 None,
-                None,
             );
 
             matcher
@@ -2856,7 +2874,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2867,7 +2884,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2877,7 +2893,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -2991,7 +3006,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -3097,7 +3111,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -3108,7 +3121,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -3118,7 +3130,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -3243,7 +3254,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -3336,7 +3346,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -3428,7 +3437,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -3543,7 +3551,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -3636,7 +3643,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3722,7 +3728,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -3807,7 +3812,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3886,7 +3890,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -3980,7 +3983,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -4008,9 +4010,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(reader.clone()).await.unwrap();
 
         // Create flag with experience continuity
         let flag = create_test_flag(
@@ -4064,7 +4063,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
             None,
         )
         .evaluate_all_feature_flags(
@@ -4104,9 +4102,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(reader.clone()).await.unwrap();
 
         // Create flag with experience continuity
         let flag = create_test_flag(
@@ -4149,7 +4144,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
             None,
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4())
@@ -4185,9 +4179,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache.init(reader.clone()).await.unwrap();
 
         // Create flag with continuity
         let flag_continuity = create_test_flag(
@@ -4271,7 +4262,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            Some(group_type_mapping_cache),
             None,
         )
         .evaluate_all_feature_flags(
@@ -4373,7 +4363,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -4602,7 +4591,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -4623,7 +4611,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -4732,7 +4719,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4755,7 +4741,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4777,7 +4762,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -4868,7 +4852,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -4930,7 +4913,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 
@@ -5077,7 +5059,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -5102,7 +5083,6 @@ mod tests {
             writer.clone(),
             cohort_cache.clone(),
             None,
-            None,
         );
 
         matcher
@@ -5126,7 +5106,6 @@ mod tests {
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
         );
 

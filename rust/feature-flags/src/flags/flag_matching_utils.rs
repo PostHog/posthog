@@ -11,7 +11,7 @@ use tracing::info;
 use crate::{
     api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
-    flags::flag_models::FeatureFlagId,
+    flags::{flag_matching::GroupTypeIndex, flag_models::FeatureFlagId},
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
         FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
@@ -23,10 +23,7 @@ use crate::{
     },
 };
 
-use super::{
-    flag_group_type_mapping::GroupTypeIndex,
-    flag_matching::{FlagEvaluationState, PostgresReader, PostgresWriter},
-};
+use super::flag_matching::{FlagEvaluationState, PostgresReader, PostgresWriter};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
