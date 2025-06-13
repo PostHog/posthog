@@ -134,7 +134,7 @@ export class HogFlowManagerService {
 
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
         logger.info('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
-        const response = await this.hub.postgres.query<Pick<HogFlow, 'id' | 'team_id' | 'version'>>(
+        const response = await this.hub.postgres.query<Pick<HogFlow, 'id' | 'team_id'>>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
             [teamIds],
