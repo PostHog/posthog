@@ -1,4 +1,5 @@
 import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xyflow/react'
+import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/types'
 
@@ -14,7 +15,6 @@ import {
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
 import type { HogFlowAction, HogFlowEdge } from '../types'
-import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
 // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
 export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] => {
@@ -197,6 +197,7 @@ export const getNodeInputs = (
                 ],
             }
         case 'delay':
+            // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
             return {
                 inputs: {
                     name: { value: '' },
@@ -217,7 +218,16 @@ export const getNodeInputs = (
                     },
                 ],
             }
+        case 'wait_for_condition':
+            // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
+            return {
+                inputs: {
+                    name: { value: '' },
+                },
+                inputs_schema: [],
+            }
         case 'conditional_branch':
+            // TODO(messaging-team): Add condition filter
             return {
                 inputs: {
                     name: { value: '' },
@@ -232,6 +242,7 @@ export const getNodeInputs = (
                 ],
             }
         default:
+            // Default: show the "This function does not require any input variables."
             return {
                 inputs: {},
                 inputs_schema: [],

@@ -600,11 +600,7 @@ export function CyclotronJobInputs({
     const config = configuration
 
     if (!config.inputs_schema?.length) {
-        if (!('type' in config)) {
-            // If this is a mapping or hog flow, don't show any error message.
-            return null
-        }
-        return <span className="italic text-secondary">This function does not require any input variables.</span>
+        return <span className="italic text-secondary">This does not require any input variables.</span>
     }
 
     const inputSchemas = config.inputs_schema
