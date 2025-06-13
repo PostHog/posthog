@@ -87,18 +87,17 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                     source_team.project = new_project
                     source_team.save()
 
-            posthoganalytics.capture(
-                str(user.distinct_id),
-                "organization environments rollback completed",
-                properties={
-                    "environment_mappings": json.dumps(environment_mappings),
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": membership.level,
-                },
-                groups=groups(organization),
-            )
-
+        posthoganalytics.capture(
+            str(user.distinct_id),
+            "organization environments rollback completed",
+            properties={
+                "environment_mappings": json.dumps(environment_mappings),
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "user_role": membership.level,
+            },
+            groups=groups(organization),
+        )
         logger.info(
             "Environments rollback migration completed successfully",
             organization_id=organization_id,
