@@ -34,6 +34,7 @@ ActivityScope = Literal[
     "Plugin",
     "PluginConfig",
     "HogFunction",
+    "HogFlow",
     "DataManagement",
     "EventDefinition",
     "PropertyDefinition",

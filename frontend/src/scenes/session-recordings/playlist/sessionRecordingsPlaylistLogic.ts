@@ -39,6 +39,7 @@ import {
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
+import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 export type PersonUUID = string
@@ -330,6 +331,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['maybeLoadPropertiesForSessions'],
             playerSettingsLogic,
             ['setHideViewedRecordings'],
+            playlistLogic,
+            ['setIsFiltersExpanded'],
         ],
         values: [
             featureFlagLogic,
@@ -613,6 +616,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
 
         setSelectedRecordingId: () => {
+            // Close filters when selecting a recording
+            if (values.featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new') {
+                actions.setIsFiltersExpanded(false)
+            }
+
             // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
             if (recordingIndex === values.sessionRecordings.length - 1) {

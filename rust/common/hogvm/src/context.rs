@@ -137,22 +137,8 @@ impl ExecutionContext {
         let Some(native_fn) = self.native_fns.get(name) else {
             return Err(VmError::UnknownFunction(name.to_string()));
         };
-        let result = native_fn(vm, args);
-        match result {
-            Ok(HogValue::Ref(ptr)) => vm.push_stack(ptr),
-            Ok(HogValue::Lit(lit)) => match lit {
-                // Object types returned from native functions get heap allocated, just like ones declared
-                // in the bytecode, whereas other types are pushed directly onto the stack. The purity of
-                // native functions means we don't need to worry about memory management for these values,
-                // beyond what the heap internally manages.
-                HogLiteral::Array(_) | HogLiteral::Object(_) => {
-                    let ptr = vm.heap.emplace(lit)?;
-                    vm.push_stack(ptr)
-                }
-                _ => vm.push_stack(lit),
-            },
-            Err(e) => Err(e),
-        }
+        let emplaced = walk_emplacing(vm, native_fn(vm, args)?)?;
+        vm.push_stack(emplaced)
     }
 
     pub fn get_bytecode(&self, ip: usize, symbol: &Option<Symbol>) -> Result<&JsonValue, VmError> {
@@ -185,5 +171,61 @@ impl Symbol {
 impl std::fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.module, self.name)
+    }
+}
+
+/// Walk a HogValue and its children recursively to ensure all indexable types (arrays and objects) are heap allocated,
+/// and then return the now-properly-allocated value. This is useful if, for example, you've constructed a HogValue
+/// from a JSON object without mutable access to a VM's heap, and now need to push it into the VM's memory space for the
+/// program to use.
+///
+/// This is exposed as a utility, but generally ExecutionContext::execute_native_function_call should do what you need.
+fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> {
+    // Chase the pointer, if this is one, and clone out of it. We hold on to the original pointer
+    // so we can swap the walked value back into it after we're done.
+    let (literal, existing_location) = match value {
+        HogValue::Lit(lit) => (lit, None),
+        HogValue::Ref(ptr) => {
+            let val = vm.heap.get(ptr)?.clone();
+            (val, Some(ptr))
+        }
+    };
+
+    match literal {
+        HogLiteral::Array(arr) => {
+            let emplaced_arr: Result<Vec<HogValue>, _> =
+                arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
+            let emplaced_arr = HogLiteral::Array(emplaced_arr?);
+
+            if let Some(ptr) = existing_location {
+                // If this was already a heap-allocated array, replace it with the new one
+                *vm.heap.get_mut(ptr)? = emplaced_arr;
+                Ok(ptr.into())
+            } else {
+                // Otherwise heap allocate it and return the pointer
+                vm.heap.emplace(emplaced_arr).map(|ptr| ptr.into())
+            }
+        }
+        HogLiteral::Object(obj) => {
+            let emplaced_obj: Result<HashMap<String, HogValue>, _> = obj
+                .into_iter()
+                .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
+                .collect();
+            let emplaced_obj = HogLiteral::Object(emplaced_obj?);
+
+            if let Some(ptr) = existing_location {
+                // As above, if this was already heap allocated, replace it with the new one
+                *vm.heap.get_mut(ptr)? = emplaced_obj;
+                Ok(ptr.into())
+            } else {
+                // Otherwise heap allocate it and return the pointer
+                vm.heap.emplace(emplaced_obj).map(|ptr| ptr.into())
+            }
+        }
+        // If we're looking at a non-indexable type, just return it, or the reference to it,
+        // if it was already heap allocated.
+        _ => Ok(existing_location
+            .map(|ptr| ptr.into())
+            .unwrap_or(literal.into())),
     }
 }

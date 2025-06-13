@@ -1,6 +1,7 @@
 import uuid
+from dateutil import parser
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import numpy
 import psycopg2
@@ -66,7 +67,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str] }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str] }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -99,7 +100,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         return None
 
     @property
-    def incremental_field_type(self) -> str | None:
+    def incremental_field_type(self) -> IncrementalFieldType | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_type", None)
 
@@ -109,6 +110,13 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def incremental_field_last_value(self) -> str | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_last_value", None)
+
+        return None
+
+    @property
+    def incremental_field_earliest_value(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_earliest_value", None)
 
         return None
 
@@ -189,6 +197,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def update_sync_type_config_for_reset_pipeline(self) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
+        self.sync_type_config.pop("incremental_field_earliest_value", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
@@ -197,7 +206,9 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
         self.save()
 
-    def update_incremental_field_last_value(self, last_value: Any, save: bool = True) -> None:
+    def update_incremental_field_value(
+        self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
+    ) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
@@ -227,7 +238,12 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         else:
             last_value_json = str(last_value_py)
 
-        self.sync_type_config["incremental_field_last_value"] = last_value_json
+        if type == "last":
+            self.sync_type_config["incremental_field_last_value"] = last_value_json
+        elif type == "earliest":
+            self.sync_type_config["incremental_field_earliest_value"] = last_value_json
+        else:
+            raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
             self.save()
@@ -247,6 +263,20 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             self.last_synced_at = None
             self.status = None
             self.save()
+
+
+def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+    if value is None or value == "None" or field_type is None:
+        return None
+
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return value
+
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return parser.parse(value)
+
+    if field_type == IncrementalFieldType.Date:
+        return parser.parse(value).date()
 
 
 @database_sync_to_async

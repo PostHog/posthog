@@ -1,6 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toSentenceCase } from 'lib/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -9,7 +10,8 @@ import {
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { urls } from 'scenes/urls'
+import { playerCommentModel } from 'scenes/session-recordings/player/playerCommentModel'
+import { RecordingAnnotationForm } from 'scenes/session-recordings/player/playerFrameCommentOverlayLogic'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment
@@ -17,20 +19,24 @@ export interface ItemCommentProps {
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
     return (
-        <div data-attr="item-notebook-comment" className="font-light w-full">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="font-medium truncate">{item.data.comment}</div>
-            </div>
+        <div data-attr="item-notebook-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
+            {item.data.comment.trim().length > 30 ? (
+                <Tooltip title={item.data.comment}>{item.data.comment}</Tooltip>
+            ) : (
+                item.data.comment
+            )}
         </div>
     )
 }
 
 function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
     return (
-        <div data-attr="item-annotation-comment" className="font-light w-full">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="font-medium truncate">{item.data.content}</div>
-            </div>
+        <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
+            {(item.data.content || '').trim().length > 30 ? (
+                <Tooltip title={item.data.content}>{item.data.content}</Tooltip>
+            ) : (
+                item.data.content
+            )}
         </div>
     )
 }
@@ -66,18 +72,15 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t">
-                <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer truncate">
-                    <div className="font-medium shrink-0">{item.data.comment}</div>
-                </div>
-            </div>
+            <div className="px-2 py-1 text-xs border-t text-wrap">{item.data.comment}</div>
         </div>
     )
 }
 
 function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+    const { startCommenting } = useActions(playerCommentModel)
     return (
-        <div data-attr="item-annotation-comment" className="font-light w-full">
+        <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
                 <Tooltip title="Annotations can be scoped to the project or organization, or to individual insights or dashboards. Project and organization scoped annotations are shown in the recording timeline.">
                     <div className="flex flex-row items-center gap-2">
@@ -85,16 +88,38 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                         Scope: {toSentenceCase(item.data.scope)}
                     </div>
                 </Tooltip>
-                <LemonButton type="secondary" to={urls.annotation(item.data.id)} size="xsmall">
+                <LemonButton
+                    type="secondary"
+                    onClick={() => {
+                        void (async () => {
+                            // relying on the click here to set the player timestamp
+                            // so this shouldn't swallow the click
+                            const annotationEditPayload: RecordingAnnotationForm = {
+                                annotationId: item.data.id,
+                                scope: item.data.scope,
+                                content: item.data.content ?? '',
+                                dateForTimestamp: item.data.date_marker,
+                                recordingId: item.data.recording_id ?? null,
+                                timeInRecording: null,
+                                timestampInRecording: item.timeInRecording,
+                            }
+                            startCommenting(annotationEditPayload)
+                        })()
+                    }}
+                    size="xsmall"
+                >
                     Edit annotation
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t">
-                <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer truncate">
-                    <div className="font-medium shrink-0">{item.data.content}</div>
-                </div>
-            </div>
+            <div className="p-2 text-xs border-t cursor-pointer text-wrap">{item.data.content}</div>
+
+            <ProfilePicture
+                user={item.data.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : item.data.created_by}
+                showName
+                size="md"
+                type={item.data.creation_type === 'GIT' ? 'bot' : 'person'}
+            />
         </div>
     )
 }

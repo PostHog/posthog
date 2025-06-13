@@ -17,7 +17,16 @@ import {
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
-import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+
+const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
+    line: GraphType.Line,
+    area: GraphType.Line,
+    bar: GraphType.Bar,
+
+    // not really supported, but here to satisfy the type checker
+    table: GraphType.Line,
+}
 
 let uniqueNode = 0
 export function RevenueAnalyticsInsightsNode(props: {
@@ -25,7 +34,7 @@ export function RevenueAnalyticsInsightsNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
-    const { baseCurrency, revenueGoals, grossRevenueGroupBy } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, grossRevenueGroupBy, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
@@ -65,12 +74,12 @@ export function RevenueAnalyticsInsightsNode(props: {
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                         <LineGraph
                             data-attr="revenue-analytics-insights-node-graph"
-                            type={grossRevenueGroupBy === 'all' ? GraphType.Line : GraphType.Bar}
+                            type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
                             datasets={datasets}
                             labels={labels}
-                            isArea={datasets.length > 1}
+                            isArea={insightsDisplayMode !== 'line'}
                             legend={{
-                                display: grossRevenueGroupBy === 'product' && datasets.length > 1,
+                                display: grossRevenueGroupBy !== 'all' && datasets.length > 1,
                                 position: 'right',
                                 // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
                                 reverse: true,
