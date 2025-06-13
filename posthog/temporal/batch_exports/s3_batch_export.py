@@ -1310,9 +1310,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         # Handle any exceptions
         if task.exception() is not None:
-            # TODO - check this is the case
             # Log the error - the exception will be re-raised when the task is awaited
-            # in _finalize_current_file or _upload_final_part
             self.logger.exception("Upload failed for file number %s part %s", self.current_file_index, part_number)
 
     async def _initialize_multipart_upload(self):
