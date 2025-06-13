@@ -76,7 +76,7 @@ class StreamTransformer:
     @abc.abstractmethod
     def write_batch(self, batch: pa.RecordBatch) -> typing.Generator[bytes, None, None]:
         """Write a batch to the output format"""
-        raise NotImplementedError("Subclasses must implement _write_batch")
+        raise NotImplementedError("Subclasses must implement write_batch")
 
     def compress(self, content: bytes | str) -> bytes:
         if isinstance(content, str):
@@ -181,7 +181,7 @@ class ParquetStreamTransformer(StreamTransformer):
         self.compression_level = compression_level
 
         # For Parquet, we need to handle schema and batching
-        self._parquet_writer = None
+        self._parquet_writer: pq.ParquetWriter | None = None
         self._parquet_buffer = BytesIO()
 
     @property
@@ -193,6 +193,7 @@ class ParquetStreamTransformer(StreamTransformer):
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
             )
+        assert self._parquet_writer is not None
         return self._parquet_writer
 
     def finalize(self) -> typing.Generator[bytes, None, None]:

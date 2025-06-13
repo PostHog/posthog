@@ -14,6 +14,15 @@ import aioboto3
 import botocore.exceptions
 import pyarrow as pa
 from aiobotocore.config import AioConfig
+from aiobotocore.session import ClientCreatorContext
+
+if typing.TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
+    from types_aiobotocore_s3.type_defs import (
+        CompletedPartTypeDef,
+        UploadPartOutputTypeDef,
+    )
+
 from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -429,7 +438,8 @@ class S3MultiPartUpload:
         exponential_backoff_coefficient: int = 2,
     ) -> str:
         """Attempt to upload a part for this multi-part upload retrying on transient errors."""
-        response: dict[str, str] | None = None
+        assert self.upload_id is not None
+        response: UploadPartOutputTypeDef | None = None
         attempt = 0
 
         async with self.s3_client() as s3_client:
@@ -455,10 +465,11 @@ class S3MultiPartUpload:
                         if attempt >= max_attempts:
                             raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
 
-                        await asyncio.sleep(
-                            min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                        retry_delay = min(
+                            max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
                         )
-
+                        await self.logger.ainfo("Retrying part %s upload in %s seconds", next_part_number, retry_delay)
+                        await asyncio.sleep(retry_delay)
                         continue
                     else:
                         raise
@@ -995,9 +1006,10 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
 
 
 class ConcurrentS3Consumer(ConsumerFromStage):
-    """Memory-efficient S3 consumer for large files with parallel uploads and file splitting
+    """A consumer that uploads chunks of data to S3 concurrently.
 
-    TODO: Maybe we can consolidate some of this logic with S3MultiPartUpload?
+    It uses a memory buffer to store the data and upload it in parts. It uses 2 semaphores to limit the number of
+    concurrent uploads and the memory buffer.
     """
 
     def __init__(
@@ -1014,11 +1026,12 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.s3_inputs = s3_inputs
         self.part_size = part_size
         self.max_memory_buffer = max_memory_buffer
+        self.max_concurrent_uploads = max_concurrent_uploads
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
 
         self._session = aioboto3.Session()
-        self._s3_client = None  # Shared S3 client
-        self._s3_client_ctx = None  # Context manager for cleanup
+        self._s3_client: S3Client | None = None  # Shared S3 client
+        self._s3_client_ctx: ClientCreatorContext[S3Client] | None = None  # Context manager for cleanup
 
         # File splitting management
         self.current_file_index = 0
@@ -1028,19 +1041,23 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         self.current_buffer = bytearray()
         self.pending_uploads: dict[int, asyncio.Task] = {}  # part_number -> Future
-        self.completed_parts = {}  # part_number -> part_info
+        self.completed_parts: dict[int, CompletedPartTypeDef] = {}  # part_number -> part_info
         self.part_counter = 1
-        self.upload_id = None
+        self.upload_id: str | None = None
 
         # Backpressure control
         self.memory_semaphore = asyncio.Semaphore(max_memory_buffer // part_size)
         self._finalized = False
 
-    async def _get_s3_client(self):
-        """Get or create the shared S3 client."""
+    async def _get_s3_client(self) -> "S3Client":
+        """Get or create the shared S3 client.
+
+        It significantly improves performance to share a single S3 client across all uploads.
+        """
         if self._s3_client is None:
-            config = {
-                "max_pool_connections": 20,  # Increase connection pool, so to ensure we're not limited by this
+            config: dict[str, typing.Any] = {
+                "max_pool_connections": self.max_concurrent_uploads
+                * 2,  # Increase connection pool, so to ensure we're not limited by this
             }
             if self.s3_inputs.use_virtual_style_addressing:
                 config["s3"] = {"addressing_style": "virtual"}
@@ -1096,7 +1113,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         # Create upload task
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
-        upload_task.add_done_callback(lambda task, pn=part_number: self._on_upload_complete(task, pn))
+        upload_task.add_done_callback(lambda task: self._on_upload_complete(task, part_number))
 
         # Track the upload
         self.pending_uploads[part_number] = upload_task
@@ -1130,7 +1147,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 client = await self._get_s3_client()
 
                 # Retry logic for upload_part
-                response: dict[str, str] | None = None
+                response: UploadPartOutputTypeDef | None = None
                 attempt = 0
 
                 while response is None:
@@ -1171,7 +1188,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                             raise
 
                 upload_time = time.time() - upload_start
-                part_info = {"ETag": response["ETag"], "PartNumber": part_number}
+                part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
 
                 # Store completed part info
                 self.completed_parts[part_number] = part_info
@@ -1282,8 +1299,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                     await client.abort_multipart_upload(
                         Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
                     )
-                except:
-                    pass  # Best effort cleanup
+                except Exception:
+                    await self.logger.aexception("Failed to abort multipart upload during cleanup")
             raise
 
     def _on_upload_complete(self, task: asyncio.Task, part_number: int):
@@ -1314,7 +1331,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         response = await client.create_multipart_upload(
             Bucket=self.s3_inputs.bucket_name,
             Key=current_key,
-            **optional_kwargs,
+            **optional_kwargs,  # type: ignore
         )
         self.upload_id = response["UploadId"]
         await self.logger.ainfo(
@@ -1392,7 +1409,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         await self.memory_semaphore.acquire()
 
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
-        upload_task.add_done_callback(lambda task, pn=part_number: self._on_upload_complete(task, pn))
+        upload_task.add_done_callback(lambda task: self._on_upload_complete(task, part_number))
 
         self.pending_uploads[part_number] = upload_task
         self.current_buffer.clear()
@@ -1420,16 +1437,3 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             UploadId=self.upload_id,
             MultipartUpload={"Parts": sorted_parts},
         )
-
-    # def get_progress_info(self):
-    #     """Get upload progress information"""
-    #     return {
-    #         "current_file_index": self.current_file_index,
-    #         "current_file_size": self.current_file_size,
-    #         "total_files_created": self.total_files_created,
-    #         "parts_completed": len(self.completed_parts),
-    #         "parts_pending": len(self.pending_uploads),
-    #         "buffer_size": len(self.current_buffer),
-    #         "estimated_total_parts": self.part_counter - 1,
-    #         "max_file_size_bytes": self.max_file_size_bytes,
-    #     }
