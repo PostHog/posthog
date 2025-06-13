@@ -193,7 +193,6 @@ export const FEATURE_FLAGS = {
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
-    ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
     MESSAGING: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
     MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging

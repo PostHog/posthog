@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { FunnelLayout } from 'lib/constants'
+import { match, P } from 'ts-pattern'
 
 import { performQuery } from '~/queries/query'
 import type {
@@ -10,7 +11,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -19,10 +20,9 @@ import {
     getInsight,
     getQuery,
 } from '~/scenes/experiments/metricQueryUtils'
-import type { Experiment, FunnelStep, TrendResult } from '~/types'
+import type { Experiment, FunnelStep } from '~/types'
 import {
     BreakdownAttributionType,
-    ChartDisplayType,
     FunnelConversionWindowTimeUnit,
     FunnelStepReference,
     FunnelVizType,
@@ -30,6 +30,14 @@ import {
 } from '~/types'
 
 import type { resultsBreakdownLogicType } from './resultsBreakdownLogicType'
+
+const filterFunnelSteps = (steps: FunnelStep[], variants: string[]): FunnelStep[] =>
+    steps.filter((step) =>
+        match(step.breakdown_value)
+            .with(undefined, () => false)
+            .with(P.array(P.string), (values) => values.some((value) => variants.includes(value)))
+            .otherwise(() => variants.includes(step.breakdown_value as string))
+    )
 
 export type ResultBreakdownLogicProps = {
     experiment: Experiment
@@ -98,12 +106,6 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                             funnelWindowInterval: 14,
                             funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                         },
-                        trendsFilter: {
-                            aggregationAxisFormat: 'numeric',
-                            display: ChartDisplayType.ActionsLineGraphCumulative,
-                            resultCustomizationBy: ResultCustomizationBy.Value,
-                            yAxisScaleType: 'linear',
-                        },
                     }),
                     getInsight({
                         showTable: true,
@@ -123,9 +125,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
 
     loaders(({ props, values }) => ({
         breakdownResults: [
-            null as FunnelStep[] | FunnelStep[][] | TrendResult[] | null,
+            null as FunnelStep[] | FunnelStep[][] | null,
             {
-                loadBreakdownResults: async (): Promise<FunnelStep[] | FunnelStep[][] | TrendResult[]> => {
+                loadBreakdownResults: async (): Promise<FunnelStep[] | FunnelStep[][]> => {
                     try {
                         const { experiment } = props
                         const query = values.query
@@ -134,11 +136,15 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                             throw new Error('No query returned from queryBuilder')
                         }
 
+                        if (query.source.kind === NodeKind.TrendsQuery) {
+                            return []
+                        }
+
                         /**
                          * perform the query
                          */
                         const response = (await performQuery(query)) as {
-                            results: FunnelStep[] | FunnelStep[][] | TrendResult[]
+                            results: FunnelStep[] | FunnelStep[][]
                         }
 
                         if (!response?.results) {
@@ -152,17 +158,20 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                          */
                         const variants = experiment.parameters.feature_flag_variants.map(({ key }) => key)
 
-                        if (query.source.kind === NodeKind.TrendsQuery) {
+                        results = match(results)
                             /**
-                             * we filter from the series all the breakdowns that do not map
-                             * to a feature flag variant
+                             * filter for FunnelSteps[][]
                              */
-                            results = (results as TrendResult[]).filter(
-                                (series) =>
-                                    series.breakdown_value !== undefined &&
-                                    variants.includes(series.breakdown_value as string)
+                            .with(P.array(P.array({ breakdown_value: P.any })), (nestedSteps) =>
+                                nestedSteps.map((stepGroup) => filterFunnelSteps(stepGroup, variants))
                             )
-                        }
+                            /**
+                             * filter for FunnelSteps[]
+                             */
+                            .with(P.array({ breakdown_value: P.any }), (flatSteps) =>
+                                filterFunnelSteps(flatSteps, variants)
+                            )
+                            .otherwise(() => [])
 
                         return results
                     } catch (error) {
