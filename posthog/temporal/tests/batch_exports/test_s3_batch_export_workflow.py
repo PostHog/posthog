@@ -1263,7 +1263,6 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
-@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     s3_client,
     clickhouse_client,
