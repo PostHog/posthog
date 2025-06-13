@@ -8,6 +8,7 @@ import io
 import json
 import operator
 import posixpath
+import time
 import typing
 
 import aioboto3
@@ -1114,7 +1115,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         try:
             async with self.upload_semaphore:
-                await self.logger.adebug(
+                await self.logger.ainfo(
                     "Uploading file number %s part %s with upload id %s",
                     self.current_file_index,
                     part_number,
@@ -1122,6 +1123,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 )
                 current_key = self._get_current_key()
                 client = await self._get_s3_client()
+                upload_start = time.time()
                 response = await client.upload_part(
                     Bucket=self.s3_inputs.bucket_name,
                     Key=current_key,
@@ -1129,15 +1131,35 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                     UploadId=self.upload_id,
                     Body=data,
                 )
+                upload_time = time.time() - upload_start
 
                 part_info = {"ETag": response["ETag"], "PartNumber": part_number}
 
                 # Store completed part info
                 self.completed_parts[part_number] = part_info
+
+                # Calculate transfer speed
+                part_size_mb = len(data) / (1024 * 1024)
+                upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
+
+                await self.logger.ainfo(
+                    "Finished uploading file number %s part %s with upload id %s. File size: %sMB, upload time: %s, speed: %s MB/s",
+                    self.current_file_index,
+                    part_number,
+                    self.upload_id,
+                    part_size_mb,
+                    upload_time,
+                    upload_speed_mbps,
+                )
                 return part_info
 
         except Exception:
-            await self.logger.aexception(f"Failed to upload part {part_number}")
+            await self.logger.aexception(
+                "Failed to upload file number %s part %s with upload id %s",
+                self.current_file_index,
+                part_number,
+                self.upload_id,
+            )
             raise
         finally:
             # Always release memory semaphore
@@ -1179,7 +1201,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_id = None
         self.pending_uploads.clear()
         self.completed_parts.clear()
-        await self.logger.adebug(f"Starting new file: {self._get_current_key()}")
+        await self.logger.adebug("Starting new file: %s", self._get_current_key())
 
     async def _finalize_current_file(self):
         """Finalize the current file before starting a new one"""
@@ -1206,7 +1228,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self._complete_multipart_upload()
 
             self.files_uploaded.append(self._get_current_key())
-            await self.logger.adebug(
+            await self.logger.ainfo(
                 "Completed multipart upload %s for file number %s", self.upload_id, self.current_file_index
             )
 
@@ -1232,7 +1254,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # TODO - check this is the case
             # Log the error - the exception will be re-raised when the task is awaited
             # in _finalize_current_file or _upload_final_part
-            self.logger.exception(f"Upload failed for part {part_number}")
+            self.logger.exception("Upload failed for file number %s part %s", self.current_file_index, part_number)
 
     async def _initialize_multipart_upload(self):
         """Initialize multipart upload with optimizations for large files"""
@@ -1253,7 +1275,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             **optional_kwargs,
         )
         self.upload_id = response["UploadId"]
-        await self.logger.adebug(
+        await self.logger.ainfo(
             "Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id
         )
 
@@ -1299,7 +1321,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             manifest_key = get_manifest_key(self.s3_inputs)
             await self.logger.ainfo("Uploading manifest file %s", manifest_key)
             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
-            await self.logger.adebug("All uploads completed. Number of files uploaded = %s", len(self.files_uploaded))
+            await self.logger.ainfo("All uploads completed. Number of files uploaded = %s", len(self.files_uploaded))
 
     # for now, let's ignore this so our tests use multi part uploads too
     # async def _single_file_upload_current(self):
@@ -1318,7 +1340,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         if not self.upload_id:
             await self._initialize_multipart_upload()
 
-        await self.logger.adebug(
+        await self.logger.ainfo(
             "Uploading final part of file %s with upload id %s", self._get_current_key(), self.upload_id
         )
 
