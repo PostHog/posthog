@@ -17,7 +17,6 @@ import { FunnelCorrelation, FunnelCorrelationType, InsightLogicProps } from '~/t
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
 import { funnelDataLogic } from './funnelDataLogic'
 import { appendToCorrelationConfig } from './funnelUtils'
-import { set } from 'husky'
 
 export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     props({} as InsightLogicProps),
