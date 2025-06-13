@@ -22,7 +22,7 @@ export function ContextDisplay(): JSX.Element {
         <div className="px-1 pt-1 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
                 <TaxonomicPopover
-                    size="xsmall"
+                    size="xxsmall"
                     type="tertiary"
                     className="flex-shrink-0 border"
                     groupType={mainTaxonomicGroupType}
