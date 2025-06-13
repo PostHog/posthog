@@ -166,7 +166,7 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         tags = {"cohort_id": cohort_id, "feature": Feature.COHORT.value}
         if initiating_user_id:
             tags["user_id"] = initiating_user_id
-        if current_task and current_task.request and current_task.requst.id:
+        if current_task and current_task.request and current_task.request.id:
             tags["celery_task_id"] = current_task.request.id
         tag_queries(**tags)
 
