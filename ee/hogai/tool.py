@@ -6,7 +6,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool
 
@@ -24,9 +23,12 @@ class create_and_query_insight(BaseModel):
     """
 
     query_description: str = Field(
-        description="The description of the query being asked. Include all relevant details from the current conversation in the query description, as the tool cannot access the conversation history."
+        description=(
+            "A description of the query to generate, encapsulating the details of the user's request. "
+            "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "If the users seems to ask for a list of entities, rather than number, say this explicitly."
+        )
     )
-    query_kind: MaxSupportedQueryKind = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class search_documentation(BaseModel):
