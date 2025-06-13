@@ -1,7 +1,7 @@
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { type AvailableOnboardingProducts, PipelineTab, ProductKey } from '~/types'
+import { type AvailableOnboardingProducts, ProductKey } from '~/types'
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {

@@ -73,7 +73,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     })),
     urlToAction(({ actions, values }) => {
         return {
-            [urls.dataWarehouseSource(':id', ':tab')]: (params): void => {
+            [urls.dataWarehouseSource(':id', ':tab' as any)]: (params): void => {
                 let possibleTab = (params.tab ?? 'configuration') as DataWarehouseSourceSceneTab
 
                 if (params.id?.startsWith('self-managed-')) {
