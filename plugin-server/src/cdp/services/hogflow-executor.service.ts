@@ -88,7 +88,7 @@ export class HogFlowExecutorService {
             hogFlowName: invocation.hogFlow.name,
         }
 
-        logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
+        logger.debug('🦔', `[HogFlowExecutor] Executing hog flow`, loggingContext)
 
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hogflow',
