@@ -18099,7 +18099,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort"],
+            "enum": ["all", "product", "cohort", "country"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {

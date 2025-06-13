@@ -11,7 +11,12 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, FieldOrTable
+from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
+    StringDatabaseField,
+    FieldOrTable,
+    StringJSONDatabaseField,
+)
 
 SOURCE_VIEW_SUFFIX = "customer_revenue_view"
 
@@ -22,6 +27,8 @@ FIELDS: dict[str, FieldOrTable] = {
     "name": StringDatabaseField(name="name"),
     "email": StringDatabaseField(name="email"),
     "phone": StringDatabaseField(name="phone"),
+    "address": StringJSONDatabaseField(name="address"),
+    "country": StringDatabaseField(name="country"),
     "cohort": StringDatabaseField(name="cohort"),
 }
 
@@ -78,6 +85,13 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
                 ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
+                ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
+                ast.Alias(
+                    alias="country",
+                    expr=ast.Call(
+                        name="JSONExtractString", args=[ast.Field(chain=["address"]), ast.Constant(value="country")]
+                    ),
+                ),
                 ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
             ],
             select_from=ast.JoinExpr(alias="outer", table=ast.Field(chain=[table.name])),
