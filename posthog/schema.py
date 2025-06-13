@@ -1361,15 +1361,6 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
-class HumanMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["human"] = "human"
-
-
 class Compare(StrEnum):
     CURRENT = "current"
     PREVIOUS = "previous"
@@ -1986,6 +1977,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
+    MAX_AI_CONTEXT = "max_ai_context"
 
 
 class TimelineEntry(BaseModel):
@@ -8998,23 +8990,6 @@ class RetentionQueryResponse(BaseModel):
     )
 
 
-class RootAssistantMessage(
-    RootModel[
-        Union[
-            VisualizationMessage,
-            ReasoningMessage,
-            AssistantMessage,
-            HumanMessage,
-            FailureMessage,
-            RootAssistantMessage1,
-        ]
-    ]
-):
-    root: Union[
-        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
-    ]
-
-
 class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11184,6 +11159,102 @@ class HogQLMetadata(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class HumanMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    type: Literal["human"] = "human"
+    ui_context: Optional[MaxContextShape] = None
+
+
+class MaxContextShape(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dashboards: Optional[list[MaxDashboardContext]] = None
+    filters_override: Optional[DashboardFilter] = None
+    insights: Optional[list[MaxInsightContext]] = None
+    variables_override: Optional[dict[str, HogQLVariable]] = None
+
+
+class MaxDashboardContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    filters: DashboardFilter
+    id: Union[str, int]
+    insights: list[MaxInsightContext]
+    name: Optional[str] = None
+
+
+class MaxInsightContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, int]
+    name: Optional[str] = None
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        CalendarHeatmapQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
 class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11393,5 +11464,26 @@ class QuerySchemaRoot(
     ] = Field(..., discriminator="kind")
 
 
+class RootAssistantMessage(
+    RootModel[
+        Union[
+            VisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            RootAssistantMessage1,
+        ]
+    ]
+):
+    root: Union[
+        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+    ]
+
+
 PropertyGroupFilterValue.model_rebuild()
+HumanMessage.model_rebuild()
+MaxContextShape.model_rebuild()
+MaxDashboardContext.model_rebuild()
+MaxInsightContext.model_rebuild()
 QueryRequest.model_rebuild()
