@@ -11,10 +11,15 @@ import json
 
 class CustomEventDeletionForm(forms.Form):
     team_id = forms.IntegerField(
-        label="Team ID", widget=forms.NumberInput(attrs={"class": "vTextField", "style": "width: 200px"})
+        label="Team ID",
+        required=True,
+        min_value=1,
+        widget=forms.NumberInput(attrs={"class": "vTextField", "style": "width: 200px"}),
+        help_text="Required: Team ID to scope the deletion to. Custom deletions are always limited to a specific team.",
     )
     predicate = forms.CharField(
         label="SQL WHERE Predicate",
+        required=True,
         help_text="Example: properties.$geoip_disable = 1 OR properties.error_type = 'timeout'",
         widget=forms.Textarea(attrs={"rows": 3, "cols": 80, "class": "vLargeTextField"}),
     )
@@ -24,6 +29,37 @@ class CustomEventDeletionForm(forms.Form):
         label="Preview Only",
         help_text="Check to preview events that would be deleted. Uncheck to actually create the deletion.",
     )
+
+    def clean_team_id(self):
+        team_id = self.cleaned_data.get("team_id")
+        if not team_id or team_id <= 0:
+            raise forms.ValidationError("Team ID is required and must be a positive integer.")
+
+        # Verify team exists
+        try:
+            Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            raise forms.ValidationError(f"Team with ID {team_id} does not exist.")
+
+        return team_id
+
+    def clean_predicate(self):
+        predicate = self.cleaned_data.get("predicate")
+        if not predicate or not predicate.strip():
+            raise forms.ValidationError("SQL predicate is required.")
+
+        # Basic validation to prevent obviously dangerous predicates
+        predicate = predicate.strip()
+        dangerous_keywords = ["DROP", "CREATE", "ALTER", "INSERT", "UPDATE", "TRUNCATE", "DELETE FROM"]
+        predicate_upper = predicate.upper()
+
+        for keyword in dangerous_keywords:
+            if keyword in predicate_upper:
+                raise forms.ValidationError(
+                    f"Predicate cannot contain '{keyword}' statements. Only WHERE clause conditions are allowed."
+                )
+
+        return predicate
 
 
 class AsyncDeletionAdmin(admin.ModelAdmin):
@@ -37,8 +73,8 @@ class AsyncDeletionAdmin(admin.ModelAdmin):
         "created_at",
         "delete_verified_at",
     )
-    list_filter = ("deletion_type", "delete_verified_at")
-    search_fields = ("key",)
+    list_filter = ("deletion_type", "delete_verified_at", "team_id")
+    search_fields = ("key", "team_id")
     change_list_template = "admin/posthog/asyncdeletion/change_list.html"
 
     def has_add_permission(self, request, obj=None):
@@ -46,6 +82,10 @@ class AsyncDeletionAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        # Add team information to the queryset for better display
+        return super().get_queryset(request).select_related("created_by")
 
     def get_urls(self):
         urls = super().get_urls()
@@ -72,16 +112,7 @@ class AsyncDeletionAdmin(admin.ModelAdmin):
                 predicate = form.cleaned_data["predicate"]
                 preview_only = form.cleaned_data["preview_only"]
 
-                # Verify team exists
-                try:
-                    Team.objects.get(id=team_id)
-                except Team.DoesNotExist:
-                    messages.error(request, f"Team with ID {team_id} does not exist.")
-                    return render(
-                        request,
-                        "admin/posthog/asyncdeletion/custom_event_deletion.html",
-                        {"form": form, "title": "Custom Event Deletion"},
-                    )
+                # Form validation already confirmed team exists and predicate is valid
 
                 # Build query to preview/count events
                 count_query = f"""
@@ -136,7 +167,8 @@ class AsyncDeletionAdmin(admin.ModelAdmin):
                         )
                         messages.success(
                             request,
-                            f"Created async deletion #{async_deletion.id} for {event_count:,} events in team {team_id}",
+                            f"Created async deletion #{async_deletion.id} for {event_count:,} events in team {team_id}. "
+                            f"This deletion is scoped only to team {team_id} and will be processed by the async deletion pipeline.",
                         )
                         return redirect(reverse("admin:posthog_asyncdeletion_changelist"))
 

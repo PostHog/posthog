@@ -65,6 +65,11 @@
     Use with extreme caution. Always preview the events first before creating the deletion.
 </div>
 
+<div class="success-box">
+    <strong>🔒 Team Scoped:</strong> Custom deletions are always scoped to a specific team ID. 
+    Events will only be deleted for the team you specify - never across all teams.
+</div>
+
 <form method="post" id="custom-deletion-form">
     {% csrf_token %}
     
@@ -73,6 +78,7 @@
             {{ form.team_id.errors }}
             <label for="{{ form.team_id.id_for_label }}" class="required">{{ form.team_id.label }}:</label>
             {{ form.team_id }}
+            <p class="help">{{ form.team_id.help_text }}</p>
         </div>
         
         <div class="form-row">

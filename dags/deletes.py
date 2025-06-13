@@ -400,15 +400,22 @@ def load_pending_deletions(
     pending_deletions = AsyncDeletion.objects.all()
 
     if not create_pending_deletions_table.is_reporting:
-        pending_deletions = pending_deletions.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team)
-            | Q(deletion_type=DeletionType.Custom),
-            delete_verified_at__isnull=True,
-        )
+        # Custom deletions are always filtered by team_id, others follow existing logic
+        team_filter = Q(deletion_type=DeletionType.Team)
+        person_filter = Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+
         if create_pending_deletions_table.team_id:
+            # If specific team_id is provided, filter all deletion types by it
             pending_deletions = pending_deletions.filter(
+                (person_filter | team_filter | Q(deletion_type=DeletionType.Custom)),
                 team_id=create_pending_deletions_table.team_id,
+                delete_verified_at__isnull=True,
+            )
+        else:
+            # If no team_id specified, include Person/Team deletions but Custom only with team_id
+            pending_deletions = pending_deletions.filter(
+                (person_filter | team_filter | Q(deletion_type=DeletionType.Custom, team_id__isnull=False)),
+                delete_verified_at__isnull=True,
             )
 
     # Process and insert in chunks
@@ -545,11 +552,12 @@ def delete_custom_events(
 ) -> PendingDeletesTable:
     """Delete events for custom deletions using their predicates."""
 
-    # Get custom deletions from the pending deletions table
+    # Get custom deletions from the pending deletions table - ensure team_id is always present
     custom_deletions_query = f"""
         SELECT team_id, key
         FROM {load_pending_deletions.qualified_name}
         WHERE deletion_type = {DeletionType.Custom}
+        AND team_id IS NOT NULL
     """
 
     custom_deletions = cluster.any_host_by_role(
@@ -564,10 +572,18 @@ def delete_custom_events(
 
     context.add_output_metadata({"custom_deletions_count": dagster.MetadataValue.int(len(custom_deletions))})
 
-    # Process each custom deletion with its predicate
+    # Process each custom deletion with its predicate - team_id is guaranteed to be present
     for team_id, predicate in custom_deletions:
+        if not team_id or not predicate:
+            context.log.warning(
+                f"Skipping custom deletion with missing team_id or predicate: team_id={team_id}, predicate={predicate}"
+            )
+            continue
+
         delete_mutation_runner = LightweightDeleteMutationRunner(
-            table=EVENTS_DATA_TABLE(), predicate=f"team_id = {team_id} AND ({predicate})", parameters={}
+            table=EVENTS_DATA_TABLE(),
+            predicate=f"team_id = %(team_id)s AND ({predicate})",
+            parameters={"team_id": team_id},
         )
 
         # Run the deletion on all shards
@@ -765,18 +781,19 @@ def cleanup_delete_assets(
         return True
 
     # Mark deletions as verified in Django
+    team_filter = Q(deletion_type=DeletionType.Team)
+    person_filter = Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+
     if not create_pending_deletions_table.team_id:
+        # When no specific team_id, mark verified but ensure Custom deletions always have team_id
         AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team)
-            | Q(deletion_type=DeletionType.Custom),
+            (person_filter | team_filter | Q(deletion_type=DeletionType.Custom, team_id__isnull=False)),
             delete_verified_at__isnull=True,
         ).update(delete_verified_at=timezone.now())
     else:
+        # When specific team_id provided, filter all types by it
         AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team)
-            | Q(deletion_type=DeletionType.Custom),
+            (person_filter | team_filter | Q(deletion_type=DeletionType.Custom)),
             team_id=create_pending_deletions_table.team_id,
             delete_verified_at__isnull=True,
             created_at__lte=create_pending_deletions_table.timestamp,
