@@ -22,7 +22,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         queue_name = options.get("queue")
-        continuous = options.get("continuous", True)
+        continuous = options.get("continuous", False)
         max_messages = options.get("max_messages", 10)
 
         if not queue_name:
