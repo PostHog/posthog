@@ -8,11 +8,10 @@ use property_defs_rs::{
     api::v1::{query::Manager, routing::apply_routes},
     app_context::AppContext,
     config::Config,
-    update_cache::Cache,
-    update_consumer_loop,
-    update_producer_loop,
     measuring_channel::measuring_channel,
     metrics_consts::CHANNEL_CAPACITY,
+    update_cache::Cache,
+    update_consumer_loop, update_producer_loop,
 };
 
 use serve_metrics::{serve, setup_metrics_routes};
