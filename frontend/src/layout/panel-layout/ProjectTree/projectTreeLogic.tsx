@@ -1031,6 +1031,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         addFolder: ({ folder, editAfter, callback }) => {
+            // Prevent creating folders that start with UNFILED_SAVED_QUERIES_PATH. Special case used in queryDatabase sidebar
+            if (folder.startsWith(UNFILED_SAVED_QUERIES_PATH)) {
+                lemonToast.error('Saved queries is a reserved path in this folder')
+                return
+            }
+
             // Like Mac, we don't allow duplicate folder names
             // So we need to increment the folder name until we find a unique one
             let folderName = folder

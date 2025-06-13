@@ -168,14 +168,24 @@ const createManagedViewNode = (
 
 const createSourceFolderNode = (
     sourceType: string,
-    tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaManagedViewTable)[],
+    tables: DatabaseSchemaTable[] | DatabaseSchemaDataWarehouseTable[] | DataWarehouseSavedQuery[],
     isSearch = false
 ): TreeDataItem => {
     const sourceChildren: TreeDataItem[] = []
 
-    tables.forEach((table) => {
-        sourceChildren.push(createTableNode(table, isSearch))
-    })
+    if (sourceType === 'Managed views') {
+        tables.forEach((view) => {
+            if (isManagedViewTable(view)) {
+                sourceChildren.push(createManagedViewNode(view, isSearch))
+            }
+        })
+    } else {
+        tables.forEach((table) => {
+            if (isPostHogTable(table) || isDataWarehouseTable(table)) {
+                sourceChildren.push(createTableNode(table, isSearch))
+            }
+        })
+    }
 
     const sourceFolderId = isSearch
         ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`

@@ -778,6 +778,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 lemonToast.error("Sorry, can't move an unsaved item (no id)")
                 return
             }
+            // Prevent creating folders that start with UNFILED_SAVED_QUERIES_PATH. Special case used in queryDatabase sidebar
+            if (newPath.startsWith('Unfiled/Saved queries')) {
+                lemonToast.error('Saved queries is a reserved path in this folder')
+                return
+            }
             actions.queueAction(
                 {
                     type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
