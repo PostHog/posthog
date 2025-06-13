@@ -973,6 +973,16 @@ class RunWorkflow(PostHogWorkflow):
         mat_views = [node for node in upstream["nodes"] if node["type"] == "view" and node.get("sync_frequency")]
         mat_view_ids = {node["id"] for node in mat_views}
 
+        # Create tables for all materialized views in the DAG
+        await temporalio.workflow.execute_activity(
+            create_table_activity,
+            CreateTableActivityInputs(models=list(mat_view_ids), team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        )
+
         # Build full dependency graph
         all_deps: dict[str, set[str]] = collections.defaultdict(set)
         for edge in upstream["edges"]:
