@@ -2,7 +2,7 @@ import json
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
-from typing import Any, cast, Literal
+from typing import cast, Literal
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -14,7 +14,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ValidationError, Field, create_model
 
 from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
@@ -133,9 +133,6 @@ class final_answer(BaseModel):
     plan: str = Field(..., description="Query plan strictly following the response format.")
 
 
-LOG_SEPARATOR = ":::"
-
-
 class QueryPlannerNode(AssistantNode):
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
@@ -176,25 +173,35 @@ class QueryPlannerNode(AssistantNode):
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    [
-                        {
-                            "type": "text",
-                            "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
-                            # Caching this block is critical, this makes this node 80% cheaper
-                            "cache_control": {"type": "ephemeral"},
-                        },
-                        {"type": "text", "text": QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT},
-                    ],
-                ),
-                ("user", EVENT_DEFINITIONS_PROMPT),
-            ],
-            template_format="mustache",
-        )
-        conversation = prompt + self._construct_messages(state)
+        if not state.query_planner_previous_response_id:
+            conversation = ChatPromptTemplate(
+                [
+                    (
+                        "system",
+                        [
+                            {
+                                "type": "text",
+                                "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
+                            },
+                            {
+                                "type": "text",
+                                "text": EVENT_DEFINITIONS_PROMPT,
+                            },
+                            {"type": "text", "text": QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT},
+                        ],
+                    ),
+                ],
+                template_format="mustache",
+            ) + self._construct_messages(state)
+        else:
+            conversation = ChatPromptTemplate(
+                [
+                    LangchainToolMessage(
+                        content=state.intermediate_steps[-1][1] or "",
+                        tool_call_id=state.intermediate_steps[-1][0].log or "",
+                    )
+                ]
+            )
 
         # Get dynamic entity tools with correct types for this team
         DynamicRetrieveEntityProperties, DynamicRetrieveEntityPropertyValues = self._get_dynamic_entity_tools()
@@ -202,7 +209,7 @@ class QueryPlannerNode(AssistantNode):
         chain = (
             conversation
             | merge_message_runs()
-            | self._model.bind_tools(
+            | self._get_model(state).bind_tools(
                 [
                     retrieve_event_properties,
                     retrieve_action_properties,
@@ -213,6 +220,7 @@ class QueryPlannerNode(AssistantNode):
                     ask_user_for_help,
                     final_answer,
                 ],
+                tool_choice="required",
             )
         )
 
@@ -240,27 +248,23 @@ class QueryPlannerNode(AssistantNode):
             raise ValueError("No tool calls found in the output message.")
 
         tool_call = output_message.tool_calls[0]
-        thinking_block = next((block for block in output_message.content if block["type"] == "thinking"), None)
-        result = AgentAction(
-            tool_call["name"],
-            tool_call["args"],
-            LOG_SEPARATOR.join([tool_call["id"], thinking_block["thinking"], thinking_block["signature"]])
-            if thinking_block
-            else tool_call["id"],
-        )
+        result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
 
         intermediate_steps = state.intermediate_steps or []
-        return PartialAssistantState(intermediate_steps=[*intermediate_steps, (result, None)])
+        return PartialAssistantState(
+            intermediate_steps=[*intermediate_steps, (result, None)],
+            query_planner_previous_response_id=output_message.response_metadata["id"],
+        )
 
-    @property
-    def _model(self) -> ChatAnthropic:
-        return ChatAnthropic(
-            model="claude-sonnet-4-20250514",
-            thinking={"type": "enabled", "budget_tokens": 8000},
-            max_tokens=3000,
-            model_kwargs={"extra_headers": {"anthropic-beta": "interleaved-thinking-2025-05-14"}},
-            streaming=True,
-            stream_usage=True,
+    def _get_model(self, state: AssistantState) -> ChatOpenAI:
+        return ChatOpenAI(
+            model="o3",
+            use_responses_api=True,
+            streaming=False,
+            model_kwargs={
+                "reasoning": {"summary": "auto"},
+                "previous_response_id": state.query_planner_previous_response_id or None,  # Must alias "" to None
+            },
         )
 
     def _get_react_property_filters_prompt(self) -> str:
@@ -332,36 +336,6 @@ class QueryPlannerNode(AssistantNode):
             LangchainHumanMessage(content=state.root_tool_insight_plan or "_No query description provided._")
         )
 
-        for action, output in state.intermediate_steps or []:
-            tool_call_id = action.log.split(LOG_SEPARATOR)[0]
-            assistant_content: list[dict[str, Any]] = [
-                {
-                    "type": "tool_use",
-                    "id": tool_call_id,
-                    "name": action.tool,
-                    "partial_json": json.dumps(action.tool_input),
-                },
-            ]
-            if action.log and LOG_SEPARATOR in action.log:
-                _tool_call_id, thinking_content, thinking_signature = action.log.split(LOG_SEPARATOR)
-                assistant_content.insert(
-                    0,
-                    {
-                        "type": "thinking",
-                        "thinking": thinking_content,
-                        # Anthropic requires us to carry over their signature of the thinking block, as that proves
-                        # the thinking actually comes from Claude and wasn't tampered with. Extra abuse caution by them.
-                        "signature": thinking_signature,
-                    },
-                )
-            conversation.append(
-                LangchainAssistantMessage(
-                    content=assistant_content,  # type: ignore
-                    tool_calls=[{"id": tool_call_id, "name": action.tool, "args": action.tool_input}],
-                )
-            )
-            conversation.append(LangchainToolMessage(content=output or "", tool_call_id=tool_call_id))
-
         return conversation
 
 
@@ -412,6 +386,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                 return PartialAssistantState(
                     plan=input.arguments.plan,
                     root_tool_insight_type=input.arguments.query_kind,
+                    query_planner_previous_response_id="",
                     intermediate_steps=[],
                 )
 

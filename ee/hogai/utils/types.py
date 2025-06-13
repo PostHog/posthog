@@ -129,6 +129,10 @@ class _SharedAssistantState(BaseModel):
     """
     The context for taxonomy agent.
     """
+    query_planner_previous_response_id: Optional[str] = Field(default=None)
+    """
+    The ID of the previous OpenAI Responses API response made by the query planner.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -158,6 +162,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_calls_count=0,
             root_conversation_start_id="",
             rag_context="",
+            query_planner_previous_response_id="",
         )
 
 
