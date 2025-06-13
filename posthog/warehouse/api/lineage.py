@@ -9,7 +9,7 @@ from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSave
 import uuid
 from typing import Optional, Any
 from collections import defaultdict, deque
-
+import datetime as dt
 
 def join_components_greedily(components: list[str]) -> list[str]:
     """
@@ -121,8 +121,8 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 "id": model_id,
                 "type": "view",
                 "name": saved_query.name,
-                "sync_frequency": saved_query.sync_frequency_interval,
-                "last_run_at": saved_query.last_run_at,
+                "sync_frequency": str(saved_query.sync_frequency_interval) if (saved_query and saved_query.sync_frequency_interval is not None) else None,
+                "last_run_at": saved_query.last_run_at.isoformat() if (saved_query and saved_query.last_run_at) else None,
                 "status": saved_query.status,
             }
         )
@@ -165,8 +165,8 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                     "id": node_id,
                     "type": "view" if node_uuid else "table",
                     "name": name,
-                    "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
-                    "last_run_at": saved_query.last_run_at if saved_query else None,
+                    "sync_frequency": str(saved_query.sync_frequency_interval) if (saved_query and saved_query.sync_frequency_interval is not None) else None,
+                    "last_run_at": saved_query.last_run_at.isoformat() if (saved_query and saved_query.last_run_at) else None,
                     "status": saved_query.status if saved_query else None,
                 }
             if i > 0:

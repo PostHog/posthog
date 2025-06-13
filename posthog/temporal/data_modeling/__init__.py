@@ -8,6 +8,9 @@ from posthog.temporal.data_modeling.run_workflow import (
     cancel_jobs_activity,
     fail_jobs_activity,
     create_job_model_activity,
+    get_upstream_dag_activity,
+    run_single_model_activity,
+    update_saved_query_status,
 )
 
 WORKFLOWS = [RunWorkflow]
@@ -20,4 +23,7 @@ ACTIVITIES = [
     cancel_jobs_activity,
     fail_jobs_activity,
     create_job_model_activity,
+    get_upstream_dag_activity,
+    run_single_model_activity,
+    update_saved_query_status,
 ]
