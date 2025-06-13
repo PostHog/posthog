@@ -8,6 +8,7 @@ import IconBigQuery from 'public/services/bigquery.png'
 import IconBraze from 'public/services/braze.png'
 import IconChargebee from 'public/services/chargebee.png'
 import IconCloudflare from 'public/services/cloudflare.png'
+import IconDoIt from 'public/services/doit.svg'
 import IconGoogleSheets from 'public/services/Google_Sheets.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
@@ -43,6 +44,19 @@ export function mapUrlToProvider(url: string): string {
         return 'azure'
     } else if (url.includes('.r2.cloudflarestorage.com')) {
         return 'cloudflare-r2'
+    }
+    return 'BlushingHog'
+}
+
+export function mapUrlToSourceName(url: string): string {
+    if (url.includes('amazonaws.com')) {
+        return 'AWS'
+    } else if (url.startsWith('https://storage.googleapis.com')) {
+        return 'GCS'
+    } else if (url.includes('.blob.')) {
+        return 'Azure'
+    } else if (url.includes('.r2.cloudflarestorage.com')) {
+        return 'Cloudflare'
     }
     return 'BlushingHog'
 }
@@ -94,6 +108,7 @@ export function DataWarehouseSourceIcon({
         GoogleSheets: IconGoogleSheets,
         Mongodb: IconMongodb,
         TemporalIO: IconTemporalIO,
+        DoIt: IconDoIt,
     }[type]
 
     if (disableTooltip) {

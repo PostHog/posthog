@@ -17,7 +17,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    EventContextForMax,
+    MaxEventContext,
     FailureMessage,
     HumanMessage,
     VisualizationMessage,
@@ -274,8 +274,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
         node = self._get_node()
         events_in_context = [
-            EventContextForMax(id=1, name="context_event", description="Event from context"),
-            EventContextForMax(id=2, name="another_context_event", description=None),
+            MaxEventContext(id=1, name="context_event", description="Event from context"),
+            MaxEventContext(id=2, name="another_context_event", description=None),
         ]
 
         prompt = node._events_prompt(events_in_context)
@@ -300,7 +300,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             }
 
             events_in_context = [
-                EventContextForMax(id=1, name="test_system_event", description="System event from context"),
+                MaxEventContext(id=1, name="test_system_event", description="System event from context"),
             ]
 
             prompt = node._events_prompt(events_in_context)
@@ -315,7 +315,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
         node = self._get_node()
         events_in_context = [
-            EventContextForMax(id=1, name="duplicate_event", description="Context description"),
+            MaxEventContext(id=1, name="duplicate_event", description="Context description"),
         ]
 
         prompt = node._events_prompt(events_in_context)
@@ -337,8 +337,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             }
 
             events_in_context = [
-                EventContextForMax(id=1, name="core_event", description="Context description"),
-                EventContextForMax(id=2, name="context_only_event", description="Only in context"),
+                MaxEventContext(id=1, name="core_event", description="Context description"),
+                MaxEventContext(id=2, name="context_only_event", description="Only in context"),
             ]
 
             prompt = node._events_prompt(events_in_context)

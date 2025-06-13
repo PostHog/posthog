@@ -45,7 +45,9 @@ class Conflict(APIException):
 
 class ClickhouseAtCapacity(APIException):
     status_code = 500
-    default_detail = "Clickhouse cluster is at capacity. Please try this query again later."
+    default_detail = (
+        "Queries are a little too busy right now. We're working to free up resources. Please try again later."
+    )
 
 
 class EstimatedQueryExecutionTimeTooLong(APIException):
@@ -63,7 +65,7 @@ class ExceptionContext(TypedDict):
 
 def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
     """
-    Determines which exceptions to report and sends them to Sentry.
+    Determines which exceptions to report and sends them to error tracking.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):

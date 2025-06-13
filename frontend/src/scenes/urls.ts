@@ -1,9 +1,19 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { CampaignTab } from 'products/messaging/frontend/Campaigns/campaignSceneLogic'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
+import {
+    ActivityTab,
+    AnnotationType,
+    ExternalDataSourceType,
+    PipelineNodeTab,
+    PipelineStage,
+    PipelineTab,
+    ProductKey,
+    SDKKey,
+} from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -39,17 +49,20 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
+    marketingAnalytics: (): string => '/data-management/marketing-analytics',
 
     pipelineNodeNew: (
         stage: PipelineStage | ':stage',
-        { id, kind }: { id?: string | number; kind?: string } = {}
+        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
     ): string => {
         let base = `/pipeline/new/${stage}`
         if (id) {
             base += `/${id}`
         }
 
-        if (kind) {
+        if (source) {
+            // we need to lowercase the source to match the kind in the sourceWizardLogic
+            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
             return `${base}?kind=${kind}`
         }
 
@@ -65,11 +78,6 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    errorTrackingIssue: (id: string, fingerprint?: string): string =>
-        combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
         if (query) {
@@ -135,10 +143,13 @@ export const urls = {
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
+                // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
                     (acc, [key, val]) => ({
                         ...acc,
+                        // just sends the key and not a value
+                        // e.g., &showInspector not &showInspector=true
                         [key]: val === true ? null : val,
                     }),
                     {}
@@ -159,11 +170,20 @@ export const urls = {
     link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
-    startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaign: (id: string, tab?: CampaignTab): string => `/messaging/campaigns/${id}${tab ? `/${tab}` : ''}`,
+    messagingLibrary: (): string => '/messaging/library',
+    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
+    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
+    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
+    messagingSenders: (): string => '/messaging/senders',
+    startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
-    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
-    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
 }

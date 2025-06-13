@@ -405,7 +405,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
 
     useEffect(() => {
         // Add multiple context insights
-        addOrUpdateContextInsight('insight-1', {
+        addOrUpdateContextInsight({
             short_id: 'insight-1' as InsightShortId,
             name: 'Weekly Active Users',
             description: 'Track weekly active users over time',
@@ -415,7 +415,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
             } as TrendsQuery,
         })
 
-        addOrUpdateContextInsight('insight-2', {
+        addOrUpdateContextInsight({
             short_id: 'insight-2' as InsightShortId,
             name: 'Conversion Funnel',
             description: 'User signup to activation funnel',
@@ -426,15 +426,18 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
         })
 
         // Add active insights for current page context
-        addOrUpdateActiveInsight('active-insight-1', {
-            short_id: 'active-insight-1' as InsightShortId,
-            name: 'Current Page Metrics',
-            description: 'Metrics for the current page',
-            query: {
-                kind: 'TrendsQuery',
-                series: [{ event: '$pageview' }],
-            } as TrendsQuery,
-        })
+        addOrUpdateActiveInsight(
+            {
+                short_id: 'active-insight-1' as InsightShortId,
+                name: 'Current Page Metrics',
+                description: 'Metrics for the current page',
+                query: {
+                    kind: 'TrendsQuery',
+                    series: [{ event: '$pageview' }],
+                } as TrendsQuery,
+            },
+            false
+        )
 
         // Enable current page context to show active insights/dashboard
         enableCurrentPageContext()

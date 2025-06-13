@@ -1,75 +1,53 @@
-import { QuerySchema } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 
-export interface InsightContextForMax {
-    id: string | number
+export interface MaxInsightContext {
+    id: string | integer
     name?: string
     description?: string
 
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
-
-    insight_type?: string
 }
 
-export interface DashboardContextForMax {
-    id: string | number
+export interface MaxDashboardContext {
+    id: string | integer
     name?: string
     description?: string
-    insights: InsightContextForMax[]
+    insights: MaxInsightContext[]
+    filters: DashboardFilter
 }
 
-export interface EventContextForMax {
-    id: string | number
-    name?: string
-    description?: string
-}
-
-export interface ActionContextForMax {
-    id: string | number
+export interface MaxEventContext {
+    id: string | integer
     name?: string
     description?: string
 }
 
-export interface MultiDashboardContextContainer {
-    [dashboardKey: string]: DashboardContextForMax
-}
-
-export interface MultiInsightContextContainer {
-    [insightKey: string]: InsightContextForMax
-}
-
-export interface MultiEventContextContainer {
-    [eventKey: string]: EventContextForMax
-}
-
-export interface MultiActionContextContainer {
-    [actionKey: string]: ActionContextForMax
-}
-
-export interface MaxNavigationContext {
-    path: string
-    page_title?: string
+export interface MaxActionContext {
+    id: string | integer
+    name?: string
+    description?: string
 }
 
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
-    dashboards?: MultiDashboardContextContainer
-    insights?: MultiInsightContextContainer
-    events?: MultiEventContextContainer
-    actions?: MultiActionContextContainer
-
-    // General information that's always good to have, if available
-    global_info?: {
-        navigation?: MaxNavigationContext
-    }
+    dashboards?: MaxDashboardContext[]
+    insights?: MaxInsightContext[]
+    events?: MaxEventContext[]
+    actions?: MaxActionContext[]
+    filters_override?: DashboardFilter
+    variables_override?: Record<string, HogQLVariable>
 }
 
 // Taxonomic filter options
 export interface MaxContextOption {
-    value: string
+    id: string
+    value: string | integer
     name: string
     icon: React.ReactNode
+    type?: 'dashboard' | 'insight'
     items?: {
-        insights?: InsightContextForMax[]
-        dashboards?: DashboardContextForMax[]
+        insights?: MaxInsightContext[]
+        dashboards?: MaxDashboardContext[]
     }
 }

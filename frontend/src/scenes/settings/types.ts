@@ -31,6 +31,7 @@ export type SettingSectionId =
     | 'environment-role-based-access-control'
     | 'environment-danger-zone'
     | 'environment-max'
+    | 'environment-marketing-analytics'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -51,6 +52,7 @@ export type SettingSectionId =
     | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
+    | 'user-notifications'
     | 'user-api-keys'
     | 'user-customization'
     | 'user-danger-zone'
@@ -140,6 +142,8 @@ export type SettingId =
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
+    | 'base-currency'
+    | 'marketing-settings'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

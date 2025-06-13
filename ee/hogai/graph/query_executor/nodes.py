@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from ..base import AssistantNode
-from .query_runner import QueryRunner
+from .query_executor import AssistantQueryExecutor
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
@@ -44,9 +44,9 @@ class QueryExecutorNode(AssistantNode):
         if not tool_call_id:
             return None
 
-        query_runner = QueryRunner(self._team, self._utc_now_datetime)
+        query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         try:
-            results, used_fallback = query_runner.run_and_format_query_with_fallback_info(viz_message.answer)
+            results, used_fallback = query_runner.run_and_format_query(viz_message.answer)
             example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else self._get_example_prompt(viz_message)
         except Exception as err:
             if isinstance(err, NotImplementedError):

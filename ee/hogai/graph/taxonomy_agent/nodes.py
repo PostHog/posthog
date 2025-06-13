@@ -49,7 +49,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
-    EventContextForMax,
+    MaxEventContext,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -83,8 +83,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         )
 
         events_in_context = []
-        if ui_context := self._get_ui_context(config):
-            events_in_context = list(ui_context.events.values() if ui_context.events else [])
+        if ui_context := self._get_ui_context(state):
+            events_in_context = ui_context.events if ui_context.events else []
 
         agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
 
@@ -158,7 +158,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    def _events_prompt(self, events_in_context: list[EventContextForMax]) -> str:
+    def _events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )

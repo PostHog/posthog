@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -12,22 +12,21 @@ from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
 from posthog.schema import (
-    ActionContextForMax,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    DashboardContextForMax,
+    DashboardFilter,
     EntityType,
-    EventContextForMax,
     EventsNode,
     FunnelsQuery,
-    GlobalInfo,
     HogQLQuery,
     HumanMessage,
-    InsightContextForMax,
     LifecycleQuery,
+    MaxActionContext,
     MaxContextShape,
-    MaxNavigationContext,
+    MaxDashboardContext,
+    MaxEventContext,
+    MaxInsightContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -505,6 +504,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             # Verify the node ran successfully and returned a message
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
+            # The message should be an AssistantMessage, not VisualizationMessage
+            self.assertIsInstance(result.messages[0], AssistantMessage)
+            assert isinstance(result.messages[0], AssistantMessage)
             self.assertEqual(result.messages[0].content, "I'll help with recordings")
 
             # Verify _get_model was called with contextual tools config
@@ -611,6 +613,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
         self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
+        self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
 
     def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team)
@@ -678,55 +681,68 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self.mixin = RootNode(self.team)  # Using RootNode since it inherits from RootNodeUIContextMixin
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Trend results: 100 users"
+        mock_query_runner.run_and_format_query.return_value = ("Trend results: 100 users", None)
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="User Trends",
             description="Daily active users",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        expected = """# Insight: User Trends
 
-        expected = """## User Trends: Daily active users
-Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'compareFilter': None, 'conversionGoal': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'interval': 'day', 'kind': 'TrendsQuery', 'modifiers': None, 'properties': [], 'response': None, 'samplingFactor': None, 'series': [{'custom_name': None, 'event': 'pageview', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}], 'trendsFilter': None}
+Description: Daily active users
+
+Query schema:
+```json
+{"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":[],"series":[{"event":"pageview","kind":"EventsNode"}]}
+```
 
 Results:
-Trend results: 100 users"""
+```
+Trend results: 100 users
+```"""
         self.assertEqual(result, expected)
         mock_query_runner.run_and_format_query.assert_called_once()
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Funnel results: 50% conversion"
+        mock_query_runner.run_and_format_query.return_value = ("Funnel results: 50% conversion", None)
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=456,
             name="Conversion Funnel",
             description=None,
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
 
-        expected = """## Conversion Funnel
-Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'funnelsFilter': None, 'interval': None, 'kind': 'FunnelsQuery', 'modifiers': None, 'properties': [], 'response': None, 'samplingFactor': None, 'series': [{'custom_name': None, 'event': 'sign_up', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}, {'custom_name': None, 'event': 'purchase', 'fixedProperties': None, 'kind': 'EventsNode', 'limit': None, 'math': None, 'math_group_type_index': None, 'math_hogql': None, 'math_property': None, 'math_property_revenue_currency': None, 'math_property_type': None, 'name': None, 'orderBy': None, 'properties': None, 'response': None}]}
+        expected = """# Insight: Conversion Funnel
+
+Query schema:
+```json
+{"filterTestAccounts":false,"kind":"FunnelsQuery","properties":[],"series":[{"event":"sign_up","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode"}]}
+```
 
 Results:
-Funnel results: 50% conversion"""
+```
+Funnel results: 50% conversion
+```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Retention: 30% Day 7"
+        mock_query_runner.run_and_format_query.return_value = ("Retention: 30% Day 7", None)
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=789,
             name=None,
             description=None,
@@ -738,53 +754,65 @@ Funnel results: 50% conversion"""
             ),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        expected = """# Insight: ID 789
 
-        expected = """## Insight 789.0
-Query: {'aggregation_group_type_index': None, 'breakdownFilter': None, 'dataColorTheme': None, 'dateRange': None, 'filterTestAccounts': False, 'kind': 'RetentionQuery', 'modifiers': None, 'properties': [], 'response': None, 'retentionFilter': {'cumulative': None, 'dashboardDisplay': None, 'display': None, 'meanRetentionCalculation': None, 'period': 'Day', 'retentionReference': None, 'retentionType': None, 'returningEntity': {'custom_name': None, 'id': '$pageview', 'kind': None, 'name': None, 'order': None, 'properties': None, 'type': 'events', 'uuid': None}, 'showMean': None, 'targetEntity': {'custom_name': None, 'id': '$pageview', 'kind': None, 'name': None, 'order': None, 'properties': None, 'type': 'events', 'uuid': None}, 'totalIntervals': 8}, 'samplingFactor': None}
+Query schema:
+```json
+{"filterTestAccounts":false,"kind":"RetentionQuery","properties":[],"retentionFilter":{"period":"Day","returningEntity":{"id":"$pageview","type":"events"},"targetEntity":{"id":"$pageview","type":"events"},"totalIntervals":8}}
+```
 
 Results:
-Retention: 30% Day 7"""
+```
+Retention: 30% Day 7
+```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Query results: 42 events"
+        mock_query_runner.run_and_format_query.return_value = ("Query results: 42 events", None)
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=101,
             name="Custom Query",
             description="HogQL analysis",
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        expected = """# Insight: Custom Query
 
-        expected = """## Custom Query: HogQL analysis
-Query: {'explain': None, 'filters': None, 'kind': 'HogQLQuery', 'modifiers': None, 'name': None, 'query': 'SELECT count() FROM events', 'response': None, 'values': None, 'variables': None}
+Description: HogQL analysis
+
+Query schema:
+```json
+{"kind":"HogQLQuery","query":"SELECT count() FROM events"}
+```
 
 Results:
-Query results: 42 events"""
+```
+Query results: 42 events
+```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
 
-        insight = InsightContextForMax(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
+        insight = MaxInsightContext(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
-        self.assertEqual(result, "")
+        self.assertEqual(result, None)
         mock_query_runner.run_and_format_query.assert_not_called()
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_exception_handling(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Failed Query",
             description=None,
@@ -793,15 +821,15 @@ Query results: 42 events"""
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
-        self.assertEqual(result, "")
+        self.assertEqual(result, None)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Dashboard insight results"
+        mock_query_runner.run_and_format_query.return_value = ("Dashboard insight results", None)
 
         # Create mock insight
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Dashboard Insight",
             description="Test insight",
@@ -809,33 +837,84 @@ Query results: 42 events"""
         )
 
         # Create mock dashboard
-        dashboard = DashboardContextForMax(
-            id=456, name="Test Dashboard", description="Test dashboard description", insights=[insight]
+        dashboard = MaxDashboardContext(
+            id=456,
+            name="Test Dashboard",
+            description="Test dashboard description",
+            insights=[insight],
+            filters=DashboardFilter(),
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(
-            dashboards={"456": dashboard}, insights=None, events=None, actions=None, global_info=None
-        )
+        ui_context = MaxContextShape(dashboards=[dashboard], insights=None)
 
         result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("Dashboard: Test Dashboard", result["ui_context_dashboard"])
-        self.assertIn("Description: Test dashboard description", result["ui_context_dashboard"])
-        self.assertIn("Dashboard Insight: Test insight", result["ui_context_dashboard"])
-        self.assertIn("Dashboard insight results", result["ui_context_dashboard"])
-        self.assertEqual(result["ui_context_insights"], "")
-        self.assertEqual(result["ui_context_events"], "")
-        self.assertEqual(result["ui_context_actions"], "")
-        self.assertEqual(result["ui_context_navigation"], "")
+        self.assertIn("Dashboard: Test Dashboard", result)
+        self.assertIn("Description: Test dashboard description", result)
+        self.assertIn("Dashboard Insights", result)
+        self.assertIn("Insight: Dashboard Insight", result)
+        self.assertNotIn("# Insights", result)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    def test_format_ui_context_with_events(self):
+        # Create mock events
+        event1 = MaxEventContext(id=1, name="page_view")
+        event2 = MaxEventContext(id=2, name="button_click")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view", "button_click"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_events_with_descriptions(self):
+        # Create mock events with descriptions
+        event1 = MaxEventContext(id=1, name="page_view", description="User viewed a page")
+        event2 = MaxEventContext(id=2, name="button_click", description="User clicked a button")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_actions(self):
+        # Create mock actions
+        action1 = MaxActionContext(id=1, name="Sign Up")
+        action2 = MaxActionContext(id=2, name="Purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up", "Purchase"', result)
+        self.assertIn("<actions_context>", result)
+
+    def test_format_ui_context_with_actions_with_descriptions(self):
+        # Create mock actions with descriptions
+        action1 = MaxActionContext(id=1, name="Sign Up", description="User creates account")
+        action2 = MaxActionContext(id=2, name="Purchase", description="User makes a purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
+        self.assertIn("<actions_context>", result)
+
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Standalone insight results"
+        mock_query_runner.run_and_format_query.return_value = ("Standalone insight results", None)
 
         # Create mock insight
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Standalone Insight",
             description="Test standalone insight",
@@ -843,128 +922,31 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(
-            dashboards=None, insights={"123": insight}, events=None, actions=None, global_info=None
-        )
+        ui_context = MaxContextShape(dashboards=None, insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("Standalone Insight: Test standalone insight", result["ui_context_insights"])
-        self.assertIn("Standalone insight results", result["ui_context_insights"])
-        self.assertEqual(result["ui_context_dashboard"], "")
+        self.assertIn("Insights", result)
+        self.assertIn("Insight: Standalone Insight", result)
+        self.assertNotIn("# Dashboards", result)
 
-    def test_format_ui_context_with_events(self):
-        # Create mock events
-        event1 = EventContextForMax(id=1, name="page_view")
-        event2 = EventContextForMax(id=2, name="button_click")
-
-        # Create mock UI context
-        ui_context = MaxContextShape(
-            dashboards=None, insights=None, events={"1": event1, "2": event2}, actions=None, global_info=None
-        )
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn('"page_view", "button_click"', result["ui_context_events"])
-        self.assertIn("<events_context>", result["ui_context_events"])
-
-    def test_format_ui_context_with_events_with_descriptions(self):
-        # Create mock events with descriptions
-        event1 = EventContextForMax(id=1, name="page_view", description="User viewed a page")
-        event2 = EventContextForMax(id=2, name="button_click", description="User clicked a button")
-
-        # Create mock UI context
-        ui_context = MaxContextShape(
-            dashboards=None, insights=None, events={"1": event1, "2": event2}, actions=None, global_info=None
-        )
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn(
-            '"page_view: User viewed a page", "button_click: User clicked a button"', result["ui_context_events"]
-        )
-        self.assertIn("<events_context>", result["ui_context_events"])
-
-    def test_format_ui_context_with_actions(self):
-        # Create mock actions
-        action1 = ActionContextForMax(id=1, name="Sign Up")
-        action2 = ActionContextForMax(id=2, name="Purchase")
-
-        # Create mock UI context
-        ui_context = MaxContextShape(
-            dashboards=None, insights=None, events=None, actions={"1": action1, "2": action2}, global_info=None
-        )
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn('"Sign Up", "Purchase"', result["ui_context_actions"])
-        self.assertIn("<actions_context>", result["ui_context_actions"])
-
-    def test_format_ui_context_with_actions_with_descriptions(self):
-        # Create mock actions with descriptions
-        action1 = ActionContextForMax(id=1, name="Sign Up", description="User creates account")
-        action2 = ActionContextForMax(id=2, name="Purchase", description="User makes a purchase")
-
-        # Create mock UI context
-        ui_context = MaxContextShape(
-            dashboards=None, insights=None, events=None, actions={"1": action1, "2": action2}, global_info=None
-        )
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn(
-            '"Sign Up: User creates account", "Purchase: User makes a purchase"', result["ui_context_actions"]
-        )
-        self.assertIn("<actions_context>", result["ui_context_actions"])
-
-    def test_format_ui_context_with_navigation(self):
-        # Create mock navigation
-        navigation = MaxNavigationContext(path="/insights/trends", page_title="Trends Analysis")
-
-        # Create mock global info
-        global_info = GlobalInfo(navigation=navigation)
-
-        # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=None, global_info=global_info)
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn("Current page: /insights/trends", result["ui_context_navigation"])
-        self.assertIn("Page title: Trends Analysis", result["ui_context_navigation"])
-        self.assertIn("<navigation_context>", result["ui_context_navigation"])
-
-    def test_format_ui_context_with_navigation_no_page_title(self):
-        # Create mock navigation without page title
-        navigation = MaxNavigationContext(path="/dashboard/123", page_title=None)
-
-        # Create mock global info
-        global_info = GlobalInfo(navigation=navigation)
-
-        # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=None, global_info=global_info)
-
-        result = self.mixin._format_ui_context(ui_context)
-
-        self.assertIn("Current page: /dashboard/123", result["ui_context_navigation"])
-        self.assertNotIn("Page title:", result["ui_context_navigation"])
-
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._run_insights_from_ui_context(None)
+        result = self.mixin._format_ui_context(None)
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
         ui_context = MaxContextShape(insights=None)
-        result = self.mixin._run_insights_from_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context)
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = "Insight execution results"
+        mock_query_runner.run_and_format_query.return_value = ("Insight execution results", None)
 
         # Create mock insight
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Test Insight",
             description="Test description",
@@ -972,32 +954,32 @@ Query results: 42 events"""
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights={"123": insight})
+        ui_context = MaxContextShape(insights=[insight])
 
-        result = self.mixin._run_insights_from_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context)
 
-        self.assertIn("<insights>", result)
-        self.assertIn("Test Insight: Test description", result)
+        self.assertIn("# Insights", result)
+        self.assertIn("Test Insight", result)
+        self.assertIn("Test description", result)
         self.assertIn("Insight execution results", result)
-        self.assertIn("</insights>", result)
 
-    @patch("ee.hogai.graph.root.nodes.QueryRunner")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
         mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
         # Create mock insight that will fail
-        insight = InsightContextForMax(
+        insight = MaxInsightContext(
             id=123,
             name="Failed Insight",
             description=None,
-            query=TrendsQuery(series=[EventsNode(event="pageview")]),
+            query=TrendsQuery(series=[]),
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights={"123": insight})
+        ui_context = MaxContextShape(insights=[insight])
 
-        result = self.mixin._run_insights_from_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context)
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")

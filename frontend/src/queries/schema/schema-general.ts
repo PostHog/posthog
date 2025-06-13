@@ -1,5 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -38,6 +39,7 @@ import {
     PropertyOperator,
     RetentionDashboardDisplayType,
     RetentionFilterType,
+    RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SessionRecordingType,
     StickinessFilterType,
@@ -109,6 +111,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
@@ -162,6 +165,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -211,6 +215,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
@@ -260,6 +265,8 @@ export type QueryResponseAlternative = QueryAllResponses['response']
  */
 export interface Node<R extends Record<string, any> = Record<string, any>> {
     kind: NodeKind
+    /** version of the node, used for schema migrations */
+    version?: number
     /** @internal Don't use this property at runtime, it's here for typing. */
     response?: R
 }
@@ -318,7 +325,7 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
-export interface HogQLQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
     /** Input query string */
     query?: string
     /** Executed ClickHouse query */
@@ -817,6 +824,7 @@ export interface ChartSettings {
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
     showLegend?: boolean
+    showTotalRow?: boolean
 }
 
 export interface ConditionalFormattingRule {
@@ -1220,7 +1228,6 @@ export type RetentionFilter = {
     cumulative?: RetentionFilterLegacy['cumulative']
 
     //frontend only
-    showMean?: RetentionFilterLegacy['show_mean']
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /** controls the display of the retention graph */
     display?: ChartDisplayType
@@ -1875,22 +1882,15 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 /*
- * Revenue Analytics Queries
+ * Revenue Analytics
  */
+export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
-    revenueSources: RevenueSources
+    properties: RevenueAnalyticsPropertyFilters
 }
 
-export interface RevenueSources {
-    // These represent the IDs we're interested in from the data warehouse sources
-    dataWarehouseSources: string[]
-
-    // This is a list of strings that represent the event names we're interested in
-    events: string[]
-}
-
-export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
+export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort' | 'country'
 
 export interface RevenueAnalyticsInsightsQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
@@ -2011,9 +2011,9 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     offset?: integer
     orderBy?: 'latest' | 'earliest'
     searchTerm?: string
-    resource?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
+    serviceNames: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -2029,7 +2029,7 @@ export interface LogMessage {
     trace_id: string
     span_id: string
     body: string
-    attributes: string
+    attributes: Record<string, any>
     /**  @format date-time */
     timestamp: string
     /**  @format date-time */
@@ -2071,9 +2071,35 @@ export interface FileSystemEntry {
     visualOrder?: number
 }
 
+export type FileSystemIconType =
+    | 'plug'
+    | 'cohort'
+    | 'insight'
+    | 'definitions'
+    | 'warning'
+    | 'errorTracking'
+    | 'ai'
+    | 'cursor'
+    | 'heatmap'
+    | 'database'
+    | 'folder'
+    | 'handMoney'
+    | 'live'
+    | 'notification'
+    | 'pieChart'
+    | 'piggyBank'
+    | 'sql'
+    | 'insightFunnel'
+    | 'insightTrends'
+    | 'insightRetention'
+    | 'insightUserPaths'
+    | 'insightLifecycle'
+    | 'insightStickiness'
+    | 'insightHogQL'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
-    iconType?: string
+    iconType?: FileSystemIconType
     flag?: string
     /** Order of object in tree */
     visualOrder?: number
@@ -2081,6 +2107,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     tags?: ('alpha' | 'beta')[]
     /** Protocol of the item, defaults to "project://" */
     protocol?: string
+    /** Category label to place this under */
+    category?: string
 }
 
 export interface PersistedFolder {
@@ -2253,6 +2281,25 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
+    // Legacy fields
+    kind?: NodeKind.ExperimentQuery
+    insight?: Record<string, any>[]
+    metric?: ExperimentMetric
+    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
+    probability?: Record<string, number>
+    significant?: boolean
+    significance_code?: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value?: number
+    credible_intervals?: Record<string, [number, number]>
+
+    // New fields
+    baseline?: ExperimentStatsBase
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+// Strongly typed variants of ExperimentQueryResponse for better type safety
+export interface LegacyExperimentQueryResponse {
     kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
     metric: ExperimentMetric
@@ -2263,6 +2310,37 @@ export interface ExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+}
+
+export interface NewExperimentQueryResponse {
+    baseline: ExperimentStatsBase
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+export interface ExperimentStatsBase {
+    key: string
+    number_of_samples: integer
+    sum: number
+    sum_squares: number
+}
+
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
+    method: 'frequentist'
+    significant: boolean
+    p_value: number
+    confidence_interval: [number, number]
+}
+
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
+    method: 'bayesian'
+    significant: boolean
+    chance_to_win: number
+    credible_interval: [number, number]
+}
+
+export interface ExperimentMetricResult {
+    baseline: ExperimentStatsBase
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -2279,6 +2357,8 @@ export interface ExperimentExposureQueryResponse {
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
+export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
@@ -2744,6 +2824,7 @@ export type VectorSearchResponse = VectorSearchResponseItem[]
 export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
     kind: NodeKind.VectorSearchQuery
     embedding: number[]
+    embeddingVersion?: number
 }
 
 export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
@@ -3049,11 +3130,6 @@ export interface RevenueAnalyticsGoal {
 
 export interface RevenueAnalyticsConfig {
     /**
-     * @default 'USD'
-     */
-    base_currency: CurrencyCode
-
-    /**
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
@@ -3083,6 +3159,35 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
+export interface WebAnalyticsExternalSummaryRequest {
+    date_from: string
+    date_to: string
+    explicit_date?: boolean
+}
+
+export type ExternalQueryErrorCode = 'platform_access_required' | 'query_execution_failed'
+
+export type ExternalQueryStatus = 'success' | 'error'
+
+export interface ExternalQueryError {
+    code: ExternalQueryErrorCode
+    detail: string
+}
+
+export interface WebAnalyticsExternalSummaryQueryResponse {
+    data: Record<string, any>
+    status: ExternalQueryStatus
+    error?: ExternalQueryError
+}
+
+export interface WebAnalyticsExternalSummaryQuery
+    extends Pick<WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>, 'dateRange' | 'properties'> {
+    kind: NodeKind.WebAnalyticsExternalSummaryQuery
+    dateRange: DateRange
+    properties: WebAnalyticsPropertyFilters
+    response?: WebAnalyticsExternalSummaryQueryResponse
+}
+
 export type HeatMapQuerySource = EventsNode
 
 export interface EventsHeatMapDataResult {
@@ -3106,4 +3211,10 @@ export interface EventsHeatMapStructuredResult {
     rowAggregations: EventsHeatMapRowAggregationResult[]
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
+}
+
+export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
+
+export interface MarketingAnalyticsConfig {
+    sources_map?: Record<string, SourceMap>
 }

@@ -1,0 +1,22 @@
+name: CI CLI
+
+on:
+    pull_request:
+        paths:
+            - cli/Cargo.toml
+
+jobs:
+    check-lockfile:
+        name: Check lockfile is up to date
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cli
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+
+            - name: Install sccache
+              run: cargo generate-lockfile --locked

@@ -5,6 +5,7 @@ import {
     IconLifecycle,
     IconPeople,
     IconRetention,
+    IconRetentionHeatmap,
     IconRewindPlay,
     IconSquareRoot,
     IconStickiness,
@@ -270,7 +271,7 @@ order by count() desc
     {
         title: 'Calendar Heatmap',
         search: 'calendar heatmap insight',
-        icon: <IconHogQL />,
+        icon: <IconRetentionHeatmap />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,

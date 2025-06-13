@@ -24,6 +24,7 @@ import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist } from '../playlist/playlistUtils'
+import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
@@ -86,7 +87,7 @@ export const RecordingsUniversalFilters = ({
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const durationFilter = filters.duration[0]
+    const durationFilter = filters.duration?.[0] ?? defaultRecordingDurationFilter
 
     const { isFiltersExpanded, activeFilterTab } = useValues(playlistLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
@@ -324,8 +325,10 @@ export const RecordingsUniversalFilters = ({
                             setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth
+                        data-attr="filter-recordings-button"
                     >
-                        Filters
+                        Filters{' '}
+                        {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                     <LemonModal
                         isOpen={isFiltersExpanded}

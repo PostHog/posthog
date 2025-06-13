@@ -2,8 +2,8 @@ import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
-import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
+import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -34,10 +34,11 @@ import {
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
-import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
+import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
+    CurrencyCode,
     DashboardFilter,
     DatabaseSchemaField,
     ErrorTrackingIssueAssignee,
@@ -49,6 +50,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    MarketingAnalyticsConfig,
     Node,
     NodeKind,
     QuerySchema,
@@ -64,6 +66,13 @@ import { QueryContext } from '~/queries/types'
 type integer = number
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
+
+/** Make all keys of T required except those in K */
+export type RequiredExcept<T, K extends keyof T> = {
+    [P in Exclude<keyof T, K>]-?: T[P]
+} & {
+    [P in K]?: T[P]
+}
 
 // Keep this in sync with backend constants/features/{product_name}.yml
 
@@ -177,6 +186,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
+    ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -640,6 +650,8 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    marketing_analytics_config: MarketingAnalyticsConfig
+    base_currency: CurrencyCode
 }
 
 export interface ProductIntentType {
@@ -787,6 +799,7 @@ export type ReplayTab = {
     key: ReplayTabs
     tooltip?: string
     tooltipDocLink?: string
+    'data-attr'?: string
 }
 
 export enum ExperimentsTabs {
@@ -860,6 +873,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    RevenueAnalytics = 'revenue_analytics',
     Log = 'log',
 }
 
@@ -880,6 +894,11 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 
 export interface EventMetadataPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.EventMetadata
+    operator: PropertyOperator
+}
+
+export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.RevenueAnalytics
     operator: PropertyOperator
 }
 
@@ -972,6 +991,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | RevenueAnalyticsPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1077,10 +1097,17 @@ export type SessionRecordingSnapshotParams =
 
 export interface SessionRecordingSnapshotSourceResponse {
     // v1 loaded each source separately
-    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'> | 'processed'
     // with v2 we can load multiple sources at once
     sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
+    // we process snapshots to make them rrweb vanilla playable
+    // this flag lets us skip reprocessing a source
+    // the processed source is implicitly processed
+    processed?: boolean
+    // we only want to load each source from the API once
+    // this flag is set when the API has loaded the source
+    sourceLoaded?: boolean
 }
 
 export interface SessionRecordingSnapshotResponse {
@@ -1127,13 +1154,6 @@ export enum SessionRecordingSidebarTab {
 export enum SessionRecordingSidebarStacking {
     Vertical = 'vertical',
     Horizontal = 'horizontal',
-}
-
-export enum FilterableInspectorListItemTypes {
-    EVENTS = 'events',
-    CONSOLE = 'console',
-    NETWORK = 'network',
-    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
@@ -1258,10 +1278,10 @@ export type EntityFilter = {
 
 export interface ActionFilter extends EntityFilter {
     math?: string
-    math_property?: string
-    math_property_type?: TaxonomicFilterGroupType
+    math_property?: string | null
+    math_property_type?: TaxonomicFilterGroupType | null
     math_group_type_index?: integer | null
-    math_hogql?: string
+    math_hogql?: string | null
     properties?: AnyPropertyFilter[]
     type: EntityType
     days?: string[] // TODO: why was this added here?
@@ -1895,6 +1915,8 @@ export interface BillingType {
     }
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
+    startup_program_label_previous?: StartupProgramLabel | null
+    is_annual_plan_customer?: boolean | null
     account_owner?: {
         email?: string
         name?: string
@@ -2277,6 +2299,7 @@ export enum AnnotationScope {
     Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
+    Recording = 'recording',
 }
 
 export interface RawAnnotationType {
@@ -2295,6 +2318,7 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
+    recording_id?: string | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -2518,7 +2542,7 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelExclusionLegacy[] // used in funnel exclusion filters
-    funnel_aggregate_by_hogql?: string
+    funnel_aggregate_by_hogql?: string | null
 
     // frontend only
     layout?: FunnelLayout // used only for funnels
@@ -3137,7 +3161,7 @@ export interface LinkSurveyQuestion extends SurveyQuestionBase {
 export interface RatingSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Rating
     display: 'number' | 'emoji'
-    scale: number
+    scale: SurveyRatingScaleValue
     lowerBoundLabel: string
     upperBoundLabel: string
     skipSubmitButton?: boolean
@@ -3532,6 +3556,7 @@ export enum PropertyType {
 export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
+    RevenueAnalytics = 'revenue_analytics',
     Person = 'person',
     Group = 'group',
     Session = 'session',
@@ -3560,6 +3585,7 @@ export interface PropertyDefinition {
     verified_at?: string
     verified_by?: string
     hidden?: boolean
+    virtual?: boolean
 }
 
 export enum PropertyDefinitionState {
@@ -3739,6 +3765,9 @@ export interface CoreFilterDefinition {
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
+    type?: PropertyType
+    /** Virtual properties are not "sent as", because they are calculated from other properties or SQL expressions **/
+    virtual?: boolean
 }
 
 export interface TileParams {
@@ -3991,6 +4020,9 @@ export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
     UniqueSessions = 'unique_session',
+    Min = 'min',
+    Max = 'max',
+    Avg = 'avg',
 }
 
 export enum ActorGroupType {
@@ -4516,11 +4548,12 @@ export const externalDataSources = [
     'GoogleSheets',
     'Mongodb',
     'TemporalIO',
+    'DoIt',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure'] as const
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
@@ -5034,6 +5067,7 @@ export interface SourceConfig {
     oauthPayload?: string[]
     existingSource?: boolean
     unreleasedSource?: boolean
+    betaSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
@@ -5100,6 +5134,7 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: any
 }
@@ -5487,6 +5522,26 @@ export interface ProjectTreeRef {
     ref: string | null
 }
 
+export interface EmailSenderDomainStatus {
+    status: 'pending' | 'success'
+    dnsRecords: (
+        | {
+              type: 'dkim'
+              recordType: 'TXT'
+              recordHostname: string
+              recordValue: string
+              status: 'pending' | 'success'
+          }
+        | {
+              type: 'spf'
+              recordType: 'TXT'
+              recordHostname: '@'
+              recordValue: string
+              status: 'pending' | 'success'
+          }
+    )[]
+}
+
 // Representation of a `Link` model in our backend
 export type LinkType = {
     id: string
@@ -5498,4 +5553,23 @@ export type LinkType = {
     created_at: string
     updated_at: string
     _create_in_folder?: string | null
+}
+
+export interface LineageNode {
+    id: string
+    name: string
+    type: 'view' | 'table'
+    sync_frequency?: DataWarehouseSyncInterval
+    last_run_at?: string
+    status?: string
+}
+
+export interface LineageEdge {
+    source: string
+    target: string
+}
+
+export interface LineageGraph {
+    nodes: LineageNode[]
+    edges: LineageEdge[]
 }

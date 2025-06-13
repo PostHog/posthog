@@ -22,7 +22,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
-import { DashboardContextForMax, InsightContextForMax, MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextOption, MaxDashboardContext, MaxInsightContext } from 'scenes/max/maxTypes'
 
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -125,6 +125,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
+        isVirtual,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -278,6 +279,22 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         </DefinitionPopover.Grid>
                     </>
                 ) : null}
+                {isVirtual ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Virtual"
+                                value={
+                                    <span className="text-xs">
+                                        Virtual properties are computed from other properties, and are not sent
+                                        directly.
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -359,6 +376,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (group.type === TaxonomicFilterGroupType.MaxAIContext) {
         const _definition = definition as MaxContextOption
+        if (_definition.value !== 'current_page') {
+            return <></>
+        }
         return (
             <>
                 {sharedComponents}
@@ -368,7 +388,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             title="Dashboard"
                             value={
                                 <div className="flex flex-wrap gap-1">
-                                    {_definition.items.dashboards.map((dashboard: DashboardContextForMax) => (
+                                    {_definition.items.dashboards.map((dashboard: MaxDashboardContext) => (
                                         <LemonTag
                                             key={dashboard.id}
                                             size="small"
@@ -391,7 +411,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 title="Insights"
                                 value={
                                     <div className="flex flex-wrap gap-1">
-                                        {_definition.items.insights.map((insight: InsightContextForMax) => (
+                                        {_definition.items.insights.map((insight: MaxInsightContext) => (
                                             <LemonTag
                                                 key={insight.id}
                                                 size="small"

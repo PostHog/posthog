@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-import cohere
+from azure.ai.inference import EmbeddingsClient
+from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
+from azure.core.credentials import AzureKeyCredential
 from django.utils import timezone
 
 from ee.hogai.graph.rag.nodes import InsightRagContextNode
@@ -8,17 +10,25 @@ from ee.hogai.utils.types import AssistantState
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
-from posthog.schema import ActionContextForMax, MaxContextShape, TeamTaxonomyQuery
+from posthog.schema import MaxActionContext, MaxContextShape, TeamTaxonomyQuery
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 @patch(
-    "cohere.ClientV2.embed",
-    return_value=cohere.EmbeddingsByTypeEmbedResponse(
-        embeddings=cohere.EmbedByTypeResponseEmbeddings(float_=[[2, 4]]), texts=["test"], id="test"
+    "azure.ai.inference.EmbeddingsClient.embed",
+    return_value=EmbeddingsResult(
+        id="test",
+        model="test",
+        usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
+        data=[EmbeddingItem(embedding=[2, 4], index=0)],
     ),
 )
-@patch("ee.hogai.graph.rag.nodes.get_cohere_client", return_value=cohere.ClientV2(api_key="test"))
+@patch(
+    "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
+    return_value=EmbeddingsClient(
+        endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
+    ),
+)
 class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -80,11 +90,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
 
         # Mock UI context with actions
         mock_ui_context = MaxContextShape(
-            actions={
-                str(context_action.id): ActionContextForMax(
-                    id=context_action.id, name="Context Action", description="From UI Context"
-                )
-            }
+            actions=[MaxActionContext(id=context_action.id, name="Context Action", description="From UI Context")]
         )
         mock_get_ui_context.return_value = mock_ui_context
 
@@ -112,11 +118,9 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
 
         mock_ui_context = MaxContextShape(
-            actions={
-                str(context_action.pk): ActionContextForMax(
-                    id=context_action.pk, name="Context Only Action", description="Only from context"
-                )
-            }
+            actions=[
+                MaxActionContext(id=context_action.id, name="Context Only Action", description="Only from context")
+            ]
         )
         mock_get_ui_context.return_value = mock_ui_context
 

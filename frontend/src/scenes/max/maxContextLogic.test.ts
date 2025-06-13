@@ -1,4 +1,4 @@
-import { IconPageChart } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -28,7 +28,6 @@ describe('maxContextLogic', () => {
         name: 'Test Insight',
         description: 'Test insight description',
         query: { kind: 'TrendsQuery' },
-        insight_type: 'TrendsQuery',
     }
 
     const mockDashboard: DashboardType<QueryBasedInsightModel> = {
@@ -43,14 +42,6 @@ describe('maxContextLogic', () => {
         ],
     } as DashboardType<QueryBasedInsightModel>
 
-    // Create the expected transformed dashboard
-    const expectedTransformedDashboard = {
-        id: 1,
-        name: 'Test Dashboard',
-        description: 'Test dashboard description',
-        insights: [expectedTransformedInsight],
-    }
-
     const mockEvent: EventDefinition = {
         id: 'event-1',
         name: 'Test Event',
@@ -62,6 +53,15 @@ describe('maxContextLogic', () => {
         name: 'Test Action',
         description: 'Test action description',
     } as ActionType
+
+    // Create the expected transformed dashboard
+    const expectedTransformedDashboard = {
+        id: 1,
+        name: 'Test Dashboard',
+        description: 'Test dashboard description',
+        insights: [expectedTransformedInsight],
+        filters: mockDashboard.filters,
+    }
 
     beforeEach(() => {
         useMocks(maxMocks)
@@ -95,40 +95,34 @@ describe('maxContextLogic', () => {
 
         it('manages context data', async () => {
             await expectLogic(logic).toMatchValues({
-                contextInsights: {},
-                contextDashboards: {},
-                contextEvents: {},
-                contextActions: {},
+                contextInsights: [],
+                contextDashboards: [],
             })
 
-            logic.actions.addOrUpdateContextInsight('test-key', mockInsight)
-            logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
-            logic.actions.addOrUpdateContextEvent('event-1', mockEvent)
-            logic.actions.addOrUpdateContextAction('1', mockAction)
+            logic.actions.addOrUpdateContextInsight(mockInsight)
+            logic.actions.addOrUpdateContextDashboard(mockDashboard)
 
             await expectLogic(logic).toMatchValues({
-                contextInsights: { 'test-key': expectedTransformedInsight },
-                contextDashboards: { '1': expectedTransformedDashboard },
-                contextEvents: { 'event-1': mockEvent },
-                contextActions: { '1': mockAction },
+                contextInsights: [expectedTransformedInsight],
+                contextDashboards: [expectedTransformedDashboard],
             })
         })
 
         it('manages active insights', async () => {
             await expectLogic(logic).toMatchValues({
-                activeInsights: {},
+                activeInsights: [],
             })
 
-            logic.actions.addOrUpdateActiveInsight('active-1', mockInsight)
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
 
             await expectLogic(logic).toMatchValues({
-                activeInsights: { 'active-1': expectedTransformedInsight },
+                activeInsights: [expectedTransformedInsight],
             })
 
             logic.actions.clearActiveInsights()
 
             await expectLogic(logic).toMatchValues({
-                activeInsights: {},
+                activeInsights: [],
             })
         })
 
@@ -151,23 +145,25 @@ describe('maxContextLogic', () => {
         })
 
         it('resets all context', async () => {
-            logic.actions.addOrUpdateContextInsight('test', mockInsight)
-            logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
+            logic.actions.addOrUpdateContextInsight(mockInsight)
+            logic.actions.addOrUpdateContextDashboard(mockDashboard)
+            logic.actions.addOrUpdateContextEvent(mockEvent)
+            logic.actions.addOrUpdateContextAction(mockAction)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
-                contextInsights: { test: expectedTransformedInsight },
-                contextDashboards: { '1': expectedTransformedDashboard },
+                contextInsights: [expectedTransformedInsight],
+                contextDashboards: [expectedTransformedDashboard],
                 useCurrentPageContext: true,
             })
 
             logic.actions.resetContext()
 
             await expectLogic(logic).toMatchValues({
-                contextInsights: {},
-                contextDashboards: {},
-                contextEvents: {},
-                contextActions: {},
+                contextInsights: [],
+                contextDashboards: [],
+                contextEvents: [],
+                contextActions: [],
                 useCurrentPageContext: false,
             })
         })
@@ -179,14 +175,14 @@ describe('maxContextLogic', () => {
                 hasData: false,
             })
 
-            logic.actions.addOrUpdateContextInsight('test', mockInsight)
+            logic.actions.addOrUpdateContextInsight(mockInsight)
 
             await expectLogic(logic).toMatchValues({
                 hasData: true,
             })
 
             logic.actions.removeContextInsight('test')
-            logic.actions.addOrUpdateActiveInsight('active', mockInsight)
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
@@ -199,12 +195,13 @@ describe('maxContextLogic', () => {
                 contextOptions: [],
             })
 
-            logic.actions.addOrUpdateActiveInsight('active', mockInsight)
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
                 contextOptions: [
                     {
+                        id: 'current_page',
                         name: 'Current page',
                         value: 'current_page',
                         icon: IconPageChart,
@@ -212,6 +209,13 @@ describe('maxContextLogic', () => {
                             insights: [expectedTransformedInsight],
                             dashboards: [],
                         },
+                    },
+                    {
+                        id: 'insight-1',
+                        name: 'Test Insight',
+                        value: 'insight-1',
+                        type: 'insight',
+                        icon: IconGraph,
                     },
                 ],
             })
@@ -221,6 +225,7 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextOptions: [
                     {
+                        id: 'current_page',
                         name: 'Current page',
                         value: 'current_page',
                         icon: IconPageChart,
@@ -228,6 +233,20 @@ describe('maxContextLogic', () => {
                             insights: [expectedTransformedInsight],
                             dashboards: [expectedTransformedDashboard],
                         },
+                    },
+                    {
+                        id: '1',
+                        name: 'Test Dashboard',
+                        value: 1,
+                        type: 'dashboard',
+                        icon: IconDashboard,
+                    },
+                    {
+                        id: 'insight-1',
+                        name: 'Test Insight',
+                        value: 'insight-1',
+                        type: 'insight',
+                        icon: IconGraph,
                     },
                 ],
             })
@@ -244,7 +263,7 @@ describe('maxContextLogic', () => {
                 ],
             })
 
-            logic.actions.addOrUpdateActiveInsight('active', mockInsight)
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
@@ -266,25 +285,23 @@ describe('maxContextLogic', () => {
                 short_id: 'context-insight-1' as any,
             }
 
-            logic.actions.addOrUpdateContextInsight('insight-key', contextInsight)
-            logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
-            logic.actions.addOrUpdateContextEvent('event-1', mockEvent)
-            logic.actions.addOrUpdateContextAction('1', mockAction)
-            logic.actions.setNavigationContext('/test', 'Test Page')
+            logic.actions.addOrUpdateContextInsight(contextInsight)
+            logic.actions.addOrUpdateContextDashboard(mockDashboard)
+            logic.actions.addOrUpdateContextEvent(mockEvent)
+            logic.actions.addOrUpdateContextAction(mockAction)
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
-                    insights: {
-                        'insight-key': {
+                    insights: [
+                        {
                             id: 'context-insight-1',
                             name: 'Test Insight',
                             description: 'Test insight description',
                             query: { kind: 'TrendsQuery' },
-                            insight_type: 'TrendsQuery',
                         },
-                    },
-                    dashboards: {
-                        '1': {
+                    ],
+                    dashboards: [
+                        {
                             id: 1,
                             name: 'Test Dashboard',
                             description: 'Test dashboard description',
@@ -294,69 +311,51 @@ describe('maxContextLogic', () => {
                                     name: 'Test Insight',
                                     description: 'Test insight description',
                                     query: { kind: 'TrendsQuery' },
-                                    insight_type: 'TrendsQuery',
                                 },
                             ],
                         },
-                    },
-                    events: {
-                        'event-1': {
+                    ],
+                    events: [
+                        {
                             id: 'event-1',
                             name: 'Test Event',
                             description: 'Test event description',
                         },
-                    },
-                    actions: {
-                        '1': {
+                    ],
+                    actions: [
+                        {
                             id: 1,
                             name: 'Test Action',
                             description: 'Test action description',
                         },
-                    },
-                    global_info: {
-                        navigation: {
-                            path: '/test',
-                            page_title: 'Test Page',
-                        },
-                    },
+                    ],
                 }),
             })
         })
 
-        it('includes both insights and dashboard when they have different IDs', async () => {
-            logic.actions.addOrUpdateContextInsight('insight-1', mockInsight)
-            logic.actions.addOrUpdateContextDashboard('1', mockDashboard)
+        it('does not include both insights and dashboard insights when they have same IDs', async () => {
+            logic.actions.addOrUpdateContextInsight(mockInsight)
+            logic.actions.addOrUpdateContextDashboard(mockDashboard)
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
-                    insights: {
-                        'insight-1': partial({ id: 'insight-1' }),
-                    },
-                    dashboards: {
-                        '1': partial({
+                    dashboards: [
+                        partial({
                             insights: [partial({ id: 'insight-1' })],
                         }),
-                    },
+                    ],
                 }),
             })
         })
 
-        it('includes active insights and dashboard when current page context is enabled', async () => {
-            logic.actions.addOrUpdateActiveInsight('active-insight', mockInsight)
+        it('includes active dashboard when current page context is enabled without insights', async () => {
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
             logic.actions.setActiveDashboard(mockDashboard)
             logic.actions.enableCurrentPageContext()
 
             await expectLogic(logic).toMatchValues({
                 compiledContext: partial({
-                    insights: {
-                        'active-insight': partial({ id: 'insight-1' }),
-                    },
-                    dashboards: {
-                        '1': partial({
-                            id: 1,
-                            insights: [partial({ id: 'insight-1' })],
-                        }),
-                    },
+                    dashboards: [partial({ id: 1, insights: [partial({ id: 'insight-1' })] })],
                 }),
             })
         })
@@ -364,18 +363,18 @@ describe('maxContextLogic', () => {
 
     describe('listeners', () => {
         it('clears active data on location change', async () => {
-            logic.actions.addOrUpdateActiveInsight('active', mockInsight)
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
             logic.actions.setActiveDashboard(mockDashboard)
 
             await expectLogic(logic).toMatchValues({
-                activeInsights: { active: expectedTransformedInsight },
+                activeInsights: [expectedTransformedInsight],
                 activeDashboard: expectedTransformedDashboard,
             })
 
             await expectLogic(logic, () => {
                 router.actions.push('/new-path')
             }).toMatchValues({
-                activeInsights: {},
+                activeInsights: [],
                 activeDashboard: null,
             })
         })
@@ -386,41 +385,37 @@ describe('maxContextLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.handleTaxonomicFilterChange(
-                    'current_page',
-                    TaxonomicFilterGroupType.MaxAIContext,
-                    'current_page'
-                )
+                logic.actions.handleTaxonomicFilterChange('current_page', TaxonomicFilterGroupType.MaxAIContext, {
+                    id: 'current_page',
+                    name: 'Current page',
+                    value: 'current_page',
+                    icon: IconPageChart,
+                })
             }).toMatchValues({
                 useCurrentPageContext: true,
             })
         })
-
         it('handles taxonomic filter change for events', async () => {
             await expectLogic(logic).toMatchValues({
-                contextEvents: {},
+                contextEvents: [],
             })
 
             await expectLogic(logic, () => {
                 logic.actions.handleTaxonomicFilterChange('event-1', TaxonomicFilterGroupType.Events, mockEvent)
             }).toMatchValues({
-                contextEvents: {
-                    'event-1': mockEvent,
-                },
+                contextEvents: [mockEvent],
             })
         })
 
         it('handles taxonomic filter change for actions', async () => {
             await expectLogic(logic).toMatchValues({
-                contextActions: {},
+                contextActions: [],
             })
 
             await expectLogic(logic, () => {
                 logic.actions.handleTaxonomicFilterChange(1, TaxonomicFilterGroupType.Actions, mockAction)
             }).toMatchValues({
-                contextActions: {
-                    '1': mockAction,
-                },
+                contextActions: [mockAction],
             })
         })
     })

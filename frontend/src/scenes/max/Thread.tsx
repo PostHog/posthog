@@ -47,7 +47,7 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
-import { ContextTags } from './ContextTags'
+import { ContextSummary } from './ContextTags'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -170,10 +170,10 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
                                 {message.ui_context && Object.keys(message.ui_context).length > 0 && (
-                                    <ContextTags
+                                    <ContextSummary
                                         insights={message.ui_context.insights}
                                         dashboards={message.ui_context.dashboards}
-                                        className="flex flex-wrap gap-1 mb-2"
+                                        useCurrentPageContext={false}
                                     />
                                 )}
                                 <MarkdownMessage
@@ -208,8 +208,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
+                                    <span>{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage

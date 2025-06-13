@@ -227,9 +227,9 @@ describe('taxonomicFilterLogic', () => {
 
         beforeEach(() => {
             const maxContextOptions = [
-                { name: 'Test Context 1', value: 'context1', icon: null },
-                { name: 'Test Context 2', value: 'context2', icon: null },
-                { name: 'Another Context', value: 'context3', icon: null },
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
             ]
 
             const logicProps: TaxonomicFilterLogicProps = {
@@ -254,12 +254,12 @@ describe('taxonomicFilterLogic', () => {
             const maxAIGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.MaxAIContext)
 
             expect(maxAIGroup).toBeDefined()
-            expect(maxAIGroup?.name).toBe('Max AI')
-            expect(maxAIGroup?.searchPlaceholder).toBe('Max AI')
+            expect(maxAIGroup?.name).toBe('In this page')
+            expect(maxAIGroup?.searchPlaceholder).toBe('elements from this page')
             expect(maxAIGroup?.options).toEqual([
-                { name: 'Test Context 1', value: 'context1', icon: null },
-                { name: 'Test Context 2', value: 'context2', icon: null },
-                { name: 'Another Context', value: 'context3', icon: null },
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
             ])
         })
     })

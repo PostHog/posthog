@@ -40,6 +40,7 @@ pub struct Team {
     pub session_recording_url_trigger_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_url_blocklist_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_event_trigger_config: Option<Vec<String>>, // text[] in postgres
+    pub session_recording_trigger_match_type_config: Option<String>, // character varying(24) in postgres
     pub recording_domains: Option<Vec<String>>, // character varying(200)[] in postgres
     #[serde(with = "option_i16_as_i16")]
     pub cookieless_server_hash_mode: i16,

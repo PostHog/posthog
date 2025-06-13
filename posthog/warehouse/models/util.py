@@ -46,11 +46,36 @@ def remove_named_tuples(type):
     from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
     tokenified_type = re.split(r"(\W)", type)
-    filtered_tokens = [
-        token
-        for token in tokenified_type
-        if token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
-    ]
+    filtered_tokens = []
+    i = 0
+    while i < len(tokenified_type):
+        token = tokenified_type[i]
+        # handle tokenization of DateTime types that need to be parsed in a specific way ie) DateTime64(3, 'UTC')
+        if token == "DateTime64" or token == "DateTime32":
+            filtered_tokens.append(token)
+            i += 1
+            if i < len(tokenified_type) and tokenified_type[i] == "(":
+                filtered_tokens.append(tokenified_type[i])
+                i += 1
+                while i < len(tokenified_type) and tokenified_type[i] != ")":
+                    if tokenified_type[i] == "'":
+                        filtered_tokens.append(tokenified_type[i])
+                        i += 1
+                        while i < len(tokenified_type) and tokenified_type[i] != "'":
+                            filtered_tokens.append(tokenified_type[i])
+                            i += 1
+                        if i < len(tokenified_type):
+                            filtered_tokens.append(tokenified_type[i])
+                    else:
+                        filtered_tokens.append(tokenified_type[i])
+                    i += 1
+                if i < len(tokenified_type):
+                    filtered_tokens.append(tokenified_type[i])
+        elif (
+            token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
+        ):
+            filtered_tokens.append(token)
+        i += 1
     return "".join(filtered_tokens)
 
 

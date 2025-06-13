@@ -11,10 +11,10 @@ import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
-import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
+import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'products/error_tracking/frontend/utils'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
-import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'scenes/error-tracking/utils'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -132,7 +132,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         tabs.push({
             key: 'image',
             label: 'Image',
-            content: <AutocaptureImageTab elements={event.elements} />,
+            content: <AutocaptureImageTab elements={event.elements} properties={event.properties} />,
         })
     }
 

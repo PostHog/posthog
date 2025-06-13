@@ -3,6 +3,7 @@ import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducer
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
     ListStorage,
@@ -19,6 +20,7 @@ import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPropertyDefinitionIcon,
+    getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -49,6 +51,7 @@ import {
     PersonProperty,
     PersonType,
     PropertyDefinition,
+    PropertyDefinitionType,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -112,6 +115,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
+            taxonomicFilterPreferencesLogic,
+            ['eventOrdering'],
         ],
     })),
     actions(() => ({
@@ -190,6 +195,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
         ],
+        propertyFilters: [
+            (s) => [s.excludedProperties, s.propertyAllowList],
+            (
+                excludedProperties: Record<string, any>,
+                propertyAllowList: TaxonomicFilterLogicProps['propertyAllowList']
+            ) => ({ excludedProperties, propertyAllowList }),
+        ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
@@ -203,24 +215,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventNames,
                 s.schemaColumns,
                 s.metadataSource,
-                s.excludedProperties,
-                s.propertyAllowList,
+                s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
+                s.eventOrdering,
                 s.maxContextOptions,
             ],
             (
-                teamId,
-                projectId,
-                groupAnalyticsTaxonomicGroups,
-                groupAnalyticsTaxonomicGroupNames,
-                eventNames,
-                schemaColumns,
-                metadataSource,
-                excludedProperties,
-                propertyAllowList,
-                eventMetadataPropertyDefinitions,
-                maxContextOptions
+                teamId: number | null,
+                projectId: number | null,
+                groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
+                groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
+                eventNames: string[],
+                schemaColumns: DatabaseSchemaField[],
+                metadataSource: AnyDataNode,
+                propertyFilters: { excludedProperties: any; propertyAllowList: any },
+                eventMetadataPropertyDefinitions: PropertyDefinition[],
+                eventOrdering: string | null,
+                maxContextOptions: MaxContextOption[]
             ): TaxonomicFilterGroup[] => {
+                const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -229,9 +242,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
+                        // the default ordering for the API is "both"
+                        // so we don't need to add an ordering param in that case
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
+                            ordering: eventOrdering ?? undefined,
                         }).url,
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
@@ -408,9 +424,46 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Issues',
                     },
                     {
+                        name: 'Revenue analytics properties',
+                        searchPlaceholder: 'revenue analytics properties',
+                        type: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.RevenueAnalyticsProperties]
+                        )
+                            .map(([key, { type: property_type }]) => ({
+                                id: key,
+                                name: key,
+                                value: key,
+                                property_type,
+                                type: PropertyDefinitionType.RevenueAnalytics,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(
+                                        o.value
+                                    )
+                            ),
+                        getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.RevenueAnalyticsProperties
+                            )
+
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/environments/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(
+                                key
+                            )}`
+                        },
+                        getPopoverHeader: () => 'Revenue analytics properties',
+                    },
+                    {
                         name: 'Log attributes',
                         searchPlaceholder: 'logs',
-                        type: TaxonomicFilterGroupType.Logs,
+                        type: TaxonomicFilterGroupType.LogAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             is_feature_flag: false,
                             ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
@@ -585,7 +638,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...(propertyAllowList
                             ? {
                                   options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
-                                      (property) => ({
+                                      (property: string) => ({
                                           name: property,
                                           value: property,
                                       })
@@ -626,8 +679,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Replay',
                     },
                     {
-                        name: 'Max AI',
-                        searchPlaceholder: 'Max AI',
+                        name: 'In this page',
+                        searchPlaceholder: 'elements from this page',
                         type: TaxonomicFilterGroupType.MaxAIContext,
                         options: maxContextOptions,
                         getName: (option: MaxContextOption) => option.name,
@@ -639,7 +692,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                             return <></>
                         },
-                        getPopoverHeader: () => 'Max AI',
+                        getPopoverHeader: () => 'In this page',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

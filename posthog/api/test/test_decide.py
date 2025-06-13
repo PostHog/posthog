@@ -172,7 +172,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_defaults_to_v2_if_conflicting_parameters(self, *args):
         """
-        regression test for https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
         posthog-js version 1.19.0 (but not versions before or after)
         mistakenly sent two `v` parameters to the decide endpoint
         one was correct "2"
@@ -633,10 +632,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
@@ -3178,10 +3174,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
         self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
 
         response = self._post_decide(
             api_version=2, origin="https://random.example.com", simulate_database_timeout=True
@@ -3202,10 +3195,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["capturePerformance"],
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
         self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
@@ -4010,6 +4000,10 @@ class TestDecideRemoteConfig(TestDecide):
                 "autocaptureExceptions": False,
                 "analytics": {"endpoint": "/i/v0/e/"},
                 "elementsChainAsString": True,
+                "errorTracking": {
+                    "autocaptureExceptions": False,
+                    "suppressionRules": [],
+                },
                 "sessionRecording": False,
                 "heatmaps": False,
                 "surveys": False,

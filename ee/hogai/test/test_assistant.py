@@ -5,6 +5,9 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from azure.ai.inference import EmbeddingsClient
+from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
+from azure.core.credentials import AzureKeyCredential
 from django.test import override_settings
 from langchain_core import messages
 from langchain_core.agents import AgentAction
@@ -17,7 +20,7 @@ from pydantic import BaseModel
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts
+from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
@@ -37,14 +40,18 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DashboardFilter,
     FailureMessage,
     HumanMessage,
+    MaxContextShape,
+    MaxDashboardContext,
+    MaxInsightContext,
     ReasoningMessage,
+    TrendsQuery,
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
 
-from ee.hogai.graph.memory import prompts as onboarding_prompts
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
 
@@ -66,6 +73,28 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             initial_text="Initial memory.",
             scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
         )
+
+        # Azure embeddings mocks
+        self.azure_client_mock = patch(
+            "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
+            return_value=EmbeddingsClient(
+                endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
+            ),
+        ).start()
+        self.embed_query_mock = patch(
+            "azure.ai.inference.EmbeddingsClient.embed",
+            return_value=EmbeddingsResult(
+                id="test",
+                model="test",
+                usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
+                data=[],
+            ),
+        ).start()
+
+    def tearDown(self):
+        self.azure_client_mock.stop()
+        self.embed_query_mock.stop()
+        super().tearDown()
 
     def _set_up_onboarding_tests(self):
         self.core_memory.delete()
@@ -93,13 +122,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
-        ui_context: Optional[dict[str, Any]] = None,
+        ui_context: Optional[MaxContextShape] = None,
     ) -> tuple[list[tuple[str, Any]], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
             self.team,
             conversation or self.conversation,
-            new_message=HumanMessage(content=message or "Hello"),
+            new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
             user=self.user,
             is_new_conversation=is_new_conversation,
             tool_call_partial_state=tool_call_partial_state,
@@ -1367,11 +1396,16 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # Test ui_context with multiple fields
-        ui_context = {
-            "dashboard": {"id": "dashboard_123", "filters": {"date_range": "7d"}},
-            "insights": {"current_query": "test query", "chart_type": "line"},
-            "global_info": {"foo": "bar"},  # This should be filtered out
-        }
+        ui_context = MaxContextShape(
+            dashboards=[
+                MaxDashboardContext(
+                    id="1",
+                    filters=DashboardFilter(),
+                    insights=[MaxInsightContext(id="1", query=TrendsQuery(series=[]))],
+                )
+            ],
+            insights=[MaxInsightContext(id="2", query=TrendsQuery(series=[]))],
+        )
 
         # First run: Create assistant with ui_context
         output1, assistant1 = self._run_assistant_graph(
@@ -1381,12 +1415,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ui_context=ui_context,
         )
 
+        ui_context_2 = MaxContextShape(insights=[MaxInsightContext(id="3", query=TrendsQuery(series=[]))])
+
         # Second run: Create another assistant with the same conversation (simulating retrieval)
         output2, assistant2 = self._run_assistant_graph(
             test_graph=graph,
             message="Second message",
             conversation=self.conversation,
-            ui_context={"new_context": {"value": "new_value"}},  # Different ui_context
+            ui_context=ui_context_2,  # Different ui_context
         )
 
         # Get the final state
@@ -1398,20 +1434,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         human_messages = [msg for msg in stored_messages2 if isinstance(msg, HumanMessage)]
         self.assertEqual(len(human_messages), 2, "Should have exactly two human messages")
 
-        # Check first message still has original ui_context (with global_info filtered)
         first_message = human_messages[0]
-        expected_first_context = {
-            "dashboard": {"id": "dashboard_123", "filters": {"date_range": "7d"}},
-            "insights": {"current_query": "test query", "chart_type": "line"},
-            # global_info should be filtered out
-        }
-        self.assertEqual(first_message.ui_context, expected_first_context)
-        self.assertNotIn("global_info", first_message.ui_context or {})
+        self.assertEqual(first_message.ui_context, ui_context)
 
         # Check second message has new ui_context
         second_message = human_messages[1]
-        expected_second_context = {"new_context": {"value": "new_value"}}
-        self.assertEqual(second_message.ui_context, expected_second_context)
+        self.assertEqual(second_message.ui_context, ui_context_2)
 
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
