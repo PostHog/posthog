@@ -147,7 +147,7 @@ export const getFunnelQuery = (
 ): FunnelsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
-    return setLatestVersionsOnQuery{
+    return setLatestVersionsOnQuery({
         kind: NodeKind.FunnelsQuery,
         series: [
             {
