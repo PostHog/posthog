@@ -78,7 +78,7 @@ export class HogFlowManagerService {
             return acc
         }, {})
 
-        const teamItemIds = await this.getHogFlowIdsForTeam(teamIds)
+        const teamItemIds = await this.getHogFlowIdsForTeams(teamIds)
         const allIds = Object.values(teamItemIds).flat()
         const items = await this.lazyLoader.getMany(allIds)
 
@@ -93,7 +93,7 @@ export class HogFlowManagerService {
         return result
     }
 
-    public async getHogFlowIdsForTeam(teamIds: Team['id'][]): Promise<Record<Team['id'], string[]>> {
+    public async getHogFlowIdsForTeams(teamIds: Team['id'][]): Promise<Record<Team['id'], string[]>> {
         const result = teamIds.reduce<Record<Team['id'], string[]>>((acc, teamId) => {
             acc[teamId] = []
             return acc

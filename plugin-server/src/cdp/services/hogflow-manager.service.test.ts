@@ -147,71 +147,63 @@ describe('HogFlowManager', () => {
     //     })
     // })
 
-    // describe('getHogFunctionIdsForTeams', () => {
-    //     it('returns function IDs filtered by type', async () => {
-    //         const result = await manager.getHogFunctionIdsForTeams(
-    //             [teamId1, teamId2],
-    //             ['destination', 'transformation']
-    //         )
+    describe('getHogFlowIdsForTeam', () => {
+        it('returns function IDs', async () => {
+            const result = await manager.getHogFlowIdsForTeams([teamId1, teamId2])
 
-    //         expect(result[teamId1]).toHaveLength(2)
-    //         expect(result[teamId1]).toContain(hogFunctions[0].id) // destination function
-    //         expect(result[teamId1]).toContain(hogFunctions[1].id) // transformation function
+            expect(result[teamId1]).toHaveLength(2)
+            expect(result[teamId1]).toContain(hogFlows[0].id)
+            expect(result[teamId1]).toContain(hogFlows[1].id)
 
-    //         expect(result[teamId2]).toHaveLength(1)
-    //         expect(result[teamId2]).toContain(hogFunctions[2].id) // destination function
-    //     })
+            expect(result[teamId2]).toHaveLength(1)
+            expect(result[teamId2]).toContain(hogFlows[2].id)
+        })
 
-    //     it('returns empty arrays for teams with no matching functions', async () => {
-    //         const nonExistentTeamId = teamId2 + 1
-    //         const result = await manager.getHogFunctionIdsForTeams([nonExistentTeamId], ['transformation'])
+        it('returns empty arrays for teams with no matching functions', async () => {
+            const nonExistentTeamId = teamId2 + 1
+            const result = await manager.getHogFlowIdsForTeams([nonExistentTeamId])
+            expect(result[nonExistentTeamId]).toEqual([])
+        })
 
-    //         expect(result[nonExistentTeamId]).toEqual([])
-    //     })
+        it('handles archived hog flows', async () => {
+            const originalResult = await manager.getHogFlowIdsForTeams([teamId1, teamId2])
+            expect(originalResult[teamId1]).toHaveLength(2)
 
-    //     it('filters by specific type correctly', async () => {
-    //         const result = await manager.getHogFunctionIdsForTeams([teamId1], ['transformation'])
+            // Archive a hog flow
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status='archived', updated_at = NOW() WHERE id = $1`,
+                [hogFlows[0].id],
+                'testKey'
+            )
 
-    //         expect(result[teamId1]).toHaveLength(1)
-    //         expect(result[teamId1]).toContain(hogFunctions[1].id) // only the transformation function
-    //         expect(result[teamId1]).not.toContain(hogFunctions[0].id) // not the destination function
-    //     })
+            // This is normally dispatched by django
+            manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id])
 
-    //     it('handles disabled functions', async () => {
-    //         // Disable a function
-    //         await hub.db.postgres.query(
-    //             PostgresUse.COMMON_WRITE,
-    //             `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
-    //             [hogFunctions[0].id],
-    //             'testKey'
-    //         )
-
-    //         // This is normally dispatched by django
-    //         manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
-
-    //         const result = await manager.getHogFunctionIdsForTeams([teamId1], ['destination'])
-    //         expect(result[teamId1]).toHaveLength(0)
-    //     })
-    // })
+            const result = await manager.getHogFlowIdsForTeams([teamId1])
+            expect(result[teamId1]).toHaveLength(1)
+            expect(result[teamId1]).not.toContain(hogFlows[0].id)
+        })
+    })
 
     // it('removes disabled functions', async () => {
     //     let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
     //     expect(items).toMatchObject([
     //         {
-    //             id: hogFunctions[0].id,
+    //             id: hogFlows[0].id,
     //         },
     //     ])
 
     //     await hub.db.postgres.query(
     //         PostgresUse.COMMON_WRITE,
     //         `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
-    //         [hogFunctions[0].id],
+    //         [hogFlows[0].id],
     //         'testKey'
     //     )
 
     //     // This is normally dispatched by django
-    //     manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
+    //     manager['onHogFunctionsReloaded'](teamId1, [hogFlows[0].id])
 
     //     items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
