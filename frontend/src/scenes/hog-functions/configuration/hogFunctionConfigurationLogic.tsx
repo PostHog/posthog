@@ -649,7 +649,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 if (!props.id || props.id === 'new') {
-                    const folder = await asyncSaveToModal({})
+                    const folder = await asyncSaveToModal({
+                        defaultFolder: 'Unfiled/Hog Functions',
+                    })
                     if (typeof folder === 'string') {
                         payload._create_in_folder = folder
                     }
