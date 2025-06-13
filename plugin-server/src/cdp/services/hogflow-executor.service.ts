@@ -96,7 +96,9 @@ export class HogFlowExecutorService {
             queue: 'hogflow',
         })
 
-        // TODO: Implement!
+        // TODO: Find the current action to be executed based on the state.
+        // * Save the iteration count in the state so we never get stuck in infinite loops
+        // * Figure out how to invoke other hog functions...
 
         return Promise.resolve(result)
     }

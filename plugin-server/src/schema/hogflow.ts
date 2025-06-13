@@ -1,5 +1,69 @@
 import { z } from 'zod'
 
+const _commonActionFields = {
+    id: z.string(),
+    name: z.string(),
+    description: z.string(),
+    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
+    created_at: z.number(),
+    updated_at: z.number(),
+}
+
+const HogFlowActionSchema = z.discriminatedUnion('type', [
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('trigger'),
+        config: z.object({
+            filters: z.any(),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('conditional_branch'),
+        config: z.object({
+            conditions: z.array(z.any()),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('delay'),
+        config: z.object({
+            delay_seconds: z.number(),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('wait_for_condition'),
+        config: z.object({
+            condition: z.any(),
+            timeout_seconds: z.number(),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('message'),
+        config: z.object({
+            message: z.string(),
+            channel: z.string(),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('hog_function'),
+        function_id: z.string(),
+        config: z.object({
+            args: z.record(z.any()),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('exit'),
+        config: z.object({
+            reason: z.string(),
+        }),
+    }),
+])
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
@@ -37,26 +101,7 @@ export const HogFlowSchema = z.object({
             index: z.number(),
         })
     ),
-    actions: z.array(
-        z.object({
-            id: z.string(),
-            name: z.string(),
-            description: z.string(),
-            type: z.enum([
-                'trigger',
-                'conditional_branch',
-                'delay',
-                'wait_for_condition',
-                'message',
-                'hog_function',
-                'exit',
-            ]),
-            config: z.any(),
-            on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
-            created_at: z.number(),
-            updated_at: z.number(),
-        })
-    ),
+    actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
 })
 
