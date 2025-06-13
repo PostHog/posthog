@@ -3,7 +3,6 @@ import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
-import gc
 import io
 import json
 import operator
@@ -1102,12 +1101,18 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # Track the upload
         self.pending_uploads[part_number] = upload_task
 
-    async def _upload_part_with_cleanup(self, data: bytes, part_number: int):
-        """Upload part and handle cleanup.
+    async def _upload_part_with_cleanup(
+        self,
+        data: bytes,
+        part_number: int,
+        max_attempts: int = 5,
+        initial_retry_delay: float | int = 2,
+        max_retry_delay: float | int = 32,
+        exponential_backoff_coefficient: int = 2,
+    ):
+        """Upload part and handle cleanup with retry logic.
 
         Note: This can run concurrently so need to be careful
-
-        TODO: add retry logic
         """
         # safety check - we should never have a part number without an upload id
         if not self.upload_id:
@@ -1123,16 +1128,49 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 )
                 current_key = self._get_current_key()
                 client = await self._get_s3_client()
-                upload_start = time.time()
-                response = await client.upload_part(
-                    Bucket=self.s3_inputs.bucket_name,
-                    Key=current_key,
-                    PartNumber=part_number,
-                    UploadId=self.upload_id,
-                    Body=data,
-                )
-                upload_time = time.time() - upload_start
 
+                # Retry logic for upload_part
+                response: dict[str, str] | None = None
+                attempt = 0
+
+                while response is None:
+                    upload_start = time.time()
+                    try:
+                        response = await client.upload_part(
+                            Bucket=self.s3_inputs.bucket_name,
+                            Key=current_key,
+                            PartNumber=part_number,
+                            UploadId=self.upload_id,
+                            Body=data,
+                        )
+
+                    except botocore.exceptions.ClientError as err:
+                        error_code = err.response.get("Error", {}).get("Code", None)
+                        attempt += 1
+
+                        await self.logger.ainfo(
+                            "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
+                            self.current_file_index,
+                            part_number,
+                            error_code,
+                            attempt,
+                            max_attempts,
+                        )
+
+                        if error_code is not None and error_code == "RequestTimeout":
+                            if attempt >= max_attempts:
+                                raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+
+                            retry_delay = min(
+                                max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
+                            )
+                            await self.logger.ainfo("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        else:
+                            raise
+
+                upload_time = time.time() - upload_start
                 part_info = {"ETag": response["ETag"], "PartNumber": part_number}
 
                 # Store completed part info
@@ -1219,9 +1257,13 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 # Upload final part
                 await self._upload_final_part()
 
-            # Wait for all pending uploads for this file
+            # Wait for all pending uploads for this file and check for errors
             if self.pending_uploads:
-                await asyncio.gather(*self.pending_uploads.values())
+                try:
+                    await asyncio.gather(*self.pending_uploads.values())
+                except Exception:
+                    await self.logger.aexception("One or more upload parts failed")
+                    raise
 
             # Complete multipart upload if needed
             if self.upload_id:
@@ -1313,7 +1355,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self._s3_client_ctx.__aexit__(None, None, None)
                 self._s3_client = None
                 self._s3_client_ctx = None
-            gc.collect()
+            # gc.collect()
 
         # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
         # containing the list of files.  This is used to check if the export is complete.
