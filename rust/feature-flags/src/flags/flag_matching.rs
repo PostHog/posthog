@@ -1177,19 +1177,35 @@ impl FeatureFlagMatcher {
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag - use mappings from evaluation state
-            let group_key = self
+            // Check if we can find the group type mapping
+            let group_type_name = self
                 .flag_evaluation_state
                 .get_group_type_mappings()
-                .get(&group_type_index)
-                .and_then(|group_type_name| self.groups.get(group_type_name))
+                .get(&group_type_index);
+
+            if group_type_name.is_none() {
+                // Loudly error and increment metric when we can't find group type mappings
+                error!(
+                    "No group type mapping found for group_type_index {} for flag '{}' (team: {}, project: {})",
+                    group_type_index, feature_flag.key, self.team_id, self.project_id
+                );
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), "no_group_type_mappings".to_string())],
+                    1,
+                );
+                // Continue with empty string to maintain existing behavior
+                return Ok("".to_string());
+            }
+
+            let group_key = self
+                .groups
+                .get(group_type_name.unwrap())
                 .and_then(|group_key_value| group_key_value.as_str())
                 // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
                 // and I don't want to break parity with the old service since I don't want the hash values to change
                 .unwrap_or("")
                 .to_string();
-            // NB: if this returns "", it means we couldn't look up a group type for the flag, so we're going to return
-            // early with a FeatureFlagMatchReason::NoGroupType
-            // not technically an error, but it's a valid state and we should handle it
 
             Ok(group_key)
         } else {
