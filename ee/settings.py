@@ -90,7 +90,7 @@ SQS_QUEUES = {
     },
     "billing": {
         "url": get_from_env("SQS_BILLING_QUEUE_URL", optional=True),
-        "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
+        "region": get_from_env("SQS_BILLING_REGION", "us-east-1", optional=True),
         "type": "billing",
     },
 }
