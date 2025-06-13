@@ -60,7 +60,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         groupTypes,
         eventNames = [],
         placeholder = 'Please select',
-        placeholderClass = 'text-muted',
+        placeholderClass,
         allowClear = false,
         excludedProperties,
         metadataSource,

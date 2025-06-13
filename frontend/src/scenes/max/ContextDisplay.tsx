@@ -1,3 +1,4 @@
+import { IconAtSign } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
@@ -27,7 +28,8 @@ export function ContextDisplay(): JSX.Element {
                     groupType={mainTaxonomicGroupType}
                     groupTypes={taxonomicGroupTypes}
                     onChange={handleTaxonomicFilterChange}
-                    placeholder={hasData ? '@' : '@ Add context'}
+                    icon={<IconAtSign />}
+                    placeholder={!hasData ? 'Add context' : null}
                     maxContextOptions={contextOptions}
                 />
                 <ContextTags
