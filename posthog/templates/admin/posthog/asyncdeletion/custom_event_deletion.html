@@ -1,0 +1,167 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static admin_modify %}
+
+{% block extrahead %}{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+<style>
+    .preview-results {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8f8f8;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    .preview-count {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        color: #d9534f;
+    }
+    .sample-event {
+        margin-bottom: 15px;
+        padding: 10px;
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 3px;
+    }
+    .event-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .event-properties {
+        margin-top: 5px;
+        padding: 10px;
+        background: #f5f5f5;
+        border-radius: 3px;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    .warning-box {
+        background: #fff3cd;
+        border: 1px solid #ffeeba;
+        color: #856404;
+        padding: 15px;
+        margin: 15px 0;
+        border-radius: 4px;
+    }
+    .success-box {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 15px;
+        margin: 15px 0;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div class="warning-box">
+    <strong>⚠️ Warning:</strong> This tool creates async deletions that will permanently delete events from ClickHouse. 
+    Use with extreme caution. Always preview the events first before creating the deletion.
+</div>
+
+<form method="post" id="custom-deletion-form">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <div class="form-row">
+            {{ form.team_id.errors }}
+            <label for="{{ form.team_id.id_for_label }}" class="required">{{ form.team_id.label }}:</label>
+            {{ form.team_id }}
+        </div>
+        
+        <div class="form-row">
+            {{ form.predicate.errors }}
+            <label for="{{ form.predicate.id_for_label }}" class="required">{{ form.predicate.label }}:</label>
+            {{ form.predicate }}
+            <p class="help">{{ form.predicate.help_text }}</p>
+        </div>
+        
+        <div class="form-row">
+            {{ form.preview_only.errors }}
+            <label for="{{ form.preview_only.id_for_label }}">{{ form.preview_only.label }}:</label>
+            {{ form.preview_only }}
+            <p class="help">{{ form.preview_only.help_text }}</p>
+        </div>
+    </fieldset>
+    
+    {% if preview_results %}
+    <div class="preview-results">
+        <h2>Preview Results</h2>
+        <div class="preview-count">
+            Total events matching predicate: {{ preview_results.count|floatformat:0|intcomma|default:"0" }}
+        </div>
+        
+        {% if preview_results.count > 0 %}
+            {% if preview_results.samples %}
+                <h3>Sample Events (showing up to 10):</h3>
+                {% for event in preview_results.samples %}
+                <div class="sample-event">
+                    <div class="event-header">
+                        Event: {{ event.event }} | 
+                        Distinct ID: {{ event.distinct_id }} | 
+                        Timestamp: {{ event.timestamp }}
+                    </div>
+                    <div>UUID: {{ event.uuid }}</div>
+                    <div class="event-properties">{{ event.properties }}</div>
+                </div>
+                {% endfor %}
+            {% endif %}
+            
+            {% if form.preview_only.value %}
+            <div class="warning-box">
+                <strong>Ready to delete?</strong> Uncheck "Preview Only" and submit again to create the async deletion.
+            </div>
+            {% endif %}
+        {% else %}
+            <div class="success-box">
+                No events found matching this predicate. No deletion needed.
+            </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    <div class="submit-row">
+        <input type="submit" value="{% if form.preview_only.value %}Preview{% else %}Create Deletion{% endif %}" class="default" />
+        <a href="{% url 'admin:posthog_asyncdeletion_changelist' %}" class="button cancel-link">Cancel</a>
+    </div>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('custom-deletion-form');
+    const previewCheckbox = document.getElementById('{{ form.preview_only.id_for_label }}');
+    const submitButton = form.querySelector('input[type="submit"]');
+    
+    function updateSubmitButton() {
+        if (previewCheckbox.checked) {
+            submitButton.value = 'Preview';
+            submitButton.classList.remove('deletelink');
+            submitButton.classList.add('default');
+        } else {
+            submitButton.value = 'Create Deletion';
+            submitButton.classList.remove('default');
+            submitButton.classList.add('deletelink');
+        }
+    }
+    
+    previewCheckbox.addEventListener('change', updateSubmitButton);
+    updateSubmitButton();
+    
+    // Confirm before creating deletion
+    form.addEventListener('submit', function(e) {
+        if (!previewCheckbox.checked) {
+            const confirmed = confirm('Are you sure you want to create this async deletion? This action cannot be undone.');
+            if (!confirmed) {
+                e.preventDefault();
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

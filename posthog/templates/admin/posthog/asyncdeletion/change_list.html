@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    <li>
+        <a href="{% url 'admin:posthog_asyncdeletion_custom_deletion' %}" class="addlink">
+            Custom Event Deletion
+        </a>
+    </li>
+{% endblock %}

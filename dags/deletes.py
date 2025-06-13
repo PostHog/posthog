@@ -402,7 +402,8 @@ def load_pending_deletions(
     if not create_pending_deletions_table.is_reporting:
         pending_deletions = pending_deletions.filter(
             Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
+            | Q(deletion_type=DeletionType.Team)
+            | Q(deletion_type=DeletionType.Custom),
             delete_verified_at__isnull=True,
         )
         if create_pending_deletions_table.team_id:
@@ -534,6 +535,45 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
     assert len(set(checksums.values())) == 1
     return dictionary
+
+
+@dagster.op
+def delete_custom_events(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_pending_deletions: PendingDeletesTable,
+) -> PendingDeletesTable:
+    """Delete events for custom deletions using their predicates."""
+
+    # Get custom deletions from the pending deletions table
+    custom_deletions_query = f"""
+        SELECT team_id, key
+        FROM {load_pending_deletions.qualified_name}
+        WHERE deletion_type = {DeletionType.Custom}
+    """
+
+    custom_deletions = cluster.any_host_by_role(
+        lambda client: client.execute(custom_deletions_query), NodeRole.DATA
+    ).result()
+
+    if not custom_deletions:
+        context.add_output_metadata(
+            {"custom_events_deleted": dagster.MetadataValue.int(0), "message": "No custom deletions found"}
+        )
+        return load_pending_deletions
+
+    context.add_output_metadata({"custom_deletions_count": dagster.MetadataValue.int(len(custom_deletions))})
+
+    # Process each custom deletion with its predicate
+    for team_id, predicate in custom_deletions:
+        delete_mutation_runner = LightweightDeleteMutationRunner(
+            table=EVENTS_DATA_TABLE(), predicate=f"team_id = {team_id} AND ({predicate})", parameters={}
+        )
+
+        # Run the deletion on all shards
+        cluster.map_one_host_per_shard(delete_mutation_runner).result()
+
+    return load_pending_deletions
 
 
 @dagster.op
@@ -728,13 +768,15 @@ def cleanup_delete_assets(
     if not create_pending_deletions_table.team_id:
         AsyncDeletion.objects.filter(
             Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
+            | Q(deletion_type=DeletionType.Team)
+            | Q(deletion_type=DeletionType.Custom),
             delete_verified_at__isnull=True,
         ).update(delete_verified_at=timezone.now())
     else:
         AsyncDeletion.objects.filter(
             Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
+            | Q(deletion_type=DeletionType.Team)
+            | Q(deletion_type=DeletionType.Custom),
             team_id=create_pending_deletions_table.team_id,
             delete_verified_at__isnull=True,
             created_at__lte=create_pending_deletions_table.timestamp,
@@ -774,6 +816,9 @@ def deletes_job():
 
     create_adhoc_event_deletes_dict_op = create_adhoc_event_deletes_dict()
     load_adhoc_event_deletes_dict = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict_op)
+
+    # Delete custom events with predicates
+    delete_custom_events(loaded_deletions_table)
 
     # Delete all data requested
     delete_mutations = delete_events(load_dict, load_adhoc_event_deletes_dict)
