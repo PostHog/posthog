@@ -71,7 +71,10 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                 },
-                createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
+                createOrganization: async (name: string) => {
+                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    return await api.create('api/organizations/', { name })
+                },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
                     if (!values.currentOrganization) {
                         throw new Error('Current organization has not been loaded yet.')

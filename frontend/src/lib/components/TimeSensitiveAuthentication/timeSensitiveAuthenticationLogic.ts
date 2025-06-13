@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { statePreservationManager } from 'lib/utils/statePreservationManager'
 import posthog from 'posthog-js'
 import { PrecheckResponseType } from 'scenes/authentication/loginLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -110,6 +111,8 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         showAuthenticationModal: (shown) => {
             if (shown) {
                 posthog.capture('reauthentication_modal_shown')
+                // Trigger state preservation for all registered logics
+                statePreservationManager.onAuthenticationChallenge()
 
                 if (!values.precheckResponse) {
                     actions.precheck()
@@ -125,6 +128,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             }
             posthog.capture('reauthentication_completed')
             actions.setTimeSensitiveAuthenticationRequired(false)
+            statePreservationManager.onAuthenticationComplete()
             // Refresh the user so we know the new session expiry
             actions.loadUser()
         },
@@ -139,6 +143,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                     values.timeSensitiveAuthenticationRequired[1]() // Reject
                 }
                 posthog.capture('reauthentication_modal_dismissed')
+                statePreservationManager.onAuthenticationDismissed()
             }
         },
         checkReauthentication: () => {
