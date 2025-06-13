@@ -1,7 +1,7 @@
 use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 use time::Duration;
 use tracing::{error, warn};
 
@@ -191,12 +191,13 @@ impl AppContext {
         if !to_resolve.is_empty() {
             metrics::counter!(GROUP_TYPE_READS).increment(to_resolve.len() as u64);
 
-            let group_names: Vec<String> =
-                to_resolve.iter().map(|(_, name, _)| name.clone()).collect();
-            let team_ids: Vec<i32> = to_resolve.iter().map(|(_, _, team_id)| *team_id).collect();
+            let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
+                .iter()
+                .map(|(_, name, team_id)| (name.clone(), team_id))
+                .unzip();
 
             let results = sqlx::query!(
-                "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping 
+                "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
                  WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
                 &group_names,
                 &team_ids
@@ -205,8 +206,8 @@ impl AppContext {
             .await?;
 
             // Create a lookup map for resolved group types
-            let mut resolved_map: std::collections::HashMap<(String, i32), i32> =
-                std::collections::HashMap::new();
+            let mut resolved_map: HashMap<(String, i32), i32> =
+                HashMap::with_capacity(results.len());
             for result in results {
                 resolved_map.insert((result.group_type, result.team_id), result.group_type_index);
             }
