@@ -1187,6 +1187,9 @@ impl FeatureFlagMatcher {
                 // and I don't want to break parity with the old service since I don't want the hash values to change
                 .unwrap_or("")
                 .to_string();
+            // NB: if this returns "", it means we couldn't look up a group type for the flag, so we're going to return
+            // early with a FeatureFlagMatchReason::NoGroupType
+            // not technically an error, but it's a valid state and we should handle it
 
             Ok(group_key)
         } else {
@@ -1329,7 +1332,7 @@ impl FeatureFlagMatcher {
         // Fetch group type mappings from database (gracefully handle missing mappings)
         let group_mappings = fetch_group_type_mappings(self.reader.clone(), self.project_id)
             .await
-            .unwrap_or_else(|_| HashMap::new()); // we should error here actually.  Or I guess we can error elsewhere?
+            .unwrap_or_else(|_| HashMap::new()); // we should error here actually.  Or I guess we can error elsewhere?  Some sort of error fetching if we can't get anything
         self.flag_evaluation_state
             .set_group_type_mappings(group_mappings);
 
