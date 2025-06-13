@@ -134,7 +134,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             tool_call_partial_state=tool_call_partial_state,
             mode=mode,
             contextual_tools=contextual_tools,
-            ui_context=ui_context,
         )
         if test_graph:
             assistant._graph = test_graph

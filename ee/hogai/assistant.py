@@ -120,7 +120,6 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
-        ui_context: Optional[dict[str, Any]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -156,8 +155,6 @@ class Assistant:
         )
         self._trace_id = trace_id
         self._custom_update_ids = set()
-
-        self._ui_context = ui_context
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -265,7 +262,6 @@ class Assistant:
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team_id": self._team.id,
-                "ui_context": self._ui_context,
             },
         }
         return config

@@ -60,7 +60,6 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                     isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
                 )}
             >
-                <ContextDisplay />
                 <div className="relative w-full">
                     <div
                         className={clsx(
