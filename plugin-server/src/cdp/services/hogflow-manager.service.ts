@@ -26,7 +26,7 @@ const HOG_FLOW_FIELDS = [
     'abort_action',
 ]
 
-export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
+export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id'>
 
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
