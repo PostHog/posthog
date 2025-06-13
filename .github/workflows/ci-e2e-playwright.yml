@@ -227,7 +227,10 @@ jobs:
 
             - name: Archive queries with old versions
               shell: bash
-              run: python bin/validate-query-versions.py | tee validation_output.txt
+              run: |
+                  pip install clickhouse_driver
+
+                  python bin/validate-query-versions.py | tee validation_output.txt
 
     capture-run-time:
         name: Capture run time
