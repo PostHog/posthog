@@ -20,6 +20,7 @@ from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +66,39 @@ async def create_run_quota_limiting_schedule(client: Client):
         )
 
 
-schedules = [create_sync_vectors_schedule, create_run_quota_limiting_schedule]
+async def create_schedule_all_subscriptions_schedule(client: Client):
+    """Create or update the schedule for the ScheduleAllSubscriptionsWorkflow.
+
+    This schedule runs every hour at the 55th minute to match the original Celery schedule.
+    """
+    schedule_all_subscriptions_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "schedule-all-subscriptions",
+            asdict(ScheduleAllSubscriptionsWorkflowInputs()),
+            id="schedule-all-subscriptions-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            cron_expressions=["55 * * * *"]  # Run at minute 55 of every hour
+        ),
+    )
+
+    if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
+        await a_update_schedule(client, "schedule-all-subscriptions-schedule", schedule_all_subscriptions_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "schedule-all-subscriptions-schedule",
+            schedule_all_subscriptions_schedule,
+            trigger_immediately=False,
+        )
+
+
+schedules = [
+    create_sync_vectors_schedule,
+    create_run_quota_limiting_schedule,
+    create_schedule_all_subscriptions_schedule,
+]
 
 
 async def a_init_general_queue_schedules():
