@@ -15,7 +15,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--queue", type=str, required=True, help="Queue name to consume from (defined in settings)")
-        parser.add_argument("--continuous", action="store_true", default=True, help="Run continuously (default: True)")
+        parser.add_argument("--continuous", action="store_true", default=False, help="Run continuously (default: False)")
         parser.add_argument(
             "--max-messages", type=int, default=10, help="Maximum number of messages to process in one batch"
         )
