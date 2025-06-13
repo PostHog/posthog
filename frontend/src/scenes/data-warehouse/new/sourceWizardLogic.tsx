@@ -1443,7 +1443,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(false)
         },
         setManualLinkingProvider: () => {
-            actions.setStep(1)
+            actions.onNext()
         },
         selectConnector: () => {
             actions.addProductIntent({
@@ -1461,6 +1461,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 | undefined
 
             if (manualSource) {
+                actions.toggleManualLinkFormVisible(true)
                 actions.setManualLinkingProvider(manualSource)
                 return
             }
