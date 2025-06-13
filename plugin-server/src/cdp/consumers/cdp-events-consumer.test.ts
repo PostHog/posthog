@@ -17,6 +17,8 @@ import {
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { HogFlow } from '~/src/schema/hogflow'
 
 jest.setTimeout(1000)
 
@@ -294,6 +296,120 @@ describe.each([
                         },
                     },
                 ])
+            })
+        })
+    })
+})
+
+describe('hog flow processing', () => {
+    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+    let hub: Hub
+    let team: Team
+
+    const insertHogFlow = async (hogFlow: Partial<HogFlow>) => {
+        const teamId = hogFlow.team_id ?? team.id
+        const item = await _insertHogFlow(hub.postgres, teamId, {
+            ...hogFlow,
+        })
+        // Trigger the reload that django would do
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
+        return item
+    }
+
+    beforeEach(async () => {
+        await resetTestDatabase()
+        hub = await createHub()
+        team = await getFirstTeam(hub)
+        processor = new CdpEventsConsumer(hub)
+
+        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
+        processor['cyclotronJobQueue'] = {
+            queueInvocations: jest.fn(),
+            startAsProducer: jest.fn(() => Promise.resolve()),
+            stop: jest.fn(),
+        } as unknown as jest.Mocked<CyclotronJobQueue>
+
+        await processor.start()
+    })
+
+    afterEach(async () => {
+        jest.setTimeout(10000)
+        await processor.stop()
+        await closeHub(hub)
+    })
+
+    afterAll(() => {
+        jest.useRealTimers()
+    })
+
+    describe('createHogFlowInvocations', () => {
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(() => {
+            globals = createHogExecutionGlobals({
+                project: {
+                    id: team.id,
+                } as any,
+                event: {
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                    },
+                } as any,
+            })
+        })
+
+        it('should not create hog flow invocations with no filters', async () => {
+            await insertHogFlow({})
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(0)
+        })
+
+        it('should create hog flow invocations with matching filters', async () => {
+            const hogFlow = await insertHogFlow({
+                trigger: {
+                    type: 'event',
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                },
+            })
+
+            const noInvocations = await processor['createHogFlowInvocations']([
+                {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        event: 'not-a-pageview',
+                    },
+                },
+            ])
+
+            expect(noInvocations).toHaveLength(0)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0]).toMatchObject({
+                functionId: hogFlow.id,
+                hogFlow: {
+                    id: hogFlow.id,
+                },
+                id: expect.any(String),
+                queue: 'hogflow',
+                queuePriority: 1,
+                state: {
+                    event: globals.event,
+                    personId: 'uuid',
+                    variables: {},
+                },
+                teamId: 2,
             })
         })
     })
