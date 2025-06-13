@@ -426,6 +426,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_invite?: boolean
     metadata?: OrganizationMetadata
     member_count: number
+    default_experiment_stats_method: ExperimentStatsMethod
 }
 
 export interface OrganizationDomainType {
@@ -5204,6 +5205,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'messaging_campaign'
 
 export type HogFunctionKind = 'messaging_campaign' | null
 

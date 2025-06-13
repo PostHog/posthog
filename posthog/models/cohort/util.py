@@ -37,7 +37,6 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -320,6 +319,10 @@ def recalculate_cohortpeople(
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ):
+    tag_queries(team_id=team.id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
+
     cohort_params: dict[str, Any]
     # No need to do anything here, as we're only testing hogql
     if cohort.is_static:
@@ -330,18 +333,10 @@ def _recalculate_cohortpeople_for_team_hogql(
         cohort_params = {}
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-        from posthog.hogql.query import HogQLQueryExecutor
 
-        hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
-        query = hogql_cohort_query.get_query()
-
-        cohort_query, hogql_context = HogQLQueryExecutor(
-            query_type="HogQLCohortQuery",
-            query=query,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
-            team=team,
-            limit_context=LimitContext.COHORT_CALCULATION,
-        ).generate_clickhouse_sql()
+        cohort_query, hogql_context = (
+            HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+        )
         cohort_params = hogql_context.values
 
         # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
@@ -350,10 +345,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQueryHogQL")
-    if initiating_user_id:
-        tag_queries(user_id=initiating_user_id)
-
+    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL")
     hogql_global_settings = HogQLGlobalSettings()
 
     sync_execute(
