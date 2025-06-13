@@ -41,12 +41,13 @@ const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
 }
 
 const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
-    const results =
-        req.url.searchParams.get('types') === 'transformation'
-            ? _hogFunctionTemplatesTransformations
-            : _hogFunctionTemplatesDestinations
+    const results = req.url.searchParams.get('types')?.includes('transformation')
+        ? _hogFunctionTemplatesTransformations
+        : req.url.searchParams.get('types')?.includes('destination')
+        ? _hogFunctionTemplatesDestinations
+        : []
 
-    return res(ctx.json({ ...results }))
+    return res(ctx.json(results))
 }
 
 // this really returns MaybePromise<ResponseFunction<any>>
