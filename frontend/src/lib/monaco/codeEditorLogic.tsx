@@ -22,9 +22,9 @@ import {
     HogQLNotice,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 

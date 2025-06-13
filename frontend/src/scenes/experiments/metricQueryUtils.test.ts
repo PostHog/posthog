@@ -3,10 +3,10 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ActionsNode, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyMathType } from '~/types'
 
 import { getFilter, getQuery } from './metricQueryUtils'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 describe('getFilter', () => {
     it('returns the correct filter for an event', () => {
